@@ -1,7 +1,8 @@
 // Hooks and SDK handlers in code (ADR 0104, decided in #481).
 // A crawl declares its Hooks in code on its `Crawl`, one method per stage (crawl.d.ts), at the six
 // stages whose answer changes the work. The observe-only stages (the run's lifecycle and a request's
-// end) reach code as the Run's events (#478), and Hooks only as process Plugins and Script Hooks.
+// end) reach code through the Run's own values (its progress, outcomes and report, ADR 0102), and
+// Hooks only as process Plugins and Script Hooks.
 // A Collie program has no Hooks in code: its own lines, routes, init scripts and locator handlers
 // answer each stage (ADR 0085).
 // A Hook returns its change as a value and ends the work with a call that never returns, as a
@@ -34,15 +35,22 @@ export type AnyLabel = Label<unknown, unknown>;
 
 /** Options of declaring a Hook. */
 export interface HookOptions<Ls extends readonly AnyLabel[]> {
-  /** Only the requests of these Labels; left out, every Label's. A Label of another crawl throws `LabelUnknownError` at once. */
+  /**
+   * Only the requests of these Labels; left out, every Label's. A Label of another crawl throws
+   * `LabelUnknownError` at once, and an empty list `HookIneffectiveError`.
+   */
   readonly labels?: Ls;
-  /** Names the Hook in `hook_failed` and the Run trace. Default: the function's own name, else the stage and position (`before_request#2`). */
+  /**
+   * Names the Hook in `hook_failed`, the Run trace and a test's `runHook`: unique on its crawl, else
+   * `HookDuplicateError` at once. Default: the function's own name, else the stage and position
+   * (`before_request#2`).
+   */
   readonly name?: string;
 }
 
 /** Options of declaring a Hook before a Record's commit, which may also be scoped by Dataset. */
 export interface RecordHookOptions<Ls extends readonly AnyLabel[], Ds extends readonly Dataset<unknown, unknown>[]> extends HookOptions<Ls> {
-  /** Only the Records of these Datasets, typed by their schema (ADR 0082); left out, every Dataset's. */
+  /** Only the Records of these Datasets, typed by their schema (ADR 0082); left out, every Dataset's. A Dataset of another crawl throws `DatasetUnknownError` at once. */
   readonly datasets?: Ds;
 }
 
@@ -92,7 +100,7 @@ export interface AfterResponseContext<L extends AnyLabel> extends HookContext<L>
   readonly tier: ReportedFetchTier;
   /** The final response, after redirects. */
   readonly response: Response;
-  /** Ends the attempt `blocked` with this cause, which feeds escalation by new Session (ADR 0021). */
+  /** Ends the attempt `blocked` with this cause: ADR 0021 escalates by new Session, and the request ends `blocked` once escalation runs out. */
   block(cause: BlockCause, message?: string): never;
   /** Ends this attempt with `retry_requested`, retried under `crawl.retry.max`, as a handler's `retry`. */
   retry(message: string): never;
@@ -120,7 +128,7 @@ export interface RecordCommitContext<L extends AnyLabel, R> extends HookContext<
   readonly record: R;
   /** Leaves the Record out, counted in the run's report with this reason. */
   drop(reason: string): never;
-  /** Puts the Record in the Dataset's rejection table (ADR 0033) with this reason; reading it is #479's. */
+  /** Puts the Record in the Dataset's rejection table with this reason, read with `run.rejectedRecords` (ADR 0103). */
   reject(reason: string): never;
 }
 
@@ -153,6 +161,16 @@ export declare class HookFailedError extends ProgramError {
   readonly code: "hook_failed";
   readonly details: HookFailedDetails;
 }
+/** A Hook that can never run: an empty `labels` list, at once, or, when the Run starts, a navigation Hook all of whose Labels force a tier with no browser. */
+export declare class HookIneffectiveError extends ProgramError {
+  readonly code: "hook_ineffective";
+  readonly details: { readonly hook: string; readonly stage: ReportedHookStage };
+}
+/** A second Hook of one name on one crawl, thrown at once. */
+export declare class HookDuplicateError extends ProgramError {
+  readonly code: "hook_duplicate";
+  readonly details: { readonly hook: string };
+}
 /** A before-request Hook set a header the engine owns: `Host`, `Cookie`, `Authorization`, `Proxy-*` or a method override. Raised inside `hook_failed`. */
 export declare class HeaderForbiddenError extends ProgramError {
   readonly code: "header_forbidden";
@@ -161,15 +179,18 @@ export declare class HeaderForbiddenError extends ProgramError {
 
 // SDK handlers: a program's own implementation of a Plugin kind (ADR 0033).
 //
-// Registered on `connect()`, one option per kind keyed by name (`modelProviders` is ADR 0101's;
-// `resolveSecret` ADR 0092's), each serving every Run of its connection. Settings choose one by
-// name as they choose an installed Plugin; the only one of a kind chosen by such a setting (Fetch
-// backend, Proxy provider) is the connection's choice, shown by `explainSettings()`. A setting
-// naming a handler that is neither installed nor registered fails with `setting_invalid`, as does a
-// resume whose program no longer registers one its Run used. Each kind's handler is generated from
-// its plugin-protocol method group (area 7's spec): the shapes below are provisional. A handler
-// runs with the program's full rights, never confined. A GoodfetchError it throws keeps its code;
-// any other exception is its kind's `<kind>_handler_failed`, as ADR 0101's `model_handler_failed`.
+// Registered on `connect()`, one option per kind, each a map keyed by name (`modelProviders` is
+// ADR 0101's; `resolveSecret` ADR 0092's; Hooks are declared on the `Crawl`), each serving every Run
+// of its connection. Settings choose one by name as they choose an installed Plugin. The only one of
+// a kind that one setting chooses (Fetch backend, Proxy provider) stands in for that setting's
+// built-in default, which any explicit value replaces; `explainSettings()` marks it `registered`.
+// Two of such a kind are both available by name, and neither stands in. A handler named as an
+// installed Plugin fails `connect()` with `setting_invalid`, as do a setting naming a handler that is
+// neither installed nor registered and a resume whose program no longer registers one its Run used.
+// Each kind's handler is generated from its plugin-protocol method group (area 7's spec): the
+// shapes below are provisional. A handler runs with the program's full rights, never confined. A
+// GoodfetchError it throws keeps its code; any other exception is its kind's
+// `<kind>_handler_failed`, whose message names it, as ADR 0101's `model_handler_failed`.
 
 /** The request a Fetch backend is handed: a target the engine already checked under the page class and the run's domain policy (ADR 0033). */
 export interface BackendRequest {
@@ -216,8 +237,10 @@ export interface SinkDelivery {
 }
 /**
  * A Sink written in the program (ADR 0026's SDK-handler form), serving the `sinks.<name>` entry of
- * its name. A failed delivery is retried on ADR 0008's schedule, since its delivery ID makes a retry
- * safe; its Guarantee class is probed as any Sink's (ADR 0026).
+ * its name, which gives its Datasets, write mode and key; a `type` there beside a handler of that
+ * name is refused with `setting_invalid` when the Run starts. A failed delivery is retried on ADR
+ * 0008's schedule, since its delivery ID makes a retry safe; its Guarantee class is probed as any
+ * Sink's (ADR 0026).
  */
 export type SinkHandler = (delivery: SinkDelivery) => Promise<void>;
 
@@ -226,12 +249,12 @@ export interface SdkHandlerFailedDetails extends HandlerFailedDetails {
   /** The name the handler was registered under. */
   readonly handler: string;
 }
-/** A Fetch backend handler threw something other than a GoodfetchError. Not retried unless `crawl.retry.handler_failed` is on. */
+/** A Fetch backend handler threw something other than a GoodfetchError. In a crawl, retried only when `crawl.retry.handler_failed` is on for the request's Label. */
 export declare class FetchHandlerFailedError extends ProgramError {
   readonly code: "fetch_handler_failed";
   readonly details: SdkHandlerFailedDetails;
 }
-/** A Proxy provider handler threw something other than a GoodfetchError: the Session does not open. */
+/** A Proxy provider handler threw something other than a GoodfetchError: the Session does not open. In a crawl, the requests that needed it are retried only when `crawl.retry.handler_failed` is on for their Label; in a Collie Run, the call fails. */
 export declare class ProxyHandlerFailedError extends ProgramError {
   readonly code: "proxy_handler_failed";
   readonly details: SdkHandlerFailedDetails;

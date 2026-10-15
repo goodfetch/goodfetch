@@ -4,9 +4,9 @@
 //! whose answer changes the work. Hooks run in the order declared, after the Hooks that settings
 //! name (`hooks.*`), with no integers. Like handlers, they are `AsyncFn` closures answered inside
 //! [`Crawl::serve`], so they may borrow and need neither `Send` nor `'static` (ADR 0081). The
-//! observe-only stages (the run's lifecycle and a request's end) reach code as the Run's events
-//! (#478). A Collie program has no Hooks in code: its own lines, routes, init scripts and locator
-//! handlers answer each stage (ADR 0085).
+//! observe-only stages (the run's lifecycle and a request's end) reach code through the Run's own
+//! values: its progress, outcomes and report (ADR 0102). A Collie program has no Hooks in code: its
+//! own lines, routes, init scripts and locator handlers answer each stage (ADR 0085).
 //!
 //! A Hook returns its change as a value and ends the work by returning the error a call on its
 //! context gives (`Err(ctx.skip("…"))`), as a handler does (ADR 0093).
@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
 use crate::concurrency::EventStream;
 use crate::crawl::{Crawl, CrawlRequest, CrawlRun, FetchTier};
 use crate::data::{Dataset, Label};
-use crate::lifecycle::{Goodfetch, Page};
+use crate::lifecycle::{ConnectOptions, Goodfetch, Page};
 use crate::page::{Headers, Response};
 use crate::results::{BlockCause, Error, ErrorCode};
 use crate::sessions::{SecretReference, TextInput};
@@ -74,8 +74,9 @@ impl HookOn<Value> {
 }
 
 impl<P> HookOn<P> {
-    /// Names the Hook in `hook_failed` and the Run trace; by default the stage and its position
-    /// (`before_request#2`), since a closure has no name.
+    /// Names the Hook in `hook_failed`, the Run trace and a test's `run_hook`, unique on its crawl
+    /// or `hook_duplicate` at once; by default the stage and its position (`before_request#2`),
+    /// since a closure has no name.
     pub fn named(self, name: &str) -> Self {
         let _ = name;
         unimplemented!()
@@ -230,8 +231,8 @@ impl<P> AfterResponseContext<P> {
         unimplemented!()
     }
 
-    /// Ends the attempt `blocked` with this cause, which feeds escalation by new Session (ADR
-    /// 0021): return it.
+    /// Ends the attempt `blocked` with this cause: return it. ADR 0021 escalates by new Session,
+    /// and the request ends `blocked` once escalation runs out.
     pub fn block(&self, cause: BlockCause, message: &str) -> Error {
         let _ = (cause, message);
         unimplemented!()
@@ -332,7 +333,8 @@ impl<T> RecordCommitContext<T> {
         unimplemented!()
     }
 
-    /// Puts the Record in the Dataset's rejection table (ADR 0033) with this reason: return it.
+    /// Puts the Record in the Dataset's rejection table with this reason, read with
+    /// `run.rejected_records` (ADR 0103): return it.
     pub fn reject(&self, reason: &str) -> Error {
         let _ = reason;
         unimplemented!()
@@ -432,15 +434,21 @@ pub struct HeaderForbidden {
     pub header: String,
 }
 
-// SDK handlers: a program's own implementation of a Plugin kind (ADR 0033). Opening a kind's
-// stream under a name registers it while the stream is open. Settings choose it by that name as
-// they choose an installed Plugin; the only Fetch backend or Proxy provider is the connection's
-// choice. A setting naming one that is neither installed nor open fails with `setting_invalid`.
+// SDK handlers: a program's own implementation of a Plugin kind (ADR 0033), its one form with every
+// engine, a linked one included. `ConnectOptions` declares each handler's name, one builder method
+// per kind, and `Goodfetch::*_requests(name)` reads its calls. Settings choose it by that name as they
+// choose an installed Plugin. The only one of a kind that one setting chooses (Fetch backend, Proxy
+// provider) stands in for that setting's built-in default, which any explicit value replaces;
+// `explain_settings` marks it `registered`. A name an installed Plugin of its kind already has fails
+// `connect` with `setting_invalid`, as does a setting naming a handler neither installed nor
+// declared. A call waits for its stream until its own deadline; one dropped unanswered, or held by
+// a stream dropped mid-Run, fails as an unreachable implementation of its kind would (ADR 0101).
 // Each kind's calls are generated from its plugin-protocol method group (area 7's spec): the
 // shapes below are provisional.
 
-/// An SDK handler's own error. A Goodfetch [`Error`] keeps its code; any other is the kind's
-/// `<kind>_handler_failed`, as ADR 0101's `model_handler_failed`, with this error in its details.
+/// An SDK handler's own error, given to a call's `fail`. A Goodfetch [`Error`] keeps its code; any
+/// other is the kind's `<kind>_handler_failed`, with this error's type and message in its details and
+/// its `Display`, so a Rust handler's failure is as diagnosable as a TypeScript one's (G6).
 pub type HandlerError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 /// A target the engine already checked under the page class and the run's domain policy (ADR 0033).
@@ -606,24 +614,64 @@ impl SinkCall {
 }
 
 impl Goodfetch {
-    /// The fetch calls for the Fetch backend `name`, registered while the stream is open:
-    /// subscribed when called.
-    pub fn fetch_requests(&self, name: &str) -> EventStream<FetchCall> {
+    /// The fetch calls for the Fetch backend `name`, which [`ConnectOptions::fetch_backend`]
+    /// declared; another name fails with `setting_invalid`. One reader per name.
+    pub fn fetch_requests(&self, name: &str) -> Result<EventStream<FetchCall>, Error> {
         let _ = name;
         unimplemented!()
     }
 
-    /// The calls for the Proxy provider `name`, registered while the stream is open.
-    pub fn proxy_requests(&self, name: &str) -> EventStream<ProxyCall> {
+    /// The calls for the Proxy provider `name`, which [`ConnectOptions::proxy_provider`] declared.
+    pub fn proxy_requests(&self, name: &str) -> Result<EventStream<ProxyCall>, Error> {
         let _ = name;
         unimplemented!()
     }
 
-    /// The deliveries for the Sink `name`, registered while the stream is open.
-    pub fn sink_requests(&self, name: &str) -> EventStream<SinkCall> {
+    /// The deliveries for the Sink `name`, which [`ConnectOptions::sink`] declared.
+    pub fn sink_requests(&self, name: &str) -> Result<EventStream<SinkCall>, Error> {
         let _ = name;
         unimplemented!()
     }
+}
+
+impl ConnectOptions {
+    /// Declares the program's Fetch backend `name`, whose calls
+    /// [`Goodfetch::fetch_requests`] reads.
+    pub fn fetch_backend(self, name: &str) -> Self {
+        let _ = name;
+        unimplemented!()
+    }
+
+    /// Declares the program's Proxy provider `name`.
+    pub fn proxy_provider(self, name: &str) -> Self {
+        let _ = name;
+        unimplemented!()
+    }
+
+    /// Declares the program's Sink `name`, serving the `sinks.<name>` entry of its name, which then
+    /// takes no `type`.
+    pub fn sink(self, name: &str) -> Self {
+        let _ = name;
+        unimplemented!()
+    }
+}
+
+/// Details of `hook_ineffective`: a Hook that can never run.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct HookIneffective {
+    /// The Hook's name.
+    pub hook: String,
+    /// Its stage.
+    pub stage: HookStage,
+}
+
+/// Details of `hook_duplicate`: a second Hook of one name on one crawl.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct HookDuplicate {
+    /// The name.
+    pub hook: String,
 }
 
 /// Details of a `<kind>_handler_failed`: the handler, then the error as `handler_failed` carries

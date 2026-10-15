@@ -24,6 +24,8 @@ KnownErrorCode: TypeAlias = Literal[
     "listener_failed",
     "hook_failed",
     "header_forbidden",
+    "hook_ineffective",
+    "hook_duplicate",
     "fetch_handler_failed",
     "proxy_handler_failed",
     "sink_handler_failed",

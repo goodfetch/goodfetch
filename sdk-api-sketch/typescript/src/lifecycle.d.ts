@@ -77,7 +77,8 @@ export interface ConnectOptions {
   readonly modelProviders?: Readonly<Record<string, ModelProviderHandler>>;
   /**
    * Fetch backends answered by the program's own code, by the name settings choose them by (ADR
-   * 0104; ADR 0033's SDK-handler form). The only one of its kind on the connection is its choice.
+   * 0104; ADR 0033's SDK-handler form). The only one on the connection stands in for the default
+   * of the setting that chooses a Fetch backend, which any explicit value replaces.
    */
   readonly fetchBackends?: Readonly<Record<string, FetchBackendHandler>>;
   /** Proxy providers answered by the program's own code, as `fetchBackends` (ADR 0104). */

@@ -3,7 +3,8 @@
 A crawl declares its Hooks in code on its `Crawl` or `AsyncCrawl`, one decorator per stage, which returns the function
 unchanged so a test calls it as it is. Hooks run in the order declared, after the Hooks that settings name (`hooks.*`),
 with no integers. Scoped to `labels`, a Hook sees their Payload typed; left unscoped, it runs for every Label and sees
-`object`. The observe-only stages (the run's lifecycle and a request's end) reach code as the Run's events (#478). A
+`object`. The observe-only stages (the run's lifecycle and a request's end) reach code through the Run's own values (its
+progress, outcomes and report, ADR 0102). A
 Collie program has no Hooks in code: its own lines, routes, init scripts and locator handlers answer each stage
 (ADR 0085).
 
@@ -86,7 +87,8 @@ class _AfterResponseBase(_HookContext[P]):
     @property
     def tier(self) -> FetchTier | str: ...
     def block(self, cause: BlockCause, message: str | None = None) -> NoReturn:
-        """Ends the attempt `blocked` with this cause, which feeds escalation by new Session (ADR 0021)."""
+        """Ends the attempt `blocked` with this cause: ADR 0021 escalates by new Session, and the request ends `blocked` once
+        escalation runs out."""
     def retry(self, message: str) -> NoReturn:
         """Ends this attempt with `retry_requested`, retried under `crawl.retry.max`, as a handler's `retry`."""
 
@@ -141,7 +143,7 @@ class _RecordCommitBase(_HookContext[P], Generic[P, T]):
     def drop(self, reason: str) -> NoReturn:
         """Leaves the Record out, counted in the run's report with this reason."""
     def reject(self, reason: str) -> NoReturn:
-        """Puts the Record in the Dataset's rejection table (ADR 0033); reading it is #479's."""
+        """Puts the Record in the Dataset's rejection table, read with `run.rejected_records` (ADR 0103)."""
 
 @final
 class RecordCommitContext(_RecordCommitBase[P, T]):
@@ -168,8 +170,10 @@ AsyncRecordCommitHook: TypeAlias = Callable[[AsyncRecordCommitContext[P, T]], Aw
 
 class SyncHooks:
     """The Hook decorators of a sync `Crawl`. With `labels` of one Payload type, a Hook sees it typed; unscoped, or
-    scoped to Labels of several types, it sees `object`. A Label of another crawl raises `LabelUnknownError` at once.
-    `name` identifies the Hook in `hook_failed` and the Run trace: by default the function's `__qualname__`."""
+    scoped to Labels of several types, it sees `object`. A Label of another crawl raises `LabelUnknownError` at once, a
+    Dataset of another crawl `DatasetUnknownError`, and an empty `labels` list `HookIneffectiveError`. `name` identifies
+    the Hook in `hook_failed`, the Run trace and a test's `run_hook`, unique on its crawl or `HookDuplicateError` at once:
+    by default the function's `__qualname__`, or the stage and position (`before_request#2`) for a `<lambda>`."""
 
     @overload
     def before_request(self, *, labels: Sequence[Label[P]], name: str | None = None) -> Callable[[BeforeRequestHook[P]], BeforeRequestHook[P]]: ...
@@ -290,6 +294,32 @@ class HookFailedError(ProgramError):
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class HookIneffectiveDetails:
+    hook: str
+    stage: ReportedHookStage
+
+@final
+class HookIneffectiveError(ProgramError):
+    """A Hook that can never run: an empty `labels` list, at once, or, when the Run starts, a navigation Hook all of whose
+    Labels force a tier with no browser."""
+
+    @property
+    def details(self) -> HookIneffectiveDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class HookDuplicateDetails:
+    hook: str
+
+@final
+class HookDuplicateError(ProgramError):
+    """A second Hook of one name on one crawl, raised at once."""
+
+    @property
+    def details(self) -> HookDuplicateDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class HeaderForbiddenDetails:
     header: str
 
@@ -302,11 +332,15 @@ class HeaderForbiddenError(ProgramError):
     def details(self) -> HeaderForbiddenDetails: ...
 
 # SDK handlers: a program's own implementation of a Plugin kind (ADR 0033), registered on `connect()` in one argument per
-# kind keyed by name. Settings choose one by name as they choose an installed Plugin; the only Fetch backend or Proxy
-# provider is the connection's choice. Each kind's handler is generated from its plugin-protocol method group (area 7's
-# spec): the shapes below are provisional. A `GoodfetchError` it raises keeps its code; any other exception is its kind's
-# `<kind>_handler_failed`, as ADR 0101's `model_handler_failed`. The async client takes coroutine functions, run in the
-# connection's task group; the sync client takes plain functions, run on its thread pool (ADR 0081).
+# kind, each a mapping keyed by name (`model_providers` is ADR 0101's, `resolve_secret` ADR 0092's; Hooks are declared on
+# the `Crawl`). Settings choose one by name as they choose an installed Plugin. The only one of a kind that one setting
+# chooses (Fetch backend, Proxy provider) stands in for that setting's built-in default, which any explicit value
+# replaces; `explain_settings()` marks it `registered`. Two of such a kind are both available by name, and neither stands
+# in. A handler named as an installed Plugin fails `connect()` with `SettingInvalidError`. Each kind's handler is
+# generated from its plugin-protocol method group (area 7's spec): the shapes below are provisional. A `GoodfetchError` it
+# raises keeps its code; any other exception is its kind's `<kind>_handler_failed`, whose message names it, as ADR
+# 0101's `model_handler_failed`. The async client takes coroutine functions, run in the connection's task group; the
+# sync client takes plain functions, run on its thread pool (ADR 0081).
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -365,7 +399,8 @@ class SinkDelivery:
     """Committed Records, in commit order."""
 
 AsyncSinkHandler: TypeAlias = Callable[[SinkDelivery], Awaitable[None]]
-"""A Sink written in the program (ADR 0026's SDK-handler form), serving the `sinks.<name>` entry of its name. A failed
+"""A Sink written in the program (ADR 0026's SDK-handler form), serving the `sinks.<name>` entry of its name, which gives
+its Datasets, write mode and key; a `type` there beside a handler of that name is refused when the Run starts. A failed
 delivery is retried on ADR 0008's schedule; its Guarantee class is probed as any Sink's (ADR 0026)."""
 SinkHandler: TypeAlias = Callable[[SinkDelivery], None]
 
@@ -382,14 +417,15 @@ class SdkHandlerFailedDetails:
 
 @final
 class FetchHandlerFailedError(ProgramError):
-    """`fetch_handler_failed`: not retried unless `crawl.retry.handler_failed` is on."""
+    """`fetch_handler_failed`: in a crawl, retried only when `crawl.retry.handler_failed` is on for the request's Label."""
 
     @property
     def details(self) -> SdkHandlerFailedDetails: ...
 
 @final
 class ProxyHandlerFailedError(ProgramError):
-    """`proxy_handler_failed`: the Session does not open."""
+    """`proxy_handler_failed`: the Session does not open. In a crawl, the requests that needed it are retried only when
+    `crawl.retry.handler_failed` is on for their Label; in a Collie Run, the call fails."""
 
     @property
     def details(self) -> SdkHandlerFailedDetails: ...

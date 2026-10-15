@@ -45,6 +45,10 @@ pub enum ErrorCode {
     /// `header_forbidden`: a before-request Hook set a header the engine owns, raised inside
     /// `hook_failed` (ADR 0104).
     HeaderForbidden,
+    /// `hook_ineffective`: a Hook that can never run (ADR 0104).
+    HookIneffective,
+    /// `hook_duplicate`: a second Hook of one name on one crawl (ADR 0104).
+    HookDuplicate,
     /// `fetch_handler_failed`: the program's Fetch backend failed with its own error (ADR 0104).
     FetchHandlerFailed,
     /// `proxy_handler_failed`: the program's Proxy provider failed with its own error (ADR 0104).
@@ -445,6 +449,10 @@ pub enum ErrorDetails {
     HookFailed(crate::hooks::HookFailed),
     /// Of `header_forbidden`.
     HeaderForbidden(crate::hooks::HeaderForbidden),
+    /// Of `hook_ineffective`.
+    HookIneffective(crate::hooks::HookIneffective),
+    /// Of `hook_duplicate`.
+    HookDuplicate(crate::hooks::HookDuplicate),
     /// Of `fetch_handler_failed`, `proxy_handler_failed` and `sink_handler_failed`.
     SdkHandlerFailed(crate::hooks::SdkHandlerFailed),
     /// Of `target_not_unique`.

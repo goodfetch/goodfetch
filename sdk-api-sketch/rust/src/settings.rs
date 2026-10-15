@@ -553,6 +553,9 @@ pub struct ExplainedSetting {
     /// The setting that fixed the Session's identity, such as `session.source`, when an inherited
     /// `browser::*` value yielded to it; `value` is then the identity's, and `layer` that setting's.
     pub fixed_by: Option<String>,
+    /// When `layer` is the default: the SDK handler, by name, that stands in for the built-in
+    /// default (ADR 0104).
+    pub registered: Option<String>,
 }
 
 /// The scopes a setting can be set at.

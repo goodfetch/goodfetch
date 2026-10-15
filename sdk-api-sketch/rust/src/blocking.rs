@@ -238,6 +238,16 @@ impl Crawl {
         unimplemented!()
     }
 
+    /// A before-request Hook, as [`crate::Crawl::before_request`], run on tracked threads. The
+    /// other five stages mirror the async crawl's in the same form.
+    pub fn before_request<P, F>(&mut self, on: impl Into<crate::HookOn<P>>, hook: F) -> Result<(), Error>
+    where
+        F: Fn(crate::BeforeRequestContext<P>) -> Result<crate::RequestChange, Error> + Send + Sync + 'static,
+    {
+        let _ = (on.into(), hook);
+        unimplemented!()
+    }
+
     /// Answers the Run's crawl requests on tracked threads, `crawl::handler::CONCURRENCY` at once,
     /// blocks until the Run ends, and returns its report.
     pub fn serve(&self, run: &crate::CrawlRun) -> Result<crate::CrawlRunReport, Error> {

@@ -133,6 +133,10 @@ from goodfetch._effects import EffectSourceUnknown as EffectSourceUnknown
 from goodfetch._effects import UncertainEffect as UncertainEffect
 from goodfetch._effects import UncertainWhy as UncertainWhy
 from goodfetch._hooks import AfterResponseContext as AfterResponseContext
+from goodfetch._hooks import HookDuplicateDetails as HookDuplicateDetails
+from goodfetch._hooks import HookDuplicateError as HookDuplicateError
+from goodfetch._hooks import HookIneffectiveDetails as HookIneffectiveDetails
+from goodfetch._hooks import HookIneffectiveError as HookIneffectiveError
 from goodfetch._hooks import AsyncFetchBackendHandler as AsyncFetchBackendHandler
 from goodfetch._hooks import AsyncProxyProviderHandler as AsyncProxyProviderHandler
 from goodfetch._hooks import AsyncSinkHandler as AsyncSinkHandler

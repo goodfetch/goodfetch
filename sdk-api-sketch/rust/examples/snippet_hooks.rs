@@ -96,13 +96,15 @@ async fn crawl_with_hooks() -> Result<(), Error> {
     })?;
 
     let catalog_key: SecretReference = "env:CATALOG_KEY".parse()?;
+    // The program's own Proxy provider, an SDK handler declared by name when connecting: the only one
+    // of its kind, so it stands in for the default choice of proxies.
     let gf = Goodfetch::connect(
-        ConnectOptions::default().settings(Settings::new().secret("catalog_key", SecretBinding::reference(catalog_key, ["books.toscrape.com"]))),
+        ConnectOptions::default()
+            .proxy_provider("office-pool")
+            .settings(Settings::new().secret("catalog_key", SecretBinding::reference(catalog_key, ["books.toscrape.com"]))),
     )
     .await?;
-    // The program's own Proxy provider, an SDK handler read as a stream by name, as ADR 0101 reads
-    // `model_requests`: the only one of its kind on the connection, so it is the choice for proxies.
-    let mut proxies = gf.proxy_requests("office-pool");
+    let mut proxies = gf.proxy_requests("office-pool")?;
     let answer_proxies = async {
         while let Some(call) = proxies.next().await {
             let call = call?;

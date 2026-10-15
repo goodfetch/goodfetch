@@ -84,15 +84,30 @@ export interface Limits {
   readonly price?: Money;
 }
 
-/** Options of starting a Run. The start verbs are #478's; `timeout` and `limits` are #467's, `settings` #470's. */
+/** Options of starting a Run (ADR 0102); `timeout` and `limits` are ADR 0080's, `settings` ADR 0083's. */
 export interface StartOptions {
-  /** Settings for this Run and everything opened beneath it (ADR 0083). */
+  /**
+   * The Run's ID, which names it for good in the Run index (ADR 0031). Left out, the engine generates
+   * one. A start that names an existing Run resumes it or returns it ended (`run.startedAs`), so a
+   * program run again under its ID carries on where it stopped. Its characters are the engine's to
+   * check: `RunIdInvalidError`.
+   */
+  readonly id?: string;
+  /**
+   * Settings for this Run and everything opened beneath it (ADR 0083). On a resume, a changed value
+   * applies from then on, in the Run trace with its layer; a key fixed for a Run's life, such as
+   * `crawl.scope.*`, throws `SettingNotApplicableError`.
+   */
   readonly settings?: RunSettings;
   /**
    * How long the whole Run may last. Omitted: the setting's value, which has no built-in default;
-   * `null`: no timeout. On expiry the Run stops with a Checkpoint, resumable.
+   * `null`: no timeout. On expiry the Run stops with a Checkpoint, resumable; a resume's clock starts afresh.
    */
   readonly timeout?: Timeout;
+  /**
+   * On a resume, compared with what the Run began with: equal leaves each Limit as it stands, a
+   * person's raise included; lower lowers it; higher throws `LimitRaiseRefusedError` (ADR 0041).
+   */
   readonly limits?: Limits;
   /**
    * The Run's Plan file, relative to the working directory: an input of the Run (ADR 0091). The SDK

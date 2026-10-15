@@ -1,7 +1,7 @@
 // Crawl definition and handler context (ADR 0093, decided in #477).
 // A crawl is declared by a `Crawl` value, made with no connection and no I/O: each Label is declared
 // first, returning its typed handle, and then gets exactly one handler. A Run carries the crawl out;
-// its start and resume verbs are #478's, so `Foxhound.start` in lifecycle.d.ts is provisional.
+// `Foxhound.startCrawl` starts one, and a start under the same ID resumes it (ADR 0102, run.d.ts).
 // A handler receives one context on every fetch tier: Collie's page over the request's document,
 // with a call that only a browser can serve escalating the request to the browser tier.
 // Outcomes and skip reasons are in results.d.ts, the settings in settings.d.ts. Datasets, pushing and
@@ -20,7 +20,8 @@ import type {
   RejectedRecord,
 } from "./output.js";
 import type { Locator, Response } from "./page.js";
-import type { PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
+import type { CrawlRequestOutcome, PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
+import type { CrawlRunProgress, CrawlRunReport } from "./run.js";
 import type { CrawlRunSettings, LabelSettings } from "./settings.js";
 import type { CallOptions, Limits, Timeout } from "./time.js";
 
@@ -86,7 +87,7 @@ export type PayloadArgs<L extends Label<unknown, unknown>, O> = [PayloadInput<L>
   ? [options?: O]
   : [payload: PayloadInput<L>, options?: O];
 
-/** A seed: a crawl request the program gives at the start, checked as an enqueue is. Provisional: the start verb is #478's. */
+/** A seed: a crawl request the program gives at the start, checked as an enqueue is. On a resume, the seeds must match the Run's. */
 export interface Seed {
   readonly url: string;
   readonly label: string;
@@ -210,17 +211,53 @@ export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefine
   retry(message: string): never;
 }
 
-/** Options of starting a crawl. Provisional: the start verb is #478's; `settings`, `timeout` and `limits` are a Run's (ADRs 0080, 0083). */
+/**
+ * Options of `startCrawl` (ADR 0102). `id`, `settings`, `timeout`, `limits` and `plan` are a Run's,
+ * with `StartOptions`' rules on a resume (time.d.ts).
+ */
 export interface CrawlStartOptions {
-  /** At least one. They define the crawl's scope. */
+  readonly id?: string;
+  /** At least one. They define the crawl's scope, and on a resume they must match the Run's (`RunConflictError`). */
   readonly seeds: readonly Seed[];
   readonly settings?: CrawlRunSettings;
   readonly timeout?: Timeout;
   readonly limits?: Limits;
+  /** The Run's Plan file (ADR 0091), an input of the Run like its seeds. */
+  readonly plan?: string;
 }
 
-/** A crawl's Run. Its outcomes, progress and resume are #478's; its Records are ADR 0103's. */
+/** Which outcomes `outcomes()` reads, filtered in the engine (ADR 0081). */
+export interface OutcomesFilter {
+  readonly kinds?: readonly ("succeeded" | "failed" | "skipped" | "blocked")[];
+  readonly labels?: readonly Label<unknown, unknown>[];
+}
+
+/** Options of `retryFailed`. */
+export interface RetryFailedOptions extends CallOptions {
+  /** Re-admit the requests that ended `blocked` too: a block may have lifted (ADR 0021). Built-in: false. */
+  readonly blocked?: boolean;
+}
+
+/** A crawl's Run (ADR 0102); its Records are ADR 0103's. Its handlers run from its start until it ends. */
 export interface CrawlRun extends Run {
+  /** Lets the crawl finish: once its Frontier is empty and nothing is in flight, or, under `crawl.keep_alive`, once drained after this call. */
+  finish(options?: CallOptions): Promise<CrawlRunReport>;
+  stop(options?: CallOptions): Promise<CrawlRunReport>;
+  progress(): EventIterator<CrawlRunProgress>;
+  /**
+   * The crawl requests' outcomes, read from the Run's committed state in commit order from its first,
+   * then following new commits until the Run ends. A reader of committed state, it never slows the
+   * Run. A request `retryFailed` re-admits ends again, and its new outcome supersedes the old: key
+   * outcomes by `request.id`.
+   */
+  outcomes(filter?: OutcomesFilter): EventIterator<CrawlRequestOutcome>;
+  /**
+   * Re-admits, in this same Run, every request that ended `failed` (and `blocked`, if asked), each
+   * keeping its ID, Label, Payload and depth, its attempts counting on with a fresh `crawl.retry.max`.
+   * A skip is a decision and is never re-admitted. On an ended Run it returns the Run to `running`,
+   * its Verdict and Completeness given anew when it ends (ADR 0029). Answers how many it re-admitted.
+   */
+  retryFailed(options?: RetryFailedOptions): Promise<number>;
   /**
    * The Dataset's committed Records, from its first (or after `after`), following the Run live until
    * it ends and every Record is read (ADR 0103). A cursor over run state: reading slowly, or not at

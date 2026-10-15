@@ -280,6 +280,15 @@ pub mod network {
     pub const THROTTLE: Setting<Option<NetworkThrottle>> = Setting::new("network.throttle");
 }
 
+/// `checkpoint.*` (ADRs 0002, 0102).
+pub mod checkpoint {
+    use super::Setting;
+    use std::time::Duration;
+
+    /// `checkpoint.interval`: how often the Run writes a Checkpoint. Built-in: none locally.
+    pub const INTERVAL: Setting<Option<Duration>> = Setting::new("checkpoint.interval");
+}
+
 /// `crawl.*`.
 pub mod crawl {
     use super::Setting;
@@ -293,6 +302,9 @@ pub mod crawl {
     /// `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of
     /// failing with `response_not_ok`. Built-in: none (ADR 0093).
     pub const HANDLE_STATUSES: Setting<Vec<u16>> = Setting::new("crawl.handle_statuses");
+    /// `crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`,
+    /// until `finish()` lets it end once drained (ADR 0102, ADR 0037's RT-12). Built-in: false.
+    pub const KEEP_ALIVE: Setting<bool> = Setting::new("crawl.keep_alive");
 
     /// `crawl.payload.*` (ADR 0082).
     pub mod payload {

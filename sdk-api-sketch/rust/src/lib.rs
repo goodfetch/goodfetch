@@ -13,6 +13,7 @@ pub mod models;
 pub mod output;
 pub mod page;
 pub mod results;
+pub mod run;
 pub mod sessions;
 pub mod settings;
 pub mod time;
@@ -52,6 +53,11 @@ pub use results::{
     HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, RunLayerOrigin,
     SettingValue,
     SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
+};
+pub use run::{
+    AbortedBy, Checkpoint, Completeness, CrawlConcurrency, CrawlRequestCounts, CrawlRequestTotals, CrawlRunProgress, CrawlRunReport,
+    GovernorState, InFlightRequest, Lifecycle, NothingDone, OutcomeKind, OutcomesFilter, PauseRaisedBy, RequestPhase, RetryFailed,
+    RunFailure, RunInputDifference, RunProgress, RunReport, RunStopReason, StartedAs, WaitGroup, WaitReason, WaitingDomain, WaitingPause,
 };
 pub use sessions::{
     BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined, HumanPauseResult, Identities,

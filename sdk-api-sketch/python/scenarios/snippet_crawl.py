@@ -3,7 +3,6 @@
 import logging
 import re
 from collections import Counter
-from collections.abc import AsyncIterable
 from decimal import Decimal
 from typing import Literal
 from urllib.parse import urljoin, urlsplit
@@ -17,19 +16,14 @@ from goodfetch import (
     AsyncPage,
     AsyncRoute,
     CrawlRequestFailed,
-    CrawlRequestOutcome,
     CrawlRequestSkipped,
     seed,
 )
 
 log = logging.getLogger(__name__)
 
-# Provisional, its owner's to decide: reading outcomes is #478's. `page.extract` is ADR 0091's; Datasets and `push` are
-# ADR 0103's (snippet_output.py).
-
-
-def outcomes_of(run_id: str) -> AsyncIterable[CrawlRequestOutcome]:
-    raise NotImplementedError
+# Provisional, its owner's to decide: `page.extract` is ADR 0091's; Datasets and `push` are ADR 0103's
+# (snippet_output.py).
 
 
 # Scenario 05: three kinds of page, the category name passed as a typed Payload.
@@ -105,15 +99,14 @@ async def on_book(ctx: AsyncCrawlContext[BookPayload]) -> None:
 
 async def scenario_05() -> Counter[str]:
     async with AsyncGoodfetch.connect() as gf:
-        run = await gf.foxhound.start(
+        run = await gf.foxhound.start_crawl(
             crawl,
             seeds=[seed("https://books.toscrape.com/", home)],
             settings={"crawl": {"scope": {"strategy": "same_hostname"}}},  # the built-in, written out
         )
         async with run:
-            counts: Counter[str] = Counter()
-            async for outcome in outcomes_of(run.id):
-                counts[type(outcome).__name__] += 1
+            # Outcomes are read from the Run's committed state as they commit, and end with the Run (ADR 0102).
+            async for outcome in run.outcomes(kinds=["failed", "skipped"]):
                 match outcome:
                     case CrawlRequestFailed(request=request, error=error):
                         log.warning("failed %s: %s (%s)", request.url, error.code, error.fix)
@@ -121,7 +114,8 @@ async def scenario_05() -> Counter[str]:
                         log.info("skipped %s: %s %s", request.url, reason, message or "")
                     case _:
                         pass
-            return counts
+            totals = (await run.finish()).requests  # already ended: its report at once
+            return Counter(succeeded=totals.succeeded, failed=totals.failed, skipped=totals.skipped, blocked=totals.blocked)
 
 
 # Typed mistakes, caught by the type checkers before anything runs.

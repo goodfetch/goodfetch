@@ -167,6 +167,18 @@ pub enum ErrorCode {
     HandlerLost,
     /// `site_preferences_refused`: a handler's own navigation that Site preferences refuse (ADR 0093).
     SitePreferencesRefused,
+    /// `run_id_invalid`: an ID the engine refuses (ADR 0102).
+    RunIdInvalid,
+    /// `run_conflict`: the ID names a Run started with other inputs, or by another caller.
+    RunConflict,
+    /// `run_ended`: a call that would give an ended Run new work.
+    RunEnded,
+    /// `run_in_use`, a refusal: the Run is live in another program, or already open in this one.
+    RunInUse,
+    /// `limit_raise_refused`, a refusal: a resume gave a Limit above the one the Run began with.
+    LimitRaiseRefused,
+    /// `run_state_unavailable`: the Run index lists the Run, but its state is missing or unreadable.
+    RunStateUnavailable,
     /// `model_not_found`: the provider says the model does not exist or is not available to this
     /// key (ADR 0101).
     ModelNotFound,
@@ -463,6 +475,9 @@ pub enum ErrorDetails {
     DatasetKeyInvalid(crate::output::DatasetKeyInvalid),
     /// Of `value_invalid`.
     ValueInvalid(crate::output::ValueInvalid),
+    /// Of `run_id_invalid`, `run_conflict`, `run_ended`, `run_in_use`, `limit_raise_refused` and
+    /// `run_state_unavailable` (ADR 0102).
+    Run(crate::run::RunFailure),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
@@ -601,6 +616,8 @@ pub struct CrawlRequestRef {
 pub struct CrawlRequestOutcome {
     /// Which request.
     pub request: CrawlRequestRef,
+    /// When it ended.
+    pub ended_at: std::time::SystemTime,
     /// How it ended.
     pub kind: CrawlRequestOutcomeKind,
     /// Retries are not an outcome: every outcome counts its attempts.

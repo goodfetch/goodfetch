@@ -198,7 +198,12 @@ pub struct Collie {
 }
 
 impl Collie {
-    /// Placeholder start verb: its spelling is #478's; its timeout and Limits are #467's.
+    /// Starts a Run and returns once it is started (ADR 0102). With `.id(..)` naming an existing
+    /// Run with the same inputs: resumes it if interrupted ([`crate::run::StartedAs::Resumed`]),
+    /// returns it as it is if it finished (`Ended`), or fails with `run_in_use` if it is live,
+    /// `run_conflict` for other inputs, `limit_reached` if a used-up Limit stopped it, and
+    /// `run_state_unavailable` if its state is gone. On a Foxhound connection, `start` is this one
+    /// (ADR 0095).
     pub fn start(&self) -> Start {
         unimplemented!()
     }
@@ -212,9 +217,18 @@ pub struct Start {
 }
 
 impl Start {
+    /// The Run's ID, which names it for good in the Run index (ADR 0031); left out, the engine
+    /// generates one. A start that names an existing Run resumes it or returns it ended, so a program
+    /// run again under its ID carries on where it stopped. One the engine refuses fails with
+    /// `run_id_invalid`.
+    pub fn id(self, id: impl Into<String>) -> Self {
+        let _ = id.into();
+        unimplemented!()
+    }
+
     /// How long the whole Run may last. A setting like the others (ADR 0028), whose built-in default
     /// is none. On expiry the Run stops with a
-    /// Checkpoint, `stopped` and `incomplete`, and can be resumed.
+    /// Checkpoint, `stopped` and `incomplete`, and can be resumed; a resume's clock starts afresh.
     pub fn timeout(self, timeout: Duration) -> Self {
         let _ = timeout;
         unimplemented!()
@@ -225,7 +239,9 @@ impl Start {
         unimplemented!()
     }
 
-    /// The Run's Limits.
+    /// The Run's Limits. On a resume, compared with what the Run began with: equal leaves each Limit
+    /// as it stands, a person's raise included; lower lowers it; higher fails with
+    /// `limit_raise_refused` (ADR 0041).
     pub fn limits(self, limits: Limits) -> Self {
         let _ = limits;
         unimplemented!()
@@ -257,15 +273,16 @@ impl IntoFuture for Start {
     }
 }
 
-/// A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint,
-/// resumable by its ID. A cheap clone of one Run (ADR 0081).
+/// A Run, always opened explicitly. [`Run::finish`] ends it `finished`; closing an unfinished Run
+/// stops it with a Checkpoint, resumable by starting its ID again (ADR 0102). A cheap clone of one
+/// Run (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct Run {
     _private: (),
 }
 
 impl Run {
-    /// The Run's ID.
+    /// The Run's ID, chosen at the start or generated: it names this Run for good.
     pub fn id(&self) -> &str {
         unimplemented!()
     }

@@ -2,8 +2,8 @@
 //!
 //! A crawl is declared by a [`Crawl`], made with no connection and no I/O: each Label is declared
 //! first, returning its typed [`Label`], and then gets exactly one handler with [`Crawl::handle`].
-//! A Run carries the crawl out; its start and resume verbs are #478's, so [`Foxhound::start`] is
-//! provisional. The async API spawns nothing (ADR 0081): [`Crawl::serve`] answers the Run's crawl
+//! A Run carries the crawl out: [`Foxhound::start_crawl`] starts it, and a start under the same ID
+//! resumes it (ADR 0102). The async API spawns nothing (ADR 0081): [`Crawl::serve`] answers the Run's crawl
 //! requests inside the future the program awaits, so handlers may borrow local state and need
 //! neither `Send` nor `'static`. [`crate::blocking`] runs `Send + Sync + 'static` handlers on the
 //! `tasks` module's tracked threads instead.
@@ -154,16 +154,17 @@ impl<'a> Crawl<'a> {
     }
 
     /// Answers the Run's crawl requests with these handlers, `crawl::handler::CONCURRENCY` at once,
-    /// inside this future, until the Run ends. Dropping it stops answering: each request it leased
-    /// is re-run, counting a `handler_lost` attempt.
-    pub async fn serve(&self, run: &CrawlRun) -> Result<(), Error> {
+    /// inside this future, until the Run ends, then returns its report (ADR 0102): serving is what
+    /// lets a crawl finish. Dropping it stops answering: each request it leased is re-run, counting
+    /// a `handler_lost` attempt.
+    pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
     }
 }
 
-/// A seed: a crawl request the program gives at the start, checked as an enqueue is. Provisional:
-/// the start verb is #478's.
+/// A seed: a crawl request the program gives at the start, checked as an enqueue is. On a resume,
+/// the seeds must match the Run's (`run_conflict`).
 #[derive(Debug, Clone)]
 pub struct Seed {
     _private: (),
@@ -444,7 +445,7 @@ impl CrawlCall {
     }
 }
 
-/// A crawl's Run. Its outcomes, progress and resume are #478's; its Records, rejection table,
+/// A crawl's Run (ADR 0102); its run-level calls are in `run.rs`, and its Records, rejection table,
 /// Exports and Key-value store are ADR 0103's ([`crate::output`]). A cheap clone (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct CrawlRun {
@@ -490,9 +491,12 @@ impl Goodfetch {
 }
 
 impl Foxhound {
-    /// Starts a Run of the crawl from its seeds, which define its scope. Provisional: the start and
-    /// resume verbs are #478's (ADR 0093).
-    pub fn start(&self, crawl: &Crawl<'_>, seeds: impl IntoIterator<Item = Seed>) -> StartCrawl {
+    /// Starts a Run of the crawl from its seeds, which define its scope, and returns once it is
+    /// started (ADR 0102, Firecrawl's `start_crawl`); [`Crawl::serve`] answers its requests. An
+    /// `.id(..)` naming an existing Run behaves as [`crate::Collie::start`]'s does, the seeds and the
+    /// Plan file being inputs that must match. A Foxhound connection also carries Collie's `start`
+    /// (ADR 0095).
+    pub fn start_crawl(&self, crawl: &Crawl<'_>, seeds: impl IntoIterator<Item = Seed>) -> StartCrawl {
         let _ = (crawl, seeds.into_iter());
         unimplemented!()
     }
@@ -507,6 +511,18 @@ pub struct StartCrawl {
 }
 
 impl StartCrawl {
+    /// The Run's ID, as [`crate::Start::id`]'s.
+    pub fn id(self, id: impl Into<String>) -> Self {
+        let _ = id.into();
+        unimplemented!()
+    }
+
+    /// The Run's Plan file (ADR 0091), an input of the Run like its seeds.
+    pub fn plan(self, path: impl AsRef<std::path::Path>) -> Self {
+        let _ = path.as_ref();
+        unimplemented!()
+    }
+
     /// Settings for this Run and everything opened beneath it (ADR 0083).
     pub fn settings(self, settings: Settings) -> Self {
         let _ = settings;

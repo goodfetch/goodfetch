@@ -143,6 +143,17 @@ export interface CrawlSettings {
     /** `crawl.handler.concurrency`: handlers running at once in the program, the engine's leases to it (ADR 0081). On a Label, within the Run's. Built-in: 16. */
     readonly concurrency?: number;
   };
+  /**
+   * `crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `addSeed`, until
+   * `finish()` lets it end once drained (ADR 0102, ADR 0037's RT-12). Built-in: false.
+   */
+  readonly keepAlive?: boolean;
+}
+
+/** `checkpoint.*` (ADRs 0002, 0102). */
+export interface CheckpointSettings {
+  /** `checkpoint.interval`: how often the Run writes a Checkpoint, in milliseconds. Built-in: none locally (`null`). */
+  readonly interval?: number | null;
 }
 
 /** `fetch.*`: the fetch tiers of ADR 0020 (ADR 0093). */
@@ -196,6 +207,7 @@ export interface Settings {
   readonly proxy?: ProxySettings;
   /** `sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets. */
   readonly sinks?: Readonly<Record<string, SinkSettings>>;
+  readonly checkpoint?: CheckpointSettings;
 }
 
 /** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */
@@ -235,6 +247,7 @@ export interface RunSettings {
   readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;
   readonly proxy?: ProxySettings;
+  readonly checkpoint?: CheckpointSettings;
 }
 
 /**
@@ -242,7 +255,7 @@ export interface RunSettings {
  * `source` argument, one spelling (S2). Set where a Borrowed browser's Session opens, any `browser.*`
  * value is refused with `setting_not_applicable`.
  */
-export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session" | "plan"> {
+export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session" | "plan" | "checkpoint"> {
   readonly session?: Omit<SessionLoginSettings, "source">;
 }
 

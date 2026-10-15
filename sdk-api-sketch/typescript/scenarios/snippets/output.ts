@@ -55,7 +55,7 @@ export async function follow(run: CrawlRun, lastHandled: number, save: (n: numbe
 
 export async function scenario05(): Promise<void> {
   await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.start(crawl, {
+  await using run = await gf.foxhound.startCrawl(crawl, {
     seeds: [seed("https://books.toscrape.com/catalogue/category/books/travel_2/index.html", category, { name: "Travel" })],
     // A Sink is a setting: from code, the project file, the CLI or a Recipe alike.
     settings: { sinks: { warehouse: { type: "postgres", datasets: ["books"], mode: "upsert" } } },

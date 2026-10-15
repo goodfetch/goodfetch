@@ -71,6 +71,12 @@ export type KnownErrorCode =
   | "response_unavailable"
   | "handler_lost"
   | "site_preferences_refused"
+  | "run_id_invalid"
+  | "run_conflict"
+  | "run_ended"
+  | "run_in_use"
+  | "limit_raise_refused"
+  | "run_state_unavailable"
   | "model_not_found"
   | "model_capability_missing"
   | "model_handler_failed"
@@ -270,10 +276,10 @@ export interface CrawlRequestRef {
 
 /**
  * A crawl request's ending (ADR 0079; the noun is ADR 0093's). A kind a newer engine sends and this
- * SDK does not know arrives as `unknown`, with the kind kept as received in `raw` (G3). How a program
- * reads outcomes is #478's.
+ * SDK does not know arrives as `unknown`, with the kind kept as received in `raw` (G3). A program
+ * reads them with `run.outcomes()`, and counts them in the Run's progress and report (ADR 0102).
  */
-export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef } & (
+export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef; readonly endedAt: Date } & (
     | {
         readonly kind: "succeeded";
         /** Per Dataset name, what its commit did to the Records it pushed (ADR 0103); empty when it pushed none. */

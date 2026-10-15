@@ -66,8 +66,8 @@ async fn scenario_05() -> Result<(), Error> {
     );
     // A Sink is a setting: from code, the project file, the CLI or a Recipe alike.
     let sinks = Settings::new().sink("warehouse", SinkConfig::new("postgres", ["books"]).mode(SinkWriteMode::Upsert));
-    let run = gf.foxhound().start(&crawl, [seed]).settings(sinks).await?;
-    crawl.serve(&run).await?;
+    let run = gf.foxhound().start_crawl(&crawl, [seed]).settings(sinks).await?;
+    let _report = crawl.serve(&run).await?; // the Run report once it ends (ADR 0102)
 
     let cursor: Option<Cursor> = run.key_value_store().get("cursor/Travel").await?;
     let csv = run.export(&books, ExportFormat::Csv).await?;

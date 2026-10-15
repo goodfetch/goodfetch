@@ -1,5 +1,5 @@
 // Entry points and lifecycle (ADR 0078, decided in #465).
-// The Run's start verbs are a placeholder owned by #478; Sessions, logins and secrets are ADR 0092's
+// The Run's start verbs, its ID, its end and its report are ADR 0102's (run.d.ts); Sessions, logins and secrets are ADR 0092's
 // (sessions.d.ts); the page API is ADR 0085's (page.d.ts).
 // Timeouts, waits and Limits come from #467 (time.d.ts); events and user code from #468 (concurrency.d.ts).
 
@@ -10,6 +10,7 @@ import type { JsonValue } from "./data.js";
 import type { ModelProviderHandler, ReadsUsage } from "./models.js";
 import type { KeyValueStore } from "./output.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
+import type { RunControl } from "./run.js";
 import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
 import type { CallOptions, Limits, PageWaits, StartOptions, Timeout, UrlMatcher } from "./time.js";
@@ -139,8 +140,12 @@ export interface NewSessionOptions extends CallOptions {
   readonly settings?: SessionSettings;
 }
 
-/** A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID. */
-export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage {
+/**
+ * A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it
+ * with a Checkpoint, resumable by starting its ID again (ADR 0102).
+ */
+export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage, RunControl {
+  /** Chosen by the program at the start, or generated: it names this Run for good. */
   readonly id: string;
   /**
    * The Run's Key-value store, Collie's included (ADR 0103). Writes commit at once, or, through a
@@ -160,19 +165,28 @@ export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage 
   borrow(browser: BorrowableBrowser): Promise<Session>;
 }
 
-/** Collie, reached from the connection without I/O. */
+/** Collie, reached from the connection without I/O. On a Foxhound connection, `start` is this one (ADR 0095). */
 export interface Collie {
-  /** Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's. */
+  /**
+   * Starts a Run and returns once it is started (ADR 0102). With an `id` that names an existing Run
+   * with the same inputs: resumes it if interrupted (`startedAs: "resumed"`), returns it as it is if
+   * it finished (`"ended"`), or throws `RunInUseError` if it is live, `RunConflictError` for other
+   * inputs, `LimitReachedError` if a used-up Limit stopped it, `RunStateUnavailableError` if its state
+   * is gone.
+   */
   start(options?: StartOptions): Promise<Run>;
 }
 
-/** Foxhound, reached from the connection without I/O. */
+/** Foxhound, reached from the connection without I/O. A Foxhound connection also carries Collie's `start` (ADR 0095). */
 export interface Foxhound {
   /**
-   * Starts a Run of the crawl from its seeds. Provisional: the start and resume verbs are #478's
-   * (ADR 0093). Throws `LabelUnhandledError` when a Label has no handler.
+   * Starts a Run of the crawl from its seeds and returns once it is started; its handlers run from
+   * then on (ADR 0102, Firecrawl's `start_crawl`). An `id` naming an existing Run behaves as
+   * `Collie.start`'s does, the seeds and the Plan file being inputs that must match. Throws
+   * `LabelUnhandledError` when a Label has no handler, and `LabelUnknownError` when a resumed Run
+   * has pending requests of a Label no longer declared (ADR 0093).
    */
-  start(crawl: Crawl, options: CrawlStartOptions): Promise<CrawlRun>;
+  startCrawl(crawl: Crawl, options: CrawlStartOptions): Promise<CrawlRun>;
 }
 
 /** The engine connection: the entry point. Each one is independent, and many may be open in one process. */

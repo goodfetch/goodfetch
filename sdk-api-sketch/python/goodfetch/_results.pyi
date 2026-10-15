@@ -8,7 +8,7 @@ The codes below are a representative subset: each area's spec lists its codes, t
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Generic, Literal, TypeAlias, TypeVar, final
 
 from goodfetch._models import ModelUsage
@@ -55,6 +55,12 @@ KnownErrorCode: TypeAlias = Literal[
     "response_unavailable",
     "handler_lost",
     "site_preferences_refused",
+    "run_id_invalid",
+    "run_conflict",
+    "run_ended",
+    "run_in_use",
+    "limit_raise_refused",
+    "run_state_unavailable",
     "model_not_found",
     "model_capability_missing",
     "model_handler_failed",
@@ -335,6 +341,7 @@ class RecordCounts:
 @dataclass(frozen=True, kw_only=True)
 class CrawlRequestSucceeded:
     request: CrawlRequestRef
+    ended_at: datetime
     records: Mapping[str, RecordCounts]
     """Per Dataset name, what its commit did to the Records it pushed (ADR 0103); empty when it pushed none."""
     attempts: int
@@ -345,6 +352,7 @@ class CrawlRequestSucceeded:
 @dataclass(frozen=True, kw_only=True)
 class CrawlRequestFailed:
     request: CrawlRequestRef
+    ended_at: datetime
     error: GoodfetchError
     attempts: int
     attempt_errors: Sequence[GoodfetchError]
@@ -353,6 +361,7 @@ class CrawlRequestFailed:
 @dataclass(frozen=True, kw_only=True)
 class CrawlRequestSkipped:
     request: CrawlRequestRef
+    ended_at: datetime
     reason: SkipReason
     message: str | None
     attempts: int
@@ -362,6 +371,7 @@ class CrawlRequestSkipped:
 @dataclass(frozen=True, kw_only=True)
 class CrawlRequestBlocked:
     request: CrawlRequestRef
+    ended_at: datetime
     block_cause: BlockCause
     attempts: int
     attempt_errors: Sequence[GoodfetchError]
@@ -372,6 +382,7 @@ class CrawlRequestOutcomeUnknown:
     """A kind a newer engine sent that this SDK does not know, kept as received (G3)."""
 
     request: CrawlRequestRef
+    ended_at: datetime
     raw: str
     attempts: int
     attempt_errors: Sequence[GoodfetchError]
@@ -379,7 +390,8 @@ class CrawlRequestOutcomeUnknown:
 CrawlRequestOutcome: TypeAlias = (
     CrawlRequestSucceeded | CrawlRequestFailed | CrawlRequestSkipped | CrawlRequestBlocked | CrawlRequestOutcomeUnknown
 )
-"""A crawl request's ending (ADR 0079; the noun is ADR 0093's). How a program reads outcomes is #478's."""
+"""A crawl request's ending (ADR 0079; the noun is ADR 0093's). A program reads them with `run.outcomes()`, and counts
+them in the Run's progress and report (ADR 0102)."""
 
 Verdict: TypeAlias = Literal["verified", "rejected", "needs-review"] | str
 """A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`."""

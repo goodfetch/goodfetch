@@ -41,6 +41,8 @@ from goodfetch._sessions import (
 )
 from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, Seed
 from goodfetch._data import Dataset, Label
+from goodfetch._results import CrawlRequestOutcome
+from goodfetch._run import AsyncRunControl, CrawlRunProgress, CrawlRunReport, RunControl, RunProgress, RunReport
 from goodfetch._settings import CrawlRunSettings, ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
 from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout, UrlMatcher
 
@@ -156,11 +158,13 @@ class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionStateApi
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
-class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
-    """A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID."""
+class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[RunReport, RunProgress]):
+    """A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it with a
+    Checkpoint, resumable by starting its ID again (ADR 0102)."""
 
     @property
-    def id(self) -> str: ...
+    def id(self) -> str:
+        """Chosen by the program at the start, or generated: it names this Run for good."""
     async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @property
@@ -197,26 +201,47 @@ class AsyncCollie:
     async def start(
         self,
         *,
+        id: str | None = None,
         settings: RunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
     ) -> AsyncRun:
-        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's, `settings` #470's.
+        """Starts a Run and returns once it is started (ADR 0102).
+
+        `id` names the Run for good in the Run index; left out, the engine generates one. A start whose `id` names an
+        existing Run with the same inputs resumes it if interrupted (`started_as` is `resumed`) or returns it as it is if
+        it finished (`ended`); it raises `RunInUseError` if the Run is live, `RunConflictError` for other inputs,
+        `LimitReachedError` if a used-up Limit stopped it, and `RunStateUnavailableError` if its state is gone.
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
-        On expiry the Run stops with a Checkpoint, resumable.
+        On expiry the Run stops with a Checkpoint, resumable; a resume's clock starts afresh. On a resume, `limits` are
+        compared with what the Run began with: equal leaves each Limit as it stands, lower lowers it, higher raises
+        `LimitRaiseRefusedError` (ADR 0041); a changed setting applies from then on, and one fixed for a Run's life, such
+        as `crawl.scope.*`, raises `SettingNotApplicableError`.
 
         `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
         written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
 
 @final
-class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
-    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's; its Records are ADR 0103's."""
+class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[CrawlRunReport, CrawlRunProgress]):
+    """A crawl's Run (ADRs 0093, 0102); its Records are ADR 0103's. Its handlers run from its start until it ends."""
 
     @property
     def id(self) -> str: ...
+    def outcomes(
+        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+    ) -> AsyncEventIterator[CrawlRequestOutcome]:
+        """The crawl requests' outcomes, read from the Run's committed state in commit order from its first, then following
+        new commits until the Run ends; the filters run in the engine (ADR 0081). A reader of committed state, it never
+        slows the Run. A request `retry_failed` re-admits ends again, and its new outcome supersedes the old: key
+        outcomes by `request.id`."""
+    async def retry_failed(self, *, blocked: bool = False, timeout: Timeout = ...) -> int:
+        """Re-admits, in this same Run, every request that ended `failed`, and with `blocked=True` those that ended
+        `blocked`, each keeping its ID, Label, Payload and depth, its attempts counting on with a fresh `crawl.retry.max`.
+        A skip is a decision and is never re-admitted. On an ended Run it returns the Run to `running`, its Verdict and
+        Completeness given anew when it ends (ADR 0029). Returns how many it re-admitted."""
     async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @property
@@ -256,17 +281,22 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
 class AsyncFoxhound:
     """Foxhound, reached from the connection without I/O."""
 
-    async def start(
+    async def start_crawl(
         self,
         crawl: AsyncCrawl,
         *,
         seeds: Sequence[Seed[Any]],
+        id: str | None = None,
         settings: CrawlRunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
+        plan: str | PathLike[str] | None = None,
     ) -> AsyncCrawlRun:
-        """Starts a Run of the crawl from its seeds, which define its scope. Provisional: the start and resume verbs are
-        #478's (ADR 0093). Raises `LabelUnhandledError` when a Label has no handler."""
+        """Starts a Run of the crawl from its seeds, which define its scope, and returns once it is started; its handlers
+        run from then on (ADR 0102, Firecrawl's `start_crawl`). An `id` naming an existing Run behaves as
+        `AsyncCollie.start`'s does, the seeds and the Plan file being inputs that must match. Raises `LabelUnhandledError`
+        when a Label has no handler, and `LabelUnknownError` when a resumed Run has pending requests of a Label no longer
+        declared (ADR 0093). A Foxhound connection also carries Collie's `start` (ADR 0095)."""
 
 @final
 class _AsyncConnecting:
@@ -355,8 +385,9 @@ class Session(_Closeable, _ExplainsSettings, SessionStateApi):
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
-class Run(_Closeable, _ExplainsSettings, RunEvents):
-    """A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID."""
+class Run(_Closeable, _ExplainsSettings, RunEvents, RunControl[RunReport, RunProgress]):
+    """A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it with a
+    Checkpoint, resumable by starting its ID again (ADR 0102)."""
 
     @property
     def id(self) -> str: ...
@@ -387,26 +418,40 @@ class Collie:
     def start(
         self,
         *,
+        id: str | None = None,
         settings: RunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
     ) -> Run:
-        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's, `settings` #470's.
+        """Starts a Run and returns once it is started (ADR 0102).
+
+        `id` names the Run for good in the Run index; left out, the engine generates one. A start whose `id` names an
+        existing Run with the same inputs resumes it if interrupted (`started_as` is `resumed`) or returns it as it is if
+        it finished (`ended`); it raises `RunInUseError` if the Run is live, `RunConflictError` for other inputs,
+        `LimitReachedError` if a used-up Limit stopped it, and `RunStateUnavailableError` if its state is gone.
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
-        On expiry the Run stops with a Checkpoint, resumable.
+        On expiry the Run stops with a Checkpoint, resumable; a resume's clock starts afresh. On a resume, `limits` are
+        compared with what the Run began with: equal leaves each Limit as it stands, lower lowers it, higher raises
+        `LimitRaiseRefusedError` (ADR 0041); a changed setting applies from then on, and one fixed for a Run's life, such
+        as `crawl.scope.*`, raises `SettingNotApplicableError`.
 
         `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
         written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
 
 @final
-class CrawlRun(_Closeable, _ExplainsSettings, RunEvents):
-    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's; its Records are ADR 0103's."""
+class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunReport, CrawlRunProgress]):
+    """A crawl's Run (ADRs 0093, 0102); its Records are ADR 0103's. Its handlers run on the connection's thread pool from
+    its start until it ends."""
 
     @property
     def id(self) -> str: ...
+    def outcomes(
+        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+    ) -> EventIterator[CrawlRequestOutcome]: ...
+    def retry_failed(self, *, blocked: bool = False, timeout: Timeout = ...) -> int: ...
     def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @property
@@ -437,16 +482,18 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents):
 class Foxhound:
     """Foxhound, reached from the connection without I/O."""
 
-    def start(
+    def start_crawl(
         self,
         crawl: Crawl,
         *,
         seeds: Sequence[Seed[Any]],
+        id: str | None = None,
         settings: CrawlRunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
+        plan: str | PathLike[str] | None = None,
     ) -> CrawlRun:
-        """Provisional: the start and resume verbs are #478's (ADR 0093)."""
+        """`AsyncFoxhound.start_crawl` in the sync API."""
 
 @final
 class Goodfetch(_Closeable, _ExplainsSettings):

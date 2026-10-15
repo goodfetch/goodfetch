@@ -1,9 +1,9 @@
 // Snippet for Crawl definition and handler context (#477, ADR 0093), on golden scenarios 05, 06 and 08.
 import { z } from "zod";
-import { Crawl, Goodfetch, seed, type CrawlRequestOutcome, type Logger } from "goodfetch";
+import { Crawl, Goodfetch, seed, type Logger } from "goodfetch";
 
-// Provisional, its owner's to decide: reading outcomes is #478's. `page.extract` is ADR 0091's;
-// Datasets and `push` are ADR 0103's (output.ts).
+// Provisional, its owner's to decide: `page.extract` is ADR 0091's; Datasets and `push` are ADR
+// 0103's (output.ts).
 declare const log: Logger;
 
 // Scenario 05: three kinds of page, the category name passed as a typed Payload.
@@ -61,19 +61,24 @@ function ratingOf(cls: string | null): number {
 
 export async function scenario05(): Promise<Map<string, number>> {
   await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.start(crawl, {
+  await using run = await gf.foxhound.startCrawl(crawl, {
     seeds: [seed("https://books.toscrape.com/", home)],
     settings: { crawl: { scope: { strategy: "same_hostname" } } }, // the built-in, written out
   });
-  const counts = new Map<string, number>();
-  for await (const outcome of outcomesOf(run.id)) {
-    counts.set(outcome.kind, (counts.get(outcome.kind) ?? 0) + 1);
+  // Outcomes are read from the Run's committed state as they commit, and end with the Run (ADR 0102).
+  for await (const outcome of run.outcomes({ kinds: ["failed", "skipped"] })) {
     if (outcome.kind === "failed") log.warn("failed", { url: outcome.request.url, code: outcome.error.code, fix: outcome.error.fix });
     if (outcome.kind === "skipped") log.info("skipped", { url: outcome.request.url, reason: outcome.reason, message: outcome.message });
   }
-  return counts;
+  const report = await run.finish(); // already ended: returns its report at once
+  const { succeeded, failed, skipped, blocked } = report.requests;
+  return new Map([
+    ["succeeded", succeeded],
+    ["failed", failed],
+    ["skipped", skipped],
+    ["blocked", blocked],
+  ]);
 }
-declare function outcomesOf(runId: string): AsyncIterable<CrawlRequestOutcome>; // #478's
 
 // Typed mistakes, caught before anything runs.
 export function mistakes(): void {
@@ -125,14 +130,16 @@ quotesCrawl.handle(scrollPage, async ({ page }) => {
 
 export async function scenario06(): Promise<void> {
   await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.start(quotesCrawl, {
+  await using run = await gf.foxhound.startCrawl(quotesCrawl, {
     seeds: [
       seed("https://quotes.toscrape.com/", quotePage),
       seed("https://quotes.toscrape.com/js/", quotePage),
       seed("https://quotes.toscrape.com/scroll", scrollPage),
     ],
   });
-  log.info("started", { run: run.id });
+  // Without `finish()`, leaving the scope would stop the crawl as an abort (ADR 0078).
+  const report = await run.finish();
+  log.info("crawled", { run: run.id, completeness: report.completeness, requests: report.requests });
 }
 
 // Scenario 08: an AI extraction on the crawl's own page, counted in the crawl's Run, learned once

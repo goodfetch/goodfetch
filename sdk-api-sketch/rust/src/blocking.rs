@@ -97,7 +97,7 @@ pub struct Collie {
 }
 
 impl Collie {
-    /// Placeholder start verb (#478).
+    /// Starts a Run, as [`crate::Collie::start`] does.
     pub fn start(&self) -> Start {
         unimplemented!()
     }
@@ -111,6 +111,12 @@ pub struct Start {
 }
 
 impl Start {
+    /// The Run's ID, as [`crate::Start::id`]'s.
+    pub fn id(self, id: impl Into<String>) -> Self {
+        let _ = id.into();
+        unimplemented!()
+    }
+
     /// How long the whole Run may last.
     pub fn timeout(self, timeout: Duration) -> Self {
         let _ = timeout;
@@ -233,8 +239,8 @@ impl Crawl {
     }
 
     /// Answers the Run's crawl requests on tracked threads, `crawl::handler::CONCURRENCY` at once,
-    /// and blocks until the Run ends.
-    pub fn serve(&self, run: &crate::CrawlRun) -> Result<(), Error> {
+    /// blocks until the Run ends, and returns its report.
+    pub fn serve(&self, run: &crate::CrawlRun) -> Result<crate::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
     }

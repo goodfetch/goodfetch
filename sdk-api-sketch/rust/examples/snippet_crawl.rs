@@ -95,10 +95,11 @@ async fn scenario_05() -> Result<(), Error> {
     let gf = Goodfetch::connect(ConnectOptions::default()).await?;
     let run = gf
         .foxhound()
-        .start(&crawl, [Seed::new("https://books.toscrape.com/", &home, ())])
+        .start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &home, ())])
         .settings(Settings::new().set(crawl::scope::STRATEGY, crawl::scope::Strategy::SameHostname))
         .await?;
-    crawl.serve(&run).await?; // answers until the Run ends
+    let report = crawl.serve(&run).await?; // answers until the Run ends, then its report (ADR 0102)
+    let _ = (report.requests.succeeded, report.run.completeness);
     run.as_run().close().await?;
     gf.close().await
 }
@@ -137,7 +138,7 @@ async fn scenario_06(gf: &Goodfetch) -> Result<(), Error> {
     })?;
     let run = gf
         .foxhound()
-        .start(
+        .start_crawl(
             &crawl,
             [
                 Seed::new("https://quotes.toscrape.com/", &quotes, ()),
@@ -146,7 +147,8 @@ async fn scenario_06(gf: &Goodfetch) -> Result<(), Error> {
             ],
         )
         .await?;
-    crawl.serve(&run).await
+    let _report = crawl.serve(&run).await?;
+    Ok(())
 }
 
 /// The fields an AI extraction reads, for scenario 08.
@@ -167,8 +169,9 @@ async fn scenario_08(gf: &Goodfetch) -> Result<(), Error> {
         }
         Ok(())
     })?;
-    let run = gf.foxhound().start(&crawl, [Seed::new("https://books.toscrape.com/", &book, ())]).await?;
-    crawl.serve(&run).await
+    let run = gf.foxhound().start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &book, ())]).await?;
+    let _report = crawl.serve(&run).await?;
+    Ok(())
 }
 
 fn main() {

@@ -172,6 +172,15 @@ class CrawlSettings(TypedDict, total=False):
     """`crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with
     `response_not_ok`. Built-in: none."""
     handler: CrawlHandlerSettings
+    keep_alive: bool
+    """`crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`, until `finish()` lets it
+    end once drained (ADR 0102, ADR 0037's RT-12). Built-in: False."""
+
+class CheckpointSettings(TypedDict, total=False):
+    """`checkpoint.*` (ADRs 0002, 0102)."""
+
+    interval: timedelta | None
+    """`checkpoint.interval`: how often the Run writes a Checkpoint. Built-in: none locally."""
 
 class FetchSettings(TypedDict, total=False):
     """`fetch.*`: the fetch tiers of ADR 0020 (ADR 0093)."""
@@ -224,6 +233,7 @@ class Settings(TypedDict, total=False):
     """`proxy.*` (ADRs 0021, 0092)."""
     sinks: Mapping[str, SinkSettings]
     """`sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets."""
+    checkpoint: CheckpointSettings
 
 class CrawlRunSettings(TypedDict, total=False):
     """A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2)."""
@@ -237,6 +247,7 @@ class CrawlRunSettings(TypedDict, total=False):
     site_preferences: SitePreferencesSettings
     ai: AiSettings
     sinks: Mapping[str, SinkSettings]
+    checkpoint: CheckpointSettings
 
 class LabelTimeoutSettings(PageTimeoutSettings, total=False):
     """The phases a Label can set: a page's, and its handler's."""
@@ -284,6 +295,7 @@ class RunSettings(TypedDict, total=False):
     session: SessionLoginSettings
     secrets: SecretsSettings
     proxy: ProxySettings
+    checkpoint: CheckpointSettings
 
 class SessionSettings(TypedDict, total=False):
     """A Session's settings: Politeness and Site preferences are a Run's, and `session.source` is `new_session()`'s

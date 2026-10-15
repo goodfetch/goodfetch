@@ -216,7 +216,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
   - The Agent's own step cap is `agent.max_steps`, which is not a Limit.
 - **Amends ADR 0083.** `timeout.agent` joins the timeout family. `agent.max_steps`, `agent.max_stalled_steps`, `agent.domains`, `agent.human_pause` and `session.recovery.agent` join the settings schema. The call's `maxSteps`, `domains`, `model` and `timeout` are those settings at the run layer.
 - **Amends ADR 0009.**
-  - For a sequence that crosses pages, its Target fingerprint check before the first Effect reads: before each Effect, the Effect's own target and every remaining target the recorded run observed before it, on a page already open, are checked; any other step is checked when it is reached, before it acts.
+  - For an Agent's task, whose replay may cross pages, its Target fingerprint check before the first Effect reads: before each Effect, the Effect's own target and every remaining target the recorded run observed before it, on a page already open, are checked; any other step is checked when it is reached, before it acts.
   - An Agent's task gets no Repair: on Drift, or on a failed Success check after a replay, the loop takes over from there, and its steps replace the rest of the entry.
 - **Amends ADR 0006.** `session.recovery.agent` switches the AI agent login step of the recovery ladder.
 - **Amends ADR 0013.** An Agent's output may also be Grounded in the result of one of its Agent tools, the program's own data, and `GLOSSARY.md`'s **Grounding** says so.

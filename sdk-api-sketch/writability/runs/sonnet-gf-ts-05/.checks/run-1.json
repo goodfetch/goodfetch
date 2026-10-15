@@ -1,0 +1,12 @@
+{
+  "lang": "ts",
+  "kind": "gf",
+  "errors": 2,
+  "lenient_errors": 2,
+  "output": "05-two-page-crawl.ts(55,24): error TS18047: 'priceMatch' is possibly 'null'.\n05-two-page-crawl.ts(70,5): error TS2322: Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T18:20:24",
+  "by": "agent"
+}

@@ -71,8 +71,10 @@ Decided in [Console and docs test stack](https://github.com/goodfetch/goodfetch/
 
 - **It is the Console's browser suite pointed at a target.** It runs on Playwright Test, takes its target's endpoint and authentication as configuration, and writes area 2's result document with `kind = "conformance"` for each target.
 - **Targets:** the Daemon; the Stub gateway; Goodfetch Cloud's gateway, run from the private repository.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): the targets are each Product's Daemon, serving its own Console build, the Stub gateway and Goodfetch Cloud's gateway.
 - **Cases** cover what the Console needs from its target: `runs.list`, event resumption from a position and the snapshot when the position is gone, lossless events, "Needs you", large files by handle, sign-in and step-up, the SSE-plus-`POST` fallback, the read-only banner and reconnection, the content origin, and the security headers.
 - **The Stub gateway** is a test-only executable in the public repository (`publish = false`), built by area 12. It serves the same Console with the same headers, starts an Attached engine per run, keeps its own index for `runs.list`, forwards every other operation to the engine that owns the run, and authenticates the way the Cloud gateway does. It proves the Console uses nothing a Daemon offers beyond the catalog. Area 14 confirms the gateway contract it stands for.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): it serves Foxhound's Console build, as Goodfetch Cloud does, and starts each run's Attached engine from the executable of the Product that run gets, both Products' executables taken by path from the same commit, so it depends on no Foxhound crate. Its cases include runs on both Products' engines, routed and announced as Goodfetch Cloud's gateway does.
 
 ### The live-view packages
 

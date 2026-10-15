@@ -20,6 +20,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
 
 - **Contract versions.** These formats each carry their own `major.minor`, checked when read:
   - the JSON-RPC protocol (ADR 0024)
+    > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): between an engine and a Browser host, the two sides settle on the lower of their two minors, as the peer protocol's do, so either may be the newer.
   - the plugin protocol, which includes the sink protocol (ADRs 0026 and 0033)
   - the Plugin manifest and lockfile (ADR 0033)
   - run state and Checkpoints (ADR 0002)

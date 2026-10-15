@@ -6,7 +6,7 @@ use std::time::Duration;
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::settings::{crawl, fetch, timeout};
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlContext, ElementState, Enqueued, Error, FetchTier, Goodfetch, Schema, Seed, Settings,
+    ConnectOptions, Crawl, CrawlContext, ElementState, Enqueued, Error, FetchTier, Goodfetch, LabelDeclaration, Schema, Seed, Settings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,10 +42,8 @@ async fn scenario_05() -> Result<(), Error> {
     let books = crawl.dataset_with("books", Schema::<Book>::of(), &["url"])?;
     let home = crawl.label::<()>("home")?;
     let category = crawl.label::<CategoryPayload>("category")?;
-    let book = crawl.label_with(
-        "book",
-        Schema::<BookPayload>::of(),
-        Settings::new().set(timeout::HANDLER, Duration::from_secs(30)),
+    let book = crawl.label(
+        LabelDeclaration::<BookPayload>::new("book").settings(Settings::new().set(timeout::HANDLER, Duration::from_secs(30))),
     )?;
 
     crawl.handle(&home, async |ctx: CrawlContext<()>| {
@@ -114,10 +112,8 @@ fn tracing_free_note(not_added: &[Enqueued]) {
 async fn scenario_06(gf: &Goodfetch) -> Result<(), Error> {
     let mut crawl = Crawl::new();
     let quotes = crawl.label::<()>("quotes")?;
-    let scroll = crawl.label_with(
-        "scroll",
-        Schema::<()>::of(),
-        Settings::new().set(fetch::TIER, fetch::TierChoice::Forced(FetchTier::Browser)),
+    let scroll = crawl.label(
+        LabelDeclaration::<()>::new("scroll").settings(Settings::new().set(fetch::TIER, fetch::TierChoice::Forced(FetchTier::Browser))),
     )?;
     crawl.handle(&quotes, async |ctx: CrawlContext<()>| {
         // Over HTTP, /js/'s empty document escalates this wait to the browser (failure point 1).

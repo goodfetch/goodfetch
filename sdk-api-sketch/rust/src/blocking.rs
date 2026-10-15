@@ -178,6 +178,55 @@ impl Page {
     }
 }
 
+/// A Label's declaration for the blocking API, as [`crate::LabelDeclaration`], whose login step is
+/// `Fn + Send + Sync + 'static` (ADR 0081).
+pub struct LabelDeclaration<P> {
+    _payload: PhantomData<fn(P) -> P>,
+}
+
+impl<P> fmt::Debug for LabelDeclaration<P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LabelDeclaration(..)")
+    }
+}
+
+impl<P: schemars::JsonSchema + serde::Serialize + serde::de::DeserializeOwned> LabelDeclaration<P> {
+    /// A Label named `name` whose Payload is `P`, with the schema `schemars` derives.
+    pub fn new(name: &str) -> Self {
+        let _ = name;
+        unimplemented!()
+    }
+}
+
+impl<P> LabelDeclaration<P> {
+    /// An explicit Payload schema, as [`crate::LabelDeclaration::payload`].
+    pub fn payload(self, schema: crate::Schema<P>) -> Self {
+        let _ = schema;
+        unimplemented!()
+    }
+
+    /// The Label's own settings, as [`crate::LabelDeclaration::settings`].
+    pub fn settings(self, settings: crate::Settings) -> Self {
+        let _ = settings;
+        unimplemented!()
+    }
+
+    /// The Label's login step, as [`crate::LabelDeclaration::login`].
+    pub fn login<F>(self, login: F) -> Self
+    where
+        F: Fn(Page) -> Result<(), Error> + Send + Sync + 'static,
+    {
+        let _ = login;
+        unimplemented!()
+    }
+}
+
+impl<P: schemars::JsonSchema + serde::Serialize + serde::de::DeserializeOwned> From<&str> for LabelDeclaration<P> {
+    fn from(name: &str) -> Self {
+        Self::new(name)
+    }
+}
+
 /// A crawl's declaration for the blocking API (ADR 0093): its handlers run on the `tasks` module's
 /// tracked blocking threads, so they are `Fn + Send + Sync + 'static` (ADR 0081).
 pub struct Crawl {
@@ -196,18 +245,10 @@ impl Crawl {
         unimplemented!()
     }
 
-    /// Declares a Label, as [`crate::Crawl::label`].
-    pub fn label<P: schemars::JsonSchema + serde::Serialize + serde::de::DeserializeOwned>(
-        &mut self,
-        name: &str,
-    ) -> Result<crate::Label<P>, Error> {
-        let _ = name;
-        unimplemented!()
-    }
-
-    /// Declares a Label with an explicit schema and its settings, as [`crate::Crawl::label_with`].
-    pub fn label_with<P>(&mut self, name: &str, payload: crate::Schema<P>, settings: crate::Settings) -> Result<crate::Label<P>, Error> {
-        let _ = (name, payload, settings);
+    /// Declares a Label, as [`crate::Crawl::label`]: a bare name, or a [`LabelDeclaration`] with
+    /// its options.
+    pub fn label<P>(&mut self, declaration: impl Into<LabelDeclaration<P>>) -> Result<crate::Label<P>, Error> {
+        let _ = declaration.into();
         unimplemented!()
     }
 
@@ -217,15 +258,6 @@ impl Crawl {
         F: Fn(Page) -> Result<(), Error> + Send + Sync + 'static,
     {
         let _ = login;
-        unimplemented!()
-    }
-
-    /// A Label's login step, as [`crate::Crawl::login_for`].
-    pub fn login_for<P, F>(&mut self, label: &crate::Label<P>, login: F) -> Result<(), Error>
-    where
-        F: Fn(Page) -> Result<(), Error> + Send + Sync + 'static,
-    {
-        let _ = (label, login);
         unimplemented!()
     }
 

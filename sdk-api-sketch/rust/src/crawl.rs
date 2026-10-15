@@ -89,22 +89,12 @@ impl<'a> Crawl<'a> {
         unimplemented!()
     }
 
-    /// Declares a Label whose Payload is `P` (`()` for none), with the schema `schemars` derives,
-    /// and returns its typed handle. A second Label of the same name fails at once with
-    /// `label_duplicate`, with no I/O.
-    pub fn label<P: JsonSchema + Serialize + DeserializeOwned>(&mut self, name: &str) -> Result<Label<P>, Error> {
-        let _ = name;
-        unimplemented!()
-    }
-
-    /// Declares a Label with an explicit schema (a hand-written JSON Schema is the way down) and
-    /// its own settings: a scope between the Run and each request (ADR 0093). What a Session holds
-    /// (`session.source`, `session.http_credentials`, `secrets.*`, or a login from
-    /// [`Crawl::login_for`]) gives its requests a Session pool of their own, while
-    /// `session.page_check` judges its pages in whichever pool serves them; the Session's identity,
-    /// Politeness, Site preferences and scope are refused with `setting_not_applicable`.
-    pub fn label_with<P>(&mut self, name: &str, payload: Schema<P>, settings: Settings) -> Result<Label<P>, Error> {
-        let _ = (name, payload, settings);
+    /// Declares a Label and returns its typed handle. A bare name declares one whose Payload is `P`
+    /// (`()` for none), with the schema `schemars` derives; a [`LabelDeclaration`] adds its options
+    /// (ADR 0099: one name, with `impl Into` for the second argument shape). A second Label of the
+    /// same name fails at once with `label_duplicate`, with no I/O.
+    pub fn label<P>(&mut self, declaration: impl Into<LabelDeclaration<'a, P>>) -> Result<Label<P>, Error> {
+        let _ = declaration.into();
         unimplemented!()
     }
 
@@ -136,23 +126,12 @@ impl<'a> Crawl<'a> {
     }
 
     /// The scripted login step of the Run's Session pool (ADRs 0006, 0092), called with the
-    /// Session's page on the login page; a Label's own, from [`Crawl::login_for`], wins.
+    /// Session's page on the login page; a Label's own, from [`LabelDeclaration::login`], wins.
     pub fn login<F>(&mut self, login: F)
     where
         F: AsyncFn(Page) -> Result<(), Error> + 'a,
     {
         let _ = login;
-        unimplemented!()
-    }
-
-    /// The scripted login step of the Sessions this Label's requests use. Like `session.source`,
-    /// `session.http_credentials` and `secrets.*` set on the Label, it gives the Label a Session
-    /// pool of its own; `session.page_check` alone does not (ADR 0093).
-    pub fn login_for<P, F>(&mut self, label: &Label<P>, login: F) -> Result<(), Error>
-    where
-        F: AsyncFn(Page) -> Result<(), Error> + 'a,
-    {
-        let _ = (label, login);
         unimplemented!()
     }
 
@@ -165,6 +144,63 @@ impl<'a> Crawl<'a> {
     pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
+    }
+}
+
+/// A Label's declaration with its options, the builder methods named after the options of
+/// TypeScript's `crawl.label(name, { payload, settings, login })` (ADR 0099). A `&str` converts into
+/// one with none.
+pub struct LabelDeclaration<'a, P> {
+    _payload: PhantomData<fn(P) -> P>,
+    _handlers: PhantomData<&'a ()>,
+}
+
+impl<P> fmt::Debug for LabelDeclaration<'_, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LabelDeclaration(..)")
+    }
+}
+
+impl<'a, P: JsonSchema + Serialize + DeserializeOwned> LabelDeclaration<'a, P> {
+    /// A Label named `name` whose Payload is `P`, with the schema `schemars` derives.
+    pub fn new(name: &str) -> Self {
+        let _ = name;
+        unimplemented!()
+    }
+}
+
+impl<'a, P> LabelDeclaration<'a, P> {
+    /// An explicit Payload schema in place of the derived one; [`Schema::from_json`] is the way
+    /// down.
+    pub fn payload(self, schema: Schema<P>) -> Self {
+        let _ = schema;
+        unimplemented!()
+    }
+
+    /// The Label's own settings: a scope between the Run and each request (ADR 0093). What a
+    /// Session holds (`session.source`, `session.http_credentials`, `secrets.*`, or a login from
+    /// [`LabelDeclaration::login`]) gives its requests a Session pool of their own, while
+    /// `session.page_check` judges its pages in whichever pool serves them; the Session's identity,
+    /// Politeness, Site preferences and scope are refused with `setting_not_applicable`.
+    pub fn settings(self, settings: Settings) -> Self {
+        let _ = settings;
+        unimplemented!()
+    }
+
+    /// The scripted login step of the Sessions this Label's requests use, which wins over the
+    /// crawl's [`Crawl::login`] and gives the Label a Session pool of its own (ADR 0093).
+    pub fn login<F>(self, login: F) -> Self
+    where
+        F: AsyncFn(Page) -> Result<(), Error> + 'a,
+    {
+        let _ = login;
+        unimplemented!()
+    }
+}
+
+impl<'a, P: JsonSchema + Serialize + DeserializeOwned> From<&str> for LabelDeclaration<'a, P> {
+    fn from(name: &str) -> Self {
+        Self::new(name)
     }
 }
 
@@ -543,18 +579,12 @@ impl CrawlRun {
     }
 
     /// Adds a seed to the running crawl (ADR 0037's CO-03), committed at once, or staged with the
-    /// attempt when called through a handler's `ctx.run()`. A seed widens the scope by its host,
-    /// where a handler's `enqueue` is checked against it; one the domain policy refuses is not added.
-    pub fn add_seed<P: Serialize>(&self, url: &str, label: &Label<P>, payload: P) -> Enqueue {
-        let _ = (url, label, payload);
-        unimplemented!()
-    }
-
-    /// Adds a built [`Seed`], such as a [`Seed::sitemap`] (ADR 0093), as [`CrawlRun::add_seed`]
-    /// does. A sitemap's entries are checked as enqueues are, and those matching no rule are
-    /// reported as `no_rule` in the Run's report.
-    pub fn add(&self, seed: Seed) -> Enqueue {
-        let _ = seed;
+    /// attempt when called through a handler's `ctx.run()`: a [`Seed::new`], or a [`Seed::sitemap`]
+    /// whose entries are checked as enqueues are, those matching no rule reported as `no_rule` in
+    /// the Run's report (ADR 0093). A seed widens the scope by its host, where a handler's `enqueue`
+    /// is checked against it; one the domain policy refuses is not added.
+    pub fn add_seed(&self, seed: impl Into<Seed>) -> Enqueue {
+        let _ = seed.into();
         unimplemented!()
     }
 

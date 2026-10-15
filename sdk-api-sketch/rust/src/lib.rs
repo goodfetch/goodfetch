@@ -38,8 +38,8 @@ pub use ai::{
 pub use catalog::{Connection, JsonObject, RawCall};
 pub use concurrency::{EventStream, events};
 pub use crawl::{
-    Crawl, CrawlCall, CrawlContext, CrawlRequest, CrawlRun, Enqueue, EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, Foxhound, LinkInfo,
-    NotAddedReason, Seed, StartCrawl, UrlPattern,
+    Crawl, CrawlCall, CrawlContext, CrawlRequest, CrawlRun, Enqueue, EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, Foxhound, LabelDeclaration,
+    LinkInfo, NotAddedReason, Seed, StartCrawl, UrlPattern,
 };
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
 pub use effects::{

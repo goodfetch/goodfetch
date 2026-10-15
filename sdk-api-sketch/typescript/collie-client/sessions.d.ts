@@ -327,7 +327,9 @@ export interface PausesForHuman {
    * Playwright's `page.pause()`, with the Human pause's meaning: the program waits while a person acts
    * in this page, in its window when it is headful on their desktop, else in the Live view on any
    * device. A paused page takes no Gesture: its later Gestures wait; reads and waits run. No enclosing
-   * timeout counts its time; Usage still counts toward Limits. Cancelling the call ends it.
+   * timeout counts its time; Usage still counts toward Limits. Cancelling the call ends it. A page
+   * closed in the browser throws `CallCancelledError` with `by: "browser"` and `closed: "page"`
+   * (`"browser"` when the browser quits); a lost Live view ends nothing (ADR 0113).
    */
   pause(options?: PauseOptions): Promise<HumanPauseResult>;
 }

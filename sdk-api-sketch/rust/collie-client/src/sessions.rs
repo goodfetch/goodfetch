@@ -774,7 +774,11 @@ impl Page {
     /// acts in this page, in its window when it is headful on their desktop, else in the Live view
     /// on any device. A paused page takes no Gesture: its later Gestures wait; reads and waits run.
     /// No enclosing timeout counts its time; Usage still counts toward Limits. Dropping the future
-    /// ends it.
+    /// ends it. A page closed in the browser fails it with `call_cancelled`, whose [`CallCancelled`]
+    /// says `by: Browser` and `closed: Page` (or `Browser` when the browser quits); a lost Live view
+    /// ends nothing (ADR 0113).
+    ///
+    /// [`CallCancelled`]: crate::CallCancelled
     pub fn pause(&self) -> Pause {
         unimplemented!()
     }

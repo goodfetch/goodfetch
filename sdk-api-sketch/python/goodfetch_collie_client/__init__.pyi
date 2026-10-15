@@ -282,6 +282,7 @@ from goodfetch_collie_client._results import AIWorkResult as AIWorkResult
 from goodfetch_collie_client._results import BlockCause as BlockCause
 from goodfetch_collie_client._results import BlockedDetails as BlockedDetails
 from goodfetch_collie_client._results import BlockedError as BlockedError
+from goodfetch_collie_client._results import CallCancelledDetails as CallCancelledDetails
 from goodfetch_collie_client._results import CallCancelledError as CallCancelledError
 from goodfetch_collie_client._results import ClosedError as ClosedError
 from goodfetch_collie_client._results import DeadlineExceededDetails as DeadlineExceededDetails

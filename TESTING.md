@@ -608,7 +608,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 
 ### Refusals
 
-- **Every refusal is tested from a fabricated version**, generated per format: a newer minor, an older major, a newer major, and each exception's own outcome (Usage-ledger family, Response cache, Clean-up rules, Operator policy). The Error code and message are snapshotted.
+- **Every refusal is tested from a fabricated version**, generated per format: a newer minor, an older major, a newer major, and each exception's own outcome (Usage-ledger family, Response cache, Clean-up rules, Operator policy, and the lowest minor of the shared stores of [ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md)). The Error code and message are snapshotted.
 - **A handshake refusal is the reply to `hello`**, before any other message, and the connection then closes. Never test refusal with a time budget.
 - **Test each handshake refusal twice:** in the Quick suite, in process, by sending the fabricated `hello` to the handshake code over an in-memory transport; in the Pre-merge suite, through the conformance harness's own `hello` to a running engine. No build carries a version override.
   _Why:_ the Quick suite starts no process and binds no socket.
@@ -620,10 +620,22 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 - **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last (a StatefulSet's default order with the Lead Daemon as pod 0) and once with it first, then a promotion from an older Group backup and the rollbacks.
 - **The Helm upgrade starts from a release's chart,** installed by digest from `compat/releases.toml`, then runs `helm upgrade` to the current chart and `helm test`. Never `ct install --upgrade`.
   _Why:_ it upgrades from the git target branch and passes with a skip on a SemVer-breaking bump or an unchanged chart.
-- **Older engines open the files the current engine wrote.** The Usage-ledger family opens; a current Checkpoint, Plan, settings file and Schedule file are refused with the upgrade message. Two majors run side by side on one machine.
+- **Older engines open the files the current engine wrote.** The Usage-ledger family and the list of installed executables open; the Run index, the Schedule store, the Saved identity store, user configuration and the Operator policy open unless their lowest minor is newer ([ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md)); a current Checkpoint, Plan, project settings file and Schedule file are refused with the upgrade message. Two majors run side by side on one machine.
 - **Old artifacts come only from `compat/releases.toml`,** through the pinned artifact mirror, checked by digest and by `gh attestation verify --bundle --custom-trusted-root`, with the trusted root fetched before the outbound deny. One local command fetches the same set.
 - **Never skip for a missing artifact.** A missing or mismatched artifact fails the job. An empty version list runs the current build against itself.
   _Why:_ a test that passes because nothing ran hides decay, as SQLite's and Cargo's skipped old-binary tests do.
+
+### Two Products on one machine
+
+Decided in [ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md). Skew between the two Products' released versions is [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
+
+- **Run both executables of one commit in one Goodfetch home** (Pre-merge suite):
+  - a Foxhound Client that meets a Collie Daemon gets a Foxhound Daemon once the Collie one hosts no live run;
+  - a Collie Client never moves the Daemon to Collie while a Foxhound counts as installed, so Clients of the two Products alternating restart it at most once;
+  - a Client the Daemon refuses runs attached with a warning under `engine: auto`, and fails at connect with `not_in_product` under `engine: daemon`.
+- **"Installed" and the clean-up run on the injected Clock** (Quick suite): an entry whose executable is gone still counts within `browser_cache.max_unused_age`; a build pinned by a counting entry, launched within that age, or held by a running browser is kept; an entry the engine cannot read is kept.
+- **Kill the clean-up after its rename** with the real-process crash tests: the next run finishes the deletion, and no browser ever launches from a half-deleted build.
+- **A Collie engine leaves Foxhound's entries untouched:** rewriting user configuration keeps Foxhound's keys byte for byte; resuming a run that needs Foxhound answers `not_in_product` and leaves the run file's hash unchanged; a Collie Daemon records each occurrence of a Schedule that needs Foxhound as missed with `not_in_product`.
 
 ### Suites
 

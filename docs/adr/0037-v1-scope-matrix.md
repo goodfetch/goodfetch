@@ -48,12 +48,12 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 |---|---|---|---|---|---|
 | SDK-01 | Primary language and package | `decided` | ADR 0024, ADR 0034, ADR 0084 | 11 Client surfaces | Two Products, Collie and Foxhound, each an executable with a Rust crate and npm and PyPI SDKs (ADR 0084); their package and executable names are [#457](https://github.com/goodfetch/automan/issues/457)'s. |
 | SDK-02 | Same API in several languages | `decided` | ADR 0011, ADR 0024, ADR 0030 | 11 Client surfaces | Every SDK is generated from one Operation catalog, in lockstep versions. |
-| SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033, ADR 0057, ADR 0084 | 1 Repository, CI and release | Collie installs alone; Foxhound contains Collie (ADR 0084). Browsers, sink processes and Plugins are fetched on demand by digest. What each Product carries and its Size budget are [#454](https://github.com/goodfetch/automan/issues/454) and [#455](https://github.com/goodfetch/automan/issues/455)'s. |
+| SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033, ADR 0057, ADR 0084, ADR 0098 | 1 Repository, CI and release | Collie installs alone; Foxhound contains Collie (ADR 0084). Browsers, sink processes and Plugins are fetched on demand by digest. What each Product carries and its Size budget are [#454](https://github.com/goodfetch/automan/issues/454) and [#455](https://github.com/goodfetch/automan/issues/455)'s. Installed together, both Products share one Goodfetch home and one Daemon per major (ADR 0098). |
 | SDK-04 | Project scaffolding CLI and templates | `decided` | ADR 0030, ADR 0049 | 11 Client surfaces | `goodfetch init` scaffolds TypeScript, Python and Rust from five starters (crawl, extract, browser automation, AI agent, Recipe), each with a Dockerfile, Compose file, CI workflow, AGENTS.md and skills, embedded in the binary; `--deploy <target>` adds a target's files. |
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
 | SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038, ADR 0081, ADR 0082 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python: the async client on AnyIO, the sync one on a private thread per connection that works inside a running loop; Rust async on any executor plus `goodfetch::blocking` (ADR 0081). Schemas come from each language's idiom (Standard Schema with Standard JSON Schema, Pydantic, `schemars`) as JSON Schema, and results keep unknown fields (ADR 0082). |
 | SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
-| SDK-08 | Browser provisioning | `decided` | ADR 0024 | 3 Engine runtime | Pinned builds in a digest-checked cache; `goodfetch browsers install`; offline path. |
+| SDK-08 | Browser provisioning | `decided` | ADR 0024, ADR 0098 | 3 Engine runtime | Pinned builds in a digest-checked cache; `goodfetch browsers install`; offline path; one cache for both Products, cleaned only of builds nothing installed pins, unused for 30 days (ADR 0098). |
 
 ### SA Site access
 
@@ -186,7 +186,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 |---|---|---|---|---|---|
 | CN-01 | Watch a running browser live | `decided` | ADR 0031, ADR 0006 | 12 Console | Live view with three tiers and take control. |
 | CN-02 | Session recording and replay | `decided` | ADR 0031 | 12 Console | Self-hosted: Run traces replayed on the Timeline. |
-| CN-03 | Run status and progress in a UI | `decided` | ADR 0031, ADR 0029, ADR 0024 | 12 Console | Console over the Run index, on three axes. |
+| CN-03 | Run status and progress in a UI | `decided` | ADR 0031, ADR 0029, ADR 0024, ADR 0098 | 12 Console | Console over the Run index, on three axes; one Console per major for both Products (ADR 0098). |
 | CN-04 | Hosted dashboard of runs, filterable by metadata | `decided` | ADR 0031, ADR 0036 | 12 Console | Self-hosted: the Console over the Run index, with run labels. |
 
 ### CL Cloud readiness

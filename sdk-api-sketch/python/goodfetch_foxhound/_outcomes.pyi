@@ -121,6 +121,7 @@ KnownErrorCode: TypeAlias = CollieKnownErrorCode | Literal[
     "label_unknown",
     "attempt_ended",
     "browser_required",
+    "responses_not_kept",
     "retry_requested",
     "response_not_ok",
     "response_unavailable",

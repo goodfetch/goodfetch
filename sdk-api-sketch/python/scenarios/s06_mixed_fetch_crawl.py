@@ -46,8 +46,17 @@ quotes = crawl.dataset("quotes", schema=Quote)
 # tier is its own Label; the two share one handler.
 html = crawl.label("html")
 js = crawl.label("js")
-# Scrolling and reading the JSON the page loads need a browser: this Label forces it.
-scroll = crawl.label("scroll", settings={"fetch": {"tier": "browser"}})
+# Scrolling and reading the JSON the page loads need a browser: this Label forces it, and keeps the API's responses from
+# the start of its navigation, so page 1, loaded before the handler runs, is read without a reload.
+scroll = crawl.label(
+    "scroll",
+    settings={
+        "fetch": {
+            "tier": "browser",
+            "kept_responses": {"urls": [re.compile(r"/api/quotes\?page=\d+$")]},
+        }
+    },
+)
 
 
 def api_page(n: int) -> re.Pattern[str]:
@@ -92,12 +101,11 @@ async def read_quotes(ctx: AsyncCrawlContext[None]) -> None:
 @crawl.handle(scroll)
 async def read_scrolling_quotes(ctx: AsyncCrawlContext[None]) -> None:
     page = ctx.page
-    # Page 1 loaded while the engine navigated, before any handler could wait for it: reload with the waiter armed.
-    async with page.expect_response(api_page(1)) as loaded:
-        await page.reload()
+    # Page 1 loaded while the engine navigated: the Label kept it.
+    loaded = await ctx.kept_response(api_page(1))
     for n in itertools.count(2):
         # A body that is not JSON raises ResponseNotJSONError.
-        body = QuotesPage.model_validate(await (await loaded.value).json())
+        body = QuotesPage.model_validate(await loaded.json())
         for quote in body.quotes:
             await ctx.push(
                 quotes,
@@ -112,8 +120,9 @@ async def read_scrolling_quotes(ctx: AsyncCrawlContext[None]) -> None:
             return
         # Each JSON page is awaited once, by its number; one that never loads fails the request with
         # DeadlineExceededError, retried, then `failed`.
-        async with page.expect_response(api_page(n)) as loaded:
+        async with page.expect_response(api_page(n)) as next_page:
             await page.mouse.wheel(0, 10_000)
+        loaded = await next_page.value
 
 
 async def collect_quotes() -> list[Quote]:

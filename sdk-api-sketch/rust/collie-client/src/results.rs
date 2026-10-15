@@ -501,6 +501,23 @@ impl std::error::Error for Error {
     }
 }
 
+/// The error the program's own code returns to the SDK (ADR 0109): a crawl handler, a crawl Hook, a
+/// login step, an Agent tool, the Agent's Success check, an SDK handler's `fail`, and the
+/// `finish` of a call answered by the way down. It is std's boxed error, tower's and
+/// `lambda_runtime`'s `BoxError`, so `?` converts every `std::error::Error + Send + Sync + 'static`,
+/// a `&str` or `String`, a `Box<dyn Error + Send + Sync>` and an `anyhow::Error` or
+/// `eyre::Report` into it, and the SDK's own [`Error`] too.
+///
+/// The SDK reads it as TypeScript and Python read an exception (S1). A box that holds the SDK's
+/// own [`Error`] keeps its code and retryable flag (`ctx.skip()`'s and `ctx.retry()`'s included).
+/// Any other error, one that wraps a Goodfetch error in its `source()` chain included, is the
+/// program's own: `handler_failed`, `hook_failed` with no wrapped code, `agent_tool_failed`,
+/// `success_check_threw`, the kind's `<kind>_handler_failed`, or the cause of `logged_out`. Its
+/// details' message is its `Display` followed by each `source()`, joined by `": "`; its type, which
+/// the box erases, reads `BoxError`; it carries no stack; and in the process it is the
+/// failure's `source()`.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 /// The typed details of an Error code, read with [`Error::details`] (ADR 0099): each code's details
 /// type implements it, Foxhound's in Foxhound's crate, so no enum lists every code's details.
 pub trait ErrorDetails: Clone + 'static {}
@@ -524,6 +541,13 @@ impl ErrorDetails for crate::sessions::SecretInputRefused {}
 impl ErrorDetails for crate::sessions::LoggedOut {}
 impl ErrorDetails for crate::sessions::HumanPauseDeclined {}
 impl ErrorDetails for crate::sessions::SessionNotSavable {}
+impl ErrorDetails for crate::sessions::CdpUrlUnreachable {}
+impl ErrorDetails for crate::sessions::CdpUrlNotBrowser {}
+impl ErrorDetails for crate::sessions::CdpUrlUnauthorized {}
+impl ErrorDetails for crate::sessions::CdpUrlNotAllowed {}
+impl ErrorDetails for crate::sessions::BrowserNotInstalled {}
+impl ErrorDetails for crate::sessions::ArtifactUnavailableOffline {}
+impl ErrorDetails for crate::sessions::ArtifactDownloadFailed {}
 impl ErrorDetails for crate::ai::TargetNotFound {}
 impl ErrorDetails for crate::ai::PlanDrift {}
 impl ErrorDetails for crate::ai::ExtractionIncomplete {}

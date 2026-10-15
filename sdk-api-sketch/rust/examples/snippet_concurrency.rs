@@ -92,7 +92,8 @@ async fn spawned(foxhound: &Foxhound) -> Result<CrawlRunReport, Box<dyn std::err
     let book = crawl.label::<()>("book")?;
     crawl.handle(&book, async move |ctx: CrawlContext<()>| {
         let title = ctx.page().locator("h1").text_content().await?;
-        ctx.push(&titles, &Title { title }).await
+        ctx.push(&titles, &Title { title }).await?;
+        Ok(())
     })?;
     let seed = Seed::new("https://books.toscrape.com/catalogue/sharp-objects_997/index.html", &book, ());
     let run = foxhound.start_crawl(&crawl, [seed]).await?;

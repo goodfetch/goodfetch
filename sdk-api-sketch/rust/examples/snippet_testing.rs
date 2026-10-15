@@ -6,7 +6,7 @@
 use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::settings::{ai, extract, plan};
 use goodfetch_foxhound::testing::{AttemptEnd, HandlerInput, SavedResponse, ScriptedModel, ScriptedReply, TestEngine, TestOptions};
-use goodfetch_foxhound::{Crawl, CrawlContext, Dataset, DatasetDeclaration, Error, ErrorCode, ExtractMode, Label, ModelReference, Recording, Schema, Seed, Settings};
+use goodfetch_foxhound::{BoxError, Crawl, CrawlContext, Dataset, DatasetDeclaration, Error, ErrorCode, ExtractMode, Label, ModelReference, Recording, Schema, Seed, Settings};
 use serde::{Deserialize, Serialize};
 
 const BOOK: &str = "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html";
@@ -27,7 +27,7 @@ struct BookPayload {
 }
 
 /// The book handler of scenario 05, as the program writes it.
-async fn on_book(books: &Dataset<Book>, ctx: CrawlContext<BookPayload>) -> Result<(), Error> {
+async fn on_book(books: &Dataset<Book>, ctx: CrawlContext<BookPayload>) -> Result<(), BoxError> {
     let main = ctx.page().locator(".product_main");
     let price = main.locator(".price_color").text_content().await?;
     let Some(pounds) = price.strip_prefix('£') else {
@@ -39,7 +39,8 @@ async fn on_book(books: &Dataset<Book>, ctx: CrawlContext<BookPayload>) -> Resul
         url: ctx.page().url(),
         category: ctx.request().payload().category.clone(),
     };
-    ctx.push(books, &book).await
+    ctx.push(books, &book).await?;
+    Ok(())
 }
 
 /// 1. One handler, one saved page: no network, no browser, no Frontier.

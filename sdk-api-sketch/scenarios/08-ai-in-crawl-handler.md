@@ -47,7 +47,7 @@ The leaders use OpenAI directly, their documented default (`openai/gpt-…` in S
 | Crawlee for Python with PydanticAI | 32 | 98 | 2 | 1 / 4 / 1 |
 | Goodfetch TypeScript | 44 | 51 | 2 | 6 / 0 / 0 |
 | Goodfetch Python | 46 | 66 | 2 | 6 / 0 / 0 |
-| Goodfetch Rust | 54 | 124 | 3 | 6 / 0 / 0 |
+| Goodfetch Rust | 54 | 125 | 3 | 6 / 0 / 0 |
 
 Programs: `scenarios/leaders/stagehand3/08-ai-in-crawl-handler.crawlee-stagehand.ts`, `scenarios/leaders/s08_ai_in_crawl_handler_crawlee.py`, `typescript/scenarios/08-ai-in-crawl-handler.ts`, `python/scenarios/s08_ai_in_crawl_handler.py`, `rust/examples/s08_ai_in_crawl_handler.rs`. Lines are counted by the formatters' defaults (oxfmt, ruff format, rustfmt). The Goodfetch programs keep the crawl's declaration apart from `main` (module-level values, `import.meta.main`, `__main__`, `pub fn crawl()`) so scenario 10's offline tests reuse it; Rust's `pub` struct of handles costs about 15 of its lines.
 

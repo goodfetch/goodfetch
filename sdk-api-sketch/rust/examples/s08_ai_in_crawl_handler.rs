@@ -98,7 +98,8 @@ pub fn crawl() -> Result<BookCrawl, Error> {
             fields: step.output,
             url: ctx.page().url(),
         };
-        ctx.push(&to_books, &record).await
+        ctx.push(&to_books, &record).await?;
+        Ok(())
     })?;
 
     Ok(BookCrawl {

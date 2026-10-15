@@ -5,6 +5,7 @@ use goodfetch_foxhound::settings::fetch;
 use goodfetch_foxhound::{
     AbortReason, ConnectOptions, Crawl, CrawlContext, ElementState, Error, FetchTier, Foxhound,
     HookOn, LabelDeclaration, PageStageContext, ResourceType, Seed, Settings, UrlMatcher,
+    UrlPattern,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -52,8 +53,13 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
     // that may need another tier is its own Label; the two share one handler.
     let html = crawl.label::<()>("html")?;
     let js = crawl.label::<()>("js")?;
-    // Scrolling and reading the JSON the page loads need a browser: this Label forces it.
-    let browser = Settings::new().set(fetch::TIER, fetch::TierChoice::Forced(FetchTier::Browser));
+    // Scrolling and reading the JSON the page loads need a browser: this Label forces it, and
+    // keeps the API's responses from the start of its navigation, so page 1, loaded before the
+    // handler runs, is read without a reload.
+    let api = UrlPattern::Regex(r"/api/quotes\?page=\d+$".to_owned());
+    let browser = Settings::new()
+        .set(fetch::TIER, fetch::TierChoice::Forced(FetchTier::Browser))
+        .set(fetch::kept_responses::URLS, vec![api]);
     let scroll = crawl.label(LabelDeclaration::<()>::new("scroll").settings(browser))?;
 
     // Runs only where a browser navigates, so unscoped it covers every browser page, a sample
@@ -65,11 +71,13 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
         ctx.for_each(routes, async |route| {
             match route.request().resource_type() {
                 ResourceType::Image | ResourceType::Font => {
-                    route.abort().reason(AbortReason::BlockedByClient).await
+                    route.abort().reason(AbortReason::BlockedByClient).await?
                 }
-                _ => route.fallback().await,
+                _ => route.fallback().await?,
             }
-        })
+            Ok(())
+        })?;
+        Ok(())
     })?;
 
     let read_quotes = async |ctx: CrawlContext<()>| {
@@ -99,16 +107,12 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
 
     crawl.handle(&scroll, async |ctx: CrawlContext<()>| {
         let page = ctx.page();
-        // Page 1 loaded while the engine navigated, before any handler could wait for it: reload
-        // with the waiter armed.
-        let (mut loaded, _) = page
-            .wait_for_response(api_page(1))
-            .during(page.reload())
-            .await?;
+        // Page 1 loaded while the engine navigated: the Label kept it.
+        let mut loaded = ctx.kept_response(api_page(1)).await?;
         for n in 2.. {
-            // A body that is not JSON fails with `response_not_json`.
-            let body: QuotesPage = serde_json::from_value(loaded.json().await?)
-                .map_err(|error| ctx.skip(&format!("unexpected JSON: {error}")))?;
+            // A body that is not JSON fails with `response_not_json`; one of another shape fails
+            // with `handler_failed`, naming the deserializer's error (ADR 0109).
+            let body: QuotesPage = serde_json::from_value(loaded.json().await?)?;
             for quote in body.quotes {
                 let record = Quote {
                     text: quote.text,

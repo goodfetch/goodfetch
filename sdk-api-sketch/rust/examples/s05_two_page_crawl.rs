@@ -145,7 +145,8 @@ pub fn books_crawl() -> Result<BooksCrawl, Error> {
             url: ctx.page().url(), // the final URL, after redirects
             category: ctx.request().payload().category.clone(),
         };
-        ctx.push(&into, &record).await
+        ctx.push(&into, &record).await?;
+        Ok(())
     })?;
 
     Ok(BooksCrawl {

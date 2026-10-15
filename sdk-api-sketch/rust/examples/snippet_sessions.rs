@@ -85,7 +85,8 @@ async fn session_with_login(run: &Run) -> Result<Session, Error> {
                 .await?;
             page.get_by_role(AriaRole::Button.name("Login"))
                 .click()
-                .await
+                .await?;
+            Ok(())
         })
         .await
 }

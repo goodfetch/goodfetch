@@ -86,10 +86,10 @@ Filled by [API sketch: type-checked stubs and golden scenarios](https://github.c
 | [02](02-typed-extract.md) | Stagehand (TypeScript): 40 · 76 · 0/3/3 | 28 · 43 · 6/0/0 | 28 · 56 · 6/0/0 | 36 · 63 · 6/0/0 |
 | [03](03-replay-ai-steps.md) | Stagehand (TypeScript): 28 · 44 · 0/5/1 | 24 · 25 · 6/0/0 | 24 · 36 · 6/0/0 | 35 · 53 · 6/0/0 |
 | [04](04-login-human-pause.md) | Playwright (TypeScript): 21 · 42 · 1/2/3<br>Playwright (Python): 22 · 39 · 1/2/3 | 41 · 59 · 6/0/0 | 39 · 58 · 6/0/0 | 52 · 86 · 6/0/0 |
-| [05](05-two-page-crawl.md) | Crawlee (TypeScript): 31 · 69 · 3/2/3<br>Scrapy (Python): 36 · 91 · 0/5/3 | 45 · 69 · 8/0/0 | 48 · 96 · 8/0/0 | 55 · 158 · 8/0/0 |
-| [06](06-mixed-fetch-crawl.md) | Crawlee (TypeScript): 35 · 100 · 1/5/0<br>scrapy-playwright (Python): 42 · 78 · 1/5/0 | 51 · 84 · 6/0/0 | 52 · 98 · 6/0/0 | 71 · 127 · 6/0/0 |
+| [05](05-two-page-crawl.md) | Crawlee (TypeScript): 31 · 69 · 3/2/3<br>Scrapy (Python): 36 · 91 · 0/5/3 | 45 · 69 · 8/0/0 | 48 · 96 · 8/0/0 | 55 · 159 · 8/0/0 |
+| [06](06-mixed-fetch-crawl.md) | Crawlee (TypeScript): 35 · 100 · 1/5/0<br>scrapy-playwright (Python): 42 · 78 · 1/5/0 | 53 · 86 · 6/0/0 | 54 · 106 · 6/0/0 | 73 · 129 · 6/0/0 |
 | [07](07-resume-and-retry.md) | Scrapy (Python): 46 · 77 · 0/3/3<br>Crawlee (TypeScript): 35 · 43 · 0/4/2 | 37 · 42 · 6/0/0 | 37 · 53 · 6/0/0 | 44 · 90 · 6/0/0 |
-| [08](08-ai-in-crawl-handler.md) | Crawlee with Stagehand (TypeScript): 34 · 102 · 0/3/3<br>Crawlee for Python with PydanticAI: 32 · 98 · 1/4/1 | 44 · 51 · 6/0/0 | 46 · 66 · 6/0/0 | 54 · 124 · 6/0/0 |
+| [08](08-ai-in-crawl-handler.md) | Crawlee with Stagehand (TypeScript): 34 · 102 · 0/3/3<br>Crawlee for Python with PydanticAI: 32 · 98 · 1/4/1 | 44 · 51 · 6/0/0 | 46 · 66 · 6/0/0 | 54 · 125 · 6/0/0 |
 | [09](09-ai-in-playwright-program.md) | Stagehand 3 with Playwright (TypeScript): 13 · 24 · 1/2/2 | 10 · 17 · 5/0/0 | 13 · 24 · 5/0/0 | 21 · 40 · 5/0/0 |
 | [10](10-offline-crawl-tests.md) | Scrapy (Python): 16 · 34 · 0/3/1 | 31 · 47 · 5/0/0 | 32 · 59 · 5/0/0 | 39 · 86 · 5/0/0 |
 | [11](11-agent-goal.md) | Browser Use (Python): 29 · 64 · 0/6/1 | 35 · 40 · 7/0/0 | 38 · 63 · 7/0/0 | 41 · 74 · 7/0/0 |

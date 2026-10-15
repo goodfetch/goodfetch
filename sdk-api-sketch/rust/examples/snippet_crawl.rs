@@ -77,6 +77,10 @@ async fn scenario_05() -> Result<(), Error> {
         let Some(pounds) = price.strip_prefix('£') else {
             return Err(ctx.skip(&format!("no price in {price:?}"))); // `skipped`, reason `handler`
         };
+        // The program's own error: `?` turns any error into the handler's `BoxError`, and a price
+        // that is not a number ends the request `failed` with `handler_failed`, naming the
+        // `ParseFloatError` (ADR 0109).
+        pounds.parse::<f64>()?;
         // Staged with the attempt, committed with it (ADR 0103).
         ctx.push(
             &books,
@@ -88,7 +92,8 @@ async fn scenario_05() -> Result<(), Error> {
                 category: ctx.request().payload().category.clone(),
             },
         )
-        .await
+        .await?;
+        Ok(())
     })?;
 
     let foxhound = Foxhound::connect(ConnectOptions::default()).await?;

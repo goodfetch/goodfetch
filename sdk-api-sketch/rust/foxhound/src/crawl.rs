@@ -32,8 +32,8 @@ use crate::Schema;
 use crate::data::{Dataset, Label};
 use crate::lifecycle::{Page, Run};
 use crate::page::{Locator, Response};
-use crate::results::Error;
-use crate::time::{CallFuture, Limits};
+use crate::results::{BoxError, Error};
+use crate::time::{Call, CallFuture, Limits, UrlMatcher};
 
 /// A URL pattern matched in the engine (ADR 0081). No predicate: every link would cross the
 /// connection.
@@ -74,7 +74,7 @@ pub enum FetchTier {
 /// future it returns, so the `Crawl` is `Send + Sync` and [`Crawl::serve`]'s future is `Send`
 /// (ADR 0112). Its Hooks and login steps are held the same way.
 type HeldHandler<'a> = Box<
-    dyn Fn(CrawlContext<serde_json::Value>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>
+    dyn Fn(CrawlContext<serde_json::Value>) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + 'a>>
         + Send
         + Sync
         + 'a,
@@ -129,11 +129,14 @@ impl<'a> Crawl<'a> {
     /// cloned for each request and called once, and it and the future it returns are `Send`
     /// (ADR 0112): an `async |ctx| { … }` closure borrowing the declaring function's locals, or an
     /// `async move` one owning clones of the handles it uses. Shared mutable state is an `Arc` of a
-    /// lock or an atomic, as in any handler run concurrently.
+    /// lock or an atomic, as in any handler run concurrently. The handler returns any error of the
+    /// program as a [`BoxError`] (ADR 0109): `?` on a `ParseIntError` or a `serde_json::Error`
+    /// ends the attempt with `handler_failed`, as an exception does in TypeScript and Python, while
+    /// the SDK's own [`Error`] keeps its code.
     pub fn handle<P, F, Fut>(&mut self, label: &Label<P>, handler: F) -> Result<(), Error>
     where
         F: FnOnce(CrawlContext<P>) -> Fut + Clone + Send + Sync + 'a,
-        Fut: Future<Output = Result<(), Error>> + Send + 'a,
+        Fut: Future<Output = Result<(), BoxError>> + Send + 'a,
     {
         let _ = (label, handler);
         unimplemented!()
@@ -144,7 +147,7 @@ impl<'a> Crawl<'a> {
     pub fn login<F, Fut>(&mut self, login: F)
     where
         F: FnOnce(Page) -> Fut + Clone + Send + Sync + 'a,
-        Fut: Future<Output = Result<(), Error>> + Send + 'a,
+        Fut: Future<Output = Result<(), BoxError>> + Send + 'a,
     {
         let _ = login;
         unimplemented!()
@@ -155,8 +158,9 @@ impl<'a> Crawl<'a> {
     /// returns its report (ADR 0102): serving is what lets a crawl finish. The future is `Send`, so
     /// it runs in an axum handler or a spawned task (ADR 0112). Dropping it is the
     /// program's own stop: it sends `$/cancel`, and the requests it leased return to pending
-    /// without counting an attempt. A handler's panic is caught and ends its attempt with
-    /// `handler_failed`, as an exception does in TypeScript and Python.
+    /// without counting an attempt. A handler's error that is not the SDK's own ends its attempt with
+    /// `handler_failed` (ADR 0109), and so does a handler's panic, caught here, as an exception does
+    /// in TypeScript and Python; a Hook's or a login step's panic is its own error too.
     pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
@@ -250,7 +254,7 @@ impl<'a, P> LabelDeclaration<'a, P> {
     pub fn login<F, Fut>(self, login: F) -> Self
     where
         F: FnOnce(Page) -> Fut + Clone + Send + Sync + 'a,
-        Fut: Future<Output = Result<(), Error>> + Send + 'a,
+        Fut: Future<Output = Result<(), BoxError>> + Send + 'a,
     {
         let _ = login;
         unimplemented!()
@@ -383,6 +387,27 @@ impl<P> CrawlContext<P> {
         unimplemented!()
     }
 
+    /// The first response kept for this attempt whose URL matches (ADR 0110): kept because its
+    /// Label's `fetch::kept_responses::URLS` names it, on the request's page and its frames, from
+    /// the start of its navigation, so one the page loaded before the handler ran is found. Waits
+    /// for one under `timeout.wait`, as a waiter armed when the navigation started, so it needs no
+    /// `during`, and resolves once its body has arrived, so the body never fails unless past
+    /// `fetch::kept_responses::MAX_SIZE` (`body_unavailable`). Past the timeout,
+    /// `deadline_exceeded` naming the matcher; on a Label that keeps nothing, `responses_not_kept`
+    /// at once. On `http` and `browser_fetch` it escalates (`browser_required` under a forced
+    /// tier); `discovered_api` answers from its replayed calls.
+    pub fn kept_response(&self, url: impl Into<UrlMatcher>) -> Call<Response> {
+        let _ = url.into();
+        unimplemented!()
+    }
+
+    /// The responses kept for this attempt so far, in arrival order, without waiting; `url`
+    /// filters them. Same rules as [`CrawlContext::kept_response`].
+    pub fn kept_responses(&self, url: Option<UrlMatcher>) -> Call<Vec<Response>> {
+        let _ = url;
+        unimplemented!()
+    }
+
     /// The tier that fetched this attempt.
     pub fn tier(&self) -> &FetchTier {
         unimplemented!()
@@ -396,7 +421,7 @@ impl<P> CrawlContext<P> {
     where
         T: Send + 'static,
         F: FnOnce(T) -> Fut + Clone + Send + Sync + 'static,
-        Fut: Future<Output = Result<(), Error>> + Send + 'static,
+        Fut: Future<Output = Result<(), BoxError>> + Send + 'static,
     {
         let _ = (stream, handler);
         unimplemented!()
@@ -434,15 +459,16 @@ impl<P> CrawlContext<P> {
     }
 
     /// Ends the request `skipped`, with the reason `handler` and this message: return it,
-    /// `return Err(ctx.skip("…"))`. Its code is `attempt_ended`, which the helper consumes.
-    pub fn skip(&self, message: &str) -> Error {
+    /// `return Err(ctx.skip("…"))`. It holds the SDK's [`Error`] with the code `attempt_ended`,
+    /// which the helper consumes, boxed as the handler returns it (ADR 0109).
+    pub fn skip(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }
 
     /// Ends this attempt with `retry_requested`, retried under `crawl::retry::MAX`: return it,
     /// `return Err(ctx.retry("…"))`.
-    pub fn retry(&self, message: &str) -> Error {
+    pub fn retry(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }
@@ -629,8 +655,8 @@ impl CrawlCall {
         unimplemented!()
     }
 
-    /// Ends the attempt with the handler's result.
-    pub async fn finish(self, result: Result<(), Error>) -> Result<(), Error> {
+    /// Ends the attempt with the handler's result, its error read as a handler's (ADR 0109).
+    pub async fn finish(self, result: Result<(), BoxError>) -> Result<(), Error> {
         let _ = result;
         unimplemented!()
     }

@@ -31,7 +31,7 @@ pub mod time;
 
 pub use agent::{
     AgentAction, AgentActionOutcome, AgentCall, AgentResult, AgentStep, AgentStepOrigin, AgentTask,
-    AgentTaskProgress, AgentTool, AgentToolCall, AgentToolFailed, AgentToolInvalid, BoxError,
+    AgentTaskProgress, AgentTool, AgentToolCall, AgentToolFailed, AgentToolInvalid,
     ConfirmationCategory, SuccessCheckThrew,
 };
 pub use ai::{
@@ -74,13 +74,13 @@ pub use page::{
     ResourceType, Response, Route, Screenshot, SelectOption, TextMatch, Touchscreen,
     WaitForFunction, WebError, WebSocket, WebSocketPayload, World,
 };
-pub use plugins::{HandlerError, ProxyAnswer, ProxyCall, ProxyRequest, SdkHandlerFailed};
+pub use plugins::{ProxyAnswer, ProxyCall, ProxyRequest, SdkHandlerFailed};
 pub use recording::{
     Recording, RecordingInvalid, RecordingMiss, RecordingMode, RecordingReport,
     ResponseNotRecorded,
 };
 pub use results::{
-    AiWorkResult, BlockCause, Blocked, CallCancelled, CancelledBy, Claim, ClosedValue,
+    AiWorkResult, BlockCause, Blocked, BoxError, CallCancelled, CancelledBy, Claim, ClosedValue,
     DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed,
     FileWriteReason, FileWriteSide, LimitSource, NotVerified, PartialOutput, PathNotWritable,
     Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,

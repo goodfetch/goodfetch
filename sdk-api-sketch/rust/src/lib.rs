@@ -39,9 +39,9 @@ pub use hooks::{
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Session, Start};
 pub use models::{
     AppliedLimit, LimitAmount, LimitScope, LimitSetBy, ModelCall, ModelCapabilityMissing, ModelContentPart, ModelDeclaration,
-    ModelFailure, ModelFormat, ModelHandlerFailed, ModelMessage, ModelOutputInvalid, ModelProvider, ModelReference, ModelRequest,
-    ModelResponse, ModelTool, ModelToolCall, ModelUnavailable, ModelUsage, ModelUsageOf, ReportedTokens, RunUsage, StructuredOutput,
-    StructuredOutputStrategy, UnavailableReason,
+    ModelFailure, ModelFormat, ModelHandlerFailed, ModelMessage, ModelOutputInvalid, ModelPriceUnknown, ModelProvider, ModelReference, ModelRequest,
+    ModelResponse, ModelTool, ModelToolCall, ModelToolChoice, ModelUnavailable, ModelUsage, ModelUsageOf, ReportedTokens, RunUsage, StructuredOutput,
+    StructuredOutputStrategy, PriceMissing, UnavailableReason,
 };
 pub use output::{
     Compression, DatasetKeyInvalid, DatasetRecord, Export, ExportCall, ExportFormat, KeyValueStore, RecordCounts, RecordInvalid, RejectedRecord,

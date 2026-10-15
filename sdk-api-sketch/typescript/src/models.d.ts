@@ -47,8 +47,11 @@ export type StructuredOutputStrategy = "native" | "tool" | "prompt";
 /**
  * What a model can take and produce, declared rather than inferred from its name. The shipped list
  * covers the tested models (ADR 0065); a model it does not know is text only, gets structured output
- * from the top of the ladder, and has no price. Its price is the price table's, set only in
- * configuration, so it is no key here: a price set in code fails with `setting_locked`.
+ * from the top of the ladder (`prompt` for the program's own provider), and has no price. Its price
+ * is the price table's, overridden only in configuration under
+ * `ai.providers.<name>.models.<id>.price`, so it is no key here: a price set in code fails with
+ * `setting_locked`. A model ID holding a dot or a slash is one quoted segment of a key:
+ * `ai.providers.lab.models."gpt-5.1".image_input`.
  */
 export interface ModelDeclaration {
   readonly contextWindow?: number;
@@ -61,10 +64,12 @@ export interface ModelDeclaration {
 
 /**
  * `ai.providers.<name>`: a Model provider the program declares, or a built-in it changes (a proxy in
- * front of OpenAI). `apiKey` and secret `headers` go only to `baseUrl`. A built-in's default key (its
- * conventional variable, such as `env:OPENAI_API_KEY`) goes only to its own address, so a built-in
- * pointed elsewhere sends none. A Client acting for a model never sets `apiKey`, `headers` or
- * `baseUrl` (`setting_locked`).
+ * front of OpenAI), at the connection, a Run or a Session. `apiKey` and secret `headers` go only to
+ * `baseUrl`. A built-in's default key (its conventional variable, such as `env:OPENAI_API_KEY`) goes
+ * only to its own address, so a built-in pointed elsewhere sends none. `apiKey`, `headers` and
+ * `baseUrl` are set by the program's own code, configuration or an Operator policy: a Recipe and a
+ * Client acting for a model, an Integration included, never set them (`setting_locked`). For the
+ * program's own provider, only `models` applies.
  */
 export interface ModelProviderSettings {
   readonly format?: ModelFormat;
@@ -107,6 +112,9 @@ export interface ModelTool {
   readonly inputSchema: JsonSchema;
 }
 
+/** Whether the answer must call a tool: `tool` is the forced tool call of the `tool` strategy. */
+export type ModelToolChoice = { readonly type: "auto" } | { readonly type: "none" } | { readonly type: "tool"; readonly name: string };
+
 export interface ModelToolCall {
   readonly id: string;
   readonly name: string;
@@ -120,6 +128,7 @@ export interface ModelRequest {
   readonly model: string;
   readonly messages: readonly ModelMessage[];
   readonly tools: readonly ModelTool[];
+  readonly toolChoice: ModelToolChoice;
   /** Set when the strategy is `native`: the answer must be JSON fitting it. */
   readonly responseSchema: JsonSchema | null;
   readonly maxOutputTokens: number;
@@ -127,7 +136,7 @@ export interface ModelRequest {
   readonly signal: AbortSignal;
 }
 
-/** The token counts a handler reports: input and output are required, as Stagehand requires of custom models. */
+/** The token counts a handler reports: input and output are required, so a Limit counts every call. */
 export interface ReportedTokens {
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -136,6 +145,7 @@ export interface ReportedTokens {
   readonly reasoningTokens?: number;
 }
 
+/** The program's answer; a refusal is `finishReason: "refusal"`, which the engine raises as `model_declined`. */
 export interface ModelResponse {
   readonly text: string;
   readonly toolCalls?: readonly ModelToolCall[];
@@ -145,7 +155,8 @@ export interface ModelResponse {
 
 /**
  * Answers model calls for the provider name it is registered under, where the program's own code runs
- * (ADR 0081). The engine journals, counts and caps each call (ADR 0012). A `GoodfetchError` it throws
+ * (ADR 0081). The engine journals, counts and caps each call (ADR 0012); it gets the `prompt` strategy
+ * unless its models declare others, and only configuration prices it. A `GoodfetchError` it throws
  * keeps its code (a `ModelUnavailableError` is retried as a provider's would be); any other exception
  * is `model_handler_failed`.
  */
@@ -173,8 +184,8 @@ export interface TokenCounts {
   readonly reasoningTokens: number;
   /**
    * Their price from the price table: a list-price estimate, never a bill, in the table's currency
-   * (USD as shipped). `null` when part of it has no price, or needs a rate between currencies the
-   * table lacks: never a partial sum.
+   * (USD as shipped), other currencies converted only through the table's fixed rates. `null` when
+   * part of it has no price, or needs a rate the table lacks: never a partial sum.
    */
   readonly price: Money | null;
 }
@@ -231,7 +242,11 @@ export interface RunUsage {
   readonly proxyBytes: number;
   readonly paidSolves: number;
   readonly paidFetches: number;
-  /** The price of all priced Usage; `null` as `TokenCounts.price`. */
+  /**
+   * The price of the Usage third parties charge for: model calls, metered proxies, paid solves and
+   * Paid fetches; `null` as `TokenCounts.price` when any of it has no price or rate. Browser time and
+   * an unmetered proxy carry none.
+   */
   readonly price: Money | null;
   readonly limits: readonly AppliedLimit[];
   /** ADR 0041's mark: the Run can spend money with nothing capping it. */
@@ -279,17 +294,20 @@ export declare class ModelUnauthorizedError extends RefusedError {
   readonly details: ModelFailureDetails;
 }
 
-/** The provider refused for credit, quota or billing, such as an exhausted free credit. Not retryable. */
-export declare class ModelQuotaExhaustedError extends RefusedError {
-  readonly code: "model_quota_exhausted";
+/** The provider refused because the account has no funds: no credit left, an unpaid account, a used-up free tier. Not retryable. */
+export declare class ModelFundsExhaustedError extends RefusedError {
+  readonly code: "model_funds_exhausted";
   readonly retryable: false;
   readonly details: ModelFailureDetails;
 }
 
-/** A currency Limit applies and the price table has no price for the model; `fix` names the configuration key. */
+/**
+ * A currency Limit applies and the model's price cannot be stated in its currency: the price table has
+ * no price for the model, or no fixed rate to the Limit's currency. `fix` names the configuration key.
+ */
 export declare class ModelPriceUnknownError extends RefusedError {
   readonly code: "model_price_unknown";
-  readonly details: { readonly model: ModelReference };
+  readonly details: { readonly model: ModelReference; readonly missing: "price" | "rate" | (string & {}) };
 }
 
 /** Unreachable, a 5xx, or rate limited after the engine's retries. Retryable. */

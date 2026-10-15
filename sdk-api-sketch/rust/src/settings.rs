@@ -114,8 +114,8 @@ pub mod timeout {
     pub const HUMAN_PAUSE: Setting<Option<Duration>> = Setting::new("timeout.human_pause");
     /// An AI verb from its call to its return, model calls and a Repair included: 120 s (ADR 0091).
     pub const AI: Setting<Option<Duration>> = Setting::new("timeout.ai");
-    /// One attempt of one model request, the program's own provider included: 60 s. It nests in
-    /// the call that made it (ADR 0101).
+    /// One attempt of one model request, the program's own provider included: 60 s. An attempt past
+    /// it is retried, within the call that made it (ADR 0101).
     pub const MODEL: Setting<Option<Duration>> = Setting::new("timeout.model");
 }
 

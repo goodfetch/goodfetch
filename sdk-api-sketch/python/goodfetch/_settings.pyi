@@ -42,8 +42,8 @@ class TimeoutSettings(TypedDict, total=False):
     ai: timedelta | None
     """`timeout.ai`: an AI verb from its call to its return, model calls and a Repair included, 120 s (ADR 0091)."""
     model: timedelta | None
-    """`timeout.model`: one attempt of one model request, a handler's included, 60 s; it nests in the call that made it
-    (ADR 0101)."""
+    """`timeout.model`: one attempt of one model request, the program's own provider included, 60 s; an attempt past it
+    is retried, within the call that made it (ADR 0101)."""
 
 class RunTimeoutSettings(TypedDict, total=False):
     """The phases a Run or a Session can set: not `run`, which starting the Run spells as its `timeout` (S2)."""

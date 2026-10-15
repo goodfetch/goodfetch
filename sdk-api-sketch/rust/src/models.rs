@@ -95,7 +95,9 @@ pub enum StructuredOutput {
 }
 
 /// What a model can take and produce, declared rather than inferred from its name. Its price is the
-/// price table's, set only in configuration, so it has no method here.
+/// price table's, overridden only in configuration under `ai.providers.<name>.models.<id>.price`, so
+/// it has no method here. A model ID holding a dot or a slash is one quoted segment of a key:
+/// `ai.providers.lab.models."gpt-5.1".image_input`.
 #[derive(Debug, Clone, Default)]
 #[must_use]
 pub struct ModelDeclaration {
@@ -103,7 +105,8 @@ pub struct ModelDeclaration {
 }
 
 impl ModelDeclaration {
-    /// Nothing declared: text only, structured output from the top of the ladder, no price.
+    /// Nothing declared: text only, structured output from the top of the ladder (`Prompt` for the
+    /// program's own provider), no price.
     pub fn new() -> Self {
         Self::default()
     }
@@ -120,13 +123,15 @@ impl ModelDeclaration {
         unimplemented!()
     }
 
-    /// The model takes images.
-    pub fn image_input(self) -> Self {
+    /// Whether the model takes images.
+    pub fn image_input(self, takes: bool) -> Self {
+        let _ = takes;
         unimplemented!()
     }
 
-    /// The model calls tools.
-    pub fn tool_calls(self) -> Self {
+    /// Whether the model calls tools.
+    pub fn tool_calls(self, calls: bool) -> Self {
+        let _ = calls;
         unimplemented!()
     }
 
@@ -137,26 +142,46 @@ impl ModelDeclaration {
     }
 }
 
-/// `ai.providers.<name>`: a Model provider the program declares, or a built-in it changes. Its key
-/// and secret headers go only to its base URL; a built-in's default key goes only to its own
-/// address, so a built-in pointed elsewhere sends none. A Client acting for a model never sets the
-/// key, the headers or the base URL (`setting_locked`).
-#[derive(Debug, Clone)]
+/// `ai.providers.<name>`: a Model provider the program declares, or a built-in it changes, at the
+/// connection, a Run or a Session; what is left unset keeps the built-in's. Its key and secret
+/// headers go only to its base URL; a built-in's default key goes only to its own address, so a
+/// built-in pointed elsewhere sends none. The key, the headers and the base URL are set by the
+/// program's own code, configuration or an Operator policy: a Recipe and a Client acting for a model,
+/// an Integration included, never set them (`setting_locked`). For the program's own provider, only
+/// [`ModelProvider::model`] applies.
+#[derive(Debug, Clone, Default)]
 #[must_use]
 pub struct ModelProvider {
     _private: (),
 }
 
 impl ModelProvider {
-    /// A provider speaking `format` at `base_url`.
-    pub fn new(format: ModelFormat, base_url: &str) -> Self {
-        let _ = (format, base_url);
+    /// Nothing set: a built-in's own values, or, for a new name, a declaration still missing its
+    /// format and base URL (`setting_invalid` where its scope opens).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The request format.
+    pub fn format(self, format: ModelFormat) -> Self {
+        let _ = format;
+        unimplemented!()
+    }
+
+    /// The base URL.
+    pub fn base_url(self, url: &str) -> Self {
+        let _ = url;
         unimplemented!()
     }
 
     /// The key, a Secret reference resolved by the engine (ADR 0092).
     pub fn api_key(self, key: SecretReference) -> Self {
         let _ = key;
+        unimplemented!()
+    }
+
+    /// Sends no key, not even a built-in's default.
+    pub fn no_api_key(self) -> Self {
         unimplemented!()
     }
 
@@ -234,6 +259,18 @@ pub struct ModelTool {
     pub input_schema: serde_json::Value,
 }
 
+/// Whether the answer must call a tool.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ModelToolChoice {
+    /// The model chooses.
+    Auto,
+    /// No tool.
+    None,
+    /// This tool: the forced tool call of the `Tool` strategy.
+    Tool(String),
+}
+
 /// A tool call the model made.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -256,13 +293,15 @@ pub struct ModelRequest {
     pub messages: Vec<ModelMessage>,
     /// The tools offered.
     pub tools: Vec<ModelTool>,
+    /// Whether the answer must call one.
+    pub tool_choice: ModelToolChoice,
     /// Set when the strategy is native: the answer must be JSON fitting it.
     pub response_schema: Option<serde_json::Value>,
     /// The most output tokens the answer may hold.
     pub max_output_tokens: u64,
 }
 
-/// The token counts a handler reports: input and output are required.
+/// The token counts the program reports: input and output are required, so a Limit counts every call.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct ReportedTokens {
@@ -313,11 +352,19 @@ impl ModelResponse {
     pub fn truncated(self) -> Self {
         unimplemented!()
     }
+
+    /// The model declined to answer, which the engine raises as `model_declined`.
+    pub fn refusal(reason: String, usage: ReportedTokens) -> Self {
+        let _ = (reason, usage);
+        unimplemented!()
+    }
 }
 
 /// One model call the engine asks the program to answer. The engine journals, counts and caps it
 /// (ADR 0012) and bounds it with `timeout.model`; dropped unanswered, it fails as the provider being
-/// unreachable.
+/// unreachable. The provider gets the `Prompt` strategy unless its models declare others, and only
+/// configuration prices it. `model_handler_failed` is TypeScript's and Python's: here a call fails
+/// with a Goodfetch [`Error`].
 #[derive(Debug)]
 pub struct ModelCall {
     _private: (),
@@ -331,6 +378,12 @@ impl ModelCall {
 
     /// The Run asking.
     pub fn run_id(&self) -> &str {
+        unimplemented!()
+    }
+
+    /// Resolves when the engine gives up on the call (`timeout.model` passed, or the call was
+    /// cancelled), so the program can stop working on it, as with `tokio::select!`.
+    pub async fn cancelled(&self) {
         unimplemented!()
     }
 
@@ -405,8 +458,8 @@ pub struct ModelUsage {
     /// Part of `output_tokens`.
     pub reasoning_tokens: u64,
     /// Their price from the price table: a list-price estimate, never a bill, in the table's
-    /// currency (USD as shipped). `None` when part of it has no price, or needs a rate between
-    /// currencies the table lacks: never a partial sum.
+    /// currency (USD as shipped), other currencies converted only through the table's fixed rates.
+    /// `None` when part of it has no price, or needs a rate the table lacks: never a partial sum.
     pub price: Option<Money>,
     /// The same per Model reference, in first-use order.
     pub by_model: Vec<ModelUsageOf>,
@@ -534,7 +587,9 @@ pub struct RunUsage {
     pub paid_solves: u64,
     /// Paid fetches.
     pub paid_fetches: u64,
-    /// The price of all priced Usage; `None` as [`ModelUsage::price`].
+    /// The price of the Usage third parties charge for: model calls, metered proxies, paid solves and
+    /// Paid fetches; `None` as [`ModelUsage::price`] when any of it has no price or rate. Browser
+    /// time and an unmetered proxy carry none.
     pub price: Option<Money>,
     /// Each Limit that applies to the Run.
     pub limits: Vec<AppliedLimit>,
@@ -562,6 +617,28 @@ pub struct ModelFailure {
     pub status: Option<u16>,
     /// The provider's request ID, when it sent one.
     pub request_id: Option<String>,
+}
+
+/// What the price table lacks for `model_price_unknown`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PriceMissing {
+    /// The model's price.
+    Price,
+    /// A fixed rate from the model's currency to the Limit's.
+    Rate,
+    /// A value this SDK does not know, as received.
+    Unknown(String),
+}
+
+/// Details of `model_price_unknown`: `fix` names the configuration key.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ModelPriceUnknown {
+    /// The Model reference.
+    pub model: ModelReference,
+    /// What the price table lacks.
+    pub missing: PriceMissing,
 }
 
 /// Details of `model_capability_missing`: `fix` names the key that declares it.

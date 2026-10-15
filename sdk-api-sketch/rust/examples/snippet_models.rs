@@ -110,12 +110,14 @@ async fn in_house_provider(gf: &Goodfetch) -> Result<(), Error> {
 /// A gateway, a declared OpenAI-compatible server, and capabilities declared rather than guessed.
 /// Prices are set only in configuration.
 async fn providers() -> Result<(), Error> {
-    let lab = ModelProvider::new(ModelFormat::OpenAi, "http://gpu-box.internal:8000/v1")
+    let lab = ModelProvider::new()
+        .format(ModelFormat::OpenAi)
+        .base_url("http://gpu-box.internal:8000/v1")
         .api_key("env:LAB_VLLM_KEY".parse()?) // a Secret reference, sent only to the base URL
         .model(
             "qwen3-vl-32b",
             ModelDeclaration::new()
-                .image_input()
+                .image_input(true)
                 .context_window(131_072)
                 .strategies(&[
                     StructuredOutputStrategy::Native,
@@ -180,7 +182,7 @@ async fn with_outage(page: &Page) -> Result<(), Error> {
             }
             let _fatal = matches!(
                 error.code(),
-                ErrorCode::ModelUnauthorized | ErrorCode::ModelQuotaExhausted
+                ErrorCode::ModelUnauthorized | ErrorCode::ModelFundsExhausted
             );
             Err(error)
         }

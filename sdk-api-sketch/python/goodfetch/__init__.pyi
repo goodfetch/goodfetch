@@ -179,12 +179,13 @@ from goodfetch._models import ModelPriceUnknownDetails as ModelPriceUnknownDetai
 from goodfetch._models import ModelPriceUnknownError as ModelPriceUnknownError
 from goodfetch._models import ModelProviderHandler as ModelProviderHandler
 from goodfetch._models import ModelProviderSettings as ModelProviderSettings
-from goodfetch._models import ModelQuotaExhaustedError as ModelQuotaExhaustedError
+from goodfetch._models import ModelFundsExhaustedError as ModelFundsExhaustedError
 from goodfetch._models import ModelReference as ModelReference
 from goodfetch._models import ModelRequest as ModelRequest
 from goodfetch._models import ModelResponse as ModelResponse
 from goodfetch._models import ModelTool as ModelTool
 from goodfetch._models import ModelToolCall as ModelToolCall
+from goodfetch._models import ModelToolChoice as ModelToolChoice
 from goodfetch._models import ModelUnauthorizedError as ModelUnauthorizedError
 from goodfetch._models import ModelUnavailableDetails as ModelUnavailableDetails
 from goodfetch._models import ModelUnavailableError as ModelUnavailableError

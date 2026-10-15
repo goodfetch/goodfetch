@@ -37,7 +37,7 @@ export interface TimeoutSettings {
   readonly humanPause?: Timeout;
   /** `timeout.ai`: an AI verb from its call to its return, model calls and a Repair included, 120 s (ADR 0091). */
   readonly ai?: Timeout;
-  /** `timeout.model`: one attempt of one model request, an SDK handler's included, 60 s; it nests in the call that made it (ADR 0101). */
+  /** `timeout.model`: one attempt of one model request, the program's own provider included, 60 s; an attempt past it is retried, within the call that made it (ADR 0101). */
   readonly model?: Timeout;
 }
 

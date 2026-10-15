@@ -69,7 +69,7 @@ KnownErrorCode: TypeAlias = Literal[
     "model_capability_missing",
     "model_handler_failed",
     "model_unauthorized",
-    "model_quota_exhausted",
+    "model_funds_exhausted",
     "model_price_unknown",
     "model_unavailable",
     "model_declined",

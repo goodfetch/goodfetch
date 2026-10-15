@@ -34,6 +34,10 @@ class Book(BaseModel):
     description: str
 
 
+class Titles(BaseModel):
+    titles: list[str]
+
+
 def usage_fields(usage: TokenCounts) -> dict[str, object]:
     price = "unpriced" if usage.price is None else f"{usage.price.amount} {usage.price.currency}"
     return {"calls": usage.calls, "tokens": usage.tokens, "cached_input": usage.cache_read_tokens, "price": price}
@@ -99,6 +103,8 @@ async def providers() -> None:
             page = await run.new_page()
             await page.goto("https://books.toscrape.com/")
             await page.act("open the Travel category")
+            # The program's own model for one call: it gets the prompt strategy, and only configuration prices it.
+            await page.extract("the books listed", Titles, model="inhouse/ranker-v2")
 
 
 async def capped_run(gf: AsyncGoodfetch) -> None:
@@ -121,11 +127,11 @@ async def with_outage(page: AsyncPage) -> None:
         await page.act("add the first book to the basket")
     except ModelUnavailableError as error:
         if error.details.reason == "rate_limited":
-            log.warning("rate limited by %s, retry in %s s", error.details.model, error.details.retry_after)
+            log.warning("rate limited by %s, retry after %s", error.details.model, error.details.retry_after)
             return
         raise
     except GoodfetchError as error:
-        if error.code in ("model_unauthorized", "model_quota_exhausted"):
+        if error.code in ("model_unauthorized", "model_funds_exhausted"):
             log.error("%s", error.message)
         raise
 

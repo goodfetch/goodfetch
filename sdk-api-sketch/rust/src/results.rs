@@ -194,14 +194,15 @@ pub enum ErrorCode {
     ModelNotFound,
     /// `model_capability_missing`: the operation needs a capability the model does not declare.
     ModelCapabilityMissing,
-    /// `model_handler_failed`: the program's own Model provider failed with an error that is not a
-    /// Goodfetch [`Error`].
+    /// `model_handler_failed`: the program's own Model provider raised an exception that is not a
+    /// Goodfetch error; TypeScript's and Python's, since a Rust program fails a call with an [`Error`].
     ModelHandlerFailed,
     /// `model_unauthorized`, a refusal: the provider rejected the key. Not retryable.
     ModelUnauthorized,
-    /// `model_quota_exhausted`, a refusal: credit, quota or billing. Not retryable.
-    ModelQuotaExhausted,
-    /// `model_price_unknown`, a refusal: a currency Limit applies and the model has no price.
+    /// `model_funds_exhausted`, a refusal: the provider account has no funds left. Not retryable.
+    ModelFundsExhausted,
+    /// `model_price_unknown`, a refusal: a currency Limit applies and the model's price cannot be
+    /// stated in its currency (no price, or no fixed rate).
     ModelPriceUnknown,
     /// `model_unavailable`: unreachable, a 5xx, or rate limited after the engine's retries. Retryable.
     ModelUnavailable,
@@ -474,9 +475,11 @@ pub enum ErrorDetails {
     EffectUncertain(crate::ai::EffectUncertain),
     /// Of `effect_not_confirmed`.
     EffectNotConfirmed(crate::ai::EffectNotConfirmed),
-    /// Of `model_not_found`, `model_unauthorized`, `model_quota_exhausted`, `model_price_unknown`,
-    /// `model_declined` and `model_context_exceeded` (ADR 0101).
+    /// Of `model_not_found`, `model_unauthorized`, `model_funds_exhausted`, `model_declined` and
+    /// `model_context_exceeded` (ADR 0101).
     ModelFailure(crate::models::ModelFailure),
+    /// Of `model_price_unknown`.
+    ModelPriceUnknown(crate::models::ModelPriceUnknown),
     /// Of `model_capability_missing`.
     ModelCapabilityMissing(crate::models::ModelCapabilityMissing),
     /// Of `model_handler_failed`.

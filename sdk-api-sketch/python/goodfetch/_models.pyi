@@ -43,8 +43,10 @@ class ModelDeclaration(TypedDict, total=False):
     """What a model can take and produce, declared rather than inferred from its name.
 
     The shipped list covers the tested models (ADR 0065); a model it does not know is text only, gets structured output
-    from the top of the ladder, and has no price. Its price is the price table's, set only in configuration, so it is no
-    key here: a price set in code raises `SettingLockedError`."""
+    from the top of the ladder (`prompt` for the program's own provider), and has no price. Its price is the price
+    table's, overridden only in configuration under `ai.providers.<name>.models.<id>.price`, so it is no key here: a
+    price set in code raises `SettingLockedError`. A model ID holding a dot or a slash is one quoted segment of a key:
+    `ai.providers.lab.models."gpt-5.1".image_input`."""
 
     context_window: int
     max_output_tokens: int
@@ -56,9 +58,11 @@ class ModelDeclaration(TypedDict, total=False):
 class ModelProviderSettings(TypedDict, total=False):
     """`ai.providers.<name>`: a Model provider the program declares, or a built-in it changes.
 
-    `api_key` and secret `headers` go only to `base_url`. A built-in's default key (its conventional variable, such as
-    `env:OPENAI_API_KEY`) goes only to its own address, so a built-in pointed elsewhere sends none. A Client acting for a
-    model never sets `api_key`, `headers` or `base_url` (`SettingLockedError`)."""
+    Declared at the connection, a Run or a Session. `api_key` and secret `headers` go only to `base_url`. A built-in's
+    default key (its conventional variable, such as `env:OPENAI_API_KEY`) goes only to its own address, so a built-in
+    pointed elsewhere sends none. `api_key`, `headers` and `base_url` are set by the program's own code, configuration
+    or an Operator policy: a Recipe and a Client acting for a model, an Integration included, never set them
+    (`SettingLockedError`). For the program's own provider, only `models` applies."""
 
     format: ModelFormat
     base_url: str
@@ -117,6 +121,14 @@ class ModelTool:
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class ModelToolChoice:
+    """Whether the answer must call a tool: `tool`, with its name, is the forced tool call of the `tool` strategy."""
+
+    type: Literal["auto", "none", "tool"]
+    name: str | None = None
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class ModelRequest:
     """What the engine asks a handler: Goodfetch's own types, so no provider SDK is needed (G7)."""
 
@@ -124,6 +136,7 @@ class ModelRequest:
     """The model ID after the provider's name in the Model reference."""
     messages: Sequence[ModelMessage]
     tools: Sequence[ModelTool]
+    tool_choice: ModelToolChoice
     response_schema: JsonSchema | None
     """Set when the strategy is `native`: the answer must be JSON fitting it."""
     max_output_tokens: int
@@ -131,7 +144,7 @@ class ModelRequest:
 @final
 @dataclass(frozen=True, kw_only=True)
 class ReportedTokens:
-    """The token counts a handler reports: input and output are required, as Stagehand requires of custom models."""
+    """The token counts a handler reports: input and output are required, so a Limit counts every call."""
 
     input_tokens: int
     output_tokens: int
@@ -142,6 +155,8 @@ class ReportedTokens:
 @final
 @dataclass(frozen=True, kw_only=True)
 class ModelResponse:
+    """The program's answer; a refusal is `finish_reason="refusal"`, which the engine raises as `ModelDeclinedError`."""
+
     text: str
     finish_reason: Literal["stop", "length", "tool_calls", "refusal"] | str
     usage: ReportedTokens
@@ -149,8 +164,9 @@ class ModelResponse:
 
 AsyncModelProviderHandler: TypeAlias = Callable[[ModelRequest], Awaitable[ModelResponse]]
 """Answers model calls on the program's own event loop (ADR 0081); its task is cancelled when `timeout.model` passes or
-the call is cancelled. A `GoodfetchError` it raises keeps its code (a `ModelUnavailableError` is retried as a
-provider's would be); any other exception is `ModelHandlerFailedError`."""
+the call is cancelled. It gets the `prompt` strategy unless its models declare others, and only configuration prices it.
+A `GoodfetchError` it raises keeps its code (a `ModelUnavailableError` is retried as a provider's would be); any other
+exception is `ModelHandlerFailedError`."""
 
 ModelProviderHandler: TypeAlias = Callable[[ModelRequest], ModelResponse]
 """The sync client's form, run where the program's own code runs (ADR 0081)."""
@@ -175,8 +191,9 @@ class TokenCounts:
     reasoning_tokens: int
     """Part of `output_tokens`."""
     price: Money | None
-    """Their price from the price table: a list-price estimate, never a bill, in the table's currency (USD as shipped).
-    `None` when part of it has no price, or needs a rate between currencies the table lacks: never a partial sum."""
+    """Their price from the price table: a list-price estimate, never a bill, in the table's currency (USD as shipped),
+    other currencies converted only through the table's fixed rates. `None` when part of it has no price, or needs a rate
+    the table lacks: never a partial sum."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -224,7 +241,8 @@ class RunUsage:
     paid_solves: int
     paid_fetches: int
     price: Money | None
-    """The price of all priced Usage; `None` as `TokenCounts.price`."""
+    """The price of the Usage third parties charge for: model calls, metered proxies, paid solves and Paid fetches;
+    `None` as `TokenCounts.price` when any of it has no price or rate. Browser time and an unmetered proxy carry none."""
     limits: Sequence[AppliedLimit]
     uncapped: bool
     """ADR 0041's mark: the Run can spend money with nothing capping it."""
@@ -257,6 +275,8 @@ class ModelHandlerFailedDetails:
 @dataclass(frozen=True, kw_only=True)
 class ModelPriceUnknownDetails:
     model: ModelReference
+    missing: Literal["price", "rate"] | str
+    """What the price table lacks: the model's price, or a fixed rate to the Limit's currency."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -265,8 +285,8 @@ class ModelUnavailableDetails:
     status: int | None
     request_id: str | None
     reason: Literal["unreachable", "server_error", "rate_limited"] | str
-    retry_after: float | None
-    """Seconds the provider asked to wait, when it said."""
+    retry_after: timedelta | None
+    """How long the provider asked to wait, when it said."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -322,15 +342,17 @@ class ModelUnauthorizedError(RefusedError):
     def details(self) -> ModelFailureDetails: ...
 
 @final
-class ModelQuotaExhaustedError(RefusedError):
-    """The provider refused for credit, quota or billing, such as an exhausted free credit. Not retryable."""
+class ModelFundsExhaustedError(RefusedError):
+    """The provider refused because the account has no funds: no credit left, an unpaid account, a used-up free tier.
+    Not retryable."""
 
     @property
     def details(self) -> ModelFailureDetails: ...
 
 @final
 class ModelPriceUnknownError(RefusedError):
-    """A currency Limit applies and the price table has no price for the model; `fix` names the configuration key."""
+    """A currency Limit applies and the model's price cannot be stated in its currency: no price, or no fixed rate.
+    `fix` names the configuration key."""
 
     @property
     def details(self) -> ModelPriceUnknownDetails: ...

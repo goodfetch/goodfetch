@@ -61,7 +61,13 @@ export async function typedBook(local: boolean): Promise<z.infer<typeof Book> | 
 
 // Model providers: a gateway, a declared OpenAI-compatible server, and the program's own handler.
 // Capabilities are declared, never guessed from the name; prices are set only in configuration.
-declare const myModel: ModelProviderHandler; // calls the program's own inference service
+declare function inference(prompt: string, signal: AbortSignal): Promise<{ text: string; inTokens: number; outTokens: number }>;
+const myModel: ModelProviderHandler = async (request) => {
+  // Goodfetch's own types: no provider SDK. The engine counts, caps and journals the call.
+  const prompt = request.messages.map((message) => JSON.stringify(message)).join("\n");
+  const answer = await inference(prompt, request.signal); // aborted past timeout.model
+  return { text: answer.text, finishReason: "stop", usage: { inputTokens: answer.inTokens, outputTokens: answer.outTokens } };
+};
 export async function providers(): Promise<void> {
   await using gf = await Goodfetch.connect({
     modelProviders: { inhouse: myModel }, // "inhouse/<anything>" reaches it
@@ -85,6 +91,8 @@ export async function providers(): Promise<void> {
   const page = await run.newPage();
   await page.goto("https://books.toscrape.com/");
   await page.act("open the Travel category");
+  // The program's own model for one call: it gets the prompt strategy, and only configuration prices it.
+  await page.extract("the books listed", Book.pick({ title: true }).array(), { model: "inhouse/ranker-v2" });
 
   // @ts-expect-error a Model reference names its provider: "provider/model"
   await page.act("open the first book", { model: "gpt-5-mini" });
@@ -113,7 +121,7 @@ export async function withOutage(page: Page): Promise<void> {
       return;
     }
     const failure = error as GoodfetchError;
-    if (failure.code === "model_unauthorized" || failure.code === "model_quota_exhausted") log.error(failure.message);
+    if (failure.code === "model_unauthorized" || failure.code === "model_funds_exhausted") log.error(failure.message);
     throw error;
   }
 }

@@ -41,7 +41,10 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
   | `[[steps]]` | Each step in declarative words (Cucumber's rule: the wording survives a change of implementation); `on` pins a step to one surface; `manual` gives the reason a step needs a person |
   | `[[expect]]` | Each check of the outcome; `task` asks the oracle to answer `verified` for that task |
 
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): a Journey also names its `product`: Collie when Collie carries every step, Foxhound otherwise.
+
 - **Surfaces**, with the first milestone that ships each (ADR 0058): `cli` and `console` (M1); `sdk-rust`, `sdk-typescript`, `sdk-python`, `mcp-stdio`, `mcp-http` and `skills` (M2); `http-listener`, `adapter-<name>` and `integration-<name>` (M4). A Journey lists every surface on which a person can reach its goal, not one per Journey. Unpinned steps run on each listed surface; a pinned step, such as "watch the run in the Console", runs on its own surface in every variant.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): a Journey's surfaces are its Product's. Each Collie Journey with a `cli` variant also runs it on Foxhound's executable as `J-NNN@foxhound-cli`, the only variant that names a Product.
 - **A variant** is one Journey on one surface, written `J-001@cli`. It is the unit that runs, passes and is counted.
 
 ### IDs
@@ -63,6 +66,7 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 - **Logins** use accounts the Proving ground derives from the seed, so each variant has its own accounts.
 - **Journeys run against the local copy only**, under ADR 0043's outbound deny. Online-copy results stay conformance reports.
 - **Journeys drive the shipped artefacts**: the `goodfetch` binary and the SDK packages built from the commit, never an engine linked into the test.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): the executable and SDK packages of the Journey's Product.
 
 ### Runners and results
 
@@ -96,6 +100,8 @@ The "Test infrastructure" spec builds them. The check fails when:
 5. a variant's milestone is earlier than its surface's first milestone;
 6. a retired Journey has no `reason`.
 
+> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): a Collie Journey that lists `cli` also has the variant `J-NNN@foxhound-cli`, which rule 5 checks against `cli`'s first milestone; a test carrying `foxhound-cli` for a Foxhound Journey, or for a Collie Journey without `cli`, fails rule 4.
+
 The report lists each variant's latest outcome on `main` by milestone and area. Whether `covers` names existing features, and the "every feature is tested" check, are [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279)'s.
 
 ### Ownership and review
@@ -128,6 +134,8 @@ Each Journey below lists its later surfaces too. Families are the Proving ground
 | J-010 | Run a Crawl and see nothing leave the machine beyond its targets and pinned downloads | `cli` (M1) | `catalog` | `row:SC-10` |
 | J-011 | Extract fields and page metadata (JSON-LD, Open Graph) from product pages into Records | `cli` (M1); the SDKs and MCP (M2) | [Extraction families](https://github.com/Jbmanllr/automan/issues/165) | `row:CO-14`, `row:CO-19`, `row:data-extraction-quality` |
 | J-012 | Move a Checkpoint to another Goodfetch home and finish the run there | `cli` (M1); the SDKs (M2) | `catalog` | `row:RT-10` |
+
+> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): J-001 and J-009 are Collie's Journeys, the others Foxhound's.
 
 Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The M1 specs of areas 4, 5, 6 and 12 add their own Journeys when they are written.
 

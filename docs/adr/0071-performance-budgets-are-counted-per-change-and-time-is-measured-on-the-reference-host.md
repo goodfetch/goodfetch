@@ -63,6 +63,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 
 - **size-limit** (brotli) measures the built Console, and the entry points of the TypeScript SDK, adapters and Integrations with what each imports.
 - **Ceilings:** the whole embedded Console stays under **1 MB** brotli, 2.5 times the prototype's 0.40 MB; it also counts against the binary's Size budget. The Console's initial route (what loads before the Runs screen's first render) gets a ceiling from area 12's first Console build at 1.25 times its measured size, approved by the owner. A ceiling moves only with the owner's approval.
+  > Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): each Product's executable embeds its own Console build, Foxhound's screens being a package Collie's build does not depend on; the 1 MB ceiling, the initial route's ceiling and the increase check apply to each build, which counts against its own Product's Size budget.
 - **Increase:** `xtask perf` compares each entry with the base build in the same job. Growth over **5 kB** brotli per entry needs the "Performance change" section.
 
 ### Memory beyond the heap

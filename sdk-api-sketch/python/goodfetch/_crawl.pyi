@@ -166,7 +166,8 @@ class AsyncCrawlContext(_ContextBase[P]):
         staged with the attempt, and its reads see them first. The program's own `run` value writes at once."""
     async def push(self, dataset: Dataset[T], record: T, *, timeout: Timeout = ...) -> None:
         """Stages a Record with this attempt (ADR 0103): it commits with the attempt, numbered in its Dataset, or is
-        discarded if the attempt fails, retries, escalates, skips or loses its lease. Returns once staged. A Record
+        discarded if the attempt fails or ends early (`skip`, `retry`, an escalation, the handler's timeout, a lost
+        lease, the Run's close), after which a push raises `AttemptEndedError`, as `enqueue` does. Returns once staged. A Record
         failing the Dataset's schema, not JSON, or lacking its key's fields raises `RecordInvalidError` and is not
         staged; a Dataset of another crawl raises `DatasetUnknownError`."""
     @overload

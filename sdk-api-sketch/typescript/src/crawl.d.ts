@@ -256,8 +256,9 @@ export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefine
   readonly run: CrawlRun;
   /**
    * Stages a Record with this attempt (ADR 0103): it commits with the attempt, numbered in its
-   * Dataset, or is discarded if the attempt fails, retries, escalates, skips or loses its lease.
-   * Resolves once staged. A Record failing the Dataset's schema, not JSON, or lacking its key's
+   * Dataset, or is discarded if the attempt fails or ends early (`skip`, `retry`, an escalation,
+   * the handler's timeout, a lost lease, the Run's close), after which a push throws
+   * `AttemptEndedError`, as `enqueue` does. Resolves once staged. A Record failing the Dataset's schema, not JSON, or lacking its key's
    * fields throws `RecordInvalidError` and is not staged; a Dataset of another crawl throws
    * `DatasetUnknownError`.
    */

@@ -23,6 +23,8 @@ Every SDK reports what happened in two ways that never mix: a failure raises a t
   | a call refused because a Limit is already used up | raises a `RefusedError` |
   | the engine is unreachable; an option is unknown | raises an `UnavailableError`; a `ProgramError` |
 
+  > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): the code naming a Block cause is `blocked`, a `PageError` with the cause, the URL and the status in its details, raised by every call that waits for the navigation that met it, or else by the page's next call; a Challenge the ladder cannot pass raises `challenge_unsolved` (ADR 0035).
+
   Each verb's ticket classifies its own codes by this rule, such as drift with no model, an uncertain Effect after `act`, or an extraction missing a field.
 
 ### Error classes

@@ -14,12 +14,12 @@ Decided in [Hooks and injectable components in the SDK API](https://github.com/g
 - [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): which Hook stages are Collie's;
 - [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): the Products' crate and connection names;
 - [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): Secret placeholders and `resolveSecret`;
-- [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the crawl, its Labels, handlers and crawl requests, each with its method, headers and body.
+- [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the crawl, its Labels, handlers and crawl requests, each with its method, headers and body;
+- [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): Datasets, the rejection table and Sinks in code.
 
 It also builds on decisions in review when it was made:
 - ADR 0101 ([PR #515](https://github.com/goodfetch/automan/pull/515)): the program's own Model provider;
 - ADR 0102 ([PR #521](https://github.com/goodfetch/automan/pull/521)): the Run's progress, outcomes and report;
-- ADR 0103 ([PR #516](https://github.com/goodfetch/automan/pull/516)): Datasets and Sinks in code.
 
 ## Decision
 
@@ -236,6 +236,7 @@ They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
   - RT-04 becomes `decided`, since before request is the stage before a retry.
 - **Amends ADR 0092.** A before-request Hook's header is among the places a Secret placeholder may go, checked against the request's URL at every hop. Rust declares its Secret provider when connecting (`ConnectOptions::resolve_secret()`), and `gf.secret_requests()` reads what it declared.
 - **Amends ADR 0085.** On a crawl request's own document fetch, a route reads the request as its last before-request Hook left it, may not change its method or body, and has a new URL checked as a Hook's rewrite.
+- **Amends ADR 0103.** A Hook's own exception at the Record stage is retried only under `crawl.retry.handler_failed`, and a Sink written in the program is registered on its connection by name.
 - **Amends ADR 0088.** The new stage `request_ended` is Foxhound's, beside before request, after response and before a Record's commit.
 - **Amends ADR 0026.** A program's Sink is registered on its connection by name, serves the `sinks.<name>` entry of its name, and is the SDK-handler form in Rust too; a Rust-trait Sink is no third-party form.
 - **`goodfetch-protocol`** gains `header_forbidden`, `hook_ineffective`, `hook_duplicate` and each kind's `<kind>_handler_failed`, through `xtask codegen`'s naming checks (ADR 0079).

@@ -77,7 +77,9 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 | `goodfetch:<v>-full` | The default plus Camoufox, and Playwright's Firefox and WebKit |
 | `goodfetch:<v>-node`, `goodfetch:<v>-python` | The default plus the language runtime and SDK, the base for `init`'s Dockerfiles and for Lambda |
 
-> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product publishes all five tags under its own image, and `nightly`, with its own executable as the image's last layer; Collie's `-slim` drives remote browsers only, since fetch tiers are Foxhound's.
+> Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): each Product has its image, `ghcr.io/goodfetch/collie` and `ghcr.io/goodfetch/foxhound`, under this tag scheme; which tags each Product publishes is decided in [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459), and the Browser host's image in [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498).
+>
+> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product publishes all five tags under its own image, and `nightly`, with its own executable as the image's last layer; Collie's `-slim` drives remote browsers only, since the HTTP fetch tiers are Foxhound's (ADR 0088).
 
 - Every tag is built on Debian 13 slim (Chromium needs glibc), for amd64 and arm64, runs as the non-root UID 10001, and ships with an SBOM and Sigstore attestations.
 - The Browser host runs from the same image with its own command.
@@ -85,11 +87,14 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 **Helm chart.**
 - A `StatefulSet` of Daemons, each with its own `ReadWriteOnce` volume for run state, probes on the ops listener (ADR 0050), a `terminationGracePeriodSeconds` sized for the drain (120 by default) and a `PodDisruptionBudget`.
 - `replicas` may be any number: the pods form one Daemon group whose Lead Daemon the `lead` value names, pod 0 by default. A headless `Service` gives each pod the stable name of the peer link. More than one pod needs a shared Secret provider, and either a Politeness store or `politeness_sharing: per_daemon` set in the Operator policy (ADRs 0053 and 0055).
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the key is `politeness.sharing`.
 - Optional: a `ServiceMonitor`, an `Ingress` or Gateway API `HTTPRoute`, a `NetworkPolicy` that blocks cluster-internal ranges (ADR 0017's egress classes at the network level), and a Browser host `Deployment`.
 - Operator policy as a `ConfigMap`, and secrets referenced from Kubernetes `Secret`s.
 - By default it passes Kubernetes' `restricted` Pod Security level: `runAsNonRoot`, every capability dropped, `allowPrivilegeEscalation: false`, a read-only root filesystem with `emptyDir` volumes for `/tmp` and the browser cache, a memory-backed `/dev/shm` of 1 GiB, and the seccomp profile as `Localhost`, installed through an optional Security Profiles Operator `SeccompProfile` the chart can create, or by hand.
 - Two documented values: `seccomp: unconfined`, needed on GKE Autopilot, which forbids custom profiles and drops to the `privileged` level; and `hostUsers: false` with `SYS_ADMIN` inside the pod's user namespace (Kubernetes 1.33 and later, GA in 1.36), which fails `baseline`.
 - Published as a signed OCI artifact on GHCR at the product version, released with the other packages (adds to ADR 0030). Upgrades roll by drain, then resume from the same volume.
+  > Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): a chart is named after the Product whose image it runs, under `ghcr.io/goodfetch/charts/` (`ghcr.io/goodfetch/charts/foxhound`, for instance); which Products publish one follows their images.
+  >
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): Collie's and Foxhound's charts come from one chart source that differs only by the image it runs, which a Quick check proves by rendering both; the `kind` test runs each chart, and ADR 0066's upgrade runs Foxhound's.
 
 **Project templates** (adds to ADR 0030).

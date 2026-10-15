@@ -251,8 +251,9 @@ impl AttemptResult {
     }
 }
 
-/// What a Hook is run on: the request, and the response, document or Record its stage sees. The
-/// stages' contexts are #481's.
+/// What a Hook is run on (ADR 0104): the request, and what its stage sees: before a request, its
+/// method, body, headers, tier and previous error; after one, the response; before a Record's
+/// commit, the Record.
 #[derive(Debug)]
 pub struct HookInput {
     _private: (),
@@ -262,6 +263,48 @@ impl HookInput {
     /// A request of the Label, at this URL, with its Payload.
     pub fn new<P: serde::Serialize>(label: &Label<P>, url: &str, payload: P) -> Self {
         let _ = (label, url, payload);
+        unimplemented!()
+    }
+
+    /// The method it was enqueued with, `GET` by default.
+    pub fn method(self, method: &str) -> Self {
+        let _ = method;
+        unimplemented!()
+    }
+
+    /// The body it was enqueued with, none by default.
+    pub fn body(self, body: impl Into<Vec<u8>>) -> Self {
+        let _ = body.into();
+        unimplemented!()
+    }
+
+    /// The headers as built so far, the enqueue's own included.
+    pub fn headers(self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        let _ = headers.into_iter();
+        unimplemented!()
+    }
+
+    /// The tier about to fetch: `Http` by default, or the one the Label forces.
+    pub fn tier(self, tier: FetchTier) -> Self {
+        let _ = tier;
+        unimplemented!()
+    }
+
+    /// The error of the attempt before, for a Hook's retry branch. Left out: none.
+    pub fn previous_error(self, error: Error) -> Self {
+        let _ = error;
+        unimplemented!()
+    }
+
+    /// The attempt number, 1 by default.
+    pub fn attempt(self, attempt: u32) -> Self {
+        let _ = attempt;
+        unimplemented!()
+    }
+
+    /// The request's depth, 0 by default.
+    pub fn depth(self, depth: u32) -> Self {
+        let _ = depth;
         unimplemented!()
     }
 
@@ -277,7 +320,7 @@ impl HookInput {
         unimplemented!()
     }
 
-    /// The Record a "Record before commit" Hook sees, in its Dataset.
+    /// The Record a Hook before a Record's commit sees, in its Dataset.
     pub fn record<T: serde::Serialize>(self, dataset: &Dataset<T>, record: T) -> Self {
         let _ = (dataset, record);
         unimplemented!()
@@ -341,7 +384,7 @@ impl TestEngine {
         unimplemented!()
     }
 
-    /// Runs one of the crawl's Hooks, by the name Hooks carry (#481), alone, its context built from
+    /// Runs one of the crawl's Hooks, by the name Hooks carry (ADR 0104), alone, its context built from
     /// `input` as `run_handler` builds a handler's. A name the crawl does not hold fails with
     /// `hook_unknown`, naming the closest.
     pub async fn run_hook(&self, crawl: &Crawl<'_>, name: &str, input: HookInput) -> Result<HookResult, Error> {

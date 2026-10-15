@@ -127,11 +127,30 @@ export interface AttemptResult {
   readonly usage: ModelUsage;
 }
 
-/** What `runHook` builds the Hook's stage context from: the request, and the response, document or Record the stage sees. The stages' contexts are #481's. */
+/**
+ * What `runHook` builds the Hook's stage context from (ADR 0104): the request every context carries,
+ * and what its stage adds: before a request, its method, body, headers, tier and previous error; after
+ * one, the `response`; for the page stages, Collie's page on that document; before a Record's commit,
+ * the `dataset` and `record`.
+ */
 export interface HookInput {
   readonly label: Label<unknown, unknown>;
   readonly url: string | URL;
   readonly payload?: JsonValue;
+  /** Default `GET`. */
+  readonly method?: string;
+  /** Default none. */
+  readonly body?: string | Uint8Array;
+  /** The headers as built so far, the enqueue's own included. Default none. */
+  readonly headers?: Headers;
+  /** The tier about to fetch: `http` by default, or the one the Label forces. */
+  readonly tier?: FetchTier;
+  /** The error of the attempt before, for a Hook's retry branch. Default `null`, a first attempt. */
+  readonly previousError?: GoodfetchError | null;
+  /** Default 1. */
+  readonly attempt?: number;
+  /** Default 0. */
+  readonly depth?: number;
   readonly response?: SavedResponse;
   readonly recording?: string;
   readonly dataset?: Dataset<unknown, unknown>;
@@ -141,7 +160,9 @@ export interface HookInput {
 /** What a Hook did: its answer, or the call that ended the work. */
 export type HookResult =
   | { readonly kind: "answered"; readonly value: JsonValue | null }
-  | { readonly kind: "skipped" | "blocked" | "retry_requested" | "dropped" | "rejected"; readonly message: string }
+  | { readonly kind: "skipped" | "retry_requested" | "dropped" | "rejected"; readonly message: string }
+  /** `block(cause)` after a response (ADR 0104). */
+  | { readonly kind: "blocked"; readonly cause: BlockCause }
   | { readonly kind: "failed"; readonly error: GoodfetchError }
   | { readonly kind: "unknown"; readonly raw: string };
 
@@ -171,7 +192,7 @@ export declare class TestEngine implements AsyncDisposable {
    */
   runHandler<L extends Label<unknown, unknown>>(crawl: Crawl, label: L, input: HandlerInput<L>): Promise<AttemptResult>;
   /**
-   * Runs one of the crawl's Hooks alone, by the name Hooks carry (#481), its stage's context built from
+   * Runs one of the crawl's Hooks alone, by the name Hooks carry (ADR 0104), its stage's context built from
    * `input` as `runHandler` builds a handler's. A name the crawl does not hold throws `HookUnknownError`,
    * naming the closest.
    */

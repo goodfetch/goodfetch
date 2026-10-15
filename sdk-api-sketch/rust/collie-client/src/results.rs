@@ -541,6 +541,13 @@ impl ErrorDetails for crate::sessions::SecretInputRefused {}
 impl ErrorDetails for crate::sessions::LoggedOut {}
 impl ErrorDetails for crate::sessions::HumanPauseDeclined {}
 impl ErrorDetails for crate::sessions::SessionNotSavable {}
+impl ErrorDetails for crate::sessions::CdpUrlUnreachable {}
+impl ErrorDetails for crate::sessions::CdpUrlNotBrowser {}
+impl ErrorDetails for crate::sessions::CdpUrlUnauthorized {}
+impl ErrorDetails for crate::sessions::CdpUrlNotAllowed {}
+impl ErrorDetails for crate::sessions::BrowserNotInstalled {}
+impl ErrorDetails for crate::sessions::ArtifactUnavailableOffline {}
+impl ErrorDetails for crate::sessions::ArtifactDownloadFailed {}
 impl ErrorDetails for crate::ai::TargetNotFound {}
 impl ErrorDetails for crate::ai::PlanDrift {}
 impl ErrorDetails for crate::ai::ExtractionIncomplete {}

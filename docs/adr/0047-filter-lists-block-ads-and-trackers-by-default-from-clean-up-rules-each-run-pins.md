@@ -94,6 +94,7 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
   - No permissive implementation exists: uBlock Origin's and AdGuard's are GPL-3.0. They come from uBlock Origin's resources, downloaded with the GPL lists and never embedded or compiled into the binary.
   - `filter_lists.page_scriptlets` turns them on, with the warning of ADR 0035's `js-injection` Fingerprint method.
 - **`block_resources`** blocks whole types (`image`, `media`, `font`, `stylesheet`). It is empty by default and works through the same interception. In `standard` and `stealth` it warns that the site can see the missing loads, since few people block images or fonts. Finer blocking stays a Hook (ADR 0033).
+  > Amended by [ADR 0117](0117-what-coding-agents-misread-is-reshaped-an-ai-result-holds-its-answer-in-how-it-ended-resource-types-are-blocked-by-a-setting-and-a-start-names-its-run-id.md): the key is `browser.block_resources`, a `browser.*` Session setting under ADR 0083's rules, set where a Session opens or above it, a crawl's Run included, and applied before every navigation of the Session's pages, so it covers every browser fetch of a crawl; a Label refuses it with `setting_not_applicable`, as every `browser.*` key (ADR 0093).
 
 **What the Clean-up rules hold, and what the release ships beside them.**
 

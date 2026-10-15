@@ -73,7 +73,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
   - It takes the program's own library object (`chromium`, `puppeteer`, Browser Use's session class), so no SDK depends on Playwright, Puppeteer or Browser Use (G7).
   - It lends the page and connects with the safe options: Playwright `noDefaults: true`, Puppeteer `defaultViewport: null`, Browser Use an empty `permissions` list, which skips its grant in 0.13.11 (`permissions_watchdog.py`); the endpoint's rescoping stays the guarantee for other releases.
   - It returns that library's object for the lent page, ends the lending when that object is closed, and raises `attach_ended` as a typed error when the attach is cut (ADR 0003).
-  - Its per-language names are [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471)'s.
+  - Its per-language names are [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471)'s (ADR 0099).
 - **Only the SDKs offer lending.** An endpoint is useful only to a library in the same program, and there the program's own code chooses the library, as running the code is the approval (ADR 0056). On an MCP profile, a Framework adapter, an Integration, a skill or in Code mode, a model would choose, and get a browser outside ADR 0014's enforcement; the CLI holds no page to lend.
 - **Lending belongs to the page,** so Collie carries it and Foxhound's handlers inherit it.
   - In a handler, the attach is bound to the work item's lease (ADR 0003).
@@ -150,8 +150,8 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
   - **Area 11** builds `page.lend()`, the helpers, their conformance cases, the guides and the crawler examples.
 - **Other tickets.**
   - [Collie's exact capability set](https://github.com/goodfetch/goodfetch/issues/455) lists lending as part of the page, and settles V3-01, AI verbs on a crawler's page.
-  - [Crawl definition and handler context](https://github.com/goodfetch/goodfetch/issues/477) hands its handlers a page that offers `lend()`.
-  - [Docs site and positioning of two Products](https://github.com/goodfetch/goodfetch/issues/499) places the lending and crawler guides beside the migration guides.
+  - [Crawl definition and handler context](https://github.com/goodfetch/goodfetch/issues/477) (ADR 0093) hands its handlers a page that offers `lend()`.
+  - [Docs site and positioning of two Products](https://github.com/goodfetch/goodfetch/issues/499) (ADR 0097) places the lending and crawler guides beside the migration guides.
 - **To prove in the spec:**
   - the endpoint's command table, including which page-level commands reach other Sessions (a browser-wide cache or cookie clear);
   - that auto-attach can follow the lent page's tree alone, through Chromium's experimental `Target.autoAttachRelated` (DI §3.1) or the endpoint's own filtering;

@@ -19,7 +19,7 @@ It answers pain rows P30 and P49 of the [pain coverage matrix](https://github.co
 ### What is kept
 
 - **The window:** from the start of the crawl request's navigation (its redirects included) until its attempt ends, on the request's own page and its frames. A popup and a page the handler opens keep nothing. A `reload` or `goto` inside the handler keeps adding to it. `ctx.response`, the main document's response (ADR 0093), is not among them.
-- **A response is kept once its body has arrived,** with the body, so a kept response's body never fails, as a response obtained through `waitForRequestFinished` never does (ADR 0085). A request that failed is no response and is not kept, as `waitForResponse` ignores it.
+- **A response is kept once its body has arrived,** with the body, so a kept response's body below the cap never fails, as a response obtained through `waitForRequestFinished` never does (ADR 0085). A request that failed is no response and is not kept, as `waitForResponse` ignores it.
 - **Kept responses belong to the attempt:** never persisted, never in the Run's state, and gone when the attempt ends. A retry or an escalation navigates again and keeps afresh. They fetch nothing, so no Politeness permit and no Usage beyond what the page loaded anyway.
 
 ### What a handler reads

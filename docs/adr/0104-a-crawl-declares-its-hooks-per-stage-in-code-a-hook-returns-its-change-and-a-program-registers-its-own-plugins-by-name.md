@@ -64,7 +64,7 @@ It also builds on decisions in review when it was made:
   - Hooks named in settings (process Plugins and Script Hooks under `hooks.*`, whose schema is area 7's spec) run first, layer by layer from Operator policy to the run layer.
   - The crawl's Hooks in code run last, so the program's own Hooks see what the others changed, as the nearest scope wins in ADR 0083.
   - A Hook's change is no lock: a later Hook may undo an earlier one's header. A value an operator must enforce is a locked setting (ADR 0028).
-- **Name.** `name` defaults to the function's own name where the language has one, else to the stage and its position (`before_request#2`), which a Python `<lambda>` and a Rust closure also get. A second Hook of one name on one crawl fails at once with `hook_duplicate`, so a name identifies one Hook: in `hook_failed`, in the Run trace (G6), and for a test's `runHook` ([Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482)).
+- **Name.** `name` defaults to the function's own name where the language has one, else to the stage and its position (`before_request#2`), which a Python `<lambda>` and a Rust closure also get. A second Hook of one name on one crawl fails at once with `hook_duplicate`, so a name identifies one Hook: in `hook_failed`, in the Run trace (G6), and for a test's `runHook` ([Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) (ADR 0105)).
 
 ### What a Hook receives and returns
 
@@ -113,6 +113,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 
   An after-response Hook sees the response the page received, one a route fulfilled included.
 - **A route holds a crawl request's own fetch to a Hook's rules.** On the request's own document fetch, the original request a route reads (ADR 0085) is the one its last before-request Hook left. A route's override of the method or the body fails the route with `page_value_invalid`, and the request is aborted as when a route throws (ADR 0085), so its attempt fails with that code, since the Frontier, robots.txt, Politeness and the Effect classing would not see it (G5). A route's new URL is checked as a Hook's rewrite is (above), so one that leaves the scope, the domain policy, robots.txt or Site preferences ends the request `skipped` with that reason, and nothing is sent. The page's other requests (its scripts, images and calls) keep ADR 0085's rules.
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): a crawl request is a read whatever its method, so no Effect classing judges it; a route's change of the method or the body still fails, since the Frontier and robots.txt would not see it.
 
 ### Running and failing
 
@@ -213,6 +214,7 @@ They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
 - **One `hook(stage, fn)` method:** rejected. Per-stage methods each carry their own typed context and documentation, and Python's decorators read as Crawlee for Python's.
 - **Mutating a request object in the context** (Crawlee's hooks): rejected. The SDK would diff what changed, a refused header would be found only after the Hook returned, and Rust would hold a mutable borrow across awaits. **Scrapy's union of return types:** rejected by S2, and returning a response would let a Hook fake a page.
 - **A before-request Hook that sets the method and a body,** as Scrapy's `FormRequest` and Crawlee's `method` and `payload` allow on a request: rejected by G5. It would change the request unseen by deduplication, robots.txt and the Effect classing. A crawl request takes its method and body at its enqueue (ADR 0093), where Scrapy and Crawlee take them too.
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): a crawl request is a read whatever its method, so the Effect classing no longer judges it; the rejection stands for deduplication and robots.txt.
 - **Retrying a Hook's own exception by default,** as Crawlee retries an error in a navigation hook: rejected by G5. **Never retrying it, with no switch:** rejected. A transient failure in the program's own service would fail its request for good, where the handler's switch already exists.
 - **A replaced Session pool, a storage client and a tier predictor,** as Crawlee v4 accepts: rejected, above.
 - **One generic `connect({ plugins: [...] })` list for every kind:** rejected. It was this ticket's first answer, replaced once ADR 0101 registered Model providers per kind: two forms for one concept break S1. **Rust traits run on the connection's runtime:** rejected for the same reason, beside ADR 0092's and ADR 0101's streams, and so is keeping the Rust-trait form public on a linked engine.

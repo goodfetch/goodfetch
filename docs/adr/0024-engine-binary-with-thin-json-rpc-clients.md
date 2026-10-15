@@ -4,7 +4,7 @@ The TypeScript and Python SDKs, the CLI, the MCP server and Goodfetch Cloud all 
 
 > Amended by [ADR 0084](0084-goodfetch-ships-two-products-collie-and-foxhound-from-one-repository-and-foxhound-contains-collie.md): Clients reach the engine inside one of two Products' executables, Collie's or Foxhound's, which contains Collie's code. Which one a Client starts or reaches, and what `hello` announces, is decided in [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458).
 
-> Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): both Products speak this one protocol. `hello` also carries the Product a Client needs and its Product version, and the reply the engine's; an engine accepts a Client whose needed Product its own contains, so a Collie engine refuses a Foxhound Client with `not_in_product`. Each Product's Rust crate, `goodfetch-collie` or `goodfetch-foxhound`, links its own engine, `goodfetch-foxhound` through `goodfetch-collie`'s library, and both build on `goodfetch-collie-client`, which links none.
+> Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): both Products speak this one protocol. `hello` also carries the Product a Client needs and its Product version, and the reply the engine's; an engine accepts a Client whose needed Product its own contains, so a Collie engine refuses a Foxhound Client with `not_in_product`. Each Product's Rust SDK crate, `goodfetch-collie` or `goodfetch-foxhound`, links its own engine, and both build on `goodfetch-collie-client`, which links none.
 
 ## Considered Options
 

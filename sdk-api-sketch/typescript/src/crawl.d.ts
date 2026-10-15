@@ -114,6 +114,18 @@ export declare class Crawl {
   >(hook: RecordCommitHook<Ls[number], RecordOf<Ds[number]>>, options?: RecordHookOptions<Ls, Ds>): void;
 }
 
+/** A link `enqueueLinks` matched, as its Payload function sees it. */
+export interface LinkInfo {
+  readonly href: string;
+  readonly text: string;
+  readonly attributes: Readonly<Record<string, string>>;
+}
+
+/** `enqueueLinks`'s arguments after the Label: one Payload for every link, or a function of each link returning its Payload, or `null` to skip it. */
+export type LinkPayloadArgs<L extends Label<unknown, unknown>, O> = [PayloadInput<L>] extends [undefined]
+  ? [options?: O]
+  : [payload: PayloadInput<L> | ((link: LinkInfo) => PayloadInput<L> | null), options?: O];
+
 /** The arguments after the Label: the Payload only when the Label has one, then the options. */
 export type PayloadArgs<L extends Label<unknown, unknown>, O> = [PayloadInput<L>] extends [undefined]
   ? [options?: O]
@@ -127,7 +139,16 @@ export interface Seed {
   readonly "~seed": true;
 }
 /** Builds a seed, typed as `enqueue` is. */
-export declare function seed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, never>): Seed;
+export declare function seed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, RequestShape>): Seed;
+/** One rule of a sitemap seed: URLs matching the pattern go to the Label, one without a Payload. The first rule that matches wins. */
+export type SitemapRule = readonly [pattern: UrlPattern, label: Label<undefined>];
+/**
+ * Seeds from a sitemap (ADR 0093; ADR 0037's CO-10): `url` is a sitemap, or a site's robots.txt
+ * whose `Sitemap:` lines are read. Nested sitemap indexes are followed; an entry matching no rule
+ * is not added and is reported as `no_rule`. It widens the scope by its own host, like any seed,
+ * and its entries are checked against the scope as enqueues are, at depth 0.
+ */
+export declare function sitemap(url: string | URL, rules: readonly SitemapRule[]): Seed;
 
 /** One crawl request of Label `L`, as its handler sees it. The engine's fields are kept apart from the Payload (ADR 0082). */
 export interface CrawlRequest<L extends Label<unknown, unknown> = Label<undefined>> {
@@ -144,13 +165,21 @@ export interface CrawlRequest<L extends Label<unknown, unknown> = Label<undefine
   readonly attempt: number;
 }
 
+/** A crawl request's own method, headers and body (ADR 0093): a POST or GraphQL API is crawled page by page. */
+export interface RequestShape {
+  /** `GET` by default. Whether a non-GET request is an Effect to declare is #500's. */
+  readonly method?: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string | Uint8Array;
+}
+
 /** Options of `enqueue`. */
-export interface EnqueueOptions extends CallOptions {
+export interface EnqueueOptions extends CallOptions, RequestShape {
   /** Higher first, within its domain (ADRs 0004, 0005). Default 0. */
   readonly priority?: number;
   /** Ahead of the domain's pending requests at its priority (ADR 0005). */
   readonly forefront?: boolean;
-  /** The request's identity in the Frontier instead of its URL: a declared canonicalization, which always wins (ADR 0005). */
+  /** The request's identity in the Frontier instead of its method, URL and body hash: a declared canonicalization, which always wins (ADR 0005). */
   readonly key?: string;
 }
 
@@ -175,6 +204,8 @@ export type NotAddedReason =
   | "max_requests"
   | "unsupported_scheme"
   | "no_link"
+  | "no_rule"
+  | "skipped_by_payload"
   | (string & {});
 
 /**
@@ -237,7 +268,7 @@ export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefine
   enqueueLinks<L extends Label<unknown, unknown>>(
     links: Locator,
     label: L,
-    ...args: PayloadArgs<L, EnqueueLinksOptions>
+    ...args: LinkPayloadArgs<L, EnqueueLinksOptions>
   ): Promise<EnqueuedLinks>;
   /** Ends the request `skipped`, with the reason `handler` and this message. Throws to unwind the handler. */
   skip(message: string): never;
@@ -316,6 +347,8 @@ export interface CrawlRun extends Run {
    * `enqueue` is checked against it; one the domain policy refuses is not added (`domain_policy`).
    */
   addSeed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, EnqueueOptions>): Promise<Enqueued>;
+  /** Adds a built seed, such as `sitemap(url, rules)`; a sitemap's entries matching no rule are reported as `no_rule` in the Run's report (ADR 0102). */
+  addSeed(seed: Seed): Promise<Enqueued>;
 }
 
 /** A crawl's Run read by a program that does not drive it, opened with `openCrawlRun` (ADR 0102). Its Records are read with the program's own Dataset handles. */

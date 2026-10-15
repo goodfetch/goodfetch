@@ -181,6 +181,45 @@ impl Seed {
         let _ = (url, label, payload);
         unimplemented!()
     }
+
+    /// Seeds from a sitemap, or a site's robots.txt whose `Sitemap:` lines are read (ADR 0093;
+    /// ADR 0037's CO-10). The first rule whose pattern matches picks the Label, one without a
+    /// Payload; an entry matching none is not added and is reported as `no_rule`, and nested
+    /// sitemap indexes are followed. Its entries are checked against the scope at depth 0.
+    pub fn sitemap(url: &str, rules: impl IntoIterator<Item = (UrlPattern, Label<()>)>) -> Self {
+        let _ = (url, rules.into_iter());
+        unimplemented!()
+    }
+
+    /// The request's method, `GET` by default (ADR 0093).
+    pub fn method(self, method: &str) -> Self {
+        let _ = method;
+        unimplemented!()
+    }
+
+    /// One request header.
+    pub fn header(self, name: &str, value: &str) -> Self {
+        let _ = (name, value);
+        unimplemented!()
+    }
+
+    /// The request's body.
+    pub fn body(self, body: impl Into<Vec<u8>>) -> Self {
+        let _ = body.into();
+        unimplemented!()
+    }
+}
+
+/// A link `enqueue_links_with` matched, as its Payload function sees it.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct LinkInfo {
+    /// The resolved `href`.
+    pub href: String,
+    /// The link's text.
+    pub text: String,
+    /// Its attributes.
+    pub attributes: Vec<(String, String)>,
 }
 
 /// One crawl request, as its handler sees it. The engine's fields are kept apart from the Payload
@@ -274,6 +313,16 @@ impl<P> CrawlContext<P> {
         unimplemented!()
     }
 
+    /// As [`CrawlContext::enqueue_links`], with a Payload per link: `payload` returns it, or `None`
+    /// to skip that link, reported as `skipped_by_payload` (ADR 0093).
+    pub fn enqueue_links_with<Q: Serialize, F>(&self, links: &Locator, label: &Label<Q>, payload: F) -> EnqueueLinks
+    where
+        F: Fn(&LinkInfo) -> Option<Q>,
+    {
+        let _ = (links, label, payload);
+        unimplemented!()
+    }
+
     /// Ends the request `skipped`, with the reason `handler` and this message: return it,
     /// `return Err(ctx.skip("…"))`. Its code is `attempt_ended`, which the helper consumes.
     pub fn skip(&self, message: &str) -> Error {
@@ -307,6 +356,10 @@ pub enum NotAddedReason {
     UnsupportedScheme,
     /// A matched element with no link.
     NoLink,
+    /// A sitemap entry matching no rule of its sitemap seed.
+    NoRule,
+    /// A link the Payload function of `enqueue_links_with` skipped.
+    SkippedByPayload,
     /// A reason this SDK does not know, as received.
     Unknown(String),
 }
@@ -349,6 +402,25 @@ pub struct Enqueue {
 }
 
 impl Enqueue {
+    /// The request's method, `GET` by default. Whether a non-GET request is an Effect to declare
+    /// is #500's (ADR 0093).
+    pub fn method(self, method: &str) -> Self {
+        let _ = method;
+        unimplemented!()
+    }
+
+    /// One request header.
+    pub fn header(self, name: &str, value: &str) -> Self {
+        let _ = (name, value);
+        unimplemented!()
+    }
+
+    /// The request's body. The Frontier's identity is the method, the URL and a hash of the body.
+    pub fn body(self, body: impl Into<Vec<u8>>) -> Self {
+        let _ = body.into();
+        unimplemented!()
+    }
+
     /// Higher first, within its domain (ADRs 0004, 0005). Default 0.
     pub fn priority(self, priority: i32) -> Self {
         let _ = priority;
@@ -360,8 +432,8 @@ impl Enqueue {
         unimplemented!()
     }
 
-    /// The request's identity in the Frontier instead of its URL: a declared canonicalization,
-    /// which always wins (ADR 0005).
+    /// The request's identity in the Frontier instead of its method, URL and body hash: a declared
+    /// canonicalization, which always wins (ADR 0005).
     pub fn key(self, key: &str) -> Self {
         let _ = key;
         unimplemented!()
@@ -475,6 +547,14 @@ impl CrawlRun {
     /// where a handler's `enqueue` is checked against it; one the domain policy refuses is not added.
     pub fn add_seed<P: Serialize>(&self, url: &str, label: &Label<P>, payload: P) -> Enqueue {
         let _ = (url, label, payload);
+        unimplemented!()
+    }
+
+    /// Adds a built [`Seed`], such as a [`Seed::sitemap`] (ADR 0093), as [`CrawlRun::add_seed`]
+    /// does. A sitemap's entries are checked as enqueues are, and those matching no rule are
+    /// reported as `no_rule` in the Run's report.
+    pub fn add(&self, seed: Seed) -> Enqueue {
+        let _ = seed;
         unimplemented!()
     }
 

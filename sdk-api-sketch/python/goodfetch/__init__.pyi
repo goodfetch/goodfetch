@@ -106,6 +106,9 @@ from goodfetch._crawl import ResponseNotOkError as ResponseNotOkError
 from goodfetch._crawl import ResponseUnavailableError as ResponseUnavailableError
 from goodfetch._crawl import RetryRequestedError as RetryRequestedError
 from goodfetch._crawl import Seed as Seed
+from goodfetch._crawl import sitemap as sitemap
+from goodfetch._crawl import SitemapSeed as SitemapSeed
+from goodfetch._crawl import LinkInfo as LinkInfo
 from goodfetch._crawl import SitePreferencesRefusedError as SitePreferencesRefusedError
 from goodfetch._crawl import UrlPattern as UrlPattern
 from goodfetch._crawl import seed as seed

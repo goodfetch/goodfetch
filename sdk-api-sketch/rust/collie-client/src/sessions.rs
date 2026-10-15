@@ -14,14 +14,14 @@
 //!   except what it answers to a `caller:` reference through the connection's `secret_requests`.
 
 use std::fmt;
-use std::future::IntoFuture;
+use std::future::{Future, IntoFuture};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
 use crate::lifecycle::{Page, Session};
 use crate::page::{Locator, TextMatch};
-use crate::results::Error;
+use crate::results::{Error, SettingsLayer};
 use crate::settings::Settings;
 use crate::time::{Call, CallFuture, UrlMatcher};
 
@@ -600,11 +600,12 @@ impl Call<Session> {
     /// ADR 0006's scripted login step: called with the page whose call met the login page, inside
     /// that call's future (ADR 0081), which gives up the page's turn meanwhile. The Page check
     /// judges the page it leaves; it counts toward the two recoveries a page gets, and an error it
-    /// returns, any error of the program (ADR 0109), is chained to `logged_out`. A crawl takes its
-    /// own the same way.
-    pub fn login<F>(self, login: F) -> Self
+    /// returns, any error of the program (ADR 0109), is chained to `logged_out`. A crawl takes its own the same way. The call's future
+    /// holds it, so it and the future it returns are `Send + 'static` (ADRs 0081, 0112).
+    pub fn login<F, Fut>(self, login: F) -> Self
     where
-        F: AsyncFn(Page) -> Result<(), crate::results::BoxError> + Send + Sync + 'static,
+        F: FnOnce(Page) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), crate::results::BoxError>> + Send + 'static,
     {
         let _ = login;
         unimplemented!()
@@ -874,4 +875,147 @@ pub struct HumanPauseDeclined {
 pub struct SessionNotSavable {
     /// The source kind.
     pub source: String,
+}
+
+// Opening a Session on a `cdp_url`, and the browser build a Session launches (ADR 0115, decided in
+// #534): one code per remedy, raised by the call that opens the Session or launches the browser
+// (`new_session`, the default Session's first `new_page`, a crawl request's escalation), never by
+// `connect`. An address that never answers is `deadline_exceeded`; a `headers` reference that
+// resolves to nothing is `secret_unavailable`.
+
+/// Details of `cdp_url_unreachable`, an unavailable error, retryable: nothing at the address
+/// answered. The error's `fix` says to start the browser with remote debugging on that port, or to
+/// correct the address.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CdpUrlUnreachable {
+    /// The address, without its query string or any credentials in it.
+    pub url: String,
+    /// The settings layer that gave the address (ADR 0083).
+    pub layer: SettingsLayer,
+    /// `name_not_resolved`, `connection_refused`, `connection_reset` or `tls_failed`.
+    pub failure: String,
+}
+
+/// What answered at a `cdp_url` that is not a browser, also in the error's `observed`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CdpUrlAnswer {
+    /// `http`, `websocket_refused` or `cdp_target`.
+    pub kind: String,
+    /// The HTTP status, when one came.
+    pub status: Option<u16>,
+    /// The content type, when one came.
+    pub content_type: Option<String>,
+    /// For `cdp_target`: `page`, `node`, `worker`, or `browser` for a product the engine does not
+    /// drive.
+    pub target_type: Option<String>,
+    /// The product the target reported.
+    pub product: Option<String>,
+}
+
+/// Details of `cdp_url_not_browser`, a program error: something answered, but no browser speaks
+/// CDP there.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CdpUrlNotBrowser {
+    /// The address, as in [`CdpUrlUnreachable`].
+    pub url: String,
+    /// The settings layer that gave the address.
+    pub layer: SettingsLayer,
+    /// What answered.
+    pub answered: CdpUrlAnswer,
+    /// The browser endpoint the same host's `/json/version` lists, which the error's `fix` names.
+    pub browser_endpoint: Option<String>,
+}
+
+/// Details of `cdp_url_unauthorized`, a refusal: the address answered 401 or 403. The error's `fix`
+/// points to the Secret references in `headers`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CdpUrlUnauthorized {
+    /// The address.
+    pub url: String,
+    /// The settings layer that gave the address.
+    pub layer: SettingsLayer,
+    /// 401 or 403.
+    pub status: u16,
+    /// Each header sent, by name, with its Secret reference; never a value.
+    pub headers: Vec<(String, SecretReference)>,
+}
+
+/// Details of `cdp_url_not_allowed`, a refusal: ADR 0056's address rules refused the address before
+/// any connection. The error's `fix` names Operator policy or user or project configuration.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CdpUrlNotAllowed {
+    /// The address.
+    pub url: String,
+    /// The settings layer that gave the address.
+    pub layer: SettingsLayer,
+    /// `private_range` or `loopback`.
+    pub rule: String,
+}
+
+/// The Product and Product version that pin an artifact (ADR 0098).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PinnedBy {
+    /// `collie` or `foxhound`.
+    pub product: String,
+    /// The Product version.
+    pub version: String,
+}
+
+/// A pinned download of the Browser cache: a browser build, Lightpanda, Playwright's driver, the
+/// Clean-up rules, an engine executable.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PinnedArtifact {
+    /// Such as `chromium`, `camoufox` or `lightpanda`.
+    pub name: String,
+    /// The build ID or version pinned.
+    pub version: String,
+    /// Who pins it.
+    pub pinned_by: PinnedBy,
+    /// The Browser cache's path.
+    pub cache_path: PathBuf,
+}
+
+/// Details of `browser_not_installed`, an unavailable error, not retryable: the build a Session
+/// needs is not in a Browser cache the engine cannot write, or a browser named by channel or path is
+/// absent. The error's `fix` is the Product's install command for that build.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct BrowserNotInstalled {
+    /// The pinned build, or `None` for a browser named by channel or path.
+    pub build: Option<PinnedArtifact>,
+    /// The channel looked for, when a setting named one (ADR 0024).
+    pub channel: Option<String>,
+    /// The path looked for, when a setting named one.
+    pub path: Option<PathBuf>,
+}
+
+/// Details of `artifact_unavailable_offline`, a refusal: the `offline` setting refused a pinned
+/// download (ADR 0043); the error's `limit` names `offline` and its layer.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ArtifactUnavailableOffline {
+    /// The artifact.
+    pub artifact: PinnedArtifact,
+}
+
+/// Details of `artifact_download_failed`, an unavailable error, retryable: a pinned download on
+/// first use failed after the engine's own attempts.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ArtifactDownloadFailed {
+    /// The artifact.
+    pub artifact: PinnedArtifact,
+    /// The host it came from, never a full URL.
+    pub host: String,
+    /// `network`, `http_status` or `digest_mismatch`.
+    pub failure: String,
+    /// For `http_status`.
+    pub status: Option<u16>,
 }

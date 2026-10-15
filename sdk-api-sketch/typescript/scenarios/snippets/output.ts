@@ -1,6 +1,16 @@
 // Snippet for Crawl output in code (#479, ADR 0103), on golden scenarios 05, 07 and 12.
 import { z } from "zod";
-import { Crawl, Foxhound, RecordInvalidError, seed, type CrawlRun, type Logger } from "@goodfetch/foxhound";
+import {
+  Crawl,
+  FileWriteFailedError,
+  Foxhound,
+  PathNotWritableError,
+  RecordInvalidError,
+  seed,
+  type CrawlRun,
+  type Export,
+  type Logger,
+} from "@goodfetch/foxhound";
 
 declare const log: Logger;
 
@@ -66,6 +76,25 @@ export async function scenario05(): Promise<void> {
   const csv = await run.export(books, { format: "csv" });
   await csv.saveAs("books.csv");
   log.info("exported", { records: csv.records, upTo: csv.lastNumber, sha256: csv.sha256 });
+}
+
+// A failed save (ADR 0108): the path's fault or the storage's, and the path is never half-written.
+export async function saveOrExplain(exported: Export, path: string): Promise<boolean> {
+  try {
+    await exported.saveAs(path);
+    return true;
+  } catch (error) {
+    if (error instanceof PathNotWritableError) {
+      log.error("cannot write there", { path: error.details.path, reason: error.details.reason, fix: error.fix });
+      return false;
+    }
+    if (error instanceof FileWriteFailedError && error.details.side === "program") {
+      // The engine still holds the Export: free space, then call saveAs again.
+      log.error("storage failed", { reason: error.details.reason, osCode: error.details.osCode, fix: error.fix });
+      return false;
+    }
+    throw error;
+  }
 }
 
 // Typed mistakes, caught before anything runs.

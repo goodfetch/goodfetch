@@ -31,6 +31,7 @@ use crate::RunTrace;
 use serde::Serialize;
 use crate::SkipReason;
 use crate::StartedAs;
+use std::future::Future;
 use std::time::SystemTime;
 
 /// Why a due crawl request is held back.
@@ -521,11 +522,12 @@ impl CrawlRunView {
 impl CrawlRun {
     /// As [`Run::effect`]. Through a handler's or a Hook's `run()`, bound to its crawl request, the
     /// key's namespace is that request; through the program's own value, the Run.
-    pub fn effect<'a, T, E, F>(&'a self, key: &str, body: F) -> DeclareEffect<'a, T, E, F>
+    pub fn effect<'a, T, E, F, Fut>(&'a self, key: &str, body: F) -> DeclareEffect<'a, T, E, F>
     where
-        T: Serialize + DeserializeOwned + 'a,
-        E: BodyError + 'a,
-        F: AsyncFnOnce(&Effect) -> Result<T, E> + 'a,
+        T: Serialize + DeserializeOwned + Send + 'a,
+        E: BodyError + Send + 'a,
+        F: FnOnce(Effect) -> Fut + Send + 'a,
+        Fut: Future<Output = Result<T, E>> + Send + 'a,
     {
         let _ = (key, body);
         unimplemented!()

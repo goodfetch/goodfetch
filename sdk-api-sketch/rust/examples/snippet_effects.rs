@@ -17,7 +17,7 @@ async fn place_order(foxhound: &Foxhound, sku: &str) -> Result<Option<String>, E
     page.goto("https://shop.example/checkout").await?;
 
     let placed = run
-        .effect(&format!("place-order-{sku}"), async |_effect: &Effect| {
+        .effect(&format!("place-order-{sku}"), async |_effect: Effect| {
             page.get_by_role(AriaRole::Button.name("Place order")).click().await?;
             Ok::<_, Error>(page.get_by_test_id("order-number").text_content().await?.trim().to_owned()) // kept in the journal
         })
@@ -59,7 +59,7 @@ impl std::error::Error for ShopError {}
 /// A body that sends the site's own idempotency key is safe to repeat: declare it so.
 async fn subscribe(run: &Run, page: &Page, plan: &str) -> Result<u16, ShopError> {
     let result = run
-        .effect(&format!("subscribe-{plan}"), async |effect: &Effect| {
+        .effect(&format!("subscribe-{plan}"), async |effect: Effect| {
             let response = page
                 .request()
                 .post("https://shop.example/api/subscriptions")
@@ -92,7 +92,7 @@ async fn contact_sellers(foxhound: &Foxhound, emails: Vec<String>) -> Result<(),
         page.get_by_label("Email").fill(ctx.request().payload().email.as_str()).await?; // preparing the page is no part of the Effect
         let sent = ctx
             .run()
-            .effect("contact-seller", async |_effect: &Effect| {
+            .effect("contact-seller", async |_effect: Effect| {
                 page.get_by_role(AriaRole::Button.name("Contact seller")).click().await?;
                 page.get_by_text("Message sent").wait_for(Default::default()).await
             })

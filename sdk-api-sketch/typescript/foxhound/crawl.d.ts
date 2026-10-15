@@ -362,7 +362,11 @@ export interface CrawlRun extends Run {
   records<O>(dataset: Dataset<unknown, O>, options?: RecordsOptions): EventIterator<DatasetRecord<O>>;
   /** The Dataset's rejection table, each entry numbered in commit order, following the Run as `records` does. */
   rejectedRecords(dataset: Dataset<unknown, unknown>, options?: RecordsOptions): EventIterator<RejectedRecord>;
-  /** Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs. */
+  /**
+   * Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine
+   * runs. Resolves only once its file is whole; a write the engine cannot make throws
+   * `FileWriteFailedError` with `side: "engine"` and leaves no unfinished file (ADR 0108).
+   */
   export(dataset: Dataset<unknown, unknown>, options: ExportOptions): Promise<Export>;
   /** Each seed's answer, given once at the start: added with its ID, or not added with its reason. On a resume, the answers given when the Run began. */
   seeds(): readonly Enqueued[];

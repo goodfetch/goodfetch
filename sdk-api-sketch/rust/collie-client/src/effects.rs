@@ -32,8 +32,9 @@ use serde::de::DeserializeOwned;
 use crate::lifecycle::Run;
 use crate::results::Error;
 
-/// The Effect a body performs, handed to the body.
-#[derive(Debug)]
+/// The Effect a body performs, handed to the body by value, a cheap clone, so the body's future
+/// owns it and can be `Send` (ADR 0112).
+#[derive(Debug, Clone)]
 pub struct Effect {
     _private: (),
 }
@@ -123,16 +124,18 @@ impl<T, E, F> DeclareEffect<'_, T, E, F> {
     }
 }
 
-impl<'a, T, E, F> IntoFuture for DeclareEffect<'a, T, E, F>
+impl<'a, T, E, F, Fut> IntoFuture for DeclareEffect<'a, T, E, F>
 where
-    T: Serialize + DeserializeOwned + 'a,
-    E: BodyError + 'a,
-    F: AsyncFnOnce(&Effect) -> Result<T, E> + 'a,
+    T: Serialize + DeserializeOwned + Send + 'a,
+    E: BodyError + Send + 'a,
+    F: FnOnce(Effect) -> Fut + Send + 'a,
+    Fut: Future<Output = Result<T, E>> + Send + 'a,
 {
     /// The body's own error unchanged, or an SDK error converted into `E`.
     type Output = Result<EffectResult<T>, E>;
-    /// Runs the body in the awaiting task: it may borrow and needs no `Send` (ADR 0081).
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
+    /// Runs the body in the awaiting task: it may borrow (ADR 0081), and it is `Send`, so a
+    /// handler or a multi-threaded server's future that declares an Effect stays `Send` (ADR 0112).
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
         unimplemented!()
@@ -153,11 +156,12 @@ impl Run {
     /// send fails with `effect_uncertain`, its source the original, unless
     /// [`DeclareEffect::repeatable`]. The program's own I/O inside the body is invisible to the
     /// journal. No timeout of its own: the body's calls carry theirs (ADR 0080).
-    pub fn effect<'a, T, E, F>(&'a self, key: &str, body: F) -> DeclareEffect<'a, T, E, F>
+    pub fn effect<'a, T, E, F, Fut>(&'a self, key: &str, body: F) -> DeclareEffect<'a, T, E, F>
     where
-        T: Serialize + DeserializeOwned + 'a,
-        E: BodyError + 'a,
-        F: AsyncFnOnce(&Effect) -> Result<T, E> + 'a,
+        T: Serialize + DeserializeOwned + Send + 'a,
+        E: BodyError + Send + 'a,
+        F: FnOnce(Effect) -> Fut + Send + 'a,
+        Fut: Future<Output = Result<T, E>> + Send + 'a,
     {
         let _ = (key, body);
         unimplemented!()

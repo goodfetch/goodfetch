@@ -81,9 +81,10 @@ pub use recording::{
 };
 pub use results::{
     AiWorkResult, BlockCause, Blocked, BoxError, CallCancelled, CancelledBy, Claim, ClosedValue,
-    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, LimitSource,
-    NotVerified, PartialOutput, Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue,
-    SettingsLayer, StopReason, TargetDescription, TargetNotUnique, Verdict,
+    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed,
+    FileWriteReason, FileWriteSide, LimitSource, NotVerified, PartialOutput, PathNotWritable,
+    Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
+    TargetDescription, TargetNotUnique, Verdict,
 };
 pub use run::{
     AbortedBy, Checkpoint, Completeness, KeyValueStoreReader, Lifecycle, NothingDone,
@@ -91,12 +92,14 @@ pub use run::{
     RunStopReason, RunTrace, RunView, RunWarning, StartedAs, VerdictReason, WaitingPause,
 };
 pub use sessions::{
-    BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined,
+    ArtifactDownloadFailed, ArtifactUnavailableOffline, BrowserName, BrowserNotInstalled,
+    CdpUrlAnswer, CdpUrlNotAllowed, CdpUrlNotBrowser, CdpUrlUnauthorized, CdpUrlUnreachable,
+    ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined,
     HumanPauseResult, Identities, LoggedOut, PageCheck, PageMatch, Pause, PauseUntil, Permission,
-    RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding, SecretDomainNotAllowed,
-    SecretInputRefused, SecretPlaceholder, SecretReference, SecretRequest, SecretUnavailable,
-    SecretUnbound, SessionNotSavable, SessionSource, StateFileFormat, TextInput, WebStorage,
-    secret,
+    PinnedArtifact, PinnedBy, RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding,
+    SecretDomainNotAllowed, SecretInputRefused, SecretPlaceholder, SecretReference, SecretRequest,
+    SecretUnavailable, SecretUnbound, SessionNotSavable, SessionSource, StateFileFormat, TextInput,
+    WebStorage, secret,
 };
 pub use time::{Call, CallFuture, Count, ElementState, Limits, LoadState, Money, UrlMatcher, Waiter};
 pub use concurrency::events;

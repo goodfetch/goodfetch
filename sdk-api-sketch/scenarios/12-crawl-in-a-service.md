@@ -81,9 +81,9 @@ A failure point that the program rules out by design counts as typed.
 - Failure points: no Goodfetch version does better than Scrapy 2.19 run without a reactor, which removed the scenario's founding pain (`ReactorNotRestartable`). The difference is status: that mode is experimental, with Scrapy's own HTTP handler disabled in it, where Goodfetch's guest rules are its only mode (G4). Goodfetch's disconnect also closes the browser a crawl used; Scrapy's crawl has none to release.
 - Lines: Goodfetch Python equals Scrapy's. Goodfetch TypeScript is longer because Node's `http` has no routing or query parsing and the program writes its own logger to standard error, since `console.info` writes to standard output.
 - Concepts: Goodfetch Python names five more than Scrapy, for the declared Dataset and typed Label Payload (G3) and for reading "no such category" from the Run report (`bySkipReason`), where Scrapy's program reads its stats by a string key (G1, G6).
-- Rust declares the crawl per call, since its handlers borrow that call's Dataset, and answers in axum by being dropped; it has no scored leader.
+- Rust declares the crawl per call, since its handlers borrow that call's Dataset, and answers in axum by being dropped; it has no scored leader. Its handlers and the futures they return are `Send` (ADR 0112), so `serve`'s future, held by axum's handler future, is `Send` as axum requires; held as they were before, the handlers made `get(get_books)` fail to compile.
 
-**Raised while writing it:** [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch/goodfetch/issues/531).
+**Raised while writing it:** [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch/goodfetch/issues/531), decided by ADR 0112.
 
 ## After the sketch
 

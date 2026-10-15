@@ -9,7 +9,7 @@ import { Crawl, Foxhound, seed } from "@goodfetch/foxhound";
 export const Book = z.object({
   title: z.string().min(1),
   price: z.string().regex(/^\d+\.\d{2}$/), // pounds, exact
-  inStock: z.number().int().min(0),
+  in_stock: z.number().int().min(0),
   rating: z.number().int().min(1).max(5),
 });
 

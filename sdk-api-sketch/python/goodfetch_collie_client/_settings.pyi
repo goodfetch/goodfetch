@@ -119,9 +119,10 @@ class BrowserSettings(TypedDict, total=False):
     (ADR 0092)."""
     permissions: Sequence[Permission]
     """`browser.permissions`: granted to every page of the Session; none by default, no setter later (ADR 0092)."""
-    block_resources: Sequence[Literal["image", "media", "font", "stylesheet"] | str]
+    block_resources: Sequence[Literal["image", "media", "font", "stylesheet"]]
     """`browser.block_resources`: resource types the engine's interception blocks on every page of the Session, before
-    any navigation, so every browser fetch of a crawl is covered (ADRs 0047, 0117); none by default. Set directly on a
+    any navigation, so every browser fetch of a crawl is covered (ADRs 0047, 0117); only these four types, inputs being
+    strict (G3); none by default. Set directly on a
     Label whose `fetch.tier` runs no browser, it is refused with `setting_not_applicable`. In the `standard` and
     `stealth` Access modes it warns once, since a site can see the missing loads."""
 

@@ -1,10 +1,10 @@
 //! Golden scenario 06, "Crawl with HTTP and a browser only where needed" (Foxhound, Rust).
 
-use goodfetch_foxhound::schemars::JsonSchema;
+use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::settings::{browser, fetch};
 use goodfetch_foxhound::{
     ConnectOptions, Crawl, CrawlContext, ElementState, Error, FetchTier, Foxhound,
-    LabelDeclaration, LinkPattern, ResourceType, Seed, Settings, UrlMatcher,
+    LabelDeclaration, LinkPattern, Seed, Settings, UrlMatcher,
 };
 use serde::{Deserialize, Serialize};
 
@@ -124,7 +124,7 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
     // navigation, a sample comparison of an HTTP Label's page included: no code runs in time.
     let no_media = Settings::new().set(
         browser::BLOCK_RESOURCES,
-        vec![ResourceType::Image, ResourceType::Font],
+        vec![browser::BlockedResourceType::Image, browser::BlockedResourceType::Font],
     );
     let run = foxhound
         .start_crawl(&crawl, seeds)

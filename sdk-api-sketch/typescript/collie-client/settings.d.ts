@@ -97,8 +97,8 @@ export interface BrowserSettings {
   readonly blockResources?: readonly BlockedResourceType[];
 }
 
-/** A resource type `browser.block_resources` takes; a newer engine's is kept as received (G3). */
-export type BlockedResourceType = "image" | "media" | "font" | "stylesheet" | (string & {});
+/** A resource type `browser.block_resources` takes: only these four, any other a type error (G3, ADR 0117). */
+export type BlockedResourceType = "image" | "media" | "font" | "stylesheet";
 
 /** Emulated network conditions, which Playwright closed as not planned (#8622). */
 export interface NetworkThrottle {

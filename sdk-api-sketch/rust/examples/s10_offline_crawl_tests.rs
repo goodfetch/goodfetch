@@ -99,6 +99,9 @@ mod tests {
             .settings(Settings::new().set(plan::FROZEN, true))
             .await?;
         let report = declared.crawl.serve(&run).await?;
+        let recording = report.run.recording.as_ref().expect("a replay reports it");
+        let missed: Vec<&str> = recording.misses.iter().map(|m| m.url.as_str()).collect();
+        assert!(missed.is_empty(), "not recorded: {missed:?}");
         assert_eq!(report.requests.failed, 0);
         assert_eq!(books_committed(&report), Some(1));
         assert_eq!(report.run.usage.model.calls, 0);

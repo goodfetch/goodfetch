@@ -27,7 +27,7 @@ test("a book page gives its book, with the category passed to it", async () => {
     {
       title: "A Light in the Attic",
       price: "51.77",
-      inStock: 22,
+      in_stock: 22,
       rating: 3,
       url: BOOK,
       category: "Poetry",
@@ -53,6 +53,7 @@ test("the AI extraction replays its Plan with no model call", async () => {
     settings: { plan: { frozen: true } },
   });
   const report = await run.finish();
+  assert.deepEqual(report.recording?.misses, []); // each miss names its URL
   assert.equal(report.requests.failed, 0);
   assert.equal(report.records["books"]?.committed, 1);
   assert.equal(report.usage.model.calls, 0);

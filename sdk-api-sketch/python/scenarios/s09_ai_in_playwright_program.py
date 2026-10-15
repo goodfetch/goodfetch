@@ -5,7 +5,7 @@ import logging
 from decimal import Decimal
 
 from playwright.async_api import Page, async_playwright
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from goodfetch_collie import AsyncCollie, GoodfetchError
 
@@ -14,7 +14,7 @@ log = logging.getLogger("books")
 
 class Listed(BaseModel):
     title: str
-    price: Decimal  # pounds
+    price: Decimal = Field(ge=0, decimal_places=2)  # pounds, exact
 
 
 async def list_books(page: Page) -> None:

@@ -77,6 +77,8 @@ const stagehand = await Stagehand.create({
 
 const [page] = await browser.context.pages();
 await page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html");
+const title = await page.title(); // not another page, nor an error page
+if (!title.includes("A Light in the Attic")) throw new Error(`Not the book's page: ${title}`);
 
 // The answer is parsed with Book: a value of the wrong type throws a ZodError naming its path.
 const { data: book, metadata } = await stagehand.extract("extract the book on this page", Book);

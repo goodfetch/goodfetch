@@ -5,7 +5,7 @@ import asyncio
 import re
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import AnyUrl, BaseModel, Field
 
 from goodfetch_foxhound import (
     AsyncCrawl,
@@ -20,10 +20,10 @@ from goodfetch_foxhound import (
 
 class Book(BaseModel):
     title: str = Field(min_length=1)
-    price: Decimal = Field(decimal_places=2)  # pounds, exact
+    price: Decimal = Field(ge=0, decimal_places=2)  # pounds, exact
     in_stock: int = Field(ge=0)
     rating: int = Field(ge=1, le=5)
-    url: str
+    url: AnyUrl
     category: str = Field(min_length=1)
 
 
@@ -85,7 +85,7 @@ async def on_book(ctx: AsyncCrawlContext[BookPayload]) -> None:
             price=Decimal(price[1]),
             in_stock=int(stock[1]),
             rating=rating,
-            url=ctx.page.url,  # the final URL, after redirects
+            url=AnyUrl(ctx.page.url),  # the final URL, after redirects
             category=ctx.request.payload.category,
         ),
     )

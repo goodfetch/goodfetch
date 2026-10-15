@@ -3,7 +3,8 @@ import { chromium } from "playwright";
 import { z } from "zod";
 import { Collie } from "@goodfetch/collie";
 
-const Listed = z.array(z.object({ title: z.string(), price: z.number() })); // pounds
+// Pounds, an exact decimal kept as text.
+const Listed = z.array(z.object({ title: z.string(), price: z.string().regex(/^\d+\.\d{2}$/) }));
 
 // The existing program, unchanged: it launches Chromium as Playwright does by default (over a pipe, no port).
 const browser = await chromium.launch();

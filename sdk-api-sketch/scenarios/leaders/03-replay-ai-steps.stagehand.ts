@@ -23,7 +23,13 @@ const stagehand = await Stagehand.create({
 const [page] = await browser.context.pages();
 await page.goto("https://quotes.toscrape.com/");
 
+let firstAuthor: string | null = null;
 for (const instruction of STEPS) {
+  if (instruction === STEPS[2]) {
+    if ((await page.url()) !== "https://quotes.toscrape.com/tag/love/page/2/")
+      throw new Error(`Not the tag's second page: ${await page.url()}`);
+    firstAuthor = await page.locator(".quote .author").first().textContent();
+  }
   let action = kept[instruction];
   if (action === undefined) {
     const { data } = await stagehand.observe(instruction); // the one model call of a new step
@@ -42,6 +48,8 @@ for (const instruction of STEPS) {
 const url = await page.url();
 if (!url.startsWith("https://quotes.toscrape.com/author/"))
   throw new Error(`Not an author page: ${url}`);
+if ((await page.locator(".author-title").textContent()) !== firstAuthor)
+  throw new Error(`Not the first quote's author: ${url}`);
 writeFileSync(FILE, JSON.stringify(kept, null, 2)); // kept only once the check holds
 
 // `extract` has no local replay, so the fields are read with selectors: the second run makes no model call.

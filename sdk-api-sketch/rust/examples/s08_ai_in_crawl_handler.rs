@@ -40,6 +40,7 @@ pub struct Book {
     #[serde(flatten)]
     pub fields: BookFields,
     /// The book page's final URL.
+    #[schemars(url)]
     pub url: String,
 }
 

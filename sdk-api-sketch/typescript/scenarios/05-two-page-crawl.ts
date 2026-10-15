@@ -4,10 +4,11 @@
 import { z } from "zod";
 import { Crawl, Foxhound, seed } from "@goodfetch/foxhound";
 
+// The Record's JSON is the same in every language: its field names, and its price as exact text.
 export const Book = z.object({
   title: z.string().min(1),
   price: z.string().regex(/^\d+\.\d{2}$/), // pounds, an exact decimal kept as text
-  inStock: z.number().int().min(0),
+  in_stock: z.number().int().min(0),
   rating: z.number().int().min(1).max(5),
   url: z.url(),
   category: z.string().min(1),
@@ -54,7 +55,7 @@ crawl.handle(book, async ({ page, request, push, skip }) => {
   await push(books, {
     title: await main.locator("h1").textContent(),
     price,
-    inStock: Number(inStock),
+    in_stock: Number(inStock),
     rating,
     url: page.url(), // the final URL, after redirects
     category: request.payload.category,

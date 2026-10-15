@@ -3,7 +3,10 @@ scenarios.s07_resume_and_retry`). Run it, kill it, run it again: the start resum
 only the failed requests; a third run finds the Run ended and says so."""
 
 import asyncio
+import signal
 import time
+
+import anyio
 
 from goodfetch_foxhound import AsyncCrawlRun, AsyncFoxhound, CrawlRunReport
 from scenarios.s05_two_page_crawl import books, crawl, seeds
@@ -40,14 +43,24 @@ async def crawl_to_end(run: AsyncCrawlRun) -> CrawlRunReport:
     return report
 
 
+async def stop_on_signal(run: AsyncCrawlRun) -> None:
+    """Ctrl+C or a plain `kill` (SIGTERM) stops the Run, so the requests in flight return to pending; `stop()` is
+    bounded by `timeout.close`, and `finish()` then returns the stopped Run's report."""
+    with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
+        async for _ in signals:
+            await run.stop()
+            return
+
+
 async def main() -> None:
     # The same ID begins the Run, resumes it after a kill, or returns it ended. A changed program (seeds, a Label gone, a
-    # Payload schema changed) or a damaged run file raises a typed error. Ctrl+C unwinds into `async with`, which stops
-    # the Run cleanly: the requests in flight return to pending, within `timeout.close`.
+    # Payload schema changed) or a damaged run file raises a typed error.
     async with (
         AsyncFoxhound.connect() as foxhound,
         await foxhound.start_crawl(crawl, seeds=seeds, run_id=RUN_ID) as run,
+        anyio.create_task_group() as tasks,
     ):
+        tasks.start_soon(stop_on_signal, run)
         print(f"run {run.id}: {run.started_as}")
         report = await crawl_to_end(run)
         if report.lifecycle == "finished" and run.started_as != "ended":
@@ -67,6 +80,7 @@ async def main() -> None:
             exported = await run.export(books, format="json")
             await exported.save_as("books.json")
             print(f"exported {exported.records} books to books.json")
+        tasks.cancel_scope.cancel()  # done: stop waiting for a signal
 
 
 if __name__ == "__main__":

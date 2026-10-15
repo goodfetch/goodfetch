@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from decimal import Decimal
 
 import pytest
+from pydantic import AnyUrl
 
 from goodfetch_foxhound import Recording, seed
 from goodfetch_foxhound.testing import AsyncTestEngine, Returned, SavedResponse
@@ -45,7 +46,7 @@ async def test_book_page_gives_its_book_with_the_category_passed_to_it(
             price=Decimal("51.77"),
             in_stock=22,
             rating=3,
-            url=BOOK,
+            url=AnyUrl(BOOK),
             category="Poetry",
         )
     ]
@@ -76,6 +77,8 @@ async def test_ai_extraction_replays_its_plan_with_no_model_call(
         settings={"plan": {"frozen": True}},
     ) as run:
         report = await run.finish()
+    assert report.recording is not None
+    assert list(report.recording.misses) == []  # each miss names its URL
     assert report.requests.failed == 0
     assert report.records["books"].committed == 1
     assert report.usage.model.calls == 0

@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 use goodfetch_foxhound::{
     ConnectOptions, CrawlRun, CrawlRunReport, Error, ExportFormat, Foxhound, Lifecycle, StartedAs,
 };
+#[cfg(unix)]
+use tokio::signal::unix::{SignalKind, signal};
 
 const RUN_ID: &str = "books-toscrape-2026-10-15";
 
@@ -53,9 +55,25 @@ async fn print_progress(run: &CrawlRun) -> Result<(), Error> {
     Ok(())
 }
 
-/// Serves the crawl until its Run ends, printing its progress, or stops it on Ctrl+C: dropping
-/// `serve` is the program's own stop, so the requests in flight return to pending, and `stop` is
-/// bounded by `timeout::CLOSE`.
+/// Resolves on Ctrl+C or, on Unix, on SIGTERM, which a plain `kill` sends.
+async fn stop_signal() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate = signal(SignalKind::terminate())?;
+        tokio::select! {
+            pressed = tokio::signal::ctrl_c() => pressed,
+            _ = terminate.recv() => Ok(()),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await
+    }
+}
+
+/// Serves the crawl until its Run ends, printing its progress, or stops it on Ctrl+C or SIGTERM:
+/// dropping `serve` is the program's own stop, so the requests in flight return to pending, and
+/// `stop` is bounded by `timeout::CLOSE`.
 async fn crawl_to_end(
     declared: &two_page_crawl::BooksCrawl,
     run: &CrawlRun,
@@ -64,7 +82,7 @@ async fn crawl_to_end(
         served = async { tokio::try_join!(declared.crawl.serve(run), print_progress(run)) } => {
             Ok(served?.0)
         }
-        _ = tokio::signal::ctrl_c() => run.stop().await,
+        _ = stop_signal() => run.stop().await,
     }
 }
 

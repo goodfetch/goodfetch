@@ -28,8 +28,10 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   - from area 5: the HTTP tiers (reqwest and wreq's TLS impersonation), browser rendering for crawling (the CDP driver's navigation, waits and extraction, the per-route tier choice of ADR 0020, screenshots and PDF, the browser pool), proxies, Sessions and the Session pool, block causes and escalation, and Politeness defaults (ADR 0021);
   - from area 6: the Frontier, extraction in every format, the Dataset, every Export format and the results stream;
   - from areas 1 and 2: the build and test gates (#132–#137), the full platform matrix (#145), `xtask size` (#201), the local Proving ground (#158–#167) and the conformance harness (#169, #170, #172).
+    > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): both Products' executables are built and tested from M1. The engine tracer builds both, Foxhound's starting from Collie's composition, and these gates cover both.
 - **M2:** the three SDKs, MCP and agent skills.
 - **M3:** the guard and the rest of ADR 0019's page API, Firefox and WebKit through Playwright's driver, the Browser host (ADR 0022), Session sources and Borrowed browsers (ADR 0056), stealth and the Challenge solver (area 8), and the Live view with takeover.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): M3 is Collie's milestone, whose owner test is the first to try Collie's page automation. Collie's AI actions come with M4, and both Products are first published there.
 - **M4:**
   - Sinks, Schedules, Watches and Recipes;
   - AI and agents with Plans, Plugins, Script Hooks and the Script sandbox;
@@ -45,6 +47,8 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   > Amended by [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md): it is ready only when every automated variant of its milestone is also `proved` on `main`.
   >
   > Amended by [ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md): it is also ready only when every generated Feature, and every declared Feature due at its milestone, is tested or excepted on `main`'s latest Release suite run.
+  >
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each testing issue installs both Products' executables from a local build and lists the Journeys of both Products due at its milestone.
 - M4 ends at the release gates of ADRs 0030 and 0032.
 - Nothing is published before M4, on any channel; the owner tests from local builds. **Changes ADRs 0030, 0032 and 0057:** the nightly channel (npm `nightly`, GitHub pre-releases, the nightly Python index, the OCI `nightly` tag) and the `0.y` previews start in M4.
 - Between gates, delivery stays autonomous under AGENTS.md.

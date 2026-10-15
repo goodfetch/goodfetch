@@ -369,8 +369,10 @@ impl SinkConfig {
 
 impl Settings {
     /// Configures the Sink `name` (`sinks.<name>.*`) for this scope. Foxhound's: a Collie Run on a
-    /// Foxhound engine has no Datasets and refuses it with `setting_not_applicable`, and a Collie
-    /// engine refuses it with `not_in_product` (ADR 0087).
+    /// Foxhound engine has no Datasets and refuses one set on it with `setting_not_applicable`,
+    /// while one inherited from the connection or configuration is inactive for it. A Collie engine
+    /// refuses one given to a Run or a connection with `not_in_product` (ADR 0087), and leaves
+    /// configuration's `sinks.*` to Foxhound.
     pub fn sink(self, name: &str, sink: SinkConfig) -> Self {
         let _ = (name, sink);
         unimplemented!()

@@ -608,7 +608,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 
 ### Refusals
 
-- **Every refusal is tested from a fabricated version**, generated per format: a newer minor, an older major, a newer major, and each exception's own outcome (Usage-ledger family, Response cache, Clean-up rules, Operator policy). The Error code and message are snapshotted.
+- **Every refusal is tested from a fabricated version**, generated per format: a newer minor, an older major, a newer major, and each exception's own outcome (Usage-ledger family, Response cache, Clean-up rules, Operator policy). The Error code and message are snapshotted. Between an engine and a Browser host only another major is refused: a fabricated `hello` of another minor checks that both sides settle on the lower one, and a Session needing more than an older Browser host's minor checks `browser_host_outdated` (ADR 0096).
 - **A handshake refusal is the reply to `hello`**, before any other message, and the connection then closes. Never test refusal with a time budget.
 - **Test each handshake refusal twice:** in the Quick suite, in process, by sending the fabricated `hello` to the handshake code over an in-memory transport; in the Pre-merge suite, through the conformance harness's own `hello` to a running engine. No build carries a version override.
   _Why:_ the Quick suite starts no process and binds no socket.

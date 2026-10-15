@@ -12,7 +12,10 @@ the guard's guarantees:
   order; reads, waits, `evaluate` and answers to routes and dialogs run concurrently.
 - A page function is JavaScript source run in the page, with one explicit argument; values cross as JSON.
 - Routes and dialog handlers answer requests: later ones first, the first to settle wins, one that settles nothing
-  falls through, and past the last one a request goes to the network and a dialog is dismissed. Nothing stalls.
+  falls through, and past the last one a request goes to the network and a dialog gets Playwright's default, so a
+  handler that answers nothing never stalls the page.
+- A gesture that waits on the program (a locator handler's turn, a dialog or route answer) gives up its page's turn,
+  so a handler's own gestures run.
 
 Waits come from ADR 0080 (`_time`), events and subscriptions from ADR 0081 (`_concurrency`).
 """
@@ -214,7 +217,8 @@ class _AsyncLocates:
         has_not: AsyncLocator | None = None,
     ) -> AsyncLocator:
         """CSS, or XPath when the string starts with `//`, `..` or `xpath=`. CSS pierces open shadow roots; XPath
-        does not. Playwright's other selector engines and `>>` chains raise `SelectorInvalidError`."""
+        does not. Playwright's other selector engines, `>>` chains and its CSS extensions (`:has-text()`, `:text()`,
+        `:visible`, `:nth-match()`) raise `SelectorInvalidError`."""
 
     def get_by_role(
         self,
@@ -390,6 +394,16 @@ class AsyncLocator(_AsyncLocates, AsyncAiVerbs):
     ) -> JsonValue: ...
 
     # Waits (ADR 0080).
+    async def wait_for_function(
+        self,
+        expression: str,
+        arg: JsonValue | NotGiven = ...,
+        *,
+        polling: Literal["raf"] | timedelta = "raf",
+        timeout: Timeout = ...,
+    ) -> JsonValue:
+        """Waits until the page function, given the element first, returns a truthy value; resolved again at each check."""
+
     async def wait_for(self, *, state: ElementState = "visible", timeout: Timeout = ...) -> None:
         """Playwright's `wait_for`: one element in the given state."""
 
@@ -500,8 +514,8 @@ class AsyncRoute:
 
 AsyncRouteHandler: TypeAlias = Callable[[AsyncRoute], Awaitable[None]]
 """Answers matching requests; its return value is ignored. If it raises, its request is aborted, never sent
-half-changed; the route is removed, and the next call on the value it was registered on raises
-`PageHandlerFailedError`, as ADR 0081's listeners do."""
+half-changed, and the route is removed; `PageHandlerFailedError` is raised by a call in flight that waited on that
+request, or else by the next call on the value it was registered on, as ADR 0081's listeners do."""
 
 @final
 class AsyncDialog:
@@ -517,7 +531,8 @@ class AsyncDialog:
     async def dismiss(self) -> None: ...
 
 AsyncDialogHandler: TypeAlias = Callable[[AsyncDialog], Awaitable[None]]
-"""Answers dialogs under the routes' rules; past the last handler, or with none, a dialog is dismissed (ADR 0014)."""
+"""Answers dialogs under the routes' rules; past the last handler, or with none, a dialog gets Playwright's default: an
+`alert`, `confirm` or `prompt` is dismissed (ADR 0014) and a `beforeunload` dialog is accepted."""
 
 @final
 class AsyncDownload:
@@ -623,7 +638,8 @@ class AsyncPageRequest:
 @final
 class AsyncCdpSession:
     """Raw Chrome DevTools Protocol for one page, over the program's own connection: a raw CDP attach under ADR 0017
-    (egress proxy, no Secret typed, results marked unguarded, the attach audited). It reaches only its page's target;
+    (egress proxy, or ADR 0056's interception on a Borrowed browser; no Secret typed; results marked unguarded; the
+    attach audited). It reaches only its page's target;
     commands beyond it, and anything that would close a Borrowed browser, raise `CdpCommandRefusedError`. Semver covers
     this shape, never the protocol, which is Chromium's."""
 
@@ -861,6 +877,14 @@ class Locator(_Locates, AiVerbs):
     def evaluate(self, expression: str, arg: JsonValue | NotGiven = ..., *, world: World = "main", timeout: Timeout = ...) -> JsonValue: ...
     def evaluate_all(
         self, expression: str, arg: JsonValue | NotGiven = ..., *, world: World = "main", timeout: Timeout = ...
+    ) -> JsonValue: ...
+    def wait_for_function(
+        self,
+        expression: str,
+        arg: JsonValue | NotGiven = ...,
+        *,
+        polling: Literal["raf"] | timedelta = "raf",
+        timeout: Timeout = ...,
     ) -> JsonValue: ...
     def wait_for(self, *, state: ElementState = "visible", timeout: Timeout = ...) -> None: ...
     def wait_for_count(self, count: int | Count, *, timeout: Timeout = ...) -> int: ...

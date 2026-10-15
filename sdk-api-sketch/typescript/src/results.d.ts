@@ -143,7 +143,7 @@ export declare class ModelError extends GoodfetchError {
  * A code named like its group (`deadline_exceeded`, `internal`) shares the group's class. */
 export declare class DeadlineExceededError extends GoodfetchError {
   readonly group: "deadline_exceeded";
-  /** Every timeout is the code `deadline_exceeded`, whatever the phase (ADR 0080). */
+  /** Every timeout is the code `deadline_exceeded`, whatever the phase (ADR 0080), except a target still ambiguous at its deadline: `target_not_unique` (ADR 0085). */
   readonly details: DeadlineExceededDetails;
 }
 /** Something Goodfetch depends on is unreachable or gone. Usually retryable: retry or fix the setup. */

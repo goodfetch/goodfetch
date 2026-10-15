@@ -123,7 +123,7 @@ class AsyncPage(
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 
     async def close(self, *, run_before_unload: bool = False, timeout: Timeout = ...) -> None:
-        """Idempotent. `run_before_unload` runs the page's `beforeunload` handlers, the only way such a dialog appears."""
+        """Idempotent. `run_before_unload` runs the page's `beforeunload` handlers, which closing otherwise skips."""
 
 @final
 class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionStateApi):

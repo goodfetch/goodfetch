@@ -68,7 +68,7 @@ async fn click_next(page: &Page) -> Result<(), Error> {
 }
 
 /// Routes and dialogs arrive as streams the program drives; an item dropped unanswered falls
-/// through, so nothing stalls (golden scenario 06's browser part).
+/// through to the default (golden scenario 06's browser part).
 async fn last_scrolling_page(page: &Page) -> Result<Option<Value>, Error> {
     let answer = async {
         let media = page

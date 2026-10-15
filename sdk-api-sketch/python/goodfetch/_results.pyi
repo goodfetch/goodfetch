@@ -145,7 +145,8 @@ class DeadlineExceededError(GoodfetchError):
     """The deadline passed. Raise the timeout its `limit` names, or wait for the right thing (ADR 0080).
 
     A code named like its group (`deadline_exceeded`, `internal`) shares the group's class. Every timeout is
-    the code `deadline_exceeded`, whatever the phase.
+    the code `deadline_exceeded`, whatever the phase, except a target still ambiguous at its deadline, which raises
+    `TargetNotUniqueError` (ADR 0085).
     """
 
     @property

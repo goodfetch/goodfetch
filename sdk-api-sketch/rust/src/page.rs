@@ -17,7 +17,9 @@
 //!   cross as JSON.
 //! - Routes and dialogs arrive as [`EventStream`]s the program drives (ADR 0081). Later routes get
 //!   a request first; the first answer wins; an item dropped unanswered falls through, and past the
-//!   last one a request goes to the network and a dialog is dismissed. Nothing stalls.
+//!   last one a request goes to the network and a dialog gets Playwright's default, so a handler
+//!   that answers nothing never stalls the page. A gesture that waits on the program gives up its
+//!   page's turn, so a handler's own gestures run.
 //!
 //! Every call is a builder implementing `IntoFuture`, with `.timeout(d)` and `.no_timeout()`
 //! (ADR 0080); a question that never waits ([`Query`]) has neither.
@@ -227,8 +229,9 @@ macro_rules! locates {
     ($ty:ty) => {
         impl $ty {
             /// CSS, or XPath when the string starts with `//`, `..` or `xpath=`. CSS pierces open
-            /// shadow roots; XPath does not. Playwright's other selector engines and `>>` chains
-            /// fail with `selector_invalid`, whose fix names the method that replaces them.
+            /// shadow roots; XPath does not. Playwright's other selector engines, `>>` chains and its
+            /// CSS extensions (`:has-text()`, `:text()`, `:visible`, `:nth-match()`) fail with
+            /// `selector_invalid`, whose fix names the method that replaces them.
             pub fn locator(&self, selector: &str) -> Locator {
                 let _ = selector;
                 unimplemented!()
@@ -1013,6 +1016,16 @@ impl Locator {
 
     // Waits (ADR 0080).
 
+    /// Waits until a page function, given the element first, returns a truthy value; the locator is
+    /// resolved again at each check.
+    pub fn wait_for_function<T: DeserializeOwned + Send + 'static>(
+        &self,
+        source: &str,
+    ) -> WaitForFunction<T> {
+        let _ = source;
+        unimplemented!()
+    }
+
     /// Playwright's `wait_for`: one element in the given state.
     pub fn wait_for(&self, state: ElementState) -> Call<()> {
         let _ = state;
@@ -1522,13 +1535,15 @@ pub enum DialogKind {
     Confirm,
     /// `prompt()`
     Prompt,
-    /// `beforeunload`, only when a page is closed with `run_before_unload`.
+    /// `beforeunload`: accepted by default; raised by a navigation, or by closing with
+    /// `run_before_unload`.
     BeforeUnload,
 }
 
 /// A JavaScript dialog waiting for the program's answer. Later subscribers get it first; dropping
-/// it unanswered passes it on, and past the last one, or with none, it is dismissed, the default,
-/// since accepting a `confirm()` may confirm an Effect (ADR 0014).
+/// it unanswered passes it on, and past the last one, or with none, it gets Playwright's default:
+/// an `alert`, `confirm` or `prompt` is dismissed, since accepting a `confirm()` may confirm an
+/// Effect (ADR 0014), and a `beforeunload` dialog is accepted.
 #[derive(Debug)]
 pub struct Dialog {
     _private: (),
@@ -1819,7 +1834,8 @@ impl Touchscreen {
 // The way down.
 
 /// Raw Chrome DevTools Protocol for one page, over the program's own connection. It is a raw CDP
-/// attach under ADR 0017: the Session's traffic goes through the egress proxy, no Secret is typed,
+/// attach under ADR 0017: the Session's traffic goes through the egress proxy (on a Borrowed
+/// browser, ADR 0056's interception instead), no Secret is typed,
 /// its results are marked unguarded and the attach is in the Audit log. It reaches only its page's
 /// target: commands that close or attach other targets, and anything that would close a Borrowed
 /// browser, fail with `cdp_command_refused`. Semver covers this shape, never the protocol, which
@@ -1908,7 +1924,7 @@ impl fmt::Debug for PageClose {
 }
 
 impl PageClose {
-    /// Runs the page's `beforeunload` handlers, the only way such a dialog appears.
+    /// Runs the page's `beforeunload` handlers, which closing otherwise skips.
     pub fn run_before_unload(self) -> Self {
         unimplemented!()
     }

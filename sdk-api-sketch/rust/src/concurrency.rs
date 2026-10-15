@@ -155,7 +155,8 @@ pub mod events {
     );
     page_event!(
         /// `dialog`: a dialog waiting for the program's answer. Dropping one unanswered passes it on;
-        /// past the last subscriber, or with none, it is dismissed.
+        /// past the last subscriber, or with none, it gets Playwright's default (dismissed, or accepted
+        /// for `beforeunload`).
         Dialog => DialogRequest
     );
 

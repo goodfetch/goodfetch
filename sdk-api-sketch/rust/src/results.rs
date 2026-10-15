@@ -52,7 +52,8 @@ pub enum ErrorCode {
     Blocked,
     /// `not_verified`, from [`AiWorkResult::require_verified`].
     NotVerified,
-    /// `deadline_exceeded`: every timeout, whatever the phase (ADR 0080).
+    /// `deadline_exceeded`: every timeout, whatever the phase (ADR 0080), except a target still
+    /// ambiguous at its deadline, which is `target_not_unique` (ADR 0085).
     DeadlineExceeded,
     /// `call_cancelled`: someone else stopped the call in flight; a dropped future of the caller's
     /// own never sees it (ADR 0080).
@@ -360,7 +361,7 @@ pub enum ErrorDetails {
     Blocked(Blocked),
     /// Of `not_verified`.
     NotVerified(NotVerified),
-    /// Of `deadline_exceeded`, every timeout whatever the phase (ADR 0080).
+    /// Of `deadline_exceeded`, every timeout but a still-ambiguous target's, whatever the phase (ADR 0080).
     DeadlineExceeded(DeadlineExceeded),
     /// Of `payload_invalid`.
     PayloadInvalid(crate::data::PayloadInvalid),

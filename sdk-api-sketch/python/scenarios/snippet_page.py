@@ -60,7 +60,7 @@ async def click_next(page: AsyncPage) -> None:
 
 
 async def read_scrolling_quotes(page: AsyncPage) -> list[JsonValue]:
-    """Routes and dialogs answer requests; nothing stalls (golden scenario 06's browser part)."""
+    """Routes and dialogs answer requests; one that answers nothing falls through (golden scenario 06's browser part)."""
 
     async def media(route: AsyncRoute) -> None:
         if route.request.resource_type in ("image", "font"):

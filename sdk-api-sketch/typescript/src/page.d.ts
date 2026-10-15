@@ -12,7 +12,9 @@
 // - A page function is JavaScript run in the page, with one explicit argument; values cross as JSON.
 // - Routes and dialog handlers answer requests: later ones first, the first to settle wins, one that
 //   settles nothing falls through, and past the last one a request goes to the network and a dialog
-//   is dismissed. Nothing stalls.
+//   gets Playwright's default, so a handler that answers nothing never stalls the page.
+// - A gesture that waits on the program (a locator handler's turn, a dialog or route answer) gives up
+//   its page's turn, so a handler's own gestures run.
 // Waits come from ADR 0080 (time.d.ts), events and Subscriptions from ADR 0081 (concurrency.d.ts).
 
 import type { AiVerbs, AriaSnapshots } from "./ai.js";
@@ -81,8 +83,9 @@ export interface FilterOptions {
 export interface Locates {
   /**
    * CSS, or XPath when the string starts with `//`, `..` or `xpath=`. CSS pierces open shadow
-   * roots; XPath does not. Playwright's other selector engines (`text=`, `role=`, `internal:`) and
-   * `>>` chains fail with `SelectorInvalidError`, whose fix names the method that replaces them.
+   * roots; XPath does not. Playwright's other selector engines (`text=`, `role=`, `internal:`), `>>`
+   * chains and its CSS extensions (`:has-text()`, `:text()`, `:visible`, `:nth-match()`) fail with
+   * `SelectorInvalidError`, whose fix names the method that replaces them.
    */
   locator(selector: string, options?: FilterOptions): Locator;
   getByRole(role: AriaRole, options?: GetByRoleOptions): Locator;
@@ -296,6 +299,12 @@ export interface Locator extends Locates, AiVerbs, AriaSnapshots {
   ): Promise<R>;
 
   // Waits (ADR 0080).
+  /** Waits until the page function, given the element first, returns a truthy value; the locator is resolved again at each check. */
+  waitForFunction<R extends PageResult = JsonValue, Arg extends JsonValue = JsonValue>(
+    pageFunction: ElementFunction<Arg, R>,
+    arg?: Arg,
+    options?: CallOptions & { readonly polling?: "raf" | number },
+  ): Promise<R>;
   /** Playwright's `waitFor`: one element in the given state. */
   waitFor(options?: CallOptions & { readonly state?: "attached" | "detached" | "visible" | "hidden" }): Promise<void>;
   /** Waits until the number of matches is in range: a different behaviour, so a different name (S3). */
@@ -543,9 +552,11 @@ export interface Dialog {
 
 /**
  * Answers dialogs under the routes' rules: later handlers first, the first to accept or dismiss wins,
- * one that does neither falls through, and past the last one the dialog is dismissed, the default,
- * since accepting a `confirm()` may confirm an Effect (ADR 0014). A handler that throws: the dialog
- * is dismissed and the next call throws `PageHandlerFailedError`.
+ * one that does neither falls through, and past the last one, or with none, the dialog gets
+ * Playwright's default: an `alert`, `confirm` or `prompt` is dismissed, since accepting a `confirm()`
+ * may confirm an Effect (ADR 0014), and a `beforeunload` dialog is accepted. A handler that throws:
+ * the dialog gets its default, and `PageHandlerFailedError` is thrown by the gesture the dialog
+ * blocked, or else by the next call on the page.
  */
 export type DialogHandler = (dialog: Dialog) => void | Promise<void>;
 
@@ -588,7 +599,8 @@ export interface Touchscreen {
 
 /**
  * Raw Chrome DevTools Protocol for one page, over the program's own connection. It is a raw CDP
- * attach under ADR 0017: the Session's traffic goes through the egress proxy, no Secret is typed, its
+ * attach under ADR 0017: the Session's traffic goes through the egress proxy (on a Borrowed browser,
+ * ADR 0056's interception instead), no Secret is typed, its
  * results are marked unguarded and the attach is in the Audit log. It reaches only its page's target:
  * commands that close or attach other targets, and anything that would close a Borrowed browser,
  * throw `CdpCommandRefusedError`. Semver covers this shape, never the protocol, which is Chromium's.
@@ -615,7 +627,7 @@ export interface PdfOptions extends CallOptions {
 
 /** Options of closing a page. */
 export interface PageCloseOptions extends CallOptions {
-  /** Runs the page's `beforeunload` handlers, the only way a `beforeunload` dialog appears. */
+  /** Runs the page's `beforeunload` handlers, which `close()` otherwise skips; a navigation can still raise one. */
   readonly runBeforeUnload?: boolean;
 }
 

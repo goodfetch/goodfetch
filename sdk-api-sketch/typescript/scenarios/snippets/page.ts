@@ -58,7 +58,7 @@ export async function clickNext(page: Page): Promise<void> {
   }
 }
 
-// Routes and dialogs answer requests; nothing stalls (golden scenario 06's browser part).
+// Routes and dialogs answer requests; one that answers nothing falls through (golden scenario 06's browser part).
 export async function readScrollingQuotes(page: Page): Promise<JsonValue[]> {
   // Later routes run first; one that settles nothing falls through, then to the network.
   using _media = page.route("**/*", async (route) => {

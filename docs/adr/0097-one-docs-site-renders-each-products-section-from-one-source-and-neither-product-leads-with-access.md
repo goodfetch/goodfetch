@@ -15,7 +15,7 @@ The [docs-site, migration-guide and stealth-wording research](https://github.com
 - **Migration guides from competitors share a skeleton, and their code never runs in CI.** The skeleton is principles, a mapping table and before/after code; Stagehand's 2026 guides add porting rules for coding agents. Examples come from Playwright, Crawlee for Python, Stagehand and ty. The field lints or type-checks guide code at most.
 - **Stealth tools put detection-defeat words in their registry metadata.** Examples: "Undetected", `cloudflare-bypass`, `anti-bot`. Camoufox's registry text says only "fingerprint".
 
-Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/automan/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/automan/issues/499#issuecomment-6181537258), [first addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189095221), [second addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189273442), [third addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189439625)). It builds on ADR 0087 (what each executable embeds), ADR 0088 (what Collie carries), ADR 0089 (lending a page and borrowing a crawler's) and ADR 0090 (names and the Product version), and also on:
+Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/automan/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/automan/issues/499#issuecomment-6181537258), [first addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189095221), [second addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189273442), [third addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189439625), [fourth addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189609030)). It builds on ADR 0087 (what each executable embeds), ADR 0088 (what Collie carries), ADR 0089 (lending a page and borrowing a crawler's) and ADR 0090 (names and the Product version), and also on:
 - the [browser-automation products research](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md);
 - the [naming and packaging research](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) §5;
 - the [stealth legal note](https://github.com/goodfetch/automan/blob/research/stealth-legal-exposure/rnd/research/2026-10-10-stealth-legal-exposure.md).
@@ -114,7 +114,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   1. **Concepts:** what changes in them.
   2. **Mapping table:** the competitor's API against Goodfetch's, linked to the reference, with a blank cell and its reason where nothing matches.
   3. **Programs:** before and after, side by side, in each language both offer.
-  4. **Defaults that change results:**
+  4. **Defaults that change results,** Goodfetch's safe defaults (ADR 0077's G5):
      - robots.txt obeyed (ADR 0086);
      - consent refused (ADR 0048);
      - Clean-up rules on (ADR 0047);
@@ -124,8 +124,8 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   6. **The competitor's version and date.**
 - **The "after" code is docs samples, so it runs in CI** (ADR 0068).
 - **The "before" code is type-checked, never run.** Each "before" program is a file beside its guide, with a manifest pinning the competitor's version, type-checked against it (tsc, pyright, rustc) as golden scenarios' leader programs are. The page includes the file rather than a fenced block, so it is not a docs sample. A guide a golden scenario backs reuses that scenario's programs. The type-check runs in the Pre-merge suite when the guide or its manifest changes, and in the Release suite.
-- **The Live check `migration-guides-current`,** owned by area 11, run nightly (or before each release candidate while the nightly tier is off, as ADR 0068's `docs-external-links`) and blocking nothing directly (ADR 0064), reads the registries. It fails when a guide's competitor has a newer major than the one pinned, or a newer minor for a `0.y` competitor such as Browser Use, since SemVer lets anything change before 1.0.0 and such projects ship breaking changes in minors, as ADR 0030 reads Goodfetch's own `0.y.z` previews.
-  - A pin the manifest marks as held, with its reason, is checked against the newest release of its own major (or minor at `0.y`) instead. The Crawlee-with-Stagehand guide holds Stagehand 3 because Crawlee's integration accepts only Stagehand 3, and its check also fails once that integration accepts a newer Stagehand major. The v3 part of the Stagehand guide holds Stagehand 3 because it documents v3.
+- **The Live check `migration-guides-current`,** owned by area 11, run nightly (or before each release candidate while the nightly tier is off, as ADR 0068's `docs-external-links`) and blocking nothing directly (ADR 0064), reads the registries. It fails when a guide's competitor has a newer major than the one pinned, a newer minor for a `0.y` competitor such as Browser Use, or a newer patch for a `0.0.z` one such as scrapy-playwright, since SemVer lets anything change before 1.0.0 and such projects ship breaking changes in minors, as ADR 0030 reads Goodfetch's own `0.y.z` previews.
+  - A pin the manifest marks as held, with its reason, is checked against the newest release of its own major (or minor at `0.y`, or patch at `0.0.z`) instead. The Crawlee-with-Stagehand guide holds Stagehand 3 because Crawlee's integration accepts only Stagehand 3, and its check also fails once that integration accepts a newer Stagehand major. The v3 part of the Stagehand guide holds Stagehand 3 because it documents v3.
   - It only reads registries, so it costs nothing (ADR 0076).
 
 ### Per-Product artifacts
@@ -141,13 +141,14 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - README code is docs samples. `xtask docs-samples` also reads every published package's README, and its samples run on that package's Product's executable, the Collie client package's on Collie's. A Rust crate's README is included under `#[cfg(doctest)]`, as clap and env_logger include theirs.
   - Per-Product GitHub repositories remain a later option (ADR 0084).
 - **Agent skills are rendered from the same source as the docs,** one source per topic for each Product that carries it, as #458 decides for skills, so their topics match the pages.
-- **Each executable embeds its own section's rendering** for its `docs` command and its MCP server's resources (ADR 0030), and its `init` writes an AGENTS.md index pointing to them. Each executable embeds only its own Product's docs and `init` starters (ADR 0087).
+- **Each executable embeds its own section's rendering** for its `docs` command and its MCP server's resources (ADR 0030), and its `init` writes an AGENTS.md index pointing to them. Each executable embeds only its own Product's docs and `init` starters (ADR 0087). How a link into the other section reads there (an absolute `goodfetch.dev` link, for one) is area 1's.
 - **Each section has its own llms files:** `/docs/collie/llms.txt` and `llms-full.txt`, and Foxhound's likewise.
   - The root has its own pair: `/docs/llms.txt` lists both sections' files and the root pages, and `/docs/llms-full.txt` holds the root pages' content. llms.txt v2 allows a file at any subpath, and the most specific file applies.
   - Every page's `.md` twin, llms entry and `llms-full.txt` content are checked in its own section's files, or the root's for a root page.
 - **Samples.**
   - **A page rendered for both Products runs its samples once, on Collie's executable,** as a test runs on Collie unless it needs Foxhound ([Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)).
   - **Its Foxhound rendering is checked statically against Foxhound's packages, never run:** TypeScript type-checked by Twoslash, Python linted by Ruff and type-checked by pyright (beyond the lint ADR 0068 gives a `no_run` Python block), Rust compiled as a `no_run` doctest. A wrong import or name in Foxhound's rendering fails.
+  - **No code block of a Product's rendering carries the other Product's names,** `console` blocks and MCP pairs included, which are not run there: `xtask docs-samples` fails on any name from the generator's list of the other Product (executable, packages, imports, connection type, engine-path variable, MCP server and skill names), except in a part that declares the other Product, such as "When you need many pages". A source page that hard-codes `goodfetch-collie` instead of the generator's marker thus fails.
   - **A page rendered for Foxhound only runs its samples on Foxhound's executable.**
   - **`xtask docs-samples` reads each Product's rendering.**
 
@@ -157,7 +158,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **A check enforces the list,** `xtask wording`, run in the Quick suite beside `xtask codegen --check`, so every later suite runs it too (ADR 0061). It is not one of `just lint`'s linters, which are `STYLE.md`'s.
   - It is word-bounded and case-insensitive, over prose. It skips code, since third-party APIs fix some names.
   - It reads:
-    - the docs pages (not `docs/adr/`, `docs/agents/` or `rnd/`), the READMEs and the skills;
+    - the docs pages (not `docs/adr/`, `docs/agents/` or `rnd/`), the READMEs, `CHANGELOG.md` and the skills;
     - the descriptions in the catalog and the settings schema, and the Error codes' messages;
     - the Console's message catalog;
     - every package's description and keywords.

@@ -181,7 +181,8 @@ impl RequestChange {
         Self::default()
     }
 
-    /// A new URL, checked as an enqueue is: against the crawl's scope and the run's domain policy,
+    /// A new URL, checked against the crawl's scope and the run's domain policy (not an enqueue's
+    /// other checks; a Hook in code may reach any host that admits),
     /// else the request ends `skipped`. robots.txt and Site preferences read it as rewritten.
     pub fn url(self, url: &str) -> Self {
         let _ = url;
@@ -265,7 +266,7 @@ impl ResponseChange {
     }
 }
 
-/// Before and after a browser navigation (not on the HTTP tiers), and when the page is ready, just
+/// Before and after a browser navigation (only on the `browser` tier), and when the page is ready, just
 /// before the handler, on every tier. Page calls follow the handler's tier rules (ADR 0093).
 #[derive(Debug)]
 pub struct PageStageContext<P> {
@@ -438,11 +439,14 @@ pub struct HeaderForbidden {
 // engine, a linked one included. `ConnectOptions` declares each handler's name, one builder method
 // per kind, and `Goodfetch::*_requests(name)` reads its calls. Settings choose it by that name as they
 // choose an installed Plugin. The only one of a kind that one setting chooses (Fetch backend, Proxy
-// provider) stands in for that setting's built-in default, which any explicit value replaces;
-// `explain_settings` marks it `registered`. A name an installed Plugin of its kind already has fails
-// `connect` with `setting_invalid`, as does a setting naming a handler neither installed nor
-// declared. A call waits for its stream until its own deadline; one dropped unanswered, or held by
-// a stream dropped mid-Run, fails as an unreachable implementation of its kind would (ADR 0101).
+// provider) becomes that setting's value at the connection scope, with the run-layer origin
+// `Registered`, the lowest: every other run-layer value replaces it, and configuration does not. Two
+// of such a kind fail `connect` with `setting_invalid` unless its settings choose one, as does a name
+// a built-in or an installed Plugin of its kind already has. A setting naming a handler neither
+// installed nor declared fails with `setting_invalid` when its scope opens. A call waits for its
+// stream until its own deadline; one dropped unanswered, or held by a stream dropped mid-Run, fails
+// with its kind's code for an unreachable implementation (ADR 0101). Collie's SDK has no Fetch
+// backend or Sink (ADR 0088).
 // Each kind's calls are generated from its plugin-protocol method group (area 7's spec): the
 // shapes below are provisional.
 
@@ -615,7 +619,7 @@ impl SinkCall {
 
 impl Goodfetch {
     /// The fetch calls for the Fetch backend `name`, which [`ConnectOptions::fetch_backend`]
-    /// declared; another name fails with `setting_invalid`. One reader per name.
+    /// declared; another name, or a second stream while one is open, fails with `setting_invalid`.
     pub fn fetch_requests(&self, name: &str) -> Result<EventStream<FetchCall>, Error> {
         let _ = name;
         unimplemented!()
@@ -685,4 +689,6 @@ pub struct SdkHandlerFailed {
     pub error_type: String,
     /// Its message.
     pub error_message: String,
+    /// The backtrace frames of the program's code, when captured.
+    pub stack: Vec<String>,
 }

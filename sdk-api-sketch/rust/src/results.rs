@@ -296,6 +296,8 @@ pub enum RunLayerOrigin {
     Flag,
     /// An Integration's form.
     Form,
+    /// The lowest: the only SDK handler of a kind that one setting chooses (ADR 0104).
+    Registered,
 }
 
 /// An effective setting's value as the engine reports it.

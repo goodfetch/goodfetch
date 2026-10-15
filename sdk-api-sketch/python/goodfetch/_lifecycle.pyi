@@ -403,9 +403,9 @@ class AsyncGoodfetch(AsyncConnection):
         the moment of use (ADR 0092). `model_providers` are Model providers answered by the program's own code, by the
         name Model references use: `"mine/any-model"` for `{"mine": handler}` (ADR 0101).
         `fetch_backends`, `proxy_providers` and `sinks` are the program's own Plugins of those kinds, SDK handlers by
-        the name settings choose them by (ADR 0104): the only Fetch backend or Proxy provider stands in for its
-        choosing setting's default, which any explicit value replaces, and a Sink handler serves the `sinks.<name>`
-        entry of its name.
+        the name settings choose them by (ADR 0104): the only Fetch backend or Proxy provider becomes its choosing
+        setting's value with the run-layer origin `registered`, which every other run-layer value replaces, two fail
+        unless `settings` choose one, and a Sink handler serves the `sinks.<name>` entry of its name.
         """
 
     @property

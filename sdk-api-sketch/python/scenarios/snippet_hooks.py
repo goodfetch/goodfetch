@@ -85,10 +85,11 @@ async def handle_book(ctx: AsyncCrawlContext[BookPayload]) -> None:
 
 
 # The program's own Proxy provider, an SDK handler registered on the connection under its name, as ADR 0101 registers
-# `model_providers`: the only one of its kind there, so it is the connection's choice for proxies.
+# `model_providers`: the only one of its kind there, so it becomes the proxies setting's value with the origin
+# `registered`.
 async def office_pool(request: ProxyRequest) -> ProxyAnswer:
     host, user = await lease_proxy(request.domain)
-    return ProxyAnswer(server=f"http://{host}:3128", username=user, password="caller:office-proxy")
+    return ProxyAnswer(server=f"http://{host}:3128", username=user, password="env:OFFICE_PROXY_PASSWORD")
 
 
 async def crawl_with_hooks() -> None:

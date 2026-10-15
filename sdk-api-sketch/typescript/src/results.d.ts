@@ -114,7 +114,8 @@ export type ErrorCode = KnownErrorCode | (string & {});
 export type SettingsLayer = "default" | "operator_policy" | "configuration" | "recipe" | "run";
 
 /** What set a value at the `run` layer; a call's argument beats `settings`. The environment sets no setting (ADR 0083). */
-export type RunLayerOrigin = "argument" | "settings" | "flag" | "form";
+/** `registered`, the lowest: the only SDK handler of a kind that one setting chooses (ADR 0104). */
+export type RunLayerOrigin = "argument" | "settings" | "flag" | "form" | "registered";
 
 /** Where the limit that ended a call came from (G6). */
 export interface LimitSource {

@@ -77,7 +77,8 @@ class RequestChange:
     with `page.request`."""
 
     url: str | None = None
-    """A new URL, checked as an enqueue is (the crawl's scope, the run's domain policy); robots.txt and Site preferences
+    """A new URL, checked against the crawl's scope and the run's domain policy (not an enqueue's other checks); a Hook in
+    code may reach any host that admits. robots.txt and Site preferences
     read it as rewritten."""
     headers: Mapping[str, str | SecretPlaceholder | None] = ...
     """Headers to set, or `None` to remove one. `Host`, `Cookie`, `Authorization`, `Proxy-*` and method overrides fail
@@ -116,7 +117,7 @@ class ResponseChange:
 
 @final
 class PageStageContext(_HookContext[P]):
-    """Before and after a browser navigation (not on the HTTP tiers), and when the page is ready, just before the
+    """Before and after a browser navigation (only on the `browser` tier), and when the page is ready, just before the
     handler, on every tier. Page calls follow the handler's tier rules (ADR 0093)."""
 
     @property
@@ -171,7 +172,7 @@ AsyncRecordCommitHook: TypeAlias = Callable[[AsyncRecordCommitContext[P, T]], Aw
 class SyncHooks:
     """The Hook decorators of a sync `Crawl`. With `labels` of one Payload type, a Hook sees it typed; unscoped, or
     scoped to Labels of several types, it sees `object`. A Label of another crawl raises `LabelUnknownError` at once, a
-    Dataset of another crawl `DatasetUnknownError`, and an empty `labels` list `HookIneffectiveError`. `name` identifies
+    Dataset of another crawl `DatasetUnknownError`, and an empty `labels` or `datasets` list `HookIneffectiveError`. `name` identifies
     the Hook in `hook_failed`, the Run trace and a test's `run_hook`, unique on its crawl or `HookDuplicateError` at once:
     by default the function's `__qualname__`, or the stage and position (`before_request#2`) for a `<lambda>`."""
 
@@ -300,8 +301,8 @@ class HookIneffectiveDetails:
 
 @final
 class HookIneffectiveError(ProgramError):
-    """A Hook that can never run: an empty `labels` list, at once, or, when the Run starts, a navigation Hook all of whose
-    Labels force a tier with no browser."""
+    """A Hook that can never run: an empty `labels` or `datasets` list, at once, or, when the Run starts, a navigation
+    Hook all of whose Labels force a tier other than `browser`."""
 
     @property
     def details(self) -> HookIneffectiveDetails: ...
@@ -334,9 +335,10 @@ class HeaderForbiddenError(ProgramError):
 # SDK handlers: a program's own implementation of a Plugin kind (ADR 0033), registered on `connect()` in one argument per
 # kind, each a mapping keyed by name (`model_providers` is ADR 0101's, `resolve_secret` ADR 0092's; Hooks are declared on
 # the `Crawl`). Settings choose one by name as they choose an installed Plugin. The only one of a kind that one setting
-# chooses (Fetch backend, Proxy provider) stands in for that setting's built-in default, which any explicit value
-# replaces; `explain_settings()` marks it `registered`. Two of such a kind are both available by name, and neither stands
-# in. A handler named as an installed Plugin fails `connect()` with `SettingInvalidError`. Each kind's handler is
+# chooses (Fetch backend, Proxy provider) becomes that setting's value at the connection scope, with the run-layer origin
+# `registered`, the lowest: every other run-layer value replaces it, and configuration does not. Two of such a kind fail
+# `connect()` with `SettingInvalidError` unless its `settings` choose one, as does a handler named as a built-in or an
+# installed Plugin. Collie's SDK has no `fetch_backends` or `sinks` (ADR 0088). Each kind's handler is
 # generated from its plugin-protocol method group (area 7's spec): the shapes below are provisional. A `GoodfetchError` it
 # raises keeps its code; any other exception is its kind's `<kind>_handler_failed`, whose message names it, as ADR
 # 0101's `model_handler_failed`. The async client takes coroutine functions, run in the connection's task group; the

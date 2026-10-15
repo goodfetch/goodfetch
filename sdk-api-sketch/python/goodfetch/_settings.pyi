@@ -464,8 +464,6 @@ class ExplainedSetting:
     """The configuration file, when `layer` is `configuration`."""
     locked_by: SettingsLayer | None
     """The layer that locked or capped the value, if any."""
-    registered: str | None
-    """When `layer` is `default`: the SDK handler, by name, that stands in for the built-in default (ADR 0104)."""
     fixed_by: str | None
     """The setting that fixed the Session's identity, such as `session.source`, when an inherited `browser.*` value yielded
     to it; `value` is then the identity's, and `layer` that setting's."""

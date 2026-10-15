@@ -55,8 +55,8 @@ crawl.handle(book, async ({ page, push }) => {
 });
 
 // The program's own Proxy provider, an SDK handler registered on the connection under its name, as
-// ADR 0101 registers `modelProviders`: the only one of its kind there, so it is the connection's
-// choice for proxies, and `explainSettings()` shows it.
+// ADR 0101 registers `modelProviders`: the only one of its kind there, so it becomes the value of
+// the setting that chooses proxies, with the origin `registered`, which `settings` could replace.
 const officePool: ProxyProviderHandler = async ({ domain }) => {
   const { host, user } = await proxies.lease(domain);
   return { server: `http://${host}:3128`, username: user, password: "caller:office-proxy" };

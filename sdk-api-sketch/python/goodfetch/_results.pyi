@@ -95,7 +95,8 @@ ErrorCode: TypeAlias = KnownErrorCode | str
 SettingsLayer: TypeAlias = Literal["default", "operator_policy", "configuration", "recipe", "run"]
 """The settings layers of ADR 0028, lowest first. A program that is not a Recipe sets the `run` layer (ADR 0083)."""
 
-RunLayerOrigin: TypeAlias = Literal["argument", "settings", "flag", "form"]
+RunLayerOrigin: TypeAlias = Literal["argument", "settings", "flag", "form", "registered"]
+"""`registered`, the lowest: the only SDK handler of a kind that one setting chooses (ADR 0104)."""
 """What set a value at the `run` layer; a call's argument beats `settings`. The environment sets no setting (ADR 0083)."""
 
 @final

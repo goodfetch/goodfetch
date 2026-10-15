@@ -50,7 +50,7 @@ export interface HookOptions<Ls extends readonly AnyLabel[]> {
 
 /** Options of declaring a Hook before a Record's commit, which may also be scoped by Dataset. */
 export interface RecordHookOptions<Ls extends readonly AnyLabel[], Ds extends readonly Dataset<unknown, unknown>[]> extends HookOptions<Ls> {
-  /** Only the Records of these Datasets, typed by their schema (ADR 0082); left out, every Dataset's. A Dataset of another crawl throws `DatasetUnknownError` at once. */
+  /** Only the Records of these Datasets, typed by their schema (ADR 0082); left out, every Dataset's. A Dataset of another crawl throws `DatasetUnknownError` at once, and an empty list `HookIneffectiveError`. */
   readonly datasets?: Ds;
 }
 
@@ -82,9 +82,9 @@ export interface BeforeRequestContext<L extends AnyLabel> extends HookContext<L>
 /** What a before-request Hook changes. A crawl request stays a GET: a crawl that must POST does it from a handler with `page.request`. */
 export interface RequestChange {
   /**
-   * A new URL, checked as an enqueue is: against the crawl's scope and the run's domain policy,
-   * else the request ends `skipped` (`out_of_scope`, `domain_policy`). robots.txt and Site
-   * preferences read it as rewritten.
+   * A new URL, checked against the crawl's scope and the run's domain policy, else the request ends
+   * `skipped` (`out_of_scope`, `domain_policy`); an enqueue's other checks do not apply. A Hook in
+   * code may reach any host that admits. robots.txt and Site preferences read it as rewritten.
    */
   readonly url?: string | URL;
   /**
@@ -113,7 +113,7 @@ export interface ResponseChange {
 }
 
 /**
- * Before and after a browser navigation (which the HTTP tiers do not have), and when the page is
+ * Before and after a browser navigation (only on the `browser` tier), and when the page is
  * ready, just before the handler, on every tier. Page calls follow the handler's tier rules: one
  * only a browser can serve escalates, or throws `BrowserRequiredError` under a forced tier.
  */
@@ -161,7 +161,7 @@ export declare class HookFailedError extends ProgramError {
   readonly code: "hook_failed";
   readonly details: HookFailedDetails;
 }
-/** A Hook that can never run: an empty `labels` list, at once, or, when the Run starts, a navigation Hook all of whose Labels force a tier with no browser. */
+/** A Hook that can never run: an empty `labels` or `datasets` list, at once, or, when the Run starts, a navigation Hook all of whose Labels force a tier other than `browser`. */
 export declare class HookIneffectiveError extends ProgramError {
   readonly code: "hook_ineffective";
   readonly details: { readonly hook: string; readonly stage: ReportedHookStage };
@@ -182,11 +182,14 @@ export declare class HeaderForbiddenError extends ProgramError {
 // Registered on `connect()`, one option per kind, each a map keyed by name (`modelProviders` is
 // ADR 0101's; `resolveSecret` ADR 0092's; Hooks are declared on the `Crawl`), each serving every Run
 // of its connection. Settings choose one by name as they choose an installed Plugin. The only one of
-// a kind that one setting chooses (Fetch backend, Proxy provider) stands in for that setting's
-// built-in default, which any explicit value replaces; `explainSettings()` marks it `registered`.
-// Two of such a kind are both available by name, and neither stands in. A handler named as an
-// installed Plugin fails `connect()` with `setting_invalid`, as do a setting naming a handler that is
-// neither installed nor registered and a resume whose program no longer registers one its Run used.
+// a kind that one setting chooses (Fetch backend, Proxy provider) becomes that setting's value at the
+// connection scope, in the run layer with the origin `registered`, the lowest: every other run-layer
+// value replaces it, and configuration does not. Two of such a kind fail `connect()` with
+// `setting_invalid` unless its own `settings` choose one, as does a handler named as a built-in or an
+// installed Plugin. A setting naming a handler that is neither installed nor registered fails with
+// `setting_invalid` when its scope opens, and a resume whose program no longer registers one its Run
+// used is refused before any work. A Product's SDK has only its own kinds' options: Collie's has no
+// `fetchBackends` or `sinks` (ADR 0088).
 // Each kind's handler is generated from its plugin-protocol method group (area 7's spec): the
 // shapes below are provisional. A handler runs with the program's full rights, never confined. A
 // GoodfetchError it throws keeps its code; any other exception is its kind's

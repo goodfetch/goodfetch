@@ -97,7 +97,7 @@ async fn crawl_with_hooks() -> Result<(), Error> {
 
     let catalog_key: SecretReference = "env:CATALOG_KEY".parse()?;
     // The program's own Proxy provider, an SDK handler declared by name when connecting: the only one
-    // of its kind, so it stands in for the default choice of proxies.
+    // of its kind, so it becomes the proxies setting's value with the origin `Registered`.
     let gf = Goodfetch::connect(
         ConnectOptions::default()
             .proxy_provider("office-pool")
@@ -110,7 +110,7 @@ async fn crawl_with_hooks() -> Result<(), Error> {
             let call = call?;
             match lease_proxy(&call.request().domain).await {
                 Ok(host) => {
-                    let password: SecretReference = "caller:office-proxy".parse()?;
+                    let password: SecretReference = "env:OFFICE_PROXY_PASSWORD".parse()?;
                     call.answer(ProxyAnswer::new(&format!("http://{host}:3128")).with_credentials("crawler", password));
                 }
                 Err(error) => call.fail(Box::new(error)), // `proxy_handler_failed`

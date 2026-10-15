@@ -68,6 +68,8 @@ export type KnownErrorCode =
   | "browser_required"
   | "retry_requested"
   | "response_not_ok"
+  | "response_unavailable"
+  | "handler_lost"
   | "site_preferences_refused"
   | "model_not_found"
   | "model_capability_missing"
@@ -283,7 +285,7 @@ export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef
  * Why a crawl request was skipped (ADR 0093's full list). `message` carries a Hook's or a handler's
  * own text.
  * - `out_of_scope`: a redirect left the crawl's scope;
- * - `domain_policy`: a seed, a redirect or a Hook's rewrite reached a host the run's domain policy refuses (ADRs 0014, 0017);
+ * - `domain_policy`: a redirect or a Hook's rewrite reached a host the run's domain policy refuses (ADRs 0014, 0017);
  * - `duplicate`: a URL rule the Frontier learned after admitting it merged it with another (ADR 0005);
  * - `robots_txt`: a Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a
  *   5xx, or unreachable, with no earlier copy, until the request's retries ran out (ADR 0086); also a

@@ -119,7 +119,7 @@ quotesCrawl.handle(quotePage, async ({ page, request, tier, enqueueLinks }) => {
       version: new URL(request.url).pathname.startsWith("/js") ? "js" : "html",
     });
   }
-  log.debug("fetched", { url: request.url, tier }); // `http` for /, `browser` for /js/ once learned
+  log.debug("fetched", { url: request.url, tier }); // `http` for /; `browser` for /js/ once learned, if area 6 splits the Label by path
   await enqueueLinks(page.locator("li.next a"), request.label);
 });
 

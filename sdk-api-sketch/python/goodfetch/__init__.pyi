@@ -68,11 +68,13 @@ from goodfetch._crawl import Enqueued as Enqueued
 from goodfetch._crawl import EnqueuedLinks as EnqueuedLinks
 from goodfetch._crawl import FetchTier as FetchTier
 from goodfetch._crawl import Handler as Handler
+from goodfetch._crawl import HandlerLostError as HandlerLostError
 from goodfetch._crawl import LabelDuplicateError as LabelDuplicateError
 from goodfetch._crawl import LabelUnhandledError as LabelUnhandledError
 from goodfetch._crawl import LabelUnknownError as LabelUnknownError
 from goodfetch._crawl import NotAddedReason as NotAddedReason
 from goodfetch._crawl import ResponseNotOkError as ResponseNotOkError
+from goodfetch._crawl import ResponseUnavailableError as ResponseUnavailableError
 from goodfetch._crawl import RetryRequestedError as RetryRequestedError
 from goodfetch._crawl import Seed as Seed
 from goodfetch._crawl import SitePreferencesRefusedError as SitePreferencesRefusedError

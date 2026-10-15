@@ -19,7 +19,7 @@ from goodfetch._politeness import (
     PolitenessSettings,
     SitePreferencesSettings,
 )
-from goodfetch._sessions import PageCheck, Permission, ProxySettings, SecretsSettings, SessionLoginSettings, SessionScopeLoginSettings, SessionSource
+from goodfetch._sessions import Permission, ProxySettings, SecretsSettings, SessionLoginSettings, SessionScopeLoginSettings
 from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
 from goodfetch._models import AiSettings, PageAiSettings
 
@@ -219,13 +219,10 @@ class CrawlRunSettings(TypedDict, total=False):
     site_preferences: SitePreferencesSettings
     ai: AiSettings
 
-class LabelTimeoutSettings(TypedDict, total=False):
-    """The phases a Label can set."""
+class LabelTimeoutSettings(PageTimeoutSettings, total=False):
+    """The phases a Label can set: a page's, and its handler's."""
 
     handler: timedelta | None
-    navigation: timedelta | None
-    action: timedelta | None
-    wait: timedelta | None
 
 class LabelFetchSettings(TypedDict, total=False):
     tier: Literal["auto"] | FetchTier
@@ -235,21 +232,21 @@ class LabelCrawlSettings(TypedDict, total=False):
     handle_statuses: list[int]
     handler: CrawlHandlerSettings
 
-class LabelSessionSettings(TypedDict, total=False):
-    source: SessionSource
-    page_check: PageCheck | None
-
 class LabelSettings(TypedDict, total=False):
-    """A Label's settings (ADR 0093): what shapes one crawl request and its page. `session.source`,
-    `session.page_check` and `secrets.*` give the Label's requests Sessions of a pool of their own (ADR 0092); Labels
-    that set none share the Run's pool. The Session's identity (`browser.*`, `proxy.*`, `network.*`), Politeness, Site
-    preferences, scope and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share its
-    Politeness with every run of the user (ADR 0053)."""
+    """A Label's settings (ADR 0093): every setting a page takes, what shapes one crawl request, every `session.*` key
+    and `secrets.*`. `session.source`, `session.http_credentials`, `secrets.*` and a `login` step give the Label's
+    requests Sessions of a pool of their own (ADR 0092); `session.page_check` and `session.recovery.human_pause` judge
+    its pages in whichever pool serves them. The Session's identity (`browser.*`, `proxy.*`, `network.*`), Politeness,
+    Site preferences, scope and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share
+    its Politeness with every run of the user (ADR 0053)."""
 
     timeout: LabelTimeoutSettings
+    extract: ExtractSettings
+    observation: ObservationSettings
+    ai: PageAiSettings
     fetch: LabelFetchSettings
     crawl: LabelCrawlSettings
-    session: LabelSessionSettings
+    session: SessionLoginSettings
     secrets: SecretsSettings
 
 class RunSettings(TypedDict, total=False):

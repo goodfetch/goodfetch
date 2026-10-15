@@ -204,11 +204,24 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
     async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @overload
-    async def add_seed(self, url: str, label: Label[None], *, timeout: Timeout = ...) -> Enqueued: ...
+    async def add_seed(
+        self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+    ) -> Enqueued: ...
     @overload
-    async def add_seed(self, url: str, label: Label[_P], payload: _P, *, timeout: Timeout = ...) -> Enqueued:
-        """Adds a seed to the running crawl (ADR 0037's CO-03), committed at once. A seed widens the scope by its host, where
-        a handler's `enqueue` is checked against it."""
+    async def add_seed(
+        self,
+        url: str,
+        label: Label[_P],
+        payload: _P,
+        *,
+        priority: int = 0,
+        forefront: bool = False,
+        key: str | None = None,
+        timeout: Timeout = ...,
+    ) -> Enqueued:
+        """Adds a seed to the running crawl (ADR 0037's CO-03), committed at once, or staged with the attempt when called
+        through a handler's `ctx.run`. A seed widens the scope by its host, where a handler's `enqueue` is checked against
+        it; one the domain policy refuses is not added (`domain_policy`)."""
 
 @final
 class AsyncFoxhound:
@@ -366,9 +379,21 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents):
     def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @overload
-    def add_seed(self, url: str, label: Label[None], *, timeout: Timeout = ...) -> Enqueued: ...
+    def add_seed(
+        self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+    ) -> Enqueued: ...
     @overload
-    def add_seed(self, url: str, label: Label[_P], payload: _P, *, timeout: Timeout = ...) -> Enqueued: ...
+    def add_seed(
+        self,
+        url: str,
+        label: Label[_P],
+        payload: _P,
+        *,
+        priority: int = 0,
+        forefront: bool = False,
+        key: str | None = None,
+        timeout: Timeout = ...,
+    ) -> Enqueued: ...
 
 @final
 class Foxhound:

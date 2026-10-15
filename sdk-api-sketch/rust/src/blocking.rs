@@ -204,6 +204,30 @@ impl Crawl {
         unimplemented!()
     }
 
+    /// Declares a Label with an explicit schema and its settings, as [`crate::Crawl::label_with`].
+    pub fn label_with<P>(&mut self, name: &str, payload: crate::Schema<P>, settings: crate::Settings) -> Result<crate::Label<P>, Error> {
+        let _ = (name, payload, settings);
+        unimplemented!()
+    }
+
+    /// The crawl's login step, as [`crate::Crawl::login`].
+    pub fn login<F>(&mut self, login: F)
+    where
+        F: Fn(Page) -> Result<(), Error> + Send + Sync + 'static,
+    {
+        let _ = login;
+        unimplemented!()
+    }
+
+    /// A Label's login step, as [`crate::Crawl::login_for`].
+    pub fn login_for<P, F>(&mut self, label: &crate::Label<P>, login: F) -> Result<(), Error>
+    where
+        F: Fn(Page) -> Result<(), Error> + Send + Sync + 'static,
+    {
+        let _ = (label, login);
+        unimplemented!()
+    }
+
     /// Attaches the Label's one handler, as [`crate::Crawl::handle`].
     pub fn handle<P, F>(&mut self, label: &crate::Label<P>, handler: F) -> Result<(), Error>
     where

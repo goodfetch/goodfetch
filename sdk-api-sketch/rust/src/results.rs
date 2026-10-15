@@ -160,9 +160,14 @@ pub enum ErrorCode {
     BrowserRequired,
     /// `retry_requested`: an attempt the handler ended with `ctx.retry()` (ADR 0093).
     RetryRequested,
-    /// `response_not_ok`: a final status outside 2xx that is no Block cause and not in
-    /// `crawl.handle_statuses` (ADR 0093).
+    /// `response_not_ok`: a final 4xx that is no Block cause and not in `crawl.handle_statuses`;
+    /// not retryable (ADR 0093).
     ResponseNotOk,
+    /// `response_unavailable`: a final 5xx or 408 after the request's retries; retryable (ADR 0093).
+    ResponseUnavailable,
+    /// `handler_lost`: the program stopped answering for this attempt; retryable, and counted
+    /// against `crawl.retry.max` (ADR 0093).
+    HandlerLost,
     /// `site_preferences_refused`: a handler's own navigation that Site preferences refuse (ADR 0093).
     SitePreferencesRefused,
     /// `model_not_found`: the provider says the model does not exist or is not available to this
@@ -548,8 +553,8 @@ pub enum BlockCause {
 pub enum SkipReason {
     /// A redirect left the crawl's scope.
     OutOfScope,
-    /// A seed, a redirect or a Hook's rewrite reached a host the run's domain policy refuses
-    /// (ADRs 0014, 0017).
+    /// A redirect or a Hook's rewrite reached a host the run's domain policy refuses (ADRs 0014,
+    /// 0017).
     DomainPolicy,
     /// A URL rule the Frontier learned after admitting it merged it with another (ADR 0005).
     Duplicate,

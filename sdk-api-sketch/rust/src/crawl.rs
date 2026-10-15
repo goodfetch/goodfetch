@@ -125,8 +125,9 @@ impl<'a> Crawl<'a> {
         unimplemented!()
     }
 
-    /// The scripted login step of the Sessions this Label's requests use, which its
-    /// `session::SOURCE` and `session::PAGE_CHECK` settings give a pool of their own (ADR 0093).
+    /// The scripted login step of the Sessions this Label's requests use. Like `session.source`,
+    /// `session.http_credentials` and `secrets.*` set on the Label, it gives the Label a Session
+    /// pool of its own; `session.page_check` alone does not (ADR 0093).
     pub fn login_for<P, F>(&mut self, label: &Label<P>, login: F) -> Result<(), Error>
     where
         F: AsyncFn(Page) -> Result<(), Error> + 'a,
@@ -136,8 +137,8 @@ impl<'a> Crawl<'a> {
     }
 
     /// Answers the Run's crawl requests with these handlers, `crawl::handler::CONCURRENCY` at once,
-    /// inside this future, until the Run ends. Dropping it stops answering: requests it leased
-    /// return to the Frontier when their leases end.
+    /// inside this future, until the Run ends. Dropping it stops answering: each request it leased
+    /// is re-run, counting a `handler_lost` attempt.
     pub async fn serve(&self, run: &CrawlRun) -> Result<(), Error> {
         let _ = run;
         unimplemented!()
@@ -386,6 +387,12 @@ impl EnqueueLinks {
         let _ = priority;
         unimplemented!()
     }
+
+    /// At most this long, within what remains of any enclosing timeout.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        let _ = timeout;
+        unimplemented!()
+    }
 }
 
 impl IntoFuture for EnqueueLinks {
@@ -398,7 +405,8 @@ impl IntoFuture for EnqueueLinks {
 }
 
 /// One crawl request leased to the program, for a program that answers them itself: the way down
-/// under [`Crawl::serve`] (G8). Dropped unanswered, its attempt ends and the request is retried.
+/// under [`Crawl::serve`] (G8). Dropped unanswered, its attempt ends with `handler_lost`, counted
+/// against `crawl.retry.max`.
 #[derive(Debug)]
 pub struct CrawlCall {
     _private: (),
@@ -434,8 +442,9 @@ impl CrawlRun {
         unimplemented!()
     }
 
-    /// Adds a seed to the running crawl (ADR 0037's CO-03), committed at once. A seed widens the
-    /// scope by its host, where a handler's `enqueue` is checked against it.
+    /// Adds a seed to the running crawl (ADR 0037's CO-03), committed at once, or staged with the
+    /// attempt when called through a handler's `ctx.run()`. A seed widens the scope by its host,
+    /// where a handler's `enqueue` is checked against it; one the domain policy refuses is not added.
     pub fn add_seed<P: Serialize>(&self, url: &str, label: &Label<P>, payload: P) -> Enqueue {
         let _ = (url, label, payload);
         unimplemented!()

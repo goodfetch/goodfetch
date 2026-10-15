@@ -19,7 +19,7 @@ from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar, final, overlo
 from goodfetch._data import JsonSchema, JsonValue, Label
 from goodfetch._lifecycle import AsyncCrawlRun, AsyncPage, CrawlRun, Page
 from goodfetch._page import AsyncLocator, AsyncResponse, Locator, Response
-from goodfetch._results import PageError, ProgramError, RefusedError
+from goodfetch._results import PageError, ProgramError, RefusedError, UnavailableError
 from goodfetch._settings import LabelSettings
 from goodfetch._time import Timeout
 
@@ -179,7 +179,15 @@ class CrawlContext(_ContextBase[P]):
     ) -> Enqueued: ...
     @overload
     def enqueue_links(
-        self, links: Locator, label: Label[None], *, include: Sequence[UrlPattern] = (), exclude: Sequence[UrlPattern] = (), limit: int | None = None
+        self,
+        links: Locator,
+        label: Label[None],
+        *,
+        include: Sequence[UrlPattern] = (),
+        exclude: Sequence[UrlPattern] = (),
+        limit: int | None = None,
+        priority: int = 0,
+        timeout: Timeout = ...,
     ) -> EnqueuedLinks: ...
     @overload
     def enqueue_links(
@@ -191,6 +199,8 @@ class CrawlContext(_ContextBase[P]):
         include: Sequence[UrlPattern] = (),
         exclude: Sequence[UrlPattern] = (),
         limit: int | None = None,
+        priority: int = 0,
+        timeout: Timeout = ...,
     ) -> EnqueuedLinks: ...
 
 AsyncHandler: TypeAlias = Callable[[AsyncCrawlContext[P]], Awaitable[None]]
@@ -200,7 +210,8 @@ class _Declares(Generic[L]):
     @overload
     def label(self, name: str, *, settings: LabelSettings = ..., login: L | None = None) -> Label[None]:
         """Declares a Label and returns its typed handle. A second Label of the same name raises `LabelDuplicateError`.
-        `login` is the scripted login step of the Sessions its requests use (ADRs 0006, 0092)."""
+        `login` is the scripted login step of the Sessions its requests use (ADRs 0006, 0092); setting it gives the
+        Label a Session pool of its own."""
     @overload
     def label(self, name: str, *, payload: type[P], settings: LabelSettings = ..., login: L | None = None) -> Label[P]:
         """A Pydantic model, or any class Pydantic's `TypeAdapter` accepts (ADR 0082)."""
@@ -267,7 +278,17 @@ class RetryRequestedError(PageError):
 
 @final
 class ResponseNotOkError(PageError):
-    """A final status outside 2xx that is no Block cause and not in `crawl.handle_statuses`. Retryable for a 5xx or a 408."""
+    """A final 4xx that is no Block cause and not in `crawl.handle_statuses`. Not retryable."""
+
+@final
+class ResponseUnavailableError(UnavailableError):
+    """A final 5xx or 408 after the request's retries, not in `crawl.handle_statuses`: the site is failing for now.
+    Retryable."""
+
+@final
+class HandlerLostError(UnavailableError):
+    """The program stopped answering for this attempt: its process ended or its connection dropped. Retryable, and
+    counted against `crawl.retry.max`; an attempt the program's own `close()` stops counts nothing."""
 
 @final
 class SitePreferencesRefusedError(RefusedError):

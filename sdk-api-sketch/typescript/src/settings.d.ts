@@ -182,18 +182,19 @@ export interface Settings {
 export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: Omit<TimeoutSettings, "run"> };
 
 /**
- * A Label's settings (ADR 0093): what shapes one crawl request and its page. `session.source`,
- * `session.page_check` and `secrets.*` give the Label's requests Sessions of a pool of their own
- * (ADR 0092); Labels that set none share the Run's pool. The Session's identity (`browser.*`,
- * `proxy.*`, `network.*`), Politeness, Site preferences, scope and Run-wide keys are refused with
- * `setting_not_applicable`: two Labels on one domain share its Politeness with every run of the user
- * (ADR 0053).
+ * A Label's settings (ADR 0093): every setting a page takes, what shapes one crawl request, every
+ * `session.*` key and `secrets.*`. `session.source`, `session.httpCredentials`, `secrets.*` and a
+ * `login` step give the Label's requests Sessions of a pool of their own (ADR 0092);
+ * `session.pageCheck` and `session.recovery.humanPause` judge its pages in whichever pool serves
+ * them. The Session's identity (`browser.*`, `proxy.*`, `network.*`), Politeness, Site preferences,
+ * scope and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share
+ * its Politeness with every run of the user (ADR 0053).
  */
-export interface LabelSettings {
-  readonly timeout?: Pick<TimeoutSettings, "handler" | "navigation" | "action" | "wait">;
+export interface LabelSettings extends Omit<PageSettings, "timeout"> {
+  readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler">;
   readonly fetch?: Pick<FetchSettings, "tier">;
   readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
-  readonly session?: Pick<SessionLoginSettings, "source" | "pageCheck">;
+  readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;
 }
 

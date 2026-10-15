@@ -135,6 +135,8 @@ async def mistakes(ctx: AsyncCrawlContext[CategoryPayload]) -> None:
     await ctx.enqueue("https://books.toscrape.com/x", book, CategoryPayload(name="Travel"))  # type: ignore[misc]  # pyright: ignore[reportCallIssue, reportArgumentType]
     await ctx.enqueue("https://books.toscrape.com/x", book)  # type: ignore[arg-type]  # pyright: ignore[reportCallIssue, reportArgumentType]
     crawl.label("listing", settings={"politeness": {"domain": {"concurrency": 4}}})  # type: ignore[call-overload]  # pyright: ignore[reportArgumentType, reportCallIssue]
+    await ctx.enqueue("https://books.toscrape.com/", home, CategoryPayload(name="x"))  # type: ignore[misc]  # pyright: ignore[reportCallIssue, reportArgumentType]
+    crawl.label("localized", settings={"browser": {"locale": "fr-FR"}})  # type: ignore[call-overload]  # pyright: ignore[reportArgumentType, reportCallIssue]
 
 
 # Scenario 06: one handler over HTTP, the JavaScript version and the scrolling one; no second crawler.
@@ -166,7 +168,7 @@ async def on_quotes(ctx: AsyncCrawlContext[None]) -> None:
                 version="js" if urlsplit(ctx.request.url).path.startswith("/js") else "html",
             )
         )
-    log.debug("fetched %s over %s", ctx.request.url, ctx.tier)  # `http` for /, `browser` for /js/ once learned
+    log.debug("fetched %s over %s", ctx.request.url, ctx.tier)  # `http` for /; `browser` for /js/ once learned, if area 6 splits the Label by path
     await ctx.enqueue_links(ctx.page.locator("li.next a"), ctx.request.label)
 
 

@@ -9,7 +9,7 @@
 import type { Label, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "./data.js";
 import type { Page, Run } from "./lifecycle.js";
 import type { Locator, Response } from "./page.js";
-import type { PageError, ProgramError, RefusedError } from "./results.js";
+import type { PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
 import type { CrawlRunSettings, LabelSettings } from "./settings.js";
 import type { CallOptions, Limits, Timeout } from "./time.js";
 
@@ -30,7 +30,7 @@ export interface LabelOptions<S extends Schema | undefined> {
   readonly payload?: S;
   /** Settings for this Label's requests: a scope between the Run and each request. */
   readonly settings?: LabelSettings;
-  /** The scripted login step of the Sessions this Label's requests use (ADRs 0006, 0092), called with the Session's page on the login page. */
+  /** The scripted login step of the Sessions this Label's requests use (ADRs 0006, 0092), called with the Session's page on the login page. Setting it gives the Label a Session pool of its own. */
   readonly login?: (page: Page) => Promise<void>;
 }
 
@@ -103,8 +103,10 @@ export interface EnqueueOptions extends CallOptions {
   readonly key?: string;
 }
 
-/** Options of `enqueueLinks`. */
-export interface EnqueueLinksOptions extends EnqueueOptions {
+/** Options of `enqueueLinks`: no `key` or `forefront`, which would give every link one identity or jump them all ahead. */
+export interface EnqueueLinksOptions extends CallOptions {
+  /** Higher first, within its domain (ADRs 0004, 0005). Default 0. */
+  readonly priority?: number;
   /** Only links matching one of these, within the crawl's scope, which they narrow and never widen. */
   readonly include?: readonly UrlPattern[];
   /** No link matching any of these. */
@@ -143,7 +145,9 @@ export interface EnqueuedLinks {
  * engine serves `page` from the fetched document; a call only a browser can serve (a gesture,
  * `evaluate`, a network wait, a screenshot, an acting AI verb), or a wait for something the static
  * document lacks, ends the attempt and runs the request again in the browser, unless `fetch.tier`
- * forces the tier, when it throws `BrowserRequiredError`. So does a page failing its Session's
+ * forces the tier, when it throws `BrowserRequiredError`. The non-browser tiers are `http` and
+ * `browser_fetch`, served from the document, and `discovered_api`, which also serves network waits
+ * from the JSON calls it replays; `page.request` never escalates. So does a page failing its Session's
  * `session.page_check.expectedPage` (ADR 0092): it escalates, or fails with `page_check_failed` on
  * the browser tier or a forced one. A question (`count()`, `isVisible()`)
  * answers at once and never escalates.
@@ -188,8 +192,9 @@ export interface CrawlStartOptions {
 /** A crawl's Run. Its outcomes, progress and resume are #478's. */
 export interface CrawlRun extends Run {
   /**
-   * Adds a seed to the running crawl (ADR 0037's CO-03), committed at once. A seed widens the scope by
-   * its host, where a handler's `enqueue` is checked against it.
+   * Adds a seed to the running crawl (ADR 0037's CO-03), committed at once, or staged with the attempt
+   * when called through a handler's `ctx.run`. A seed widens the scope by its host, where a handler's
+   * `enqueue` is checked against it; one the domain policy refuses is not added (`domain_policy`).
    */
   addSeed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, EnqueueOptions>): Promise<Enqueued>;
 }
@@ -232,10 +237,23 @@ export declare class RetryRequestedError extends PageError {
   readonly code: "retry_requested";
   readonly details: { readonly message: string };
 }
-/** A final status outside 2xx that is no Block cause and not in `crawl.handle_statuses`. Retryable for a 5xx or a 408. */
+/** A final 4xx that is no Block cause and not in `crawl.handle_statuses`. Not retryable. */
 export declare class ResponseNotOkError extends PageError {
   readonly code: "response_not_ok";
   readonly details: { readonly status: number };
+}
+/** A final 5xx or 408 after the request's retries, not in `crawl.handle_statuses`: the site is failing for now. Retryable. */
+export declare class ResponseUnavailableError extends UnavailableError {
+  readonly code: "response_unavailable";
+  readonly details: { readonly status: number };
+}
+/**
+ * The program stopped answering for this attempt: its process ended, its connection dropped, or
+ * Rust's `serve` future was dropped. Retryable, and counted against `crawl.retry.max`; an attempt the
+ * program's own `close()` stops counts nothing.
+ */
+export declare class HandlerLostError extends UnavailableError {
+  readonly code: "handler_lost";
 }
 /**
  * A handler's own navigation or fetch that Site preferences refuse (ADR 0086), refused before it is

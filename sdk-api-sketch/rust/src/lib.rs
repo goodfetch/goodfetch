@@ -3,6 +3,7 @@
 //! Each ticket on the map adds its items in a module of its own and re-exports them here.
 //! Function bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
 
+pub mod agent;
 pub mod ai;
 pub mod blocking;
 pub mod catalog;
@@ -20,6 +21,10 @@ pub mod sessions;
 pub mod settings;
 pub mod time;
 
+pub use agent::{
+    AgentAction, AgentActionOutcome, AgentCall, AgentResult, AgentStep, AgentStepOrigin, AgentTask, AgentTool, AgentToolFailed,
+    AgentToolInvalid, ConfirmationCategory, ToolError,
+};
 pub use ai::{
     Act, AriaSnapshot, AriaSnapshotMode, Drift, EffectNotConfirmed, EffectUncertain, Expectable, Expected, Extract, ExtractMode, ExtractionIncomplete, ExtractionInvalid,
     LocatorExpectations, MissingField, ModelNotConfigured, Observe, Observed, PageExpectations, PerformedAction, PlanDrift, PlanInvalid, PlanReport, PlanStatus, PlanStepMissing,

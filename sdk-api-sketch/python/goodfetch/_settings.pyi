@@ -44,6 +44,8 @@ class TimeoutSettings(TypedDict, total=False):
     model: timedelta | None
     """`timeout.model`: one attempt of one model request, the program's own provider included, 60 s; an attempt past it
     is retried, within the call that made it (ADR 0101)."""
+    agent: timedelta | None
+    """`timeout.agent`: an Agent's task, 10 minutes; reaching it stops the task with the reason `timeout` (ADR 0100)."""
 
 class RunTimeoutSettings(TypedDict, total=False):
     """The phases a Run or a Session can set: not `run`, which starting the Run spells as its `timeout` (S2)."""
@@ -58,6 +60,7 @@ class RunTimeoutSettings(TypedDict, total=False):
     human_pause: timedelta | None
     ai: timedelta | None
     model: timedelta | None
+    agent: timedelta | None
 
 class PageTimeoutSettings(TypedDict, total=False):
     """The phases a page can set."""
@@ -68,6 +71,7 @@ class PageTimeoutSettings(TypedDict, total=False):
     human_pause: timedelta | None
     ai: timedelta | None
     model: timedelta | None
+    agent: timedelta | None
 
 class PlanSettings(TypedDict, total=False):
     """`plan.*` (ADR 0091)."""
@@ -207,6 +211,18 @@ class SinkSettings(TypedDict, total=False):
     key: Sequence[str]
     """Built-in: each Dataset's own `key`."""
 
+class AgentSettings(TypedDict, total=False):
+    """`agent.*` (ADR 0100). `timeout.agent` is in the timeout family."""
+
+    max_steps: int
+    """Steps a task may take: 20 by default. `max_steps=` sets it for one task."""
+    max_stalled_steps: int
+    """Stalled steps in a row that stop a task: 3 by default."""
+    domains: Sequence[str] | None
+    """Where a task may go: by default the registrable domain of the page it starts on."""
+    human_pause: bool
+    """Whether the model may ask a person through a Human pause: `False` by default (ADR 0092)."""
+
 class Settings(TypedDict, total=False):
     """Every setting, as a connection takes them. A sample of the generated type."""
 
@@ -219,6 +235,8 @@ class Settings(TypedDict, total=False):
     observation: ObservationSettings
     ai: AiSettings
     """`ai.*`: the model, Model providers and structured output (ADR 0101)."""
+    agent: AgentSettings
+    """`agent.*`: the Agent's step cap, stall rule, domains and Human pause (ADR 0100)."""
     fetch: FetchSettings
     """ADR 0093."""
     politeness: PolitenessSettings
@@ -293,6 +311,7 @@ class RunSettings(TypedDict, total=False):
     extract: ExtractSettings
     observation: ObservationSettings
     ai: AiSettings
+    agent: AgentSettings
     site_preferences: CollieSitePreferencesSettings
     session: SessionLoginSettings
     secrets: SecretsSettings
@@ -311,6 +330,7 @@ class SessionSettings(TypedDict, total=False):
     secrets: SecretsSettings
     proxy: ProxySettings
     ai: AiSettings
+    agent: AgentSettings
 
 class PageSettings(TypedDict, total=False):
     """A page's settings: no part of the Session's identity."""
@@ -319,6 +339,7 @@ class PageSettings(TypedDict, total=False):
     extract: ExtractSettings
     observation: ObservationSettings
     ai: PageAiSettings
+    agent: AgentSettings
 
 SettingKey: TypeAlias = Literal[
     "timeout.connect",
@@ -333,6 +354,11 @@ SettingKey: TypeAlias = Literal[
     "timeout.human_pause",
     "timeout.ai",
     "timeout.model",
+    "timeout.agent",
+    "agent.max_steps",
+    "agent.max_stalled_steps",
+    "agent.domains",
+    "agent.human_pause",
     "ai.model",
     "ai.structured_output",
     "plan.frozen",
@@ -366,6 +392,7 @@ SettingKey: TypeAlias = Literal[
     "session.source",
     "session.page_check",
     "session.recovery.human_pause",
+    "session.recovery.agent",
     "session.http_credentials",
     "proxy.server",
     "proxy.bypass",

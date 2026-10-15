@@ -91,6 +91,9 @@ export type KnownErrorCode =
   | "model_declined"
   | "model_context_exceeded"
   | "model_output_invalid"
+  | "agent_tool_failed"
+  | "agent_tool_invalid"
+  | "success_check_threw"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */
@@ -328,10 +331,17 @@ export type Ended =
   | { readonly kind: "finished" }
   | { readonly kind: "stopped"; readonly reason: StopReason };
 
-/** Why AI work stopped early: a Limit by name, the Run's own timeout (#467), or an abort. */
+/**
+ * Why AI work stopped early (ADRs 0079, 0080, 0100): a Limit by name, after which the Run stops too;
+ * a timeout, the Agent's own `timeout.agent` or the Run's; the Agent's step cap (`agent.max_steps`) or
+ * stall rule (`agent.max_stalled_steps`), which stop only the task; or an abort by someone other than
+ * the caller. `source` names the setting, its value and its layer (G6).
+ */
 export type StopReason =
   | { readonly kind: "limit"; readonly limit: string }
-  | { readonly kind: "timeout" }
+  | { readonly kind: "timeout"; readonly source: LimitSource }
+  | { readonly kind: "steps"; readonly source: LimitSource }
+  | { readonly kind: "no_progress"; readonly source: LimitSource }
   | { readonly kind: "abort" }
   | { readonly kind: "unknown"; readonly raw: string };
 
@@ -342,17 +352,24 @@ export interface Reported {
 }
 
 /**
- * The result of AI work that can claim success: an Agent's task, or a Plan replayed toward a goal.
- * #474 and #473 build their result types on it and decide `partial`'s exact shape.
+ * What AI work gathered before an early end, never typed as complete (ADR 0100): each top-level field
+ * of an object, or each element of a list, valid against its own part of the schema and Grounded.
+ */
+export type PartialOf<T> = T extends readonly (infer Element)[] ? readonly Element[] : T extends object ? Partial<T> : never;
+
+/**
+ * The result of AI work that can claim success: an Agent's task, replayed toward a goal or not.
+ * `AgentResult` (ADR 0100) builds on it.
  */
 export interface AiWorkResult<T> {
   readonly ended: Ended;
   readonly verdict: Verdict;
-  readonly reported: Reported;
+  /** Absent when the work stopped before the model claimed anything. */
+  readonly reported: Reported | undefined;
   /** Present only once the work finished with a complete `T`; a value of `T` is always complete. */
   readonly output: T | undefined;
-  /** What was gathered before an early end, never typed as complete. */
-  readonly partial: Partial<T> | undefined;
+  /** What was gathered before an early end, set only when `output` is not. */
+  readonly partial: PartialOf<T> | undefined;
   /** Returns the output when the Verdict is `verified`; otherwise throws `NotVerifiedError`. */
   requireVerified(): T;
 }
@@ -360,7 +377,7 @@ export interface AiWorkResult<T> {
 export interface NotVerifiedDetails {
   readonly verdict: Verdict;
   readonly ended: Ended;
-  readonly reported: Reported;
+  readonly reported: Reported | undefined;
   /** Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects. */
   readonly reasons: readonly string[];
 }

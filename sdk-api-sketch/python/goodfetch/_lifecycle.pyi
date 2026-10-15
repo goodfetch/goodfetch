@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Literal, Never, Protocol, Self, TypeAlias, TypeVar, final, overload
 
+from goodfetch._agent import AgentApi, AsyncAgentApi
 from goodfetch._ai import AiVerbs, AsyncAiVerbs, AsyncElementReferences, ElementReferences
 from goodfetch._catalog import AsyncRawCall, RawCall
 from goodfetch._concurrency import (
@@ -143,6 +144,7 @@ class AsyncPage(
     AsyncAiVerbs,
     AsyncElementReferences,
     AsyncRawCall,
+    AsyncAgentApi,
 ):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
@@ -395,7 +397,7 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman, AiVerbs, ElementReferences, RawCall):
+class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman, AiVerbs, ElementReferences, RawCall, AgentApi):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 

@@ -3,6 +3,31 @@
 Each ticket on the map adds its stubs in a module of its own and re-exports them here.
 """
 
+from goodfetch._agent import ActionDone as ActionDone
+from goodfetch._agent import ActionFailed as ActionFailed
+from goodfetch._agent import ActionJournaled as ActionJournaled
+from goodfetch._agent import AgentAction as AgentAction
+from goodfetch._agent import AgentActionOutcome as AgentActionOutcome
+from goodfetch._agent import AgentApi as AgentApi
+from goodfetch._agent import AgentResult as AgentResult
+from goodfetch._agent import AgentStep as AgentStep
+from goodfetch._agent import AgentStepOrigin as AgentStepOrigin
+from goodfetch._agent import AgentTask as AgentTask
+from goodfetch._agent import AgentTool as AgentTool
+from goodfetch._agent import AgentToolFailedDetails as AgentToolFailedDetails
+from goodfetch._agent import AgentToolFailedError as AgentToolFailedError
+from goodfetch._agent import AgentToolInvalidDetails as AgentToolInvalidDetails
+from goodfetch._agent import AgentToolInvalidError as AgentToolInvalidError
+from goodfetch._agent import AsyncAgentApi as AsyncAgentApi
+from goodfetch._agent import AsyncAgentResult as AsyncAgentResult
+from goodfetch._agent import AsyncAgentTask as AsyncAgentTask
+from goodfetch._agent import AsyncAgentTool as AsyncAgentTool
+from goodfetch._agent import ConfirmationCategory as ConfirmationCategory
+from goodfetch._agent import SuccessCheck as SuccessCheck
+from goodfetch._agent import SuccessCheckThrewDetails as SuccessCheckThrewDetails
+from goodfetch._agent import SuccessCheckThrewError as SuccessCheckThrewError
+from goodfetch._agent import SyncSuccessCheck as SyncSuccessCheck
+from goodfetch._agent import agent_tool as agent_tool
 from goodfetch._ai import AriaSnapshotMode as AriaSnapshotMode
 from goodfetch._ai import AsyncLocatorExpectations as AsyncLocatorExpectations
 from goodfetch._ai import AsyncPageExpectations as AsyncPageExpectations
@@ -427,6 +452,7 @@ from goodfetch._sessions import SessionScopeLoginSettings as SessionScopeLoginSe
 from goodfetch._sessions import SessionSource as SessionSource
 from goodfetch._sessions import StateFileSource as StateFileSource
 from goodfetch._sessions import secret as secret
+from goodfetch._settings import AgentSettings as AgentSettings
 from goodfetch._settings import BrowserSettings as BrowserSettings
 from goodfetch._settings import CapabilityUnavailableDetails as CapabilityUnavailableDetails
 from goodfetch._settings import CapabilityUnavailableError as CapabilityUnavailableError

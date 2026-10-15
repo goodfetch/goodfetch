@@ -181,6 +181,9 @@ class HttpCredentials(TypedDict):
 class SessionRecoverySettings(TypedDict, total=False):
     human_pause: bool
     """`session.recovery.human_pause`: whether ADR 0006's ladder may end in a Human pause; `True` by default."""
+    agent: bool
+    """`session.recovery.agent`: whether the ladder's AI agent login step runs, the built-in Agent with the Session's
+    Secret placeholders; `True` by default, skipped with no model and no login Plan (ADR 0100)."""
 
 class SessionLoginSettings(TypedDict, total=False):
     """`session.*` (ADRs 0056, 0006, 0092)."""

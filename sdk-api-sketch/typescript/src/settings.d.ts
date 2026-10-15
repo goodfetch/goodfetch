@@ -16,6 +16,7 @@ import type {
   SitePreferencesSettings,
 } from "./politeness.js";
 import type { Permission, ProxySettings, SecretsSettings, SessionLoginSettings } from "./sessions.js";
+import type { AgentSettings } from "./agent.js";
 import type { AiSettings } from "./models.js";
 
 /**
@@ -39,6 +40,8 @@ export interface TimeoutSettings {
   readonly ai?: Timeout;
   /** `timeout.model`: one attempt of one model request, the program's own provider included, 60 s; an attempt past it is retried, within the call that made it (ADR 0101). */
   readonly model?: Timeout;
+  /** `timeout.agent`: an Agent's task, 10 minutes; reaching it stops the task with the reason `timeout` (ADR 0100). */
+  readonly agent?: Timeout;
 }
 
 /** `plan.*` (ADR 0091). */
@@ -193,6 +196,8 @@ export interface Settings {
   readonly observation?: ObservationSettings;
   /** `ai.*`: the model, Model providers and structured output (ADR 0101). */
   readonly ai?: AiSettings;
+  /** `agent.*`: the Agent's step cap, stall rule, domains and Human pause (ADR 0100). */
+  readonly agent?: AgentSettings;
   /** ADR 0093. */
   readonly fetch?: FetchSettings;
   /** ADR 0086. */
@@ -243,6 +248,7 @@ export interface RunSettings {
   readonly extract?: ExtractSettings;
   readonly observation?: ObservationSettings;
   readonly ai?: AiSettings;
+  readonly agent?: AgentSettings;
   readonly sitePreferences?: CollieSitePreferencesSettings;
   readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;
@@ -261,11 +267,12 @@ export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "
 
 /** A page's settings: no part of the Session's identity. */
 export interface PageSettings {
-  readonly timeout?: Pick<TimeoutSettings, "action" | "navigation" | "wait" | "humanPause" | "ai" | "model">;
+  readonly timeout?: Pick<TimeoutSettings, "action" | "navigation" | "wait" | "humanPause" | "ai" | "model" | "agent">;
   readonly extract?: ExtractSettings;
   readonly observation?: ObservationSettings;
   /** The model and the strategy for the page's AI calls; Model providers are declared above a page. */
   readonly ai?: Pick<AiSettings, "model" | "structuredOutput">;
+  readonly agent?: AgentSettings;
 }
 
 /** Options of opening a page. Where pages and Sessions are opened is #472's and #476's. */
@@ -287,6 +294,11 @@ export type SettingKey =
   | "timeout.human_pause"
   | "timeout.ai"
   | "timeout.model"
+  | "timeout.agent"
+  | "agent.max_steps"
+  | "agent.max_stalled_steps"
+  | "agent.domains"
+  | "agent.human_pause"
   | "plan.frozen"
   | "extract.mode"
   | "observation.max_size"
@@ -321,6 +333,7 @@ export type SettingKey =
   | "session.source"
   | "session.page_check"
   | "session.recovery.human_pause"
+  | "session.recovery.agent"
   | "session.http_credentials"
   | "proxy.server"
   | "proxy.bypass"

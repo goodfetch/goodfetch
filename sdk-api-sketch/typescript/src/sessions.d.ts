@@ -164,6 +164,11 @@ export interface SessionLoginSettings {
   readonly recovery?: {
     /** `session.recovery.human_pause`: whether ADR 0006's ladder may end in a Human pause; `true` by default. */
     readonly humanPause?: boolean;
+    /**
+     * `session.recovery.agent`: whether the ladder's AI agent login step runs, the built-in Agent with the
+     * Session's Secret placeholders; `true` by default, skipped with no model and no login Plan (ADR 0100).
+     */
+    readonly agent?: boolean;
   };
   readonly httpCredentials?: readonly HttpCredentials[];
 }

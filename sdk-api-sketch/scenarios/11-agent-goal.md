@@ -41,4 +41,4 @@ Written by #483.
 
 ## After the sketch
 
-A new Journey on the SDK surfaces; Proving ground family: AI, served by the Fake model. [The Agent in Collie's SDK API](https://github.com/goodfetch/automan/issues/474) decides whether an Agent or the AI verbs answer this task; the task stands either way.
+A new Journey on the SDK surfaces; Proving ground family: AI, served by the Fake model. [The Agent in Collie's SDK API](https://github.com/goodfetch/automan/issues/474) answers it with `page.agent(task)` (ADR 0100): a step cap of its own, the Run's price Limit, the program's Success check, `agent.domains`, and the task kept as one Plan entry; its snippets are `snippets/agent.ts`, `snippet_agent.py` and `snippet_agent.rs`.

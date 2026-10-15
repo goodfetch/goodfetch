@@ -75,6 +75,9 @@ KnownErrorCode: TypeAlias = Literal[
     "model_declined",
     "model_context_exceeded",
     "model_output_invalid",
+    "agent_tool_failed",
+    "agent_tool_invalid",
+    "success_check_threw",
     "internal",
 ]
 ErrorCode: TypeAlias = KnownErrorCode | str
@@ -407,12 +410,17 @@ class Finished: ...
 @final
 @dataclass(frozen=True, kw_only=True)
 class Stopped:
-    """AI work that stopped early. A failed ending raises instead."""
+    """AI work that stopped early. A failed ending raises instead.
 
-    reason: Literal["limit", "timeout", "abort"] | str
-    """`timeout`: the Run's own timeout (#467)."""
+    `limit`: a Limit, after which the Run stops too. `timeout`: the Agent's own `timeout.agent` or the Run's. `steps`: the
+    Agent's step cap, `agent.max_steps`. `no_progress`: its stall rule, `agent.max_stalled_steps`. These two stop only the
+    task. `abort`: someone other than the caller stopped it (ADRs 0079, 0080, 0100)."""
+
+    reason: Literal["limit", "timeout", "steps", "no_progress", "abort"] | str
     limit: str | None
     """The Limit by name, when `reason` is `limit`."""
+    source: LimitSource | None
+    """The setting that stopped it, its value and its layer, when `reason` is `timeout`, `steps` or `no_progress` (G6)."""
 
 Ended: TypeAlias = Finished | Stopped
 
@@ -426,26 +434,27 @@ class Reported:
 
 T = TypeVar("T")
 
-@final
 class AiWorkResult(Generic[T]):
-    """The result of AI work that can claim success: an Agent's task, or a Plan replayed toward a goal.
-
-    #474 and #473 build their result types on it and decide `partial`'s exact shape.
-    """
+    """The result of AI work that can claim success: an Agent's task, replayed toward a goal or not. The Agent's results
+    build on it (ADR 0100)."""
 
     @property
     def ended(self) -> Ended: ...
     @property
     def verdict(self) -> Verdict: ...
     @property
-    def reported(self) -> Reported: ...
+    def reported(self) -> Reported | None:
+        """Absent when the work stopped before the model claimed anything."""
+
     @property
     def output(self) -> T | None:
         """Present only once the work finished with a complete `T`; a value of `T` is always complete."""
 
     @property
-    def partial(self) -> Mapping[str, object] | None:
-        """What was gathered before an early end, never typed as complete."""
+    def partial(self) -> Mapping[str, object] | Sequence[object] | None:
+        """What was gathered before an early end, never typed as complete, set only when `output` is not (ADR 0100): each
+        top-level field of an object, or each element of a list, valid against its own part of the schema and Grounded,
+        as validated values."""
 
     def require_verified(self) -> T:
         """Returns the output when the Verdict is `verified`; otherwise raises `NotVerifiedError`."""
@@ -455,7 +464,7 @@ class AiWorkResult(Generic[T]):
 class NotVerifiedDetails:
     verdict: Verdict
     ended: Ended
-    reported: Reported
+    reported: Reported | None
     reasons: Sequence[str]
     """Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects."""
 

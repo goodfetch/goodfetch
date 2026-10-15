@@ -3,6 +3,7 @@
 // (sessions.d.ts); the page API is ADR 0085's (page.d.ts).
 // Timeouts, waits and Limits come from #467 (time.d.ts); events and user code from #468 (concurrency.d.ts).
 
+import type { AgentApi } from "./agent.js";
 import type { AiVerbs, AriaSnapshots, ElementReferences } from "./ai.js";
 import type { Connection, RawCall } from "./catalog.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
@@ -117,7 +118,8 @@ export interface Page
     AiVerbs,
     AriaSnapshots,
     ElementReferences,
-    RawCall {
+    RawCall,
+    AgentApi {
   close(options?: PageCloseOptions): Promise<void>;
 }
 

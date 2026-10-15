@@ -212,6 +212,15 @@ pub enum ErrorCode {
     ModelContextExceeded,
     /// `model_output_invalid`, a model error: an `act`, `observe` or Agent step's answer never parsed.
     ModelOutputInvalid,
+    /// `agent_tool_failed`, a program error: an Agent tool returned an error, and the task ended
+    /// (ADR 0100).
+    AgentToolFailed,
+    /// `agent_tool_invalid`, a program error: two Agent tools share a name, or one takes a built-in
+    /// action's (ADR 0100).
+    AgentToolInvalid,
+    /// `success_check_threw`, a program error: the Agent's Success check returned an error other
+    /// than `success_check_failed`, kept as the `source()`: a bug, never a rejection (ADR 0100).
+    SuccessCheckThrew,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -497,6 +506,10 @@ pub enum ErrorDetails {
     /// Of `run_id_invalid`, `run_conflict`, `run_ended`, `run_in_use`, `limit_raise_refused` and
     /// `run_state_unavailable` (ADR 0102).
     Run(crate::run::RunFailure),
+    /// Of `agent_tool_failed`.
+    AgentToolFailed(crate::agent::AgentToolFailed),
+    /// Of `agent_tool_invalid`.
+    AgentToolInvalid(crate::agent::AgentToolInvalid),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
@@ -560,8 +573,8 @@ pub struct NotVerified {
     pub verdict: Verdict,
     /// How the work ended.
     pub ended: Ended,
-    /// What the model claimed.
-    pub reported: Reported,
+    /// What the model claimed; `None` when it stopped before claiming anything.
+    pub reported: Option<Reported>,
     /// Why it is not `Verified`: failed, missing or switched-off checks, uncertain Effects.
     pub reasons: Vec<String>,
 }
@@ -685,7 +698,7 @@ pub enum Verdict {
 }
 
 /// How AI work ended. A failed ending is an [`Error`] instead.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Ended {
     /// Reached its end.
@@ -694,15 +707,21 @@ pub enum Ended {
     Stopped(StopReason),
 }
 
-/// Why AI work stopped early.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Why AI work stopped early (ADRs 0079, 0080, 0100). The [`LimitSource`] names the setting that
+/// stopped it, its value and its layer (G6).
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum StopReason {
-    /// A Limit, by name.
+    /// A Limit, by name; the Run stops too.
     Limit(String),
-    /// The Run's own timeout (#467).
-    Timeout,
-    /// An abort.
+    /// A timeout: the Agent's own `timeout.agent`, or the Run's.
+    Timeout(LimitSource),
+    /// The Agent's step cap, `agent.max_steps`; only the task stops.
+    Steps(LimitSource),
+    /// The Agent's stall rule, `agent.max_stalled_steps`; only the task stops.
+    NoProgress(LimitSource),
+    /// Someone other than the caller stopped it: a person, another Client, or the program closing
+    /// the page or the Run.
     Abort,
     /// A reason this SDK does not know, as received.
     Unknown(String),
@@ -730,14 +749,34 @@ pub enum Claim {
     Unknown(String),
 }
 
-/// What AI work gathered before an early end, never typed as complete; its shape is #474's and #473's.
+/// What AI work gathered before an early end, never typed as complete (ADR 0100): each top-level
+/// field of an object, or each element of a list, valid against its own part of the schema and
+/// Grounded.
 #[derive(Debug, Clone)]
 pub struct PartialOutput {
     _private: (),
 }
 
-/// The result of AI work that can claim success: an Agent's task, or a Plan replayed toward a goal.
-/// #474 and #473 build their result types on it.
+impl PartialOutput {
+    /// What was gathered, as JSON: an object of the fields found, or an array of the elements.
+    pub fn json(&self) -> &serde_json::Value {
+        unimplemented!()
+    }
+
+    /// One field, parsed into its own type; `None` when it was not found.
+    pub fn field<V: serde::de::DeserializeOwned>(&self, name: &str) -> Option<V> {
+        let _ = name;
+        unimplemented!()
+    }
+
+    /// The elements gathered for a list output, each parsed into its own type.
+    pub fn elements<V: serde::de::DeserializeOwned>(&self) -> Vec<V> {
+        unimplemented!()
+    }
+}
+
+/// The result of AI work that can claim success. The Agent's task resolves to
+/// [`crate::agent::AgentResult`], which carries these fields and its steps (ADR 0100).
 #[derive(Debug)]
 #[non_exhaustive]
 #[must_use = "the Verdict says whether the output is proven"]
@@ -746,8 +785,8 @@ pub struct AiWorkResult<T> {
     pub ended: Ended,
     /// Whether Success checks prove it.
     pub verdict: Verdict,
-    /// What the model claimed.
-    pub reported: Reported,
+    /// What the model claimed; `None` when it stopped before claiming anything.
+    pub reported: Option<Reported>,
     /// Present only once the work finished with a complete `T`.
     pub output: Option<T>,
     /// What was gathered before an early end.

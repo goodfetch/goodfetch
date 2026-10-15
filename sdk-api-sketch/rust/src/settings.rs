@@ -117,6 +117,23 @@ pub mod timeout {
     /// One attempt of one model request, the program's own provider included: 60 s. An attempt past
     /// it is retried, within the call that made it (ADR 0101).
     pub const MODEL: Setting<Option<Duration>> = Setting::new("timeout.model");
+    /// An Agent's task: 10 minutes. Reaching it stops the task with the reason `timeout` (ADR 0100).
+    pub const AGENT: Setting<Option<Duration>> = Setting::new("timeout.agent");
+}
+
+/// `agent.*` (ADR 0100). `timeout.agent` is in [`timeout`].
+pub mod agent {
+    use super::Setting;
+
+    /// Steps a task may take: 20 by default. [`crate::agent::AgentCall::max_steps`] sets it for one
+    /// task.
+    pub const MAX_STEPS: Setting<u32> = Setting::new("agent.max_steps");
+    /// Stalled steps in a row that stop a task: 3 by default.
+    pub const MAX_STALLED_STEPS: Setting<u32> = Setting::new("agent.max_stalled_steps");
+    /// Where a task may go: by default the registrable domain of the page it starts on.
+    pub const DOMAINS: Setting<Option<Vec<String>>> = Setting::new("agent.domains");
+    /// Whether the model may ask a person through a Human pause: `false` by default (ADR 0092).
+    pub const HUMAN_PAUSE: Setting<bool> = Setting::new("agent.human_pause");
 }
 
 /// `ai.*` (ADR 0101). Model providers are declared with [`Settings::model_provider`].
@@ -242,6 +259,10 @@ pub mod session {
         /// `session.recovery.human_pause`: whether ADR 0006's ladder may end in a Human pause;
         /// built-in `true`.
         pub const HUMAN_PAUSE: Setting<bool> = Setting::new("session.recovery.human_pause");
+        /// `session.recovery.agent`: whether the ladder's AI agent login step runs, the built-in
+        /// Agent with the Session's Secret placeholders; built-in `true`, skipped with no model and
+        /// no login Plan (ADR 0100).
+        pub const AGENT: Setting<bool> = Setting::new("session.recovery.agent");
     }
 }
 

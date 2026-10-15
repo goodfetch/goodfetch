@@ -134,7 +134,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 
 - **Parsers and stateful rules get property tests:** `proptest` in Rust, `hypothesis` in Python. Their regression files are committed.
 - **Untrusted input** gets a `cargo-fuzz` target for every decoder of input Goodfetch did not write itself, replayed by a plain `#[test]` on every OS. The list and the rest of fuzzing are under [Security](#security) (ADR 0067).
-- **Doctests only on the public crates** (`goodfetch` and `goodfetch-collie-client`, ADR 0095), where they are the examples of ADR 0030.
+- **Doctests only on the public crates** (`goodfetch` and `goodfetch-collie-client`, ADR 0095), where they are the examples of ADR 0030. `goodfetch-collie-client`'s doctests connect through `goodfetch-collie`, a dev-dependency.
 
 ## Injection and determinism
 
@@ -612,7 +612,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 - **A handshake refusal is the reply to `hello`**, before any other message, and the connection then closes. Never test refusal with a time budget.
 - **Test each handshake refusal twice:** in the Quick suite, in process, by sending the fabricated `hello` to the handshake code over an in-memory transport; in the Pre-merge suite, through the conformance harness's own `hello` to a running engine. No build carries a version override.
   _Why:_ the Quick suite starts no process and binds no socket.
-- **The Product check is a handshake refusal too** ([ADR 0095](docs/adr/0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md)): a Client that needs Foxhound is refused by a Collie engine with `not_in_product`, before the version check; a Collie Client is accepted by a Foxhound engine; a Group member of the other Product is refused by the peer protocol's handshake. Each is tested twice, as above.
+- **The Product check is a handshake refusal too** ([ADR 0095](docs/adr/0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md)): a Client that needs Foxhound is refused by a Collie engine with `not_in_product`, before the version check; a Collie Client is accepted by a Foxhound engine; a Group member of the other Product is refused by the peer protocol's handshake. Each refusal is tested in process in the Quick suite; in the Pre-merge suite, `hello`'s through the conformance harness and the peer handshake's through a Daemon of the other Product joining a group.
 
 ### Released artifacts
 
@@ -720,7 +720,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
   _Why:_ a fake of the engine passes where the real one fails, and misses the token, `Host` and `Origin` checks.
 - **For Goodfetch's side, use only the doubles ADRs 0062 and 0069 define:** the in-memory adapter of the protocol in Quick-suite unit tests, and the Scripted engine for faults a real engine can't produce on demand.
 - **Stand in for the platform in this order:** its real runtime run locally, its official test harness, a written adapter of its context.
-- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class. No surface of Collie's carries an entry marked Foxhound, and Foxhound's carry every entry of Collie's under the same name (ADR 0095).
+- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class. No surface of Collie's carries an entry marked Foxhound, and Foxhound's carry every entry of Collie's under the same name (ADR 0095). The same check lists the public items of `goodfetch-collie-client` and `goodfetch-collie` and refuses any of Foxhound's.
 - **Assert outcomes through the oracle and Error codes**, never a model's wording or a platform's message text.
 
 ### MCP server

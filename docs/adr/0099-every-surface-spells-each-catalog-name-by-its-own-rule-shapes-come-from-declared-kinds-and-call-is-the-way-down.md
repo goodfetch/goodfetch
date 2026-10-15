@@ -133,7 +133,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - the testing kits and the raw call;
   - ADR 0089's lending helpers, one per supported library.
 - **Every public hand-written member is listed** in its SDK's manifest, with the catalog entry it serves, or "no entry" and a reason.
-- **A hand-written member with no entry declares its canonical words in its manifest line,** and each language spells them by its own rule, as it spells a catalog name (S1). ADR 0089's helpers are free functions of the Collie client package, which each Product's package re-exports (ADR 0095), taking the page and then the program's own library object: `lend_to_playwright` and `lend_to_puppeteer` in TypeScript as `lendToPlaywright(page, chromium)` and `lendToPuppeteer(page, puppeteer)`, and `lend_to_playwright` and `lend_to_browser_use` in Python as `lend_to_playwright(page, chromium)` and `lend_to_browser_use(page, BrowserSession)`. A free function keeps each library's name off the page, which has one `lend()` (S2).
+- **A hand-written member with no entry declares its canonical words in its manifest line,** and each language spells them by its own rule, as it spells a catalog name (S1). ADR 0089's helpers are free functions of the Collie client package, which each Product's package re-exports (ADR 0095), taking the page and then the program's own library object: `lend_to_playwright` and `lend_to_puppeteer` in TypeScript as `lendToPlaywright(page, chromium)` and `lendToPuppeteer(page, puppeteer)`, and `lend_to_playwright` and `lend_to_browser_use` in Python as `lend_to_playwright(page, chromium)` and `lend_to_browser_use(page, BrowserSession)`. A free function keeps each library's name off the page, which has one `lend()` (S2). In Python, `lend_to_playwright` takes a `Page` with Playwright's sync `chromium` or an `AsyncPage` with its async one, typed by overloads, and `lend_to_browser_use` an `AsyncPage`, since Browser Use is async only. ADR 0100's Agent tool constructor, the words `agent_tool`, follows the same rule: `agentTool`, `@agent_tool` and `AgentTool::new`.
 - **The Quick suite fails:**
   - an entry of the Product's catalog that reaches no public member in some SDK;
   - a listed member that lacks its entry's doc text or markers;
@@ -197,6 +197,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - `--json` fields stay snake_case (ADR 0038).
   - A command group is a singular noun, generated or hand-written (ADR 0069's `daemon start`, `config explain`), as gh's `gh run list` and docker's `docker plugin install` are. A glossary term in the plural keeps its own words (`rules update` for the Clean-up rules).
   - Which operations the CLI offers is area 11's.
+- **ADR 0100's Agent** follows these rules: its MCP tool is `page_agent`, and a CLI command for it, where area 11's spec offers one, reads `page agent`. Which MCP profiles include it, and how the CLI and MCP state a Success check inside the task, are area 11's spec, which owns the profiles (ADR 0095) and what the CLI offers; until then, ADR 0100's interim holds, the catalog's `expect` evaluated after the task returns.
 - **An entry kept off agent surfaces** (ADR 0011's list, ADR 0041's raising of a Limit, ADR 0029's answer about an uncertain Effect, ADR 0089's `page.lend()`, and the cookie operations that [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476) offers to no Client acting for a model) is generated for no MCP tool, Framework adapter, Code mode global or skill.
 - **Code mode and Script Hooks** keep ADR 0051's TypeScript names.
 - **Integrations** use canonical names as identifiers.
@@ -286,7 +287,8 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - MCP's "`deprecated` in the tool schema" is the description's first sentence and JSON Schema's `deprecated`.
   - Experimental's per-language marks are as above.
 - **Amends ADR 0077.** T's "every deprecated name carries the language's type-level marker" holds where the language has one; a Python plain-data field or settings `TypedDict` key keeps the runtime warning and is listed in the release notes.
-- **Amends ADR 0069.** Its completeness tests also check the hand-written manifest, its markers and its unused lines.
+- **Amends ADR 0069.** Its completeness tests also check the hand-written manifest, its markers, its unused lines and the spelling of members with no entry.
+- **Amends ADR 0100.** Its Agent's MCP tool and any CLI command are named by this ADR's rules, and its profiles and in-task Success check on the CLI and MCP go to area 11's spec. A note sits under its "Unchanged from ADR 0011" item.
 - **Reading rules for earlier ADRs and specs:**
   - an operation namespace written in the plural reads singular: `runs.<x>` is `run.<x>` (ADRs 0031, 0036, 0038, 0041, 0054, 0055, 0068, 0072 and area 3's spec) and `schedules.<x>` is `schedule.<x>` (ADRs 0036, 0041 and ADR 0037's area order); setting keys keep their areas (ADR 0083);
   - a CLI command group written in the plural reads singular: `runs reindex` is `run reindex`, `plugins add` is `plugin add`, `certs accept` is `cert accept`, `browsers install` is `browser install`, `schedules apply` is `schedule apply`, `skills install` is `skill install`, `sinks list` is `sink list`; `rules update` keeps the Clean-up rules' own word;
@@ -297,7 +299,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
 - **ADR 0037's matrix.** SDK-02, SDK-05, SDK-06, AI-06 and AI-07 cite this ADR. Areas 3, 11 and 12 list it.
 - **Areas.**
   - Area 3 (Engine runtime) builds the canonical names and kinds in `goodfetch-protocol`, its `foxhound` module and the check that no crate outside `crates/foxhound/` but `goodfetch-protocol` and `xtask` names it, the naming crate, the six forms of `hello` and their renderers, and the Run trace's forms.
-  - Area 11 (Client surfaces) builds the generators, the manifests and their checks, `call`, the markers, `Connection`, and the CLI's and MCP's names.
+  - Area 11 (Client surfaces) decides which MCP profiles include ADR 0100's Agent and how the CLI and MCP state its Success check inside the task, and builds the generators, the manifests and their checks, `call`, the markers, `Connection`, and the CLI's and MCP's names.
   - Area 12 (Console) shows each call in its Client's form.
 - **Other tickets.**
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) applies the remaining renames: initialisms (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes), TypeScript reads on handles as methods (`run.id()`, `run.startedAs()`), Rust's open `ErrorCode` and `details::<D>()`, `call` on every handle, ADR 0089's lending helpers by the names above, and ADR 0090's package and import names in place of the sketch's placeholder `goodfetch`.

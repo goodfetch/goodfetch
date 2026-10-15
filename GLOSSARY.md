@@ -416,6 +416,10 @@ _Avoid_: check (alone), assertion, judge, validator
 A model-driven loop over the Operation catalog toward an objective, whether Goodfetch's built-in one or an outside one; a single AI extraction is not an Agent.
 _Avoid_: bot, assistant
 
+**Agent tool**:
+A function of the user's program that Collie's built-in Agent may call as an action during a task, such as a lookup in the program's own data.
+_Avoid_: function tool, custom action, skill, Plugin
+
 **Model provider**:
 Whatever answers a run's model calls: a model company reached directly, a gateway, a local model server, or a model run inside the engine.
 _Avoid_: LLM vendor, backend
@@ -425,7 +429,7 @@ A Model provider whose model picks one option from a fixed list with a confidenc
 _Avoid_: classifier, router
 
 **Grounding**:
-The requirement that every extracted value appears in its page or follows from a declared transform.
+The requirement that every extracted value appears in the page it was read from (for an Agent's task, any page the task observed), or in the program's own data that an Agent tool returned, or follows from a declared transform.
 _Avoid_: verification, fact-check
 
 **Human pause**:

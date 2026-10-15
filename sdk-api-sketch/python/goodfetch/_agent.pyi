@@ -109,7 +109,8 @@ class AgentStep(Generic[L]):
 class AsyncAgentResult(AiWorkResult[T]):
     """What a task returns in the async API: ADR 0079's three separate fields, the output, and what the task did.
     `output` is a valid `T` whose values Grounding found on the pages the task observed or in its Agent tools' results;
-    a value it could not find leaves the Verdict at `needs-review`, naming the field."""
+    a value it could not find leaves the Verdict at `needs-review`, naming the field. A task replayed whole ends
+    `Finished` once its Success check ran, with no `reported`, since no model claimed anything."""
 
     @property
     def steps(self) -> Sequence[AgentStep[AsyncLocator]]: ...
@@ -217,8 +218,8 @@ def agent_tool(
     - The input's schema is the first parameter's type, a Pydantic model (ADR 0082), checked before the function runs;
       `input_schema` gives a hand-written JSON Schema instead, and the function then receives `JsonValue`.
     - `read_only=False`, the default, makes the tool an Effect: journaled and never redone (ADR 0010), as a site's WebMCP
-      tool (ADR 0011). `category` asks a person for confirmation before every call (ADR 0014), since the run allowances
-      of those categories name domains and a tool has none.
+      tool (ADR 0011). `category` asks a person for confirmation before each call unless the run allows the category
+      (ADR 0014); payment and accepting terms always ask, since their allowances name domains and a tool has none.
     - It runs where the program's code runs (ADR 0081), while the task gives up the page's turn. Its result is a source
       Grounding accepts. A `GoodfetchError` it raises ends the task with its own code, and any other exception with
       `AgentToolFailedError`; a cancellation is never wrapped. An answer the model should act on is a value it returns.
@@ -228,8 +229,9 @@ def agent_tool(
 
 SuccessCheck: TypeAlias = Callable[[AsyncPage], Awaitable[None]]
 """The Success check of the async API, stated with `expect` (ADR 0091), run each time the model reports done. Each
-`expect` in it is a Success check the engine evaluates live. Another `GoodfetchError` it raises ends the task with its
-own code; any other exception, with `SuccessCheckThrewError`; a cancellation is never wrapped."""
+`expect` in it is a Success check the engine evaluates live. A `PageError` it raises (`SuccessCheckFailedError`, a target
+not unique) is the condition's answer, given back to the model; another `GoodfetchError` ends the task with its own code;
+any other exception, with `SuccessCheckThrewError`; a cancellation is never wrapped."""
 
 SyncSuccessCheck: TypeAlias = Callable[[Page], None]
 
@@ -346,6 +348,8 @@ class AgentTaskProgress:
     steps: Sequence[AgentStep[object]]
     partial: JsonValue | None
     """The partial answer as JSON: only values valid against their part of the schema and Grounded."""
+    uncertain_effects: Sequence[str]
+    """The Agent tools whose Effect the task left uncertain, for a person to reconcile (ADR 0029)."""
 
 # The Agent's Error codes (ADR 0079's naming rule).
 

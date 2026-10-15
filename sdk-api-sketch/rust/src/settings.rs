@@ -130,8 +130,9 @@ pub mod agent {
     pub const MAX_STEPS: Setting<u32> = Setting::new("agent.max_steps");
     /// Stalled steps in a row that stop a task: 3 by default.
     pub const MAX_STALLED_STEPS: Setting<u32> = Setting::new("agent.max_stalled_steps");
-    /// Where a task may go: by default the registrable domain of the page it starts on.
-    pub const DOMAINS: Setting<Option<Vec<String>>> = Setting::new("agent.domains");
+    /// Where a task may navigate: by default the registrable domain of the page it starts on.
+    /// `["*"]` lifts it.
+    pub const DOMAINS: Setting<Vec<String>> = Setting::new("agent.domains");
     /// Whether the model may ask a person through a Human pause: `false` by default (ADR 0092).
     pub const HUMAN_PAUSE: Setting<bool> = Setting::new("agent.human_pause");
 }

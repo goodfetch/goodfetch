@@ -379,7 +379,7 @@ export type PartialOf<T> = T extends readonly (infer Element)[] ? readonly Eleme
 export interface AiWorkResult<T> {
   readonly ended: Ended;
   readonly verdict: Verdict;
-  /** Absent when the work stopped before the model claimed anything. */
+  /** Absent when no model claimed anything: the work stopped before a claim, or was replayed whole. */
   readonly reported: Reported | undefined;
   /** Present only once the work finished with a complete `T`; a value of `T` is always complete. */
   readonly output: T | undefined;

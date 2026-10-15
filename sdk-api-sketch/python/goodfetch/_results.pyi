@@ -464,7 +464,7 @@ class AiWorkResult(Generic[T]):
     def verdict(self) -> Verdict: ...
     @property
     def reported(self) -> Reported | None:
-        """Absent when the work stopped before the model claimed anything."""
+        """Absent when no model claimed anything: the work stopped before a claim, or was replayed whole."""
 
     @property
     def output(self) -> T | None:

@@ -83,7 +83,8 @@ export interface AgentStep {
  * What a task returns: ADR 0079's three separate fields (`ended`, `verdict`, `reported`), the output,
  * and what the task did. `output` is a valid `T` whose values Grounding found on the pages the task
  * observed or in its Agent tools' results; a value it could not find leaves the Verdict at
- * `needs-review`, naming the field.
+ * `needs-review`, naming the field. A task replayed whole ends `finished` once its Success check
+ * ran, with no `reported`, since no model claimed anything.
  */
 export interface AgentResult<T> extends AiWorkResult<T> {
   /** Every step, in order. */
@@ -141,8 +142,9 @@ export interface AgentToolDefinition<S extends Schema> {
   /** `false` by default: the tool is an Effect, journaled and never redone (ADR 0010), as a site's WebMCP tool (ADR 0011). */
   readonly readOnly?: boolean;
   /**
-   * Asks a person for confirmation before every call (ADR 0014): the run allowances of these categories
-   * name domains (ADRs 0045, 0048), and a tool has none. A decline ends the task with `EffectNotConfirmedError`.
+   * Asks a person for confirmation before each call unless the run allows the category (ADR 0014);
+   * payment and accepting terms always ask, since their allowances name domains (ADRs 0045, 0048) and a
+   * tool has none. A decline ends the task with `EffectNotConfirmedError`.
    */
   readonly category?: ConfirmationCategory;
   /**
@@ -178,8 +180,9 @@ export interface AgentOptions extends CallOptions {
    * The Success check, stated with `expect` (ADR 0091) on the page the task is on, run each time the
    * model reports done. Each `expect` in it is a Success check the engine evaluates live, within
    * `timeout.wait` unless given a shorter timeout. Without one, the Verdict is `needs-review` (ADR 0013).
-   * Another `GoodfetchError` it throws ends the task with its own code; any other exception, with
-   * `SuccessCheckThrewError`.
+   * A `PageError` it throws (`SuccessCheckFailedError`, a target not unique) is the condition's answer,
+   * given back to the model; another `GoodfetchError` ends the task with its own code; any other
+   * exception, with `SuccessCheckThrewError`.
    */
   readonly successCheck?: (page: Page) => Promise<void>;
   /** `agent.max_steps` for this task: 20 by default. Reaching it stops only the task. */
@@ -216,8 +219,8 @@ export interface AgentSettings {
   readonly maxSteps?: number;
   /** Stalled steps in a row that stop a task: 3 by default. */
   readonly maxStalledSteps?: number;
-  /** Where a task may navigate: by default the registrable domain of the page it starts on; `null` restores that default. */
-  readonly domains?: readonly string[] | null;
+  /** Where a task may navigate: by default the registrable domain of the page it starts on. No `null`: `["*"]` lifts it. */
+  readonly domains?: readonly string[];
   /**
    * Whether the model may ask a person through a Human pause: `false` by default (ADR 0092). The answer,
    * a decline or the pause running out goes back to the model.
@@ -230,6 +233,8 @@ export interface AgentTaskProgress {
   readonly steps: readonly AgentStep[];
   /** The partial answer as JSON: only values valid against their part of the schema and Grounded. */
   readonly partial: JsonValue | undefined;
+  /** The Agent tools whose Effect the task left uncertain, for a person to reconcile (ADR 0029). */
+  readonly uncertainEffects: readonly string[];
 }
 
 // The Agent's Error codes (ADR 0079's naming rule).

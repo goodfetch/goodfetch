@@ -198,10 +198,10 @@ pub enum ConfirmationCategory {
     Unknown(String),
 }
 
-/// The error an Agent tool returns: any error of the program. A [`crate::Error`] boxed in it ends the
-/// task with its own code; any other ends it with `agent_tool_failed`, which keeps it as its
-/// `source()`.
-pub type ToolError = Box<dyn std::error::Error + Send + Sync + 'static>;
+/// The error an Agent tool or the Success check returns: any error of the program. A
+/// [`crate::Error`] boxed in it keeps its own code; any other ends the task with `agent_tool_failed`
+/// or `success_check_threw`, which keeps it as its `source()`.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 /// A function of the program that the Agent may call as an action: an Agent tool.
 pub struct AgentTool {
@@ -225,7 +225,7 @@ impl AgentTool {
     where
         I: JsonSchema + DeserializeOwned + Send + 'static,
         F: Fn(I, Page) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<serde_json::Value, ToolError>> + Send + 'static,
+        Fut: Future<Output = Result<serde_json::Value, BoxError>> + Send + 'static,
     {
         let _ = (name, description, run);
         unimplemented!()
@@ -236,8 +236,9 @@ impl AgentTool {
         unimplemented!()
     }
 
-    /// Asks a person for confirmation before every call (ADR 0014), since the run allowances of
-    /// these categories name domains and a tool has none.
+    /// Asks a person for confirmation before each call unless the run allows the category
+    /// (ADR 0014); payment and accepting terms always ask, since their allowances name domains and a
+    /// tool has none.
     pub fn category(self, category: ConfirmationCategory) -> Self {
         let _ = category;
         unimplemented!()
@@ -269,12 +270,13 @@ impl<T> AgentCall<T> {
 
     /// The Success check, stated with [`crate::expect`], run each time the model reports done: each
     /// `expect` in it is a Success check the engine evaluates live. Without one, the Verdict is
-    /// needs-review (ADR 0013). An error other than `success_check_failed` ends the task with its own
-    /// code.
+    /// needs-review (ADR 0013). A page error (`success_check_failed`, a target not unique) is the
+    /// condition's answer, given back to the model; another Goodfetch error ends the task with its
+    /// own code, and any other error with `success_check_threw`.
     pub fn success_check<F, Fut>(self, check: F) -> Self
     where
         F: Fn(Page) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<(), Error>> + Send + 'static,
+        Fut: Future<Output = Result<(), BoxError>> + Send + 'static,
     {
         let _ = check;
         unimplemented!()
@@ -379,8 +381,8 @@ pub struct AgentToolInvalid {
     pub problem: String,
 }
 
-/// Details of `success_check_threw`: the Success check returned an error other than
-/// `success_check_failed` that is not a Goodfetch code, kept as the error's `source()`.
+/// Details of `success_check_threw`: the Success check returned an error that is not a Goodfetch
+/// one, kept as the error's `source()`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SuccessCheckThrew {
@@ -396,4 +398,6 @@ pub struct AgentTaskProgress {
     pub steps: Vec<AgentStep>,
     /// The partial answer as JSON: only values valid against their part of the schema and Grounded.
     pub partial: Option<serde_json::Value>,
+    /// The Agent tools whose Effect the task left uncertain, for a person to reconcile (ADR 0029).
+    pub uncertain_effects: Vec<String>,
 }

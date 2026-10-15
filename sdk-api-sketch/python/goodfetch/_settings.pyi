@@ -235,9 +235,9 @@ class AgentSettings(TypedDict, total=False):
     """Steps a task may take: 20 by default. `max_steps=` sets it for one task."""
     max_stalled_steps: int
     """Stalled steps in a row that stop a task: 3 by default."""
-    domains: Sequence[str] | None
-    """Where a task may navigate: by default the registrable domain of the page it starts on; `None` restores that
-    default."""
+    domains: Sequence[str]
+    """Where a task may navigate: by default the registrable domain of the page it starts on. No `None`: `["*"]` lifts
+    it."""
     human_pause: bool
     """Whether the model may ask a person through a Human pause: `False` by default (ADR 0092)."""
 

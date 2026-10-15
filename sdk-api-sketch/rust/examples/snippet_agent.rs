@@ -2,8 +2,8 @@
 
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::{
-    AgentResult, AgentTool, ConnectOptions, Ended, Error, ErrorCode, Expected, Goodfetch, Limits, Money, Page, Run, Schema,
-    StopReason, ToolError, Verdict, expect,
+    AgentResult, AgentTool, BoxError, ConnectOptions, Ended, Error, ErrorCode, Expected, Goodfetch, Limits, Money, Page, Run,
+    Schema, StopReason, Verdict, expect,
 };
 use serde::Deserialize;
 
@@ -18,9 +18,10 @@ pub struct Answer {
 }
 
 /// The Success check: a book page in Travel with five stars. A model's "done" is only a claim.
-async fn travel_book_check(page: Page) -> Result<(), Error> {
+async fn travel_book_check(page: Page) -> Result<(), BoxError> {
     expect(&page.locator(".breadcrumb")).to_contain_text("Travel").await?;
-    expect(&page.locator(".product_main .star-rating")).to_have_class(Expected::regex(r"\bFive\b")).await
+    expect(&page.locator(".product_main .star-rating")).to_have_class(Expected::regex(r"\bFive\b")).await?;
+    Ok(())
 }
 
 /// Golden scenario 11, "Reach a goal from one instruction, with limits and a verdict". The Run caps
@@ -89,7 +90,7 @@ pub struct Owned {
 /// A task awaited in one go, with a tool: the program's own function as an action, read-only.
 async fn cheapest_unowned_book(run: &Run) -> Result<Answer, Error> {
     let owned = AgentTool::new("already_owned", "Whether the library already owns a book with this exact title", |input: Owned, _page: Page| async move {
-        let owned: Result<bool, ToolError> = Ok(input.title == "Sharp Objects");
+        let owned: Result<bool, BoxError> = Ok(input.title == "Sharp Objects");
         Ok(serde_json::json!({ "owned": owned? }))
     })
     .read_only();

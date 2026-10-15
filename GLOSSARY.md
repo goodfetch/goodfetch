@@ -81,7 +81,7 @@ A closed component kept outside the open-source Products, used by Goodfetch Clou
 _Avoid_: enterprise edition, premium module, closed core
 
 **Browser host**:
-The Goodfetch process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
+The process, started from either Product's executable, that sits beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
 **Borrowed browser**:

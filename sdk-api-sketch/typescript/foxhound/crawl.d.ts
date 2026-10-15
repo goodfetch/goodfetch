@@ -470,6 +470,16 @@ export declare class ResponsesNotKeptError extends ProgramError {
   readonly code: "responses_not_kept";
   readonly details: { readonly label: string };
 }
+/**
+ * A call on the document of a crawl page whose response the Label accepted but is no HTML document (a
+ * PDF, JSON, an image): a locator, `content()`, `evaluate`, a screenshot or an AI verb. It never
+ * escalates, since the browser holds no document either; the fix says to read `ctx.response`
+ * (ADR 0119). Not retryable.
+ */
+export declare class ResponseNotDocumentError extends ProgramError {
+  readonly code: "response_not_document";
+  readonly details: { readonly contentType: string; readonly label: string };
+}
 /** An attempt the handler ended with `ctx.retry()`; the request's error once retries run out. */
 export declare class RetryRequestedError extends PageError {
   readonly code: "retry_requested";

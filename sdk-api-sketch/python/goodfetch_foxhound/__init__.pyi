@@ -494,6 +494,7 @@ from goodfetch_foxhound._crawl import AttemptEndedError as AttemptEndedError
 from goodfetch_foxhound._crawl import AttemptEndReason as AttemptEndReason
 from goodfetch_foxhound._crawl import BrowserRequiredError as BrowserRequiredError
 from goodfetch_foxhound._crawl import ResponsesNotKeptError as ResponsesNotKeptError
+from goodfetch_foxhound._crawl import ResponseNotDocumentError as ResponseNotDocumentError
 from goodfetch_foxhound._crawl import Crawl as Crawl
 from goodfetch_foxhound._crawl import CrawlContext as CrawlContext
 from goodfetch_foxhound._crawl import CrawlRequest as CrawlRequest

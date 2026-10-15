@@ -46,6 +46,9 @@ pub enum SkipReason {
     /// The handler returned a `model_allowance_reached` error once the Run's Model allowance was
     /// reached (ADR 0107); the Run then ends `incomplete` though it finishes.
     ModelAllowance,
+    /// A response whose type the Label's `crawl.content_types` does not list, skipped before its
+    /// body is read; the message names the type (ADR 0119).
+    ContentType,
     /// A reason this SDK does not know, as received.
     Unknown(String),
 }

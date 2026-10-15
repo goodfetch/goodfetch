@@ -59,6 +59,14 @@ export interface CrawlSettings {
   readonly retry?: CrawlRetrySettings;
   /** `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with `response_not_ok`. Built-in: none. */
   readonly handleStatuses?: readonly number[];
+  /**
+   * `crawl.content_types`: the media types the handler takes (`type/subtype`, `type/*`, or any type), the
+   * type computed by MIME sniffing as Chrome computes it. Any other response that would reach the
+   * handler ends `skipped` with `content_type` before its body is read. For an accepted type that is
+   * no HTML document, the page holds no document and `ctx.response` holds the body (ADR 0119).
+   * Built-in: `text/html` and `application/xhtml+xml`.
+   */
+  readonly contentTypes?: readonly string[];
   readonly handler?: {
     /** `crawl.handler.concurrency`: handlers running at once in the program, the engine's leases to it (ADR 0081). On a Label, within the Run's. Built-in: 16. */
     readonly concurrency?: number;
@@ -78,6 +86,21 @@ export interface FetchSettings {
   readonly tierRace?: boolean;
   /** `fetch.kept_responses.*`: the responses a handler reads with `keptResponse` and `keptResponses` (ADR 0110). */
   readonly keptResponses?: KeptResponsesSettings;
+  /**
+   * `fetch.encoding`: a WHATWG Encoding label forced on the crawl request's document on every tier,
+   * after its BOM; an unknown label is refused with `setting_invalid`. With none, every tier reads a
+   * BOM, the `Content-Type` charset, the `<meta>` prescan, then UTF-8 for a valid UTF-8 body, and a
+   * body it would have to guess escalates to the browser (ADR 0119). Built-in: none.
+   */
+  readonly encoding?: string | null;
+}
+
+/** `export.*`: options of the Export formats (ADR 0103). Every text format is UTF-8 (ADR 0119). */
+export interface ExportSettings {
+  readonly csv?: {
+    /** `export.csv.bom`: start a CSV Export with a UTF-8 BOM, for spreadsheets. Built-in: false. */
+    readonly bom?: boolean;
+  };
 }
 
 /**
@@ -131,6 +154,8 @@ export interface Settings extends Omit<CollieSettings, "timeout" | "politeness" 
   readonly sitePreferences?: SitePreferencesSettings;
   /** `sinks.<name>.*`, keyed by the Sink's name (ADR 0103). */
   readonly sinks?: Readonly<Record<string, SinkSettings>>;
+  /** ADR 0103. */
+  readonly export?: ExportSettings;
 }
 
 /** A setting's canonical key: Collie's, and Foxhound's own. A sample. */
@@ -158,11 +183,14 @@ export type SettingKey =
   | "crawl.retry.max"
   | "crawl.retry.handler_failed"
   | "crawl.handle_statuses"
+  | "crawl.content_types"
   | "crawl.handler.concurrency"
   | "fetch.tier"
   | "fetch.tier_race"
   | "fetch.kept_responses.urls"
-  | "fetch.kept_responses.max_size";
+  | "fetch.kept_responses.max_size"
+  | "fetch.encoding"
+  | "export.csv.bom";
 
 /** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */
 export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: Omit<TimeoutSettings, "run"> };
@@ -178,8 +206,8 @@ export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: 
  */
 export interface LabelSettings extends Omit<PageSettings, "timeout"> {
   readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler" | "hook">;
-  readonly fetch?: Pick<FetchSettings, "tier" | "keptResponses">;
-  readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
+  readonly fetch?: Pick<FetchSettings, "tier" | "keptResponses" | "encoding">;
+  readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "contentTypes" | "handler">;
   readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;
 }

@@ -461,9 +461,15 @@ class AsyncResponse:
         """Read on demand. Never fails for a response from `wait_for_request_finished`, `route.fetch()` or
         `page.request`; elsewhere a body the browser has dropped raises `BodyUnavailableError`."""
 
-    async def text(self, *, timeout: Timeout = ...) -> str: ...
+    async def text(self, *, timeout: Timeout = ...) -> str:
+        """The body decoded with the response's own encoding, where Playwright always decodes UTF-8 (ADR 0119): a
+        navigation's document response with the encoding its document was decoded with, so it agrees with
+        `page.content()`; any other with its BOM, its `Content-Type` charset, the `<meta>` prescan for HTML or the XML
+        declaration for XML, then UTF-8. Bad bytes become U+FFFD; it never raises on them."""
+
     async def json(self, *, timeout: Timeout = ...) -> JSONValue:
-        """A body that is not JSON raises `ResponseNotJSONError`. Narrow it with the program's own model."""
+        """UTF-8 whatever the charset (RFC 8259). A body that is not JSON raises `ResponseNotJSONError`. Narrow it with
+        the program's own model."""
 
 @final
 class AsyncRoute:

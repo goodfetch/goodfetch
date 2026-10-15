@@ -374,8 +374,15 @@ export interface Response {
    * `BodyUnavailableError`.
    */
   body(options?: CallOptions): Promise<Uint8Array>;
+  /**
+   * The body decoded with the response's own encoding, where Playwright always decodes UTF-8 (ADR
+   * 0119): a navigation's document response with the encoding its document was decoded with, so it
+   * agrees with `page.content()`; any other with its BOM, its `Content-Type` charset, the `<meta>`
+   * prescan for HTML or the XML declaration for XML, then UTF-8. Bad bytes become U+FFFD; it never
+   * throws on them.
+   */
   text(options?: CallOptions): Promise<string>;
-  /** A body that is not JSON throws `ResponseNotJSONError`. Narrow the value with the program's own schema. */
+  /** UTF-8 whatever the charset (RFC 8259). A body that is not JSON throws `ResponseNotJSONError`. Narrow the value with the program's own schema. */
   json(options?: CallOptions): Promise<JSONValue>;
 }
 

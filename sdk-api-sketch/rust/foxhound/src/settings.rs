@@ -89,6 +89,12 @@ pub mod crawl {
     /// `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of
     /// failing with `response_not_ok`. Built-in: none (ADR 0093).
     pub const HANDLE_STATUSES: Setting<Vec<u16>> = Setting::new("crawl.handle_statuses");
+    /// `crawl.content_types`: the media types the handler takes (`type/subtype`, `type/*`, `*/*`),
+    /// the type computed by MIME sniffing as Chrome computes it. Any other response that would
+    /// reach the handler ends `skipped` with `ContentType` before its body is read. For an
+    /// accepted type that is no HTML document, the page holds no document and `ctx.response()`
+    /// holds the body (ADR 0119). Built-in: `text/html` and `application/xhtml+xml`.
+    pub const CONTENT_TYPES: Setting<Vec<String>> = Setting::new("crawl.content_types");
     /// `crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`,
     /// until `finish()` lets it end once drained (ADR 0102, ADR 0037's RT-12). Built-in: false.
     pub const KEEP_ALIVE: Setting<bool> = Setting::new("crawl.keep_alive");
@@ -172,6 +178,12 @@ pub mod fetch {
     pub const TIER: Setting<TierChoice> = Setting::new("fetch.tier");
     /// `fetch.tier_race`, ADR 0040's `tier_race`. Built-in: false.
     pub const TIER_RACE: Setting<bool> = Setting::new("fetch.tier_race");
+    /// `fetch.encoding`: a WHATWG Encoding label forced on the crawl request's document on every
+    /// tier, after its BOM; an unknown label is refused with `setting_invalid`. With none, every
+    /// tier reads a BOM, the `Content-Type` charset, the `<meta>` prescan, then UTF-8 for a valid
+    /// UTF-8 body, and a body it would have to guess escalates to the browser (ADR 0119).
+    /// Built-in: none.
+    pub const ENCODING: Setting<Option<String>> = Setting::new("fetch.encoding");
 
     /// `fetch.kept_responses.*` (ADR 0110): the responses a handler reads with
     /// `ctx.kept_response` and `ctx.kept_responses`, on a crawl's Run or its Labels. A Label that
@@ -187,6 +199,17 @@ pub mod fetch {
         /// `fetch.kept_responses.max_size`: bytes of kept bodies per attempt; a body past it reads
         /// as `body_unavailable`. Built-in: 16 MiB.
         pub const MAX_SIZE: Setting<u64> = Setting::new("fetch.kept_responses.max_size");
+    }
+}
+
+/// `export.*`: options of the Export formats (ADR 0103). Every text format is UTF-8 (ADR 0119).
+pub mod export {
+    /// `export.csv.*`.
+    pub mod csv {
+        use crate::settings::Setting;
+
+        /// `export.csv.bom`: start a CSV Export with a UTF-8 BOM, for spreadsheets. Built-in: false.
+        pub const BOM: Setting<bool> = Setting::new("export.csv.bom");
     }
 }
 

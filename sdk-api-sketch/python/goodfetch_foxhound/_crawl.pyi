@@ -360,6 +360,12 @@ class ResponsesNotKeptError(ProgramError):
     `fetch.kept_responses.urls` (ADR 0110). Not retryable."""
 
 @final
+class ResponseNotDocumentError(ProgramError):
+    """A call on the document of a crawl page whose response the Label accepted but is no HTML document (a PDF, JSON,
+    an image): a locator, `content()`, `evaluate`, a screenshot or an AI verb. It never escalates, since the browser
+    holds no document either; the fix says to read `ctx.response` (ADR 0119). Not retryable."""
+
+@final
 class RetryRequestedError(PageError):
     """An attempt the handler ended with `ctx.retry()`; the request's error once retries run out."""
 

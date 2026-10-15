@@ -102,6 +102,11 @@ class CrawlSettings(TypedDict, total=False):
     handle_statuses: list[int]
     """`crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with
     `response_not_ok`. Built-in: none."""
+    content_types: list[str]
+    """`crawl.content_types`: the media types the handler takes (`type/subtype`, `type/*`, `*/*`), the type computed by
+    MIME sniffing as Chrome computes it. Any other response that would reach the handler ends `skipped` with
+    `content_type` before its body is read. For an accepted type that is no HTML document, the page holds no document
+    and `ctx.response` holds the body (ADR 0119). Built-in: `text/html` and `application/xhtml+xml`."""
     handler: CrawlHandlerSettings
     keep_alive: bool
     """`crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`, until `finish()` lets it
@@ -127,6 +132,20 @@ class FetchSettings(TypedDict, total=False):
     """ADR 0040's `tier_race`. Built-in: False."""
     kept_responses: KeptResponsesSettings
     """The responses a handler reads with `kept_response` and `kept_responses` (ADR 0110)."""
+    encoding: str | None
+    """`fetch.encoding`: a WHATWG Encoding label forced on the crawl request's document on every tier, after its BOM; an
+    unknown label is refused with `setting_invalid`. With none, every tier reads a BOM, the `Content-Type` charset, the
+    `<meta>` prescan, then UTF-8 for a valid UTF-8 body, and a body it would have to guess escalates to the browser (ADR
+    0119). Built-in: none."""
+
+class ExportCSVSettings(TypedDict, total=False):
+    bom: bool
+    """`export.csv.bom`: start a CSV Export with a UTF-8 BOM, for spreadsheets. Built-in: False."""
+
+class ExportSettings(TypedDict, total=False):
+    """`export.*`: options of the Export formats (ADR 0103). Every text format is UTF-8 (ADR 0119)."""
+
+    csv: ExportCSVSettings
 
 SinkWriteMode: TypeAlias = Literal["append", "upsert", "insert_only", "replace", "history"]
 class SinkSettings(TypedDict, total=False):
@@ -159,6 +178,7 @@ class CrawlRunSettings(TypedDict, total=False):
     extract: ExtractSettings
     observation: ObservationSettings
     sinks: Mapping[str, SinkSettings]
+    export: ExportSettings
     checkpoint: CheckpointSettings
     effect: EffectSettings
 
@@ -172,10 +192,12 @@ class LabelTimeoutSettings(PageTimeoutSettings, total=False):
 class LabelFetchSettings(TypedDict, total=False):
     tier: Literal["auto"] | FetchTier
     kept_responses: KeptResponsesSettings
+    encoding: str | None
 
 class LabelCrawlSettings(TypedDict, total=False):
     retry: CrawlRetrySettings
     handle_statuses: list[int]
+    content_types: list[str]
     handler: CrawlHandlerSettings
 
 class LabelSettings(TypedDict, total=False):
@@ -227,6 +249,8 @@ class Settings(TypedDict, total=False):
     """`proxy.*` (ADRs 0021, 0092)."""
     sinks: Mapping[str, SinkSettings]
     """`sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets."""
+    export: ExportSettings
+    """`export.*`: the Export formats' options (ADRs 0103, 0119)."""
     checkpoint: CheckpointSettings
     effect: EffectSettings
     """`effect.*`: what the Effect journal keeps of a declared Effect (ADR 0106)."""
@@ -254,9 +278,12 @@ SettingKey: TypeAlias = CollieSettingKey | Literal[
     "crawl.retry.max",
     "crawl.retry.handler_failed",
     "crawl.handle_statuses",
+    "crawl.content_types",
     "crawl.handler.concurrency",
     "fetch.tier",
     "fetch.tier_race",
     "fetch.kept_responses.urls",
     "fetch.kept_responses.max_size",
+    "fetch.encoding",
+    "export.csv.bom",
 ]

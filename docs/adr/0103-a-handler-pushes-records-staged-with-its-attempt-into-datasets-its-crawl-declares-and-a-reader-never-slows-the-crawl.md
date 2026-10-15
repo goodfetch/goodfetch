@@ -135,6 +135,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
   - `saveAs(path)` is Playwright's `Download` name for a file the engine holds (S3).
   - `stream()` returns an async iterable of bytes (an `EventStream` in Rust), not the Node `Readable` of Playwright's `createReadStream()`, so it has a name of its own (S3).
 - **Wherever the engine runs.** A path on the engine's own machine would break on a Daemon or in Goodfetch Cloud (ADR 0001; the research's "works locally but not on the Apify Platform").
+  > Amended by [ADR 0108](0108-a-saved-file-is-written-whole-or-not-at-all-and-a-failed-write-says-whether-its-path-or-its-storage-failed.md): `run.export` returns an `Export` only once its file is complete, and fails with `file_write_failed` (an `UnavailableError`, side `engine`) when the engine cannot write it. `saveAs` writes a hidden temporary file beside the path and renames it over the path, so the path holds the whole Export or what it held before. It creates missing parent folders and replaces an existing file, as Playwright's does, and fails with `path_not_writable` (a `ProgramError`) when the program's path cannot be written, or `file_write_failed` (side `program`) when its storage is full or fails. Neither code is retryable.
 - **The format is named, never inferred** from a file name, as Crawlee's `exportData` infers it, so a typo is a type error (G3). Each format's options are `export.*` settings, named by area 6.
 
 ### The Key-value store
@@ -193,6 +194,7 @@ Nothing is added to the SDK API.
 ### Error codes
 
 `dataset_duplicate`, `dataset_unknown`, `dataset_key_invalid`, `record_invalid` and `value_invalid` join `goodfetch-protocol`'s list in the `program` group (ADR 0079). None is retryable: the same call fails the same way until the program or its data changes.
+> Amended by [ADR 0108](0108-a-saved-file-is-written-whole-or-not-at-all-and-a-failed-write-says-whether-its-path-or-its-storage-failed.md): an Export's failed write raises Collie's `path_not_writable` (`program`) or `file_write_failed` (`unavailable`), neither retryable.
 
 ## Considered Options
 

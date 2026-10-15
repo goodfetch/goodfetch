@@ -2,6 +2,8 @@
 
 Goodfetch Cloud sells hosted browsers to code and agents that run elsewhere ([Cloud readiness](https://github.com/Jbmanllr/automan/issues/69)). Each of those browsers runs with a Browser host: a Goodfetch process beside it that carries out a Session's operations (click this target, fill this field) with the guard, over a pipe, and returns one answer. A run on the user's machine opens a Session there and pays one network round trip per action, while its run state (cookies, Datasets, journals) stays in the user's engine. The Browser host speaks the same JSON-RPC operations as the engine, so one conformance suite covers both (ADR 0001), and serves one Session before it is wiped. Decided in [Adopt site-access decisions](https://github.com/Jbmanllr/automan/issues/76).
 
+> Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): the Browser host is the `browser-host` command of either Product's executable, and Goodfetch ships it in Collie's image, for Goodfetch Cloud's hosted browsers and for self-hosters alike.
+
 ## Considered Options
 
 - **Raw CDP from the user's engine to the hosted browser** (how Playwright reaches Browserbase): rejected as the default. A click takes about five CDP commands, each a network round trip; Browserbase measured 42 ms per round trip on one route ([Stagehand v4 post](https://www.browserbase.com/blog/stagehand-v4)).
@@ -11,6 +13,7 @@ Goodfetch Cloud sells hosted browsers to code and agents that run elsewhere ([Cl
 
 - The Browser host is an endpoint under ADR 0017: reached remotely, it requires TLS and a token. It enforces ADR 0017's egress policy on the hosted browser's traffic, since the user's engine cannot see it, under Goodfetch Cloud's "no private endpoints" policy, so a run's private-range allowlist or switched-off resolved-IP check never reaches the cloud's network.
 - It speaks the engine's protocol with the same handshake (ADR 0024); whether it leaves the public framework follows ADR 0018's rule.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): it settles on the lower of its own and its engine's minors within one major, as the peer protocol does (ADR 0055), and what a Session needs beyond the settled minor fails in the engine with `browser_host_outdated`. It stays in the public Products: publishing it creates no legal exposure.
 - Cookies and storage held by the hosted browser are copied back into the run's state, so a checkpoint covers them (ADR 0002). A Browser host serving a Borrowed browser, a Profile directory or an installed browser on the person's own machine is the exception (ADR 0056): it connects out to the engine, wipes nothing, never closes a Borrowed browser and copies nothing back, and its run resumes only through it.
 - The Browser host governs its own browser's memory and reports its pressure to the engine; the engine learns a ceiling per provider for third-party browsers (ADR 0040).
 - A raw CDP endpoint on a hosted browser stays opt-in, as decided in Cloud readiness, under ADR 0017's rules.

@@ -4,6 +4,8 @@ Every contract the engine speaks is defined once, as Rust types in a `goodfetch-
 
 > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): each operation, event, Error code, setting key, Plugin kind, Hook stage, CLI command and MCP profile, and every value Foxhound adds to a type both Products share, also names the smallest Product that carries it, Collie or Foxhound, in the same bundle and catalog file, and each generator reads the projection of the Product it generates for.
 
+> Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): each operation and field of the protocol also records the minor that added it, so an engine can speak each older minor of its major to a Browser host and refuse what that minor lacks with `browser_host_outdated`.
+
 ## Considered Options
 
 - **A hand-written IDL** (OpenRPC, TypeSpec, protobuf): rejected. It is a second language to maintain beside the Rust types the engine needs anyway; OpenRPC's generator is effectively dormant (last release October 2025), and TypeSpec and protobuf target HTTP and gRPC rather than JSON-RPC over stdio and sockets.

@@ -21,6 +21,8 @@ The TypeScript and Python SDKs, the CLI, the MCP server and Goodfetch Cloud all 
   > Amended by [ADR 0066](0066-upgrades-are-tested-from-a-frozen-corpus-and-skew-from-every-released-minor.md): every Attached engine applies the Daemon's rule at `hello`; with the engine its SDK ships the versions are equal, and `GOODFETCH_ENGINE_PATH` is how they can differ.
 
   > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): before this rule, an engine checks the Product the Client needs, and refuses one its own Product does not contain with `not_in_product`, in the reply to `hello`. The rule still compares protocol versions, never Product versions.
+
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): a Browser host does not follow the Daemon's rule: it and the engine that drives it accept each other within one major and settle on the lower of their two minors.
 - Operations are coarse or batched, because a small call costs 1.6–2x as much as in-process (paired ratios of 0.47 in Node and 0.64 in Python; medians of 54 against 26 µs and 120 against 99 µs): little next to fetching and rendering a page, a lot across many tiny calls.
 - The Playwright-shaped page API of ADR 0019 is a set of Operation catalog calls over this protocol, so every SDK gets it from the same catalog.
 - Page bodies travel as handles backed by files in the run's directory: a Client on the same machine reads the file directly, a remote one streams it through `page.body`.

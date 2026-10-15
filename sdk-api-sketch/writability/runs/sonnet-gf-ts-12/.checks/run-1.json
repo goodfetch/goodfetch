@@ -1,0 +1,12 @@
+{
+  "lang": "ts",
+  "kind": "gf",
+  "errors": 1,
+  "lenient_errors": 0,
+  "output": "12-crawl-in-a-service.ts(43,15): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.\n",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 1,
+  "time": "2026-10-15T19:36:13",
+  "by": "agent"
+}

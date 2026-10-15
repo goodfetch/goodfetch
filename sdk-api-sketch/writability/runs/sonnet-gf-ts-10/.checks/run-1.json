@@ -1,0 +1,12 @@
+{
+  "lang": "ts",
+  "kind": "gf",
+  "errors": 2,
+  "lenient_errors": 2,
+  "output": "10-offline-crawl-tests.ts(13,29): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.\n10-offline-crawl-tests.ts(14,29): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T19:17:25",
+  "by": "agent"
+}

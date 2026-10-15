@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 0,
+  "warnings": 0,
+  "output": "\n(test profile) ",
+  "pass": true,
+  "lenient_pass": true,
+  "n": 1,
+  "time": "2026-10-15T19:25:18",
+  "by": "agent"
+}

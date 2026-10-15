@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 1,
+  "warnings": 0,
+  "output": "s11_agent_goal.rs:83:11: error[E0004]: non-exhaustive patterns: `&_` not covered: pattern `&_` not covered",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T19:33:13",
+  "by": "agent"
+}

@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 0,
+  "warnings": 2,
+  "output": "s11_agent_goal.rs:45:20: warning: field `0` is never read\ns11_agent_goal.rs:117:5: warning: unused `RunReport` that must be used",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 2,
+  "time": "2026-10-15T19:33:17",
+  "by": "agent"
+}

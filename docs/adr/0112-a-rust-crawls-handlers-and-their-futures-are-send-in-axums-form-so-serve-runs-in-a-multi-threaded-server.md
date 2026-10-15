@@ -26,7 +26,6 @@ Decided in [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch
 
 The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum users already write), T (one form that every async closure fits) and G3 (a closure that is not `Send` fails to compile, with rustc's message).
 
-
 - **A crawl's handler** is `F: FnOnce(CrawlContext<P>) -> Fut + Clone + Send + Sync + 'a`, with `Fut: Future<Output = …> + Send + 'a`. `serve` clones the handler for each crawl request and calls the clone once, as axum does for each HTTP request. The output type is ADR 0093's, as [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528) settles it. Whatever error type it gives, a `Send` future needs that error to be `Send`.
 - **Every async closure fits.** RFC 3668 makes every async closure `FnOnce`, and a closure is `Clone` when its captures are. Two forms work unchanged:
   - `async |ctx| { … }` borrowing the declaring function's locals, as scenario 12 borrows its Dataset;
@@ -43,7 +42,7 @@ The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum us
   - Bodies are still written `async |effect| { … }`.
 - **A synchronous closure inside a call's future** is `Fn(…) + Send + Sync + 'static`, as ADR 0081's waiter predicates are. This covers `enqueue_links_with`'s Payload function.
 - **A closure that a generic `async fn` calls at once needs nothing stated.** `Collie::scope` and `Foxhound::scope` take `impl AsyncFnOnce(&…)`, and their futures are `Send` whenever the body's is, through Rust's auto traits.
-- **When return-type notation stabilizes**, the bounds may relax to `AsyncFnOnce(…) + Clone` with `F(..): Send` as an addition. RFC 3668 makes every callable that returns a future implement `async FnOnce`, so the relaxed bound accepts every closure this one does. `AsyncFn` would not do: a closure that moves an owned capture out in its body, such as `async move |_| { consume(state) }`, fits `FnOnce + Clone` but not `AsyncFn` (E0525).
+- **When return-type notation stabilizes**, the bounds may relax to `AsyncFnOnce(…) + Clone + Send + Sync` with `F(..): Send` as an addition. RFC 3668 makes every callable that returns a future implement `async FnOnce`, so the relaxed bound accepts every closure this one does. `AsyncFn` would not do: a closure that moves an owned capture out in its body, such as `async move |_| { consume(state) }`, fits `FnOnce + Clone` but not `AsyncFn` (E0525).
 
 ### Borrowing is kept, and it is checked
 
@@ -57,7 +56,7 @@ The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum us
 - **A `Crawl` and a `LocalCrawl` pair**, `trait-variant`'s pattern: rejected. Every declaration method, Hook stage, login step and the testing kit would exist twice (S2, T). A crawl declared once could not move from a test into a service. The way down already serves state that cannot be `Send`.
 - **`tokio::task::LocalSet` in the docs:** rejected. axum does not run its handlers in one, so the program would pin `serve` to a thread of its own and send results back (G4).
 - **`Send` as an opt-in variant:** rejected. It is the pair with the wrong default, against async-trait's default and the Rust team's guidance.
-- **`AsyncFn` with return-type notation:** rejected for now, since it is unstable. It is the later relaxation above.
+- **`AsyncFn` with return-type notation:** rejected. It is unstable, and it refuses a closure that moves an owned capture out of its body (E0525), which `FnOnce + Clone` accepts. The later relaxation above is to `AsyncFnOnce(…) + Clone` with return-type notation instead.
 - **`Fn(…) -> Fut`:** rejected. On rustc 1.93 it refuses every `async move` handler that owns its captures, the form three golden scenarios use, and leaves `move |ctx| { let x = x.clone(); async move { … } }` in its place (T).
 - **Handlers returning a boxed future:** rejected. Every handler would need `Box::pin(async move { … })`, a form none of Rust's async closures has.
 - **`'static` handlers**, as `blocking` has them: rejected. `Send` alone is what a multi-threaded server needs, and borrowing the declaring function's locals is what keeps scenario 12 short.

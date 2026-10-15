@@ -258,13 +258,22 @@ class AsyncTestEngine:
         label: Label[Any],
         url: str,
         payload: JsonValue = None,
+        method: str = "GET",
+        body: str | bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        tier: FetchTier | None = None,
+        previous_error: GoodfetchError | None = None,
+        attempt: int = 1,
+        depth: int = 0,
         response: SavedResponse | None = None,
         recording: str | PathLike[str] | None = None,
         dataset: Dataset[Any] | None = None,
         record: JsonValue = None,
     ) -> HookResult:
-        """Runs one of the crawl's Hooks alone, by the name Hooks carry (#481), its stage's context built as `run_handler`
-        builds a handler's. A name the crawl does not hold raises `HookUnknownError`, naming the closest."""
+        """Runs one of the crawl's Hooks alone, by the name Hooks carry (ADR 0104), its stage's context built as
+        `run_handler` builds a handler's: before a request from `method`, `body`, `headers`, `tier` and `previous_error`
+        (a first attempt by default); after one from `response`; before a Record's commit from `dataset` and `record`. A
+        name the crawl does not hold raises `HookUnknownError`, naming the closest."""
 
     async def close(self) -> None:
         """Closes the connection and the engine and removes the home. Raises `ScriptedModelUnusedError` if a Scripted model
@@ -328,6 +337,13 @@ class TestEngine:
         label: Label[Any],
         url: str,
         payload: JsonValue = None,
+        method: str = "GET",
+        body: str | bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        tier: FetchTier | None = None,
+        previous_error: GoodfetchError | None = None,
+        attempt: int = 1,
+        depth: int = 0,
         response: SavedResponse | None = None,
         recording: str | PathLike[str] | None = None,
         dataset: Dataset[Any] | None = None,

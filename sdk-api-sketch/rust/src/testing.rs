@@ -251,8 +251,9 @@ impl AttemptResult {
     }
 }
 
-/// What a Hook is run on: the request, and the response, document or Record its stage sees. The
-/// stages' contexts are #481's.
+/// What a Hook is run on (ADR 0104): the request, and what its stage sees: before a request, its
+/// method, body, headers, tier and previous error; after one, the response; before a Record's
+/// commit, the Record.
 #[derive(Debug)]
 pub struct HookInput {
     _private: (),
@@ -262,6 +263,31 @@ impl HookInput {
     /// A request of the Label, at this URL, with its Payload.
     pub fn new<P: serde::Serialize>(label: &Label<P>, url: &str, payload: P) -> Self {
         let _ = (label, url, payload);
+        unimplemented!()
+    }
+
+    /// The method, `GET` by default, and the body, none by default, it was enqueued with.
+    pub fn request_body(self, method: &str, body: Option<Vec<u8>>) -> Self {
+        let _ = (method, body);
+        unimplemented!()
+    }
+
+    /// The headers as built so far, the enqueue's own included.
+    pub fn headers(self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        let _ = headers.into_iter();
+        unimplemented!()
+    }
+
+    /// The tier about to fetch: `Http` by default, or the one the Label forces.
+    pub fn tier(self, tier: FetchTier) -> Self {
+        let _ = tier;
+        unimplemented!()
+    }
+
+    /// The attempt before failed with this error, for a Hook's retry branch; with `attempt` and
+    /// `depth`. Left out: a first attempt at depth 0.
+    pub fn previous(self, error: Error, attempt: u32, depth: u32) -> Self {
+        let _ = (error, attempt, depth);
         unimplemented!()
     }
 

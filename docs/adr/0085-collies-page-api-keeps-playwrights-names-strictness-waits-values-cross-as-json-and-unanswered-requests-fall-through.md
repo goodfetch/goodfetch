@@ -173,6 +173,8 @@ TypeScript and Python keep Playwright's spellings, including Python's properties
 
 > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's route answer is `r#continue()`, by ADR 0099's rule for reserved words.
 
+> Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's selector-less frame locator is `frame_locator(None)`: one `frame_locator` takes `impl Into<Option<&str>>`, as TypeScript's `frameLocator(selector?)` is one member, and there is no `any_frame()`.
+
 ## Considered Options
 
 - **A `BrowserContext` beside the Session:** rejected by S2 and the glossary, whose Session avoids "context".

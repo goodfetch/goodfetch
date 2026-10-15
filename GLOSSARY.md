@@ -412,6 +412,10 @@ _Avoid_: classifier, router
 The requirement that every extracted value appears in its page or follows from a declared transform.
 _Avoid_: verification, fact-check
 
+**Element reference**:
+A short name the engine gives an element in an AI accessibility snapshot of a page, such as `e12`, by which a model or a program acts on that element for as long as it stays in the page.
+_Avoid_: handle, element ID, node ID
+
 **Human pause**:
 The state of a Session's work items while they wait for a person to complete a login, MFA, a CAPTCHA, a confirmation or a review.
 _Avoid_: manual step, HITL

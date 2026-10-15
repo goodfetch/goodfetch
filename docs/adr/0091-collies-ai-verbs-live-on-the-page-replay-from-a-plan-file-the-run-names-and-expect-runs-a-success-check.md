@@ -1,0 +1,134 @@
+# Collie's AI verbs live on the page, replay from a Plan file the Run names, and `expect` runs a Success check
+
+Collie's AI verbs, `act`, `observe` and `extract`, are methods of the page and of a locator, never of a separate AI object. Each call is one step of its Run's Plan (ADR 0009): replayed with no model call while its Target fingerprint matches, compiled by the model when the Plan lacks it, repaired once on Drift, and kept in a local file the Run names. Every verb returns its value together with how the step was resolved and what it cost. A Success check is Playwright's `expect`, evaluated by the engine and read by the Run's Verdict. The observation an agent loop reads is Playwright's `ariaSnapshot`, with element references and a size budget. The research ranks replay without the model first among AI tools' pains: "let me replay without the model / export the script" leads every tracker, and Stagehand v4's cache works only on its vendor's servers (AI pain 1, synthesis pain 2). False success comes next (pain 3), then token bloat in agent observations (pain 17). Decided in [Collie's AI verbs and Plans](https://github.com/goodfetch/automan/issues/473), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), every answer by the agent on the owner's delegation. The evidence is the [research on competitors' APIs](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) (pains 2, 3 and 17; [AI browser automation](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/ai-browser-automation.md) §2, §3.2, §4 and §6) and Playwright 1.64's assertion docs. It builds on [Collie's page API](https://github.com/goodfetch/automan/issues/472) (ADR 0085). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md).
+
+## Decision
+
+### Where the verbs live
+
+- **On the page, and on a locator to narrow the scope** (G2, S3, T): `page.act`, `page.observe` and `page.extract`, and the same three on `Locator`. A locator's element bounds what the model sees and what a step may target, and it must match one element, as ADR 0085's reads do. Skyvern's `SkyvernPage` and HyperAgent's `HyperPage` put the verbs on the page, and the research found the best-received designs do (AI §4.1 item 2). Stagehand v3 and v4 moved them to an instance (`stagehand.act(x, { page })`), where an omitted page means the focused tab, which its own docs call subtle under concurrency.
+- A Borrowed page (`run.borrow(page)`, ADR 0078) and a crawl handler's page get the verbs as any page does. The Run still holds Limits, Usage and the Plan (ADR 0078), and every page belongs to one.
+
+### The verbs
+
+- **`act(instruction, options)` performs one action** described in words, through the guard like any locator action (ADR 0019). It is Stagehand's atomic `act` (S3). A multi-step goal is an Agent's ([The Agent in Collie's SDK API](https://github.com/goodfetch/automan/issues/474)). When nothing on the page fits the instruction, it fails with `target_not_found`.
+- **`observe(instruction, options)` finds without acting.** The instruction is required, so the call has one meaning and one return type (S2); Stagehand's `observe()` with no instruction lists every action, and Notte's returns a whole-page observation. It returns the candidates, each with a plain `Locator` the program uses with any page API call, the model's description and the code that reaches the element. No candidate is an empty list: `observe` asks a question (ADR 0079).
+- **`extract(instruction, schema, options)` reads typed data** in ADR 0082's schema forms and returns the schema's output type. Both arguments are required; Stagehand's schema-less form returns a string, a second return type (S2).
+- **Per-call arguments**, each that setting at the run layer (ADR 0083): `model` on all three, its type and setting key [Models, usage and cost in the SDK API](https://github.com/goodfetch/automan/issues/475)'s (ADR 0012: each AI operation picks its model); `timeout` on all three (ADR 0080); `mode` on `extract`. The system prompt, vision, the Decision provider and `plan.frozen` stay settings of a scope, since they are not part of one call's task (S2).
+- **Variables, on `act` only.** `act("type %query% into the search box", { variables: { query } })` gives plain values to `%name%` placeholders; a placeholder no variable fills is a Secret placeholder bound by the setting `secrets.<name>` ([Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476), ADR 0092). The model, the Plan, logs and the Run trace see only `%name%`, and the engine types the value at input (ADR 0014), so one Plan step serves every value. Stagehand's `variables` work the same way. A placeholder neither fills, a variable no placeholder uses, or a name that is both fails with `variables_mismatch` (G3). `observe` and `extract` take none: the model never sees a value, and nothing is typed.
+
+### What they return
+
+- **A `StepResult` with `output`, `step` and `usage`**, the same for the three verbs (S1):
+  - `output` is the verb's value: the action performed, the candidates, or the schema's output. ADR 0079's AI work results name theirs the same way.
+  - `step` says how the call was resolved: `plan`, replayed with no model call; `model`, compiled now because the Plan lacked it; `repair`, the entry drifted and one Repair recompiled it, with what drifted; or `journal`, the Effect journal already held this Effect, so nothing was done again (ADR 0010).
+  - `usage` is typed by Models, usage and cost in the SDK API.
+
+  Stagehand v4 returns `{ data, metadata: { usage, cache } }` on every verb, per-call usage is converged (AI §4.1 item 8), and users ask for the resolved action on every AI result (AI pain 17). A bare value would leave no place for either (G6).
+- **The action performed** carries its method, its arguments with placeholders, its target as a `Locator`, and `code`: the same call in the caller's language, rendered by the engine's target renderer (ADR 0079), such as `await page.getByRole('link', { name: 'love' }).click();`. A person can graduate a step to plain page API code with it. Playwright MCP's "Ran Playwright code" section is the precedent.
+- **A step carries no Verdict.** A failure raises (ADR 0079), and the Run's Verdict covers its steps (ADR 0029). A Run whose program calls `act` or `observe` is `verified` only when a Success check passed (ADR 0013), while `extract` is judged by Grounding. ADR 0079's `AiWorkResult`, with `ended`, `verdict` and `reported`, stays for an Agent's task and a Plan replayed toward a goal.
+
+### The Plan in code
+
+- **Starting a Run takes `plan`**, the path of its Plan file, relative to the working directory, as an input of the Run like a crawl's seeds. The SDK reads the file on the program's machine and writes promoted versions back there, so a Daemon or Goodfetch Cloud works the same (ADR 0001). Starting a crawl takes the same option ([Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477), [The Run in code](https://github.com/goodfetch/automan/issues/478)). Without `plan`, the Run's Plan lives only in its Run trace, and nothing is written to disk (G4). A path derived from the script's name would be hidden state that bundlers break (G2); a cache held by a service is ADR 0009's rejected option.
+- **One entry per call**, keyed by the verb, the instruction with its placeholders, the scope locator, and for `extract` the hash of the schema's JSON Schema. Within an entry, one variant per page layout (ADR 0013's "keyed by route and page layout"). There is no key option: two calls that mean different things are worded or scoped differently (S2). Keys by position, as HyperAgent's `actionCache` and Browser Use's history replay, break as soon as a program branches or loops.
+- **What a step carries:**
+  - the verb, the instruction and the scope;
+  - the frame path, the frame locators from the main frame with each frame's origin, which is the step's frame identity;
+  - the page context it was compiled on;
+  - for `act` and each `observe` candidate, the target as a ladder of locators (role and name, test id, CSS, XPath) judged by its Target fingerprint, never one bare selector. Stagehand's absolute XPaths are "a dealbreaker" for its users (#1555), and Browser Use's replay matches in five levels;
+  - for `act`, the method and arguments with placeholders, and whether the engine classed the action an Effect, and in which ADR 0014 category;
+  - for `extract` in compiled mode, per field a locator ladder relative to the scope and a transform from a closed, deterministic list, so values are copied from the page (ADR 0013);
+  - the model that compiled it.
+
+  The file is JSON, snake_case (ADR 0038), written in a stable order so diffs stay small, and versioned under ADR 0030.
+- **One call is one unit for ADR 0009's check.** Each call's targets are checked against their Target fingerprints before it acts. On Drift, the call gets at most one Repair, checked again; a Drift that remains fails with `plan_drift`. A site redesign therefore repairs each drifted step once, which is what golden scenario 03 asks: "only that step goes back to the model". A Plan replayed toward a goal keeps ADR 0009's whole-sequence rule (The Agent in Collie's SDK API).
+- **A new version is promoted only after the Run finishes `verified`**, a first compile as much as a Repair, with ADR 0009's review of Plans with Effects. From a Run that is not `verified`, the version is kept pending for a person ("Needs you", ADR 0031), never written silently, so a wrong step from a first run is never cached for good (scenario 03's first failure point). The Run's report carries a `PlanReport`: the file, the version used, `unchanged`, `promoted`, `pending_review` or `frozen`, and the steps changed. The Run in code places it.
+- **`plan.frozen`**, a setting, default `false`: replay only, never call a model, never write the Plan. A missing entry fails with `plan_step_missing`, a Drift with `plan_drift`. It is a lockfile's frozen mode, for CI and for production runs that must make no model call (G5).
+
+### Compiled and model extraction
+
+- **`mode: "compiled" | "model"` on `extract`**, the setting `extract.mode`, `compiled` by default (ADR 0013). Compiled: the model writes each field's locators and transform once, kept in the Plan, and values are copied from the page at every call. Model: the model reads the page at every call, every value is checked by Grounding, and nothing is kept in the Plan. Crawlee for Python's `PydanticAiSelectorExtractor` learns selectors once; Firecrawl and Crawlee's `PydanticAiCrawler` read every page with a model.
+
+### `expect` runs a Success check
+
+- **`expect(pageOrLocatorOrResponse)` under Playwright's matcher names**, `not` included (S3, T). For a page: `toHaveURL`, `toHaveTitle` and `toMatchAriaSnapshot`. For a locator: every Playwright locator assertion except `toHaveScreenshot`. For a response: `toBeOK`. Python spells them as Playwright for Python does, `to_have_url` and `not_to_have_url`; Rust negates with `not()`, as Playwright for Java does; [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471) fixes the per-language forms.
+- **Each call is a Success check.** The engine evaluates it live, waiting until the condition holds or its timeout passes, records it in the Run trace, and the Run's Verdict reads its latest evaluation (ADR 0029). A condition still false at the timeout fails with `success_check_failed` (a `PageError`), naming the Success check in the caller's language, what was observed and the timeout's setting. A question that must not count is asked with `isVisible()` or `count()`, and a wait uses ADR 0080's waits.
+- **Its timeout is `timeout.wait`, 30 s**, not Playwright's 5 s: a slow page that gets there would otherwise read as `rejected` (G1).
+- **Excluded:**
+  - `toHaveScreenshot`: visual comparison belongs to [Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482).
+  - `toPass` and `expect.poll`: host retry loops that the engine cannot evaluate; waits cover them.
+  - `expect.soft`: a failed check is recorded anyway, and the program can catch it.
+  - `expect.configure`: a setter; settings carry the timeout (G2).
+  - Generic value matchers such as `toBe`: they belong to the program's test runner.
+- **A model never judges a Success check.** Skyvern's `validate(prompt)`, Midscene's `aiAssert` and Magnitude's `check` ask a model, and Skyvern's returns `False` when its own server fails. A model's judgment is a signal, never proof (ADR 0013).
+
+### Observations
+
+- **`ariaSnapshot(options)` on a page and a locator, and `page.getByRef(ref)`, under Playwright's names and options** (S3, T): `mode: "default" | "ai"`, `depth` and `boxes`. Playwright has had `ariaSnapshot({ mode: 'ai' })` since 1.59 and `getByRef` since 1.64. Collie adds guarantees that keep the meaning:
+  - Secret values are masked and a Session's cookies never appear, in both modes (ADR 0014).
+  - In `ai` mode, page text is marked untrusted (ADR 0014), and the output is bounded by the setting `observation.max_size`, 40,000 characters by default. Past it, the deepest subtrees collapse into one line each, keeping their reference and the number of nodes they hide, and the output says so (G1). A locator's `ariaSnapshot` expands a collapsed subtree.
+- **Element references last as long as their element** (ADR 0011), whichever snapshot showed them, rather than Playwright's "latest snapshot", so `getByRef` depends on no hidden state (G2). A reference whose element is gone fails with `target_not_found` at once, since the element cannot come back.
+- **No diffs in the SDKs.** A diff against the previous call is hidden state (G2), and Playwright MCP removed its incremental diffs in 0.0.69. ADR 0011's diffs stay with the MCP server, whose session serves one agent.
+
+### A timeout for AI calls
+
+- **`timeout.ai`, 120 s**, from an AI verb's call to its return, model calls and a Repair included. The action the verb performs keeps `timeout.action` inside it, since timeouts nest (ADR 0080). A replayed step takes an action's time; a compile is an observation and a model call with ADR 0012's bounded retries; a Repair adds one more. A single model call's own timeout is Models, usage and cost in the SDK API's.
+
+### Error codes
+
+ADR 0079's rule applied to each case: a call raises when it cannot keep its promise.
+
+| Case | Code | Group |
+|---|---|---|
+| `act` finds no element for its instruction; `getByRef` names an element that is gone | `target_not_found` | `PageError` |
+| A step drifted and could not be repaired: `plan.frozen`, no model configured, or its one Repair drifted too | `plan_drift` | `PageError` |
+| A compile or a Repair needs a model call that a used-up Limit refuses; the details name the step | `limit_reached` (ADR 0080) | `RefusedError` |
+| `plan.frozen` is set and the Plan has no entry for the call | `plan_step_missing` | `ProgramError` |
+| The Plan file cannot be read or does not match its format; its versions follow ADR 0030's refusals | `plan_invalid` | `ProgramError` |
+| A call with no Plan entry needs a model, and none is configured | `model_not_configured` | `ProgramError` |
+| A required field was not found on the page; the details carry the fields found and each missing field's reason | `extraction_incomplete` | `PageError` |
+| The model's answers never passed the JSON Schema, the program's validators (ADR 0082) or Grounding within ADR 0012's retries; the details carry the last attempt's issues per field | `extraction_invalid` | `ModelError` |
+| An `act` whose action the engine classed an Effect failed after the action was sent; the original is chained, and it is not retryable | `effect_uncertain` | `PageError` |
+| An AI Effect in one of ADR 0014's categories was not confirmed: a person declined its Human pause, or the pause expired (ADR 0092) | `effect_not_confirmed` | `RefusedError` |
+| `expect`'s condition was still false at its timeout | `success_check_failed` | `PageError` |
+| A placeholder neither `variables` nor a bound Secret placeholder fills, a variable no placeholder uses, or a name that is both | `variables_mismatch` | `ProgramError` |
+
+A navigation an AI step starts toward a domain the run's policy forbids raises the same `RefusedError` as `goto` (ADR 0014). Model provider failures are Models, usage and cost in the SDK API's codes, which `model_not_configured` joins.
+
+## Considered Options
+
+- **The verbs on a runtime object, the page passed in,** as Stagehand v4: rejected. Without a default page every call repeats it; with one, the default is hidden state (G2). **A separate AI object bound to a page,** as Midscene's agent: rejected; one more concept and lifecycle for nothing the page lacks (S2, T).
+- **A multi-step `act`,** as Midscene's `aiAct`: rejected. It blurs into the Agent and gives one call two shapes of failure.
+- **`act(observedAction)`,** Stagehand's replay contract: rejected. The Plan already replays without a model, and a program acts on a candidate through its locator, so there is one way to act on a found element (S2).
+- **Bare values from the verbs:** rejected. Usage and how a step was resolved would have no place (G6). **A Verdict on each step,** ADR 0079's `AiWorkResult`: rejected; a step would read `needs-review` most of the time, and the Run's Verdict already reads every check.
+- **A server-side cache,** as Stagehand v4: rejected in ADR 0009. **A path derived from the script:** rejected by G2. **Plans keyed by position:** rejected; they break on the first branch or loop.
+- **One Repair per Run for SDK steps,** ADR 0009's whole-Plan reading: rejected. A redesign that moves two controls would fail a run whose steps each repair cleanly.
+- **Writing a first compile whatever the Verdict:** rejected. A plausible wrong step would be replayed for good, which is scenario 03's first failure point.
+- **A key option on each call:** rejected by S2. **Midscene's read-write, read-only and write-only modes:** rejected for one switch, `plan.frozen`; deleting the file regenerates it.
+- **A new `page.verify(SuccessCheck.url(…))` vocabulary:** rejected by S3. It would name Playwright's conditions anew; the Agent may still take a Success check as a value. **Asking a model whether the condition holds,** as Skyvern, Midscene and Magnitude: rejected by ADR 0013. **Playwright's 5 s default for `expect`:** rejected by G1; a slow success would read as a rejection.
+- **A new `snapshot()` or `observation()` with a typed result:** rejected. "Snapshot" is a glossary _Avoid_ term for Checkpoint, Baseline and Model recording, and a new name for Playwright's meaning breaks S3. **`observe()` with no instruction returning the page,** as Notte: rejected; one name, two return types (S2). **Diffs and Playwright's latest-snapshot references in the SDKs:** rejected by G2.
+- **Variables carrying Secret references:** rejected. ADR 0092 binds a Secret placeholder through `secrets.<name>`, never a per-call map. **Interpolating values into the instruction:** rejected; each value would be a new Plan step, a model call, and a value the model sees.
+- **`timeout.action` for AI calls:** rejected. A compile with retries outlasts the guard's 30 s window, so a first run would time out.
+
+## Consequences
+
+- **Amends ADR 0009.** In an SDK program each AI verb call is its own unit: its targets are checked before it acts, it gets at most one Repair, and a Drift after that Repair fails the call. A first compile is promoted only after a `verified` Run, like a Repair, and a version from a Run that is not `verified` is kept pending for a person.
+- **Amends ADR 0011.** In the SDKs, an observation sends no diffs, and element references last as long as their element; the MCP server keeps diffs within its own session.
+- **Amends ADR 0029.** A Run whose program calls `act` or `observe` counts as an AI task, so it needs a passing Success check; a Run whose only AI steps are `extract` is judged by Grounding.
+- **Amends ADR 0079.** A single AI verb call is a step, not AI work that can claim success: it returns a `StepResult` without a Verdict, and `AiWorkResult` stays for an Agent's task and a Plan replayed toward a goal.
+- **Amends ADR 0080.** `timeout.ai` joins the phases, at 120 s. A Success check still false at its timeout fails with `success_check_failed`, not `deadline_exceeded`, since the timeout bounds how long the condition may take to hold, and the failure is the Success check's answer; its details carry the timeout's setting and layer, as `deadline_exceeded`'s do.
+- **Amends ADR 0083.** `timeout.ai` joins the timeout family. `plan.frozen`, `extract.mode` and `observation.max_size` are new settings.
+- **Glossary.** **Element reference** is added.
+- **Error codes.** The table's codes join `goodfetch-protocol`'s list through `xtask codegen`'s naming checks.
+- **ADR 0037's matrix:** AI-01, AI-02, AI-03, AI-08, AI-12 and AI-13, V3-01 and V3-02, and parity-index rows 2, 9, 10, 11 and 20 cite this ADR; V3-01 is decided.
+- **Area 9 (AI and agent)** builds the per-call Plan entries, their variants and locator ladders, the compiled extraction's transforms, promotion and pending versions, `plan.frozen`, `expect`'s evaluation in the Verdict, and the bounded `ai` observation. **Area 11 (Client surfaces)** builds the verbs' shapes per language, `StepResult`, the Plan file's reading and writing on the program's machine, and the error classes. Each lists this ADR.
+- **Other tickets of the map.**
+  - The Agent in Collie's SDK API: its result, its Success check declaration, and whole-sequence replay.
+  - Models, usage and cost in the SDK API: the `model` type and key, `Usage`, structured-output strategies, a model call's own timeout, and how golden scenario 08 finishes without the model once a Limit is reached, with `plan.frozen` as the model-free mode or the map's fog item "A call scope for Limits".
+  - Crawl definition and handler context: `extract` on an HTTP-tier response, with the same signature (S1), and the crawl's `plan` option.
+  - The Run in code: finishing a Collie Run, its report, and where `PlanReport` sits.
+  - Testing a user's crawl or automation: replaying Plans in tests, and visual comparison.
+  - Mapping the catalog to each language and surface: the per-language forms of `expect`, `not` and the overloads.
+- **TESTING.md** gains AI verb conformance cases.
+- **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `ai` files for each language.

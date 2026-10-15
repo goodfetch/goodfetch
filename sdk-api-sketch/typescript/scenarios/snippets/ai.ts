@@ -59,12 +59,12 @@ const Book = z.object({
 });
 
 // Golden scenario 02, "Extract a typed object with a chosen model": the model chosen for this call
-// alone (#475 types it), and its usage next to the result. A field not on the page throws, naming it.
+// alone (a Model reference, ADR 0101), and its usage next to the result. A field not on the page throws, naming it.
 export async function typedBook(page: Page): Promise<z.infer<typeof Book> | undefined> {
   await page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html");
   try {
     const { output, usage } = await page.extract("the book on this page", Book, { model: "ollama/qwen3:8b" });
-    log.info("extracted", { tokens: usage.inputTokens + usage.outputTokens });
+    log.info("extracted", { tokens: usage.tokens, price: usage.price });
     return output;
   } catch (error) {
     if (error instanceof ExtractionIncompleteError) {

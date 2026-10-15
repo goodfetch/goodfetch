@@ -70,15 +70,15 @@ class Book(BaseModel):
 
 
 async def typed_book(page: AsyncPage) -> Book | None:
-    """Golden scenario 02, "Extract a typed object with a chosen model": the model chosen for this call alone (#475
-    types it), and its usage next to the result. A field not on the page raises, naming it."""
+    """Golden scenario 02, "Extract a typed object with a chosen model": the model chosen for this call alone (a Model
+    reference, ADR 0101), and its usage next to the result. A field not on the page raises, naming it."""
     await page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html")
     try:
         result = await page.extract("the book on this page", Book, model="ollama/qwen3:8b")
     except ExtractionIncompleteError as error:
         log.warning("fields not on the page: %s (found %s)", error.details.missing, error.details.found)
         return None
-    log.info("extracted with %d tokens", result.usage.input_tokens + result.usage.output_tokens)
+    log.info("extracted with %d tokens, priced %s", result.usage.tokens, result.usage.price)
     return result.output
 
 

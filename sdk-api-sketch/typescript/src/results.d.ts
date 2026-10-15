@@ -4,6 +4,7 @@
 // The codes below are a representative subset: each area's spec lists its codes, their groups
 // and their details in goodfetch-protocol, and codegen writes one class per code.
 
+import type { ModelUsage } from "./models.js";
 import type { DeadlineExceededDetails } from "./time.js";
 
 /** A group of Error codes sharing one remedy, carried on the wire as the JSON-RPC numeric class. */
@@ -68,6 +69,16 @@ export type KnownErrorCode =
   | "retry_requested"
   | "response_not_ok"
   | "site_preferences_refused"
+  | "model_not_found"
+  | "model_capability_missing"
+  | "model_handler_failed"
+  | "model_unauthorized"
+  | "model_quota_exhausted"
+  | "model_price_unknown"
+  | "model_unavailable"
+  | "model_declined"
+  | "model_context_exceeded"
+  | "model_output_invalid"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */
@@ -120,6 +131,8 @@ export declare abstract class GoodfetchError extends Error {
   readonly callLog: readonly string[];
   /** Per-code typed fields; `undefined` for codes without any. */
   readonly details?: unknown;
+  /** What the call's model calls consumed before it failed, when it made any: a failed call's spend is never hidden (ADR 0101). */
+  readonly usage?: ModelUsage;
 }
 
 // The seven groups by remedy. A code this SDK does not know is thrown as its group's class.

@@ -114,6 +114,21 @@ pub mod timeout {
     pub const HUMAN_PAUSE: Setting<Option<Duration>> = Setting::new("timeout.human_pause");
     /// An AI verb from its call to its return, model calls and a Repair included: 120 s (ADR 0091).
     pub const AI: Setting<Option<Duration>> = Setting::new("timeout.ai");
+    /// One attempt of one model request, the program's own provider included: 60 s. It nests in
+    /// the call that made it (ADR 0101).
+    pub const MODEL: Setting<Option<Duration>> = Setting::new("timeout.model");
+}
+
+/// `ai.*` (ADR 0101). Model providers are declared with [`Settings::model_provider`].
+pub mod ai {
+    use super::Setting;
+    use crate::models::{ModelReference, StructuredOutput};
+
+    /// `ai.model`: the model every AI call of the scope uses unless the call names its own. No
+    /// default: no model is called unless one is configured (ADR 0043).
+    pub const MODEL: Setting<Option<ModelReference>> = Setting::new("ai.model");
+    /// `ai.structured_output`: [`StructuredOutput::Auto`] by default.
+    pub const STRUCTURED_OUTPUT: Setting<StructuredOutput> = Setting::new("ai.structured_output");
 }
 
 /// A browser window's size in CSS pixels.

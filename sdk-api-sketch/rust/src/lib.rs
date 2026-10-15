@@ -9,6 +9,7 @@ pub mod concurrency;
 pub mod crawl;
 pub mod data;
 pub mod lifecycle;
+pub mod models;
 pub mod page;
 pub mod results;
 pub mod sessions;
@@ -18,7 +19,7 @@ pub mod time;
 pub use ai::{
     Act, AriaSnapshot, AriaSnapshotMode, Drift, EffectNotConfirmed, EffectUncertain, Expectable, Expected, Extract, ExtractMode, ExtractionIncomplete, ExtractionInvalid,
     LocatorExpectations, MissingField, ModelNotConfigured, Observe, Observed, PageExpectations, PerformedAction, PlanDrift, PlanInvalid, PlanReport, PlanStatus, PlanStepMissing,
-    ResponseExpectations, StepReport, StepResult, StepSource, SuccessCheckFailed, TargetNotFound, Usage, VariablesMismatch,
+    ResponseExpectations, StepReport, StepResult, StepSource, SuccessCheckFailed, TargetNotFound, VariablesMismatch,
     WhyNoRepair, expect,
 };
 pub use concurrency::{EventStream, Record, events};
@@ -28,6 +29,12 @@ pub use crawl::{
 };
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Session, Start};
+pub use models::{
+    AppliedLimit, LimitAmount, LimitScope, LimitSetBy, ModelCall, ModelCapabilityMissing, ModelContentPart, ModelDeclaration,
+    ModelFailure, ModelFormat, ModelHandlerFailed, ModelMessage, ModelOutputInvalid, ModelProvider, ModelReference, ModelRequest,
+    ModelResponse, ModelTool, ModelToolCall, ModelUnavailable, ModelUsage, ModelUsageOf, ReportedTokens, RunUsage, StructuredOutput,
+    StructuredOutputStrategy, UnavailableReason,
+};
 pub use page::{
     Abort, AbortReason, Action, ApiRequest, AriaRole, BoundingBox, ByRole, CdpSession, ConsoleLocation, ConsoleMessage, Dialog,
     DialogKind, Download, ElementWait, Evaluate, FileChooser, FilePayload, Filter, Forward, FrameLocator, Fulfill, Headers, InputFiles, Keyboard,

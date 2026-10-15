@@ -15,8 +15,8 @@
 //!   `success_check_failed`. Negation is [`LocatorExpectations::not`], as Playwright for Java's `not()`.
 //! - [`Page::aria_snapshot`] and [`Page::get_by_ref`] are the observation an agent loop reads.
 //!
-//! Model choice and [`Usage`] are placeholders until #475. Secret placeholders in instructions are
-//! ADR 0092's.
+//! Model references and [`ModelUsage`] are ADR 0101's (`models`). Secret placeholders in
+//! instructions are ADR 0092's.
 
 use std::fmt;
 use std::future::IntoFuture;
@@ -27,23 +27,12 @@ use serde::de::DeserializeOwned;
 
 use crate::data::Schema;
 use crate::lifecycle::Page;
+use crate::models::{ModelReference, ModelUsage, StructuredOutputStrategy};
 use crate::page::{Locator, Response};
 #[cfg(doc)]
 use crate::page::TextMatch;
 use crate::results::Error;
 use crate::time::{Call, CallFuture, Count};
-
-/// Placeholder: Usage and cost on every result are #475's.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct Usage {
-    /// Model calls the step made.
-    pub model_calls: u64,
-    /// Input tokens.
-    pub input_tokens: u64,
-    /// Output tokens.
-    pub output_tokens: u64,
-}
 
 /// How a step was resolved. A newer engine's value is kept as received (G3).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,8 +80,9 @@ pub struct StepResult<T> {
     pub output: T,
     /// How the step was resolved.
     pub step: StepReport,
-    /// Placeholder until #475.
-    pub usage: Usage,
+    /// The model calls this step made and their price (ADR 0101): none for a step replayed from
+    /// the Plan.
+    pub usage: ModelUsage,
 }
 
 /// The action `act` performed, through the guard like any locator action (ADR 0019).
@@ -173,9 +163,10 @@ macro_rules! ai_call {
                 unimplemented!()
             }
 
-            /// The model for this call alone: that setting at the run layer (ADR 0083). Its type is #475's.
-            pub fn model(self, model: &str) -> Self {
-                let _ = model;
+            /// The model for this call alone, a Model reference: `ai.model` at the run layer
+            /// (ADRs 0083, 0101).
+            pub fn model(self, model: impl Into<ModelReference>) -> Self {
+                let _ = model.into();
                 unimplemented!()
             }
         }
@@ -640,7 +631,9 @@ pub struct ExtractionInvalid {
     /// How many answers the model gave.
     pub attempts: u32,
     /// The model that gave them.
-    pub model: String,
+    pub model: ModelReference,
+    /// The strategy of the last attempt (ADR 0101).
+    pub strategy: StructuredOutputStrategy,
     /// The last attempt's problems, per field.
     pub issues: Vec<crate::data::SchemaIssue>,
 }

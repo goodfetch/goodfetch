@@ -213,6 +213,15 @@ impl Money {
         let _ = (amount, currency);
         unimplemented!()
     }
+    /// The decimal amount as written, such as `"0.0031"`.
+    pub fn amount(&self) -> &str {
+        &self.amount
+    }
+
+    /// The ISO 4217 code.
+    pub fn currency(&self) -> &str {
+        &self.currency
+    }
 }
 
 /// Limits (ADR 0041) a program sets for its own work: one per kind of Usage, plus a price.
@@ -230,7 +239,7 @@ pub struct Limits {
     proxy_bytes: Option<u64>,
     paid_solves: Option<u64>,
     paid_fetches: Option<u64>,
-    cost: Option<Money>,
+    price: Option<Money>,
 }
 
 impl Limits {
@@ -270,9 +279,11 @@ impl Limits {
         Self { paid_fetches: Some(fetches), ..self }
     }
 
-    /// A price, not a kind of Usage: priced through ADR 0012's price table.
-    pub fn cost(self, cost: Money) -> Self {
-        Self { cost: Some(cost), ..self }
+    /// A price, not a kind of Usage: priced through the price table (ADR 0012), as a usage's
+    /// `price` is (ADR 0101). A call whose model has no price is refused under it with
+    /// `model_price_unknown`.
+    pub fn price(self, price: Money) -> Self {
+        Self { price: Some(price), ..self }
     }
 }
 

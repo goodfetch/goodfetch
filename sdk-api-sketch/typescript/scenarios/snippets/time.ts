@@ -7,7 +7,7 @@ export async function searchQuotes(stop: AbortSignal): Promise<number> {
   // Limits on this connection's work: a program may set or lower them, never raise them.
   await using gf = await Goodfetch.connect({
     logger: log,
-    limits: { cost: { amount: "2.00", currency: "EUR" } },
+    limits: { price: { amount: "2.00", currency: "EUR" } },
   });
   // The whole Run may last two hours; past that it stops with a Checkpoint and can be resumed.
   await using run = await gf.collie.start({ timeout: 2 * 60 * 60_000, limits: { modelTokens: 200_000 } });

@@ -165,6 +165,28 @@ pub enum ErrorCode {
     ResponseNotOk,
     /// `site_preferences_refused`: a handler's own navigation that Site preferences refuse (ADR 0093).
     SitePreferencesRefused,
+    /// `model_not_found`: the provider says the model does not exist or is not available to this
+    /// key (ADR 0101).
+    ModelNotFound,
+    /// `model_capability_missing`: the operation needs a capability the model does not declare.
+    ModelCapabilityMissing,
+    /// `model_handler_failed`: the program's own Model provider failed with an error that is not a
+    /// Goodfetch [`Error`].
+    ModelHandlerFailed,
+    /// `model_unauthorized`, a refusal: the provider rejected the key. Not retryable.
+    ModelUnauthorized,
+    /// `model_quota_exhausted`, a refusal: credit, quota or billing. Not retryable.
+    ModelQuotaExhausted,
+    /// `model_price_unknown`, a refusal: a currency Limit applies and the model has no price.
+    ModelPriceUnknown,
+    /// `model_unavailable`: unreachable, a 5xx, or rate limited after the engine's retries. Retryable.
+    ModelUnavailable,
+    /// `model_declined`, a model error: the model declined to answer.
+    ModelDeclined,
+    /// `model_context_exceeded`, a model error: the request does not fit the context window.
+    ModelContextExceeded,
+    /// `model_output_invalid`, a model error: an `act`, `observe` or Agent step's answer never parsed.
+    ModelOutputInvalid,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -337,6 +359,12 @@ impl Error {
     pub fn details(&self) -> Option<&ErrorDetails> {
         unimplemented!()
     }
+
+    /// What the call's model calls consumed before it failed, when it made any: a failed call's
+    /// spend is never hidden (ADR 0101).
+    pub fn usage(&self) -> Option<&crate::models::ModelUsage> {
+        unimplemented!()
+    }
 }
 
 impl fmt::Display for Error {
@@ -416,6 +444,17 @@ pub enum ErrorDetails {
     EffectUncertain(crate::ai::EffectUncertain),
     /// Of `effect_not_confirmed`.
     EffectNotConfirmed(crate::ai::EffectNotConfirmed),
+    /// Of `model_not_found`, `model_unauthorized`, `model_quota_exhausted`, `model_price_unknown`,
+    /// `model_declined` and `model_context_exceeded` (ADR 0101).
+    ModelFailure(crate::models::ModelFailure),
+    /// Of `model_capability_missing`.
+    ModelCapabilityMissing(crate::models::ModelCapabilityMissing),
+    /// Of `model_handler_failed`.
+    ModelHandlerFailed(crate::models::ModelHandlerFailed),
+    /// Of `model_unavailable`.
+    ModelUnavailable(crate::models::ModelUnavailable),
+    /// Of `model_output_invalid`.
+    ModelOutputInvalid(crate::models::ModelOutputInvalid),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a

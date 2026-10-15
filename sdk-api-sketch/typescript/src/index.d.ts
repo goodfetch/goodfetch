@@ -5,6 +5,7 @@ export * from "./concurrency.js";
 export * from "./crawl.js";
 export * from "./data.js";
 export * from "./lifecycle.js";
+export * from "./models.js";
 export * from "./page.js";
 export * from "./politeness.js";
 export * from "./results.js";

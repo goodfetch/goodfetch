@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 async def search_quotes() -> int:
     # Limits on this connection's work: a program may set or lower them, never raise them.
-    async with AsyncGoodfetch.connect(limits=Limits(cost=Money(amount=Decimal("2.00"), currency="EUR"))) as gf:
+    async with AsyncGoodfetch.connect(limits=Limits(price=Money(amount=Decimal("2.00"), currency="EUR"))) as gf:
         # The whole Run may last two hours; past that it stops with a Checkpoint and can be resumed.
         async with await gf.collie.start(timeout=timedelta(hours=2), limits=Limits(model_tokens=200_000)) as run:
             page = await run.new_page()

@@ -9,23 +9,14 @@
 // - `expect` runs a Success check under Playwright's assertion names, evaluated live by the engine
 //   and read by the Run's Verdict; a condition still false at its timeout throws.
 // - `ariaSnapshot` and `getByRef` are the observation an agent loop reads, under Playwright's names.
-// Model choice and Usage are placeholders until #475. Secret placeholders in instructions are ADR 0092's.
+// Model references and `ModelUsage` are ADR 0101's (models.d.ts). Secret placeholders in instructions are ADR 0092's.
 
 import type { JsonValue, Schema, SchemaOutput } from "./data.js";
 import type { Page } from "./lifecycle.js";
+import type { ModelReference, ModelUsage, StructuredOutputStrategy } from "./models.js";
 import type { Locator, Response } from "./page.js";
 import type { ModelError, PageError, ProgramError, RefusedError } from "./results.js";
 import type { CallOptions, Count } from "./time.js";
-
-/** Placeholder: how a program names a model is #475's (ADR 0012's gateways, local servers and callbacks). */
-export type ModelChoice = string;
-
-/** Placeholder: Usage and cost on every result are #475's. */
-export interface Usage {
-  readonly modelCalls: number;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-}
 
 // Results.
 
@@ -56,7 +47,8 @@ export interface StepReport {
 export interface StepResult<T> {
   readonly output: T;
   readonly step: StepReport;
-  readonly usage: Usage;
+  /** The model calls this step made and their price (ADR 0101): none for a step replayed from the Plan. */
+  readonly usage: ModelUsage;
 }
 
 /** The action `act` performed: through the guard, like any locator action (ADR 0019). */
@@ -85,7 +77,7 @@ export interface Observed {
 /** Options every AI verb takes. Its timeout is `timeout.ai`, which nests the action's own. */
 export interface AiCallOptions extends CallOptions {
   /** The model for this call alone: that setting at the run layer (ADR 0083). */
-  readonly model?: ModelChoice;
+  readonly model?: ModelReference;
 }
 
 export interface ActOptions extends AiCallOptions {
@@ -261,7 +253,7 @@ export declare class PlanInvalidError extends ProgramError {
   readonly details: { readonly file: string; readonly problem: string };
 }
 
-/** A call the Plan holds no entry for needs a model, and none is configured; `fix` names the model setting (#475). */
+/** A call the Plan holds no entry for needs a model, and none is configured; `fix` names `ai.model` (ADR 0101). */
 export declare class ModelNotConfiguredError extends ProgramError {
   readonly code: "model_not_configured";
   readonly details: { readonly instruction: string };
@@ -281,7 +273,9 @@ export declare class ExtractionInvalidError extends ModelError {
   readonly code: "extraction_invalid";
   readonly details: {
     readonly attempts: number;
-    readonly model: string;
+    readonly model: ModelReference;
+    /** The strategy of the last attempt (ADR 0101). */
+    readonly strategy: StructuredOutputStrategy;
     /** The last attempt's problems, per field. */
     readonly issues: readonly { readonly path: readonly (string | number)[]; readonly message: string }[];
   };

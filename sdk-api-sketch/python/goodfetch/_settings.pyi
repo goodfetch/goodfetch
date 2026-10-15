@@ -21,6 +21,7 @@ from goodfetch._politeness import (
 )
 from goodfetch._sessions import PageCheck, Permission, ProxySettings, SecretsSettings, SessionLoginSettings, SessionScopeLoginSettings, SessionSource
 from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
+from goodfetch._models import AiSettings, PageAiSettings
 
 class TimeoutSettings(TypedDict, total=False):
     """`timeout.*`: ADR 0080's phases, one family. `None` clears a phase's timeout for the whole scope. `timeout.connect`
@@ -40,6 +41,9 @@ class TimeoutSettings(TypedDict, total=False):
     """`timeout.human_pause`: how long a Human pause may wait for a person; 24 hours by default (ADR 0092)."""
     ai: timedelta | None
     """`timeout.ai`: an AI verb from its call to its return, model calls and a Repair included, 120 s (ADR 0091)."""
+    model: timedelta | None
+    """`timeout.model`: one attempt of one model request, a handler's included, 60 s; it nests in the call that made it
+    (ADR 0101)."""
 
 class RunTimeoutSettings(TypedDict, total=False):
     """The phases a Run or a Session can set: not `run`, which starting the Run spells as its `timeout` (S2)."""
@@ -53,6 +57,7 @@ class RunTimeoutSettings(TypedDict, total=False):
     close: timedelta | None
     human_pause: timedelta | None
     ai: timedelta | None
+    model: timedelta | None
 
 class PageTimeoutSettings(TypedDict, total=False):
     """The phases a page can set."""
@@ -62,6 +67,7 @@ class PageTimeoutSettings(TypedDict, total=False):
     wait: timedelta | None
     human_pause: timedelta | None
     ai: timedelta | None
+    model: timedelta | None
 
 class PlanSettings(TypedDict, total=False):
     """`plan.*` (ADR 0091)."""
@@ -186,6 +192,8 @@ class Settings(TypedDict, total=False):
     plan: PlanSettings
     extract: ExtractSettings
     observation: ObservationSettings
+    ai: AiSettings
+    """`ai.*`: the model, Model providers and structured output (ADR 0101)."""
     fetch: FetchSettings
     """ADR 0093."""
     politeness: PolitenessSettings
@@ -209,6 +217,7 @@ class CrawlRunSettings(TypedDict, total=False):
     fetch: FetchSettings
     politeness: PolitenessSettings
     site_preferences: SitePreferencesSettings
+    ai: AiSettings
 
 class LabelTimeoutSettings(TypedDict, total=False):
     """The phases a Label can set."""
@@ -254,6 +263,7 @@ class RunSettings(TypedDict, total=False):
     plan: PlanSettings
     extract: ExtractSettings
     observation: ObservationSettings
+    ai: AiSettings
     site_preferences: CollieSitePreferencesSettings
     session: SessionLoginSettings
     secrets: SecretsSettings
@@ -270,6 +280,7 @@ class SessionSettings(TypedDict, total=False):
     session: SessionScopeLoginSettings
     secrets: SecretsSettings
     proxy: ProxySettings
+    ai: AiSettings
 
 class PageSettings(TypedDict, total=False):
     """A page's settings: no part of the Session's identity."""
@@ -277,6 +288,7 @@ class PageSettings(TypedDict, total=False):
     timeout: PageTimeoutSettings
     extract: ExtractSettings
     observation: ObservationSettings
+    ai: PageAiSettings
 
 SettingKey: TypeAlias = Literal[
     "timeout.connect",
@@ -290,6 +302,9 @@ SettingKey: TypeAlias = Literal[
     "timeout.run",
     "timeout.human_pause",
     "timeout.ai",
+    "timeout.model",
+    "ai.model",
+    "ai.structured_output",
     "plan.frozen",
     "extract.mode",
     "observation.max_size",

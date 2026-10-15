@@ -77,8 +77,11 @@ export interface Limits {
   readonly paidSolves?: number;
   /** Only caps: a Paid fetch is made only under a Limit a Client could not set (ADRs 0041, 0045). */
   readonly paidFetches?: number;
-  /** A price, not a kind of Usage: priced through ADR 0012's price table. */
-  readonly cost?: Money;
+  /**
+   * A price, not a kind of Usage: priced through the price table (ADR 0012), as `usage.price` is
+   * (ADR 0101). A call whose model has no price is refused under it with `model_price_unknown`.
+   */
+  readonly price?: Money;
 }
 
 /** Options of starting a Run. The start verbs are #478's; `timeout` and `limits` are #467's, `settings` #470's. */

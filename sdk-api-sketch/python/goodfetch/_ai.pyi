@@ -11,7 +11,7 @@
   the Run's Verdict; a condition still false at its timeout raises `SuccessCheckFailedError`.
 - `aria_snapshot` and `get_by_ref` are the observation an agent loop reads, under Playwright's names.
 
-Model choice and `Usage` are placeholders until #475. Secret placeholders in instructions are ADR 0092's.
+Model references and `ModelUsage` are ADR 0101's (`_models`). Secret placeholders in instructions are ADR 0092's.
 """
 
 import re
@@ -22,24 +22,13 @@ from typing import Generic, Literal, TypeAlias, TypeVar, final, overload
 
 from goodfetch._data import JsonSchema, JsonValue
 from goodfetch._lifecycle import AsyncPage, Page
+from goodfetch._models import ModelReference, ModelUsage, StructuredOutputStrategy
 from goodfetch._page import AsyncLocator, AsyncResponse, Locator, Response
 from goodfetch._results import ModelError, PageError, ProgramError, RefusedError
 from goodfetch._time import Count, NotGiven, Timeout
 
 T = TypeVar("T")
 L = TypeVar("L")
-
-ModelChoice: TypeAlias = str
-"""Placeholder: how a program names a model is #475's."""
-
-@final
-@dataclass(frozen=True, kw_only=True)
-class Usage:
-    """Placeholder: Usage and cost on every result are #475's."""
-
-    model_calls: int
-    input_tokens: int
-    output_tokens: int
 
 StepSource: TypeAlias = Literal["plan", "model", "repair", "journal"] | str
 """How a step was resolved. `plan`: replayed from the Plan, no model call. `model`: compiled now, since the Plan held
@@ -72,7 +61,8 @@ class StepResult(Generic[T]):
 
     output: T
     step: StepReport
-    usage: Usage
+    usage: ModelUsage
+    """The model calls this step made and their price (ADR 0101): none for a step replayed from the Plan."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -113,7 +103,7 @@ class AsyncAiVerbs:
         instruction: str,
         *,
         variables: Mapping[str, str] | None = None,
-        model: ModelChoice | NotGiven = ...,
+        model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> StepResult[PerformedAction[AsyncLocator]]:
         """Performs one action described in words; raises `TargetNotFoundError` when nothing on the page fits it.
@@ -124,7 +114,7 @@ class AsyncAiVerbs:
         `VariablesMismatchError`."""
 
     async def observe(
-        self, instruction: str, *, model: ModelChoice | NotGiven = ..., timeout: Timeout = ...
+        self, instruction: str, *, model: ModelReference | NotGiven = ..., timeout: Timeout = ...
     ) -> StepResult[list[Observed[AsyncLocator]]]:
         """Finds the elements an instruction describes, without acting. None is an answer: an empty list."""
 
@@ -135,7 +125,7 @@ class AsyncAiVerbs:
         schema: type[T],
         *,
         mode: ExtractMode | NotGiven = ...,
-        model: ModelChoice | NotGiven = ...,
+        model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> StepResult[T]: ...
     @overload
@@ -145,7 +135,7 @@ class AsyncAiVerbs:
         schema: JsonSchema,
         *,
         mode: ExtractMode | NotGiven = ...,
-        model: ModelChoice | NotGiven = ...,
+        model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> StepResult[JsonValue]: ...
     async def aria_snapshot(
@@ -163,11 +153,11 @@ class AiVerbs:
         instruction: str,
         *,
         variables: Mapping[str, str] | None = None,
-        model: ModelChoice | NotGiven = ...,
+        model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> StepResult[PerformedAction[Locator]]: ...
     def observe(
-        self, instruction: str, *, model: ModelChoice | NotGiven = ..., timeout: Timeout = ...
+        self, instruction: str, *, model: ModelReference | NotGiven = ..., timeout: Timeout = ...
     ) -> StepResult[list[Observed[Locator]]]: ...
     @overload
     def extract(
@@ -176,7 +166,7 @@ class AiVerbs:
         schema: type[T],
         *,
         mode: ExtractMode | NotGiven = ...,
-        model: ModelChoice | NotGiven = ...,
+        model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> StepResult[T]: ...
     @overload
@@ -186,7 +176,7 @@ class AiVerbs:
         schema: JsonSchema,
         *,
         mode: ExtractMode | NotGiven = ...,
-        model: ModelChoice | NotGiven = ...,
+        model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> StepResult[JsonValue]: ...
     def aria_snapshot(
@@ -437,7 +427,7 @@ class ModelNotConfiguredDetails:
 
 @final
 class ModelNotConfiguredError(ProgramError):
-    """A call the Plan holds no entry for needs a model, and none is configured."""
+    """A call the Plan holds no entry for needs a model, and none is configured; `fix` names `ai.model` (ADR 0101)."""
 
     @property
     def details(self) -> ModelNotConfiguredDetails: ...
@@ -472,7 +462,9 @@ class ExtractionIssue:
 @dataclass(frozen=True, kw_only=True)
 class ExtractionInvalidDetails:
     attempts: int
-    model: str
+    model: ModelReference
+    strategy: StructuredOutputStrategy
+    """The strategy of the last attempt (ADR 0101)."""
     issues: Sequence[ExtractionIssue]
     """The last attempt's problems, per field."""
 

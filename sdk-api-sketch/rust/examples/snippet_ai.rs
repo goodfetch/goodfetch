@@ -83,7 +83,7 @@ pub struct Book {
 }
 
 /// Golden scenario 02, "Extract a typed object with a chosen model": the model chosen for this call
-/// alone (#475 types it), and its usage next to the result. A field not on the page fails, naming it.
+/// alone (a Model reference, ADR 0101), and its usage next to the result. A field not on the page fails, naming it.
 async fn typed_book(page: &Page) -> Result<Option<Book>, Error> {
     page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html")
         .await?;
@@ -93,7 +93,7 @@ async fn typed_book(page: &Page) -> Result<Option<Book>, Error> {
         .await
     {
         Ok(result) => {
-            let _tokens = result.usage.input_tokens + result.usage.output_tokens;
+            let _spent = (result.usage.tokens, result.usage.price);
             Ok(Some(result.output))
         }
         Err(error) if *error.code() == ErrorCode::ExtractionIncomplete => {

@@ -7,6 +7,7 @@ import type { AiVerbs, AriaSnapshots, ElementReferences } from "./ai.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
 import type { Crawl, CrawlRun, CrawlStartOptions } from "./crawl.js";
 import type { JsonValue } from "./data.js";
+import type { ModelProviderHandler, ReadsUsage } from "./models.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
 import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
@@ -63,6 +64,11 @@ export interface ConnectOptions {
   readonly project?: string | null;
   /** Answers `caller:` Secret references from the program's own store, at the moment of use (ADR 0092). */
   readonly resolveSecret?: ResolveSecret;
+  /**
+   * Model providers answered by the program's own code, by the name Model references use, such as
+   * `"mine/any-model"` for `{ mine: handler }` (ADR 0101; ADR 0033's SDK-handler form).
+   */
+  readonly modelProviders?: Readonly<Record<string, ModelProviderHandler>>;
 }
 
 /** A value the program holds and closes: `await using`, or `close()` where `await using` is missing (Node 22). */
@@ -133,7 +139,7 @@ export interface NewSessionOptions extends CallOptions {
 }
 
 /** A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID. */
-export interface Run extends Closeable, RunEvents, ExplainsSettings {
+export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage {
   readonly id: string;
   /**
    * Opens a page in the Run's default Session, which the first call opens with the Run's settings and

@@ -92,8 +92,9 @@ class Limits:
     paid_solves: int | None = None
     paid_fetches: int | None = None
     """Only caps: a Paid fetch is made only under a Limit a Client could not set (ADRs 0041, 0045)."""
-    cost: Money | None = None
-    """A price, not a kind of Usage: priced through ADR 0012's price table."""
+    price: Money | None = None
+    """A price, not a kind of Usage: priced through the price table (ADR 0012), as `usage.price` is (ADR 0101). A call
+    whose model has no price is refused under it with `ModelPriceUnknownError`."""
 
 class RemovedError(ProgramError):
     """The Error code `removed`: a removed name was called, and `fix` names its replacement."""

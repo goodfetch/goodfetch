@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Generic, Literal, TypeAlias, TypeVar, final
 
+from goodfetch._models import ModelUsage
+
 ErrorGroup: TypeAlias = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """A group of Error codes sharing one remedy, carried on the wire as the JSON-RPC numeric class."""
 
@@ -51,6 +53,16 @@ KnownErrorCode: TypeAlias = Literal[
     "retry_requested",
     "response_not_ok",
     "site_preferences_refused",
+    "model_not_found",
+    "model_capability_missing",
+    "model_handler_failed",
+    "model_unauthorized",
+    "model_quota_exhausted",
+    "model_price_unknown",
+    "model_unavailable",
+    "model_declined",
+    "model_context_exceeded",
+    "model_output_invalid",
     "internal",
 ]
 ErrorCode: TypeAlias = KnownErrorCode | str
@@ -126,6 +138,10 @@ class GoodfetchError(Exception):
     @property
     def details(self) -> object | None:
         """Per-code typed fields; `None` for codes without any."""
+
+    @property
+    def usage(self) -> ModelUsage | None:
+        """What the call's model calls consumed before it failed, when it made any (ADR 0101)."""
 
 # The seven groups by remedy. A code this SDK does not know is raised as its group's class.
 

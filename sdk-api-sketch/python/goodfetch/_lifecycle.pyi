@@ -15,6 +15,7 @@ from typing import Any, Literal, Never, Protocol, Self, TypeAlias, TypeVar, fina
 from goodfetch._ai import AiVerbs, AsyncAiVerbs, AsyncElementReferences, ElementReferences
 from goodfetch._concurrency import AsyncListener, AsyncPageEvents, AsyncRunEvents, Listener, PageEvents, RunEvents, Subscription
 from goodfetch._data import JsonValue
+from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, RunUsage
 from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler
 from goodfetch._sessions import (
     AsyncIdentities,
@@ -148,6 +149,8 @@ class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
 
     @property
     def id(self) -> str: ...
+    async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
+        """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage:
         """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later
         call shares; `page.session` reaches it. Once it is closed, this raises `ClosedError`."""
@@ -198,6 +201,8 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
 
     @property
     def id(self) -> str: ...
+    async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
+        """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @overload
     async def add_seed(self, url: str, label: Label[None], *, timeout: Timeout = ...) -> Enqueued: ...
     @overload
@@ -250,6 +255,7 @@ class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
         timeout: Timeout = ...,
         limits: Limits | None = None,
         resolve_secret: AsyncResolveSecret | None = None,
+        model_providers: Mapping[str, AsyncModelProviderHandler] | None = None,
     ) -> _AsyncConnecting:
         """Starts or finds the engine and completes `hello` before the connection is returned.
 
@@ -259,7 +265,8 @@ class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
         unknown `GOODFETCH_` name fails with `SettingUnknownError`, and an Attached engine gets exactly this map.
         `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
         `None`, none (ADR 0083). `resolve_secret` answers `caller:` Secret references from the program's own store, at
-        the moment of use (ADR 0092).
+        the moment of use (ADR 0092). `model_providers` are Model providers answered by the program's own code, by the
+        name Model references use: `"mine/any-model"` for `{"mine": handler}` (ADR 0101).
         """
 
     @property
@@ -311,6 +318,8 @@ class Run(_Closeable, _ExplainsSettings, RunEvents):
 
     @property
     def id(self) -> str: ...
+    def usage(self, *, timeout: Timeout = ...) -> RunUsage:
+        """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page:
         """Opens a page in the Run's default Session, shared by every later call; `page.session` reaches it."""
     def new_session(
@@ -354,6 +363,8 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents):
 
     @property
     def id(self) -> str: ...
+    def usage(self, *, timeout: Timeout = ...) -> RunUsage:
+        """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @overload
     def add_seed(self, url: str, label: Label[None], *, timeout: Timeout = ...) -> Enqueued: ...
     @overload
@@ -393,6 +404,7 @@ class Goodfetch(_Closeable, _ExplainsSettings):
         timeout: Timeout = ...,
         limits: Limits | None = None,
         resolve_secret: ResolveSecret | None = None,
+        model_providers: Mapping[str, ModelProviderHandler] | None = None,
     ) -> Goodfetch:
         """Starts or finds the engine and completes `hello` before returning; use it with `with`.
 

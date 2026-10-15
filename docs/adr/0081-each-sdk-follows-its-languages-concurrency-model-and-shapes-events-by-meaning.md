@@ -49,10 +49,12 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   - Python sync: on a thread pool the connection owns, never on its private thread, so a slow handler never stalls I/O. User code is plain functions, which on free-threaded builds (ADR 0024) run in parallel.
   - Rust: the async API spawns nothing on the program's executor. A request that needs an answer arrives as an `EventStream`, as an event does.
     - Helpers that answer requests concurrently run handlers inside the future the program awaits. Handlers may therefore borrow local state and need neither `Send` nor `'static`, and they make progress while that future is polled, as ADR 0080's `during` does. The crawl's helpers are [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
+      > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the crawl's helper is `crawl.serve(&run)`, which answers the Run's crawl requests with the handlers declared on the `Crawl`; `run.crawl_requests()` is the `EventStream` beneath it.
     - In `goodfetch::blocking`, those helpers run handlers on the `tasks` module's tracked blocking threads (ADR 0060), and the helper's call waits for them, so blocking handlers are `Fn + Send + Sync + 'static`.
     - axum spawns its handlers onto Tokio, which needs `Send + 'static` closures and a Tokio runtime.
 - **How many at once.** The engine sends a Client at most as many requests as the Run's handler concurrency setting allows (its leases, ADR 0003), so the SDK keeps no queue of its own; `workers=N` processes multiply it (ADR 0024). The setting's name is [Settings in code](https://github.com/goodfetch/automan/issues/470)'s and Crawl definition and handler context's.
   > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): the setting's name follows ADR 0083's rule, under `crawl.*`; its exact key and per-route form are [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
+  > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the setting is `crawl.handler.concurrency`, 16 by default, and set on a Label it also caps that Label's handlers, within the Run's.
 
 ### Events
 

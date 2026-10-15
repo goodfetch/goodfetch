@@ -7,6 +7,7 @@ ADRs 0016 and 0021 chose parity with Crawlee and Spider. A crawl read robots.txt
 ### What the defaults govern
 
 - **Crawl requests**: the requests a crawl's Frontier admits (ADR 0004), start URLs, enqueued links, sitemap entries and retries included, and every navigation or fetch a crawl handler makes from the page or context it was given (a `goto`, a click that navigates, a fetch, an AI verb acting on that page). The crawl, not a person, decides how many handlers run at once, so their navigation is the crawl's. The per-domain limits, the backoff and robots.txt govern them. How a navigation that robots.txt refuses surfaces inside a handler is [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s. The seam through which Foxhound's Politeness admits navigation on Collie's page API is [How the products are built](https://github.com/goodfetch/automan/issues/454)'s.
+  > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): in the glossary's terms, a Crawl request is what the Frontier admits; a handler's own navigation and fetches are governed as crawl requests are. Such a navigation that robots.txt or a Crawl-delay refuses fails before it is sent with `site_preferences_refused`, and if that escapes the handler, the request ends `skipped` with the same reason.
 - **In flight** means from a request's start until its response has arrived, a browser-tier page until its load event, not while its handler runs.
 - **A program's own navigation is outside Politeness**: outside a crawl handler, a `page.goto` or a fetch the program calls, an AI verb acting on its page, an Agent working in its own Session. That is Collie's work, directed by the program as a browser's is by its user, and ADR 0084 places Politeness in Foxhound.
   - robots.txt is still read for it and recorded in Provenance. Nothing of Politeness gates it, counts it or learns from it.
@@ -53,6 +54,7 @@ Sources, read at those tags: Scrapy's [`default_settings.py`](https://github.com
   - The last start lives where ADR 0053 keeps the count in flight: the per-user Politeness file, or the Politeness store, whose script stamps it with the store's own clock, as it does its rates.
   - In ADR 0053's degraded mode each cut-off engine may still admit one request at a time. An outage can therefore multiply a domain's rate by the number of cut-off engines, for at most `politeness.degraded_max`.
 - **Redundant copies need room.** In a crawl, a hedged request's second copy and `tier_race`'s second fetch (ADR 0040) are crawl requests like any other: each needs a free slot and the delay. With `politeness.domain.concurrency` at 1 neither could ever start. So a crawl's Run that switches either on while it is 1 is refused with `setting_not_applicable` when it opens, naming `politeness.domain.concurrency` as the fix (G3).
+  > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): `tier_race` is the setting `fetch.tier_race`; its second fetch, like a hedge's copy, is governed as a crawl request is.
 
 ### Pressing harder is explicit and recorded
 
@@ -131,6 +133,7 @@ A request skipped because of Site preferences ends `skipped` (ADR 0079), with on
 - **A contact in the `standard` user agent, or a `From` header**: rejected above.
 - **Honouring AI-use signals by default**: rejected above. ADR 0016 is reopened for crawl politeness only.
 - **An allow list of domains whose robots.txt is ignored**, or a person's approval as for ADR 0052's Wall allowance: rejected. A Wall allowance guards against evading a condition of access; this is pacing and stated preferences, which one recorded setting covers (S2). Scoping a setting to a part of a crawl is [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s per-Label question.
+  > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): Politeness and Site preferences are not settable per Label: two Labels on one domain share its slot and delay.
 
 ## Consequences
 

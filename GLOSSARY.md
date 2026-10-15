@@ -218,6 +218,10 @@ _Avoid_: route (for a Label), page type (for a Label), callback (for the name)
 The data a program attaches to a request for its handler, owned by the program and kept apart from the engine's own fields.
 _Avoid_: userData, user_data, meta, cb_kwargs, context
 
+**Crawl request**:
+One URL a crawl's Frontier admitted, with its Label and Payload, which one handler processes and which ends in exactly one outcome.
+_Avoid_: request (alone, which is a page's network request), item, task, job
+
 **Politeness**:
 The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.
 _Avoid_: rate limiting, throttling

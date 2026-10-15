@@ -63,7 +63,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
   - **Why.** A fixed merge that is wrong is silent: the second page is never fetched, and nothing says so (G1). The cost is the first fetch of each other form on a host. On most sites that fetch answers with a redirect, which is itself the evidence.
 - **The scope ignores one leading `www.` label on its own.** ADR 0093 compares scope hosts "after the Frontier's fixed URL rules, so `www.` is no other host". That stays true: comparing hosts for scope ignores one leading `www.` label as a scope rule. The scope therefore does not change while identity waits for evidence.
 - **`rel=canonical` is evidence, never a merge.** A page's canonical is the first `<link rel="canonical">` in its `<head>`, or a `Link` header with `rel="canonical"`. It counts as evidence for a learned rule when it differs from the page's URL only by what such a rule covers: a parameter, `www.`, the scheme, a trailing slash or an index file. It never merges anything by itself. A canonical to another path or another registrable domain is ignored for identity, since a mis-templated site may point every page at its home page (R 1.15). The canonical URL is not enqueued for the program: a handler that wants it reads the tag and enqueues it.
-- **A redirect to a URL the Frontier already holds.** When a request's redirect reaches a URL whose key the Frontier already admitted, the request ends `skipped` with `duplicate` and its handler does not run, as Scrapy's duplicate filter drops it. The redirect still counts as evidence for a learned merge. Hop limits and loops are [#549](https://github.com/goodfetch/goodfetch/issues/549)'s.
+- **A redirect to a URL the Frontier already holds.** When a request's redirect reaches a URL whose key the Frontier already admitted, the request ends `skipped` with `duplicate` and its handler does not run, as Scrapy's duplicate filter drops it. The redirect still counts as evidence for a learned merge. A redirect's final URL is recorded under its key as visited, so a later enqueue of it is a `duplicate` too. A `Location` that fails to parse, hop limits and loops are [#549](https://github.com/goodfetch/goodfetch/issues/549)'s.
 
 ### Fragments
 
@@ -72,7 +72,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
   - The browser navigates to the URL with its fragment. The fragment is still never sent to a server.
 - **Only tiers that run the page's scripts serve such a Label:** `light_browser` and `browser`. On any other tier, every fragment would fetch the same document again (G5).
   - Under `fetch.tier: auto`, the sample comparison chooses between those two.
-  - Forcing `http`, `browser_fetch` or `discovered_api` on that Label fails the Run's start with `setting_not_applicable`, as ADR 0110 refuses kept responses on tiers that run no script.
+  - Forcing `http`, `browser_fetch` or `discovered_api` on that Label fails the Run's start with `setting_not_applicable`, as ADR 0110 refuses kept responses under a forced `http` or `browser_fetch`. `discovered_api` is refused here too, though ADR 0110 admits it: its replayed calls cannot tell which call a fragment's view makes without running the page's scripts.
 - **Fixed for a Run's life.** `crawl.keep_url_fragment` is one of ADR 0102's keys fixed for a Run's life, since the keys of the requests already admitted would no longer match the new ones. A resume that changes it raises `setting_not_applicable`.
 
 ### Caps on a URL's shape
@@ -83,11 +83,11 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
   |---|---|---|
   | `crawl.max_url_length` | 2,083 | a URL longer than this many characters, as parsed (Scrapy's `URLLENGTH_LIMIT`) |
   | `crawl.max_path_segments` | 20 | a path of more segments (Heritrix's `maxPathDepth`) |
-  | `crawl.max_segment_repeats` | 2 | a segment, or a run of segments, that follows itself more than this many times |
+  | `crawl.max_segment_repeats` | 2 | a segment, or a run of segments, that appears more than this many times back to back, so `/a/a` passes and `/a/a/a` does not (Heritrix's `maxRepetitions`) |
 
   - `crawl.max_segment_repeats` counts `/a/a/a` as Heritrix does. It also catches the `/a/b/a/b/a/b` loops that relative links make on a site answering 200 for any path, Google's `../../category/stuff`. Numbers that recur apart, as in `/page/1/tag/1/sort/1`, are not caught, though StormCrawler's any-third-occurrence rule would refuse them.
   - `null` turns a cap off.
-- **Where they apply.** They are checked on what enters the Frontier (seeds, enqueues, sitemap entries) right after parsing, before the scope. Redirects are not checked, since their limits are [#549](https://github.com/goodfetch/goodfetch/issues/549)'s.
+- **Where they apply.** They are checked on what enters the Frontier (seeds, enqueues, sitemap entries), after the scope and the domain policy, so only a URL the crawl would otherwise admit is refused by a cap, and an over-long link to another host stays `out_of_scope`. Redirects are not checked, since their limits are [#549](https://github.com/goodfetch/goodfetch/issues/549)'s.
 - **The answer.** A URL past a cap is not added, with the setting's name as its reason (`max_url_length`, `max_path_segments`, `max_segment_repeats`), as ADR 0093 names `max_depth`.
 - **Completeness.** A finished Run that refused a URL by a cap is `unverified`, since a heuristic cut its crawl space (ADR 0005). Its report's Completeness reasons name the setting and how many URLs it refused.
 

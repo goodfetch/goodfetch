@@ -433,7 +433,7 @@ The requirement that every extracted value appears in the page it was read from 
 _Avoid_: verification, fact-check
 
 **Human pause**:
-The state of a Session's work items while they wait for a person to complete a login, MFA, a CAPTCHA, a confirmation or a review.
+The state of a Session's work while it waits for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.
 _Avoid_: manual step, HITL
 
 ## Security and compliance
@@ -441,6 +441,10 @@ _Avoid_: manual step, HITL
 **Secret reference**:
 The name by which a run points to a credential, such as a password, a TOTP seed or an API key, without ever holding its value.
 _Avoid_: secret (for the reference), credential ID, variable
+
+**Secret placeholder**:
+The name, such as `%password%`, by which a Plan, a prompt or a program asks for a secret to be typed or sent, and which a run binds to a Secret reference and to the domains allowed to receive it.
+_Avoid_: variable, alias
 
 **Secret provider**:
 Whatever turns a Secret reference into its value at the moment of use: the environment, the OS keychain, an encrypted local file, the caller, or an external vault.

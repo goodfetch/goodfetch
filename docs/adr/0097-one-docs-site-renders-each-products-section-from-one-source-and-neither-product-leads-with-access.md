@@ -15,7 +15,7 @@ The [docs-site, migration-guide and stealth-wording research](https://github.com
 - **Migration guides from competitors share a skeleton, and their code never runs in CI.** The skeleton is principles, a mapping table and before/after code; Stagehand's 2026 guides add porting rules for coding agents. Examples come from Playwright, Crawlee for Python, Stagehand and ty. The field lints or type-checks guide code at most.
 - **Stealth tools put detection-defeat words in their registry metadata.** Examples: "Undetected", `cloudflare-bypass`, `anti-bot`. Camoufox's registry text says only "fingerprint".
 
-Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/automan/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/automan/issues/499#issuecomment-6181537258)). It builds on ADR 0088 (what Collie carries) and ADR 0090 (names and the Product version), and also on:
+Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/automan/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/automan/issues/499#issuecomment-6181537258), [first addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189095221)). It builds on ADR 0087 (what each executable embeds), ADR 0088 (what Collie carries), ADR 0089 (lending a page and borrowing a crawler's) and ADR 0090 (names and the Product version), and also on:
 - the [browser-automation products research](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md);
 - the [naming and packaging research](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) §5;
 - the [stealth legal note](https://github.com/goodfetch/automan/blob/research/stealth-legal-exposure/rnd/research/2026-10-10-stealth-legal-exposure.md).
@@ -89,6 +89,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - No capability is documented as needing it (ADRs 0001 and 0030).
   - Stagehand's docs recommend Browserbase and show stealth as cloud-only, while Crawlee lists Apify beside AWS and GCP. Goodfetch takes Crawlee's side.
 - **Claims about competitors appear only in migration guides and benchmark results,** each with the competitor's version, the date and a source. Performance figures follow ADR 0025.
+- **Download sizes are facts on each Product's install page, never a lead.** The page states the size measured from the release for each platform, with the browser's download beside it, since the browser dwarfs both executables (ADR 0087). ADR 0087's Size budgets are ceilings CI enforces, not figures to quote.
 - **The marketing site presents Goodfetch with both Products side by side,** with a landing page per Product at `goodfetch.dev/collie` and `goodfetch.dev/foxhound`, each linking its docs section. It lives in its own repository (ADR 0030), under the same rules.
 
 ### Migration guides
@@ -103,6 +104,11 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - Each guide sits in its target Product's section.
   - Crawlee's Stagehand integration accepts Stagehand 3 only, though Stagehand 4.0.0 shipped on 2026-08-10. The Crawlee-with-Stagehand guide therefore covers ADR 0037's V3 rows: a Foxhound handler's page has Collie's AI actions (ADR 0088).
   - A guide from another tool (Puppeteer, Selenium, Firecrawl, Crawl4AI) can be added in any minor, as docs only.
+- **ADR 0089's guides sit beside the migration guides,** in a group "Use with other tools" of each section:
+  - Lending a page to Playwright, Puppeteer or Browser Use belongs to the page, which Collie carries, so those guides render in both sections, Foxhound's under the heading that names Collie; a part on a handler's lending, bound to its work item's lease, declares Foxhound.
+  - Collie inside Crawlee or Scrapy is written for a Collie program's reader, so it sits in Collie's section.
+  - Each migration guide links the guide for a reader who keeps the competitor: from Playwright and from Browser Use, to lending a page; from Crawlee and from Scrapy, to Collie inside that crawler.
+  - Their examples, conformance cases and Live checks are ADR 0089's.
 - **A guide has six parts:**
   1. **Concepts:** what changes in them.
   2. **Mapping table:** the competitor's API against Goodfetch's, linked to the reference, with a blank cell and its reason where nothing matches.
@@ -132,7 +138,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - README code is docs samples, extracted and run like the docs. A Rust crate's README is included under `#[cfg(doctest)]`, as clap and env_logger include theirs.
   - Per-Product GitHub repositories remain a later option (ADR 0084).
 - **Agent skills are rendered from the same source as the docs,** one source per topic for each Product that carries it, as #458 decides for skills, so their topics match the pages.
-- **Each executable embeds its own section's rendering** for its `docs` command and its MCP server's resources (ADR 0030), and its `init` writes an AGENTS.md index pointing to them. Which data each executable embeds is [How the products are built, and each product's Size budget](https://github.com/goodfetch/automan/issues/454)'s.
+- **Each executable embeds its own section's rendering** for its `docs` command and its MCP server's resources (ADR 0030), and its `init` writes an AGENTS.md index pointing to them. Each executable embeds only its own Product's docs and `init` starters (ADR 0087).
 - **Each section has its own llms files:** `/docs/collie/llms.txt` and `llms-full.txt`, and Foxhound's likewise.
   - The root has its own pair: `/docs/llms.txt` lists both sections' files and the root pages, and `/docs/llms-full.txt` holds the root pages' content. llms.txt v2 allows a file at any subpath, and the most specific file applies.
   - Every page's `.md` twin, llms entry and `llms-full.txt` content are checked in its own section's files, or the root's for a root page.

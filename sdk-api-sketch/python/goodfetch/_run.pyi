@@ -17,6 +17,7 @@ from typing import Generic, Literal, Self, TypeAlias, TypeVar, final, overload
 from goodfetch._ai import PlanReport
 from goodfetch._recording import RecordingReport
 from goodfetch._concurrency import AsyncEventIterator, EventIterator
+from goodfetch._crawl import NotAddedReason
 from goodfetch._data import JsonValue
 from goodfetch._effects import UncertainEffect
 from goodfetch._models import RunUsage
@@ -61,14 +62,27 @@ class RunStopReason:
 @final
 @dataclass(frozen=True, kw_only=True)
 class WaitingPause:
-    """A Human pause waiting for a person (ADR 0092)."""
+    """A Human pause waiting for a person (ADR 0092).
+
+    It begins and ends as a change of `progress()`; the person learns of it from ADR 0027's Notification and the
+    Console's "Needs you". Its time counts toward no timeout, the Run's included, while its Usage counts toward Limits.
+    """
 
     session: str
+    page: str | None
+    """The page it holds, by the page's ID, when it holds one."""
     reason: str | None
     """The program's `reason`, or the engine's own, such as a login on a domain."""
+    until: str | None
+    """The `until` condition as text, the Locator's or the URL matcher's description; `None`: a person's "Done" ends it."""
     raised_by: Literal["program", "engine"] | str
-    """`program`: `page.pause()`; `engine`: a pause the engine raised, such as ADR 0006's login recovery."""
+    """`program`: `page.pause()`; `engine`: a pause the engine raised."""
+    step: Literal["login_recovery", "challenge"] | str | None
+    """For an engine's pause, the step that raised it: ADR 0006's login recovery or ADR 0035's Challenge ladder."""
     since: datetime
+    deadline: datetime | None
+    """When it runs out: the first of `timeout.human_pause` and, in a scheduled run, ADR 0036's pause timeout; `None`
+    when it waits without limit."""
 
 @dataclass(frozen=True, kw_only=True)
 class RunProgress:
@@ -154,13 +168,28 @@ class PermitWait:
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class UnreadSitemap:
+    """A sitemap the engine could not read."""
+
+    url: str
+    reason: Literal["fetch_failed", "robots_txt", "unparsable"] | str
+    """`fetch_failed`, with the response status when one came; `robots_txt`, which disallows it; `unparsable`."""
+    status: int | None
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class SitemapTotals:
-    """A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): counted, never listed one by one."""
+    """A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): its entries counted, never listed one by
+    one."""
 
     sitemaps_read: int
-    urls_added: int
-    urls_unmatched: int
-    """URLs that matched none of the seed's rules, so were not added."""
+    sitemaps_unread: Sequence[UnreadSitemap]
+    """At most a fixed number, the rest counted in `more_sitemaps_unread`."""
+    more_sitemaps_unread: int
+    entries_added: int
+    entries_not_added: Mapping[NotAddedReason, int]
+    """The entries not added, by reason: `no_rule` for one that matched no rule, and an enqueue's other reasons (ADR
+    0093)."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -215,6 +244,9 @@ class CrawlRunProgress(RunProgress):
     waiting: Sequence[WaitGroup]
     in_flight: Sequence[InFlightRequest]
     concurrency: CrawlConcurrency
+    idle: bool
+    """`True` while `crawl.keep_alive` holds the Run `running` with an empty Frontier and nothing in flight, until
+    `add_seed` gives it work; idle time counts toward the Run's own timeout."""
     sitemaps: Mapping[str, SitemapTotals]
     """Per sitemap seed's URL."""
 
@@ -285,6 +317,36 @@ class LearnedRule:
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class VerdictReason:
+    """Why a Run is not `verified`, naming the AI task concerned, an Agent's included, by its `call_id` (ADR 0100)."""
+
+    code: str
+    """Such as `success_check_failed`, `no_success_check`, `check_switched_off` or `effect_uncertain`; a newer engine's
+    is kept (G3)."""
+    message: str
+    call_id: str | None
+
+class AsyncRunTrace:
+    """The Run trace (ADR 0031), copied to this machine as an Export is (ADR 0103): what was recorded so far, in the
+    format ADR 0031 exports it in. A person replays it in the Console at `console_url`."""
+
+    @property
+    def size(self) -> int:
+        """In bytes."""
+    async def save_as(self, path: str | PathLike[str], *, timeout: Timeout = ...) -> None:
+        """Copies it to a file on this machine, wherever the engine runs."""
+    def stream(self) -> AsyncIterator[bytes]: ...
+
+class RunTrace:
+    """`AsyncRunTrace` in the sync API."""
+
+    @property
+    def size(self) -> int: ...
+    def save_as(self, path: str | PathLike[str], *, timeout: Timeout = ...) -> None: ...
+    def stream(self) -> Iterator[bytes]: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class NothingDone:
     """Why a Run did nothing (G1).
 
@@ -308,7 +370,8 @@ class RunReport:
     stop_reason: RunStopReason | None
     """Set when `lifecycle` is `stopped`."""
     verdict: Verdict
-    verdict_reasons: Sequence[str]
+    """The Run's Verdict (ADR 0029), reading every check it relies on, each AI task's Success check included."""
+    verdict_reasons: Sequence[VerdictReason]
     """Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects (ADR 0079)."""
     uncertain_effects: Sequence[UncertainEffect]
     """Each Effect left uncertain, waiting for a person to reconcile it in the Console (ADRs 0029, 0106)."""
@@ -319,7 +382,8 @@ class RunReport:
     usage: RunUsage
     """The final figures (ADR 0101), the uncapped mark included (ADR 0041)."""
     plan: PlanReport
-    """What became of the Run's Plan (ADR 0091): every Run has one, its file `None` when it named none."""
+    """What became of the Run's Plan (ADR 0091): every Run has one, its file `None` when it named none. Each Agent task is
+    one entry (ADR 0100)."""
     policy_version: str | None
     """The Operator policy version it ran under (ADR 0031)."""
     settings: Sequence[ExplainedSetting]
@@ -418,6 +482,8 @@ class AsyncRunControl(Generic[_Report, _Progress]):
         """The program's own status line, shown in `progress()` and the Console."""
     async def checkpoint(self, *, timeout: Timeout = ...) -> AsyncCheckpoint:
         """Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's."""
+    async def trace(self, *, timeout: Timeout = ...) -> AsyncRunTrace | None:
+        """The Run trace recorded so far; `None` when the Run keeps none, which the report's `weakened` shows."""
 
 class RunControl(Generic[_Report, _Progress]):
     """`AsyncRunControl` in the sync API."""
@@ -429,6 +495,7 @@ class RunControl(Generic[_Report, _Progress]):
     def progress(self) -> EventIterator[_Progress]: ...
     def set_progress_message(self, message: str, *, timeout: Timeout = ...) -> None: ...
     def checkpoint(self, *, timeout: Timeout = ...) -> Checkpoint: ...
+    def trace(self, *, timeout: Timeout = ...) -> RunTrace | None: ...
 
 class AsyncKeyValueStoreReader:
     """A Key-value store's reads, for a Run view: `AsyncKeyValueStore` without its writes."""
@@ -462,6 +529,8 @@ class AsyncRunView(Generic[_Report, _Progress]):
     async def report(self, *, timeout: Timeout = ...) -> _Report:
         """The Run's report: at once for an ended Run, at its end for a live one, which it never ends. On a Run with no
         live writer that has not ended, raises `RunInterruptedError`."""
+    async def trace(self, *, timeout: Timeout = ...) -> AsyncRunTrace | None:
+        """The Run trace recorded so far; `None` when the Run keeps none."""
     @property
     def key_value_store(self) -> AsyncKeyValueStoreReader:
         """Its Key-value store's reads, on every Run (ADR 0103)."""
@@ -478,6 +547,7 @@ class RunView(Generic[_Report, _Progress]):
     def id(self) -> str: ...
     def progress(self) -> EventIterator[_Progress]: ...
     def report(self, *, timeout: Timeout = ...) -> _Report: ...
+    def trace(self, *, timeout: Timeout = ...) -> RunTrace | None: ...
     @property
     def key_value_store(self) -> KeyValueStoreReader: ...
     def close(self) -> None: ...

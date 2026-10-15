@@ -533,7 +533,7 @@ The Goodfetch Chromium's source tree at the same revision, built with the same a
 _Avoid_: baseline build, vanilla build, reference build
 
 **Size budget**:
-The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
+The largest size each released file of a Product may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
 
 **Compatibility corpus**:

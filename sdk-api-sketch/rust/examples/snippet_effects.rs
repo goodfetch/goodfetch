@@ -19,7 +19,7 @@ async fn place_order(gf: &Goodfetch, sku: &str) -> Result<Option<String>, Error>
     let placed = run
         .effect(&format!("place-order-{sku}"), async |_effect: &Effect| {
             page.get_by_role(AriaRole::Button.name("Place order")).click().await?;
-            Ok(page.get_by_test_id("order-number").text_content().await?.trim().to_owned()) // kept in the journal
+            Ok::<_, Error>(page.get_by_test_id("order-number").text_content().await?.trim().to_owned()) // kept in the journal
         })
         .await?;
     let _report = run.finish().await?;
@@ -32,8 +32,32 @@ async fn place_order(gf: &Goodfetch, sku: &str) -> Result<Option<String>, Error>
     })
 }
 
+/// The program's own error: a body returns it as it is, and takes Goodfetch's through `From`.
+#[derive(Debug)]
+enum ShopError {
+    Goodfetch(Error),
+    Refused(u16),
+}
+
+impl From<Error> for ShopError {
+    fn from(error: Error) -> Self {
+        Self::Goodfetch(error)
+    }
+}
+
+impl std::fmt::Display for ShopError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Goodfetch(error) => error.fmt(f),
+            Self::Refused(status) => write!(f, "the shop refused the subscription: {status}"),
+        }
+    }
+}
+
+impl std::error::Error for ShopError {}
+
 /// A body that sends the site's own idempotency key is safe to repeat: declare it so.
-async fn subscribe(run: &Run, page: &Page, plan: &str) -> Result<u16, Error> {
+async fn subscribe(run: &Run, page: &Page, plan: &str) -> Result<u16, ShopError> {
     let result = run
         .effect(&format!("subscribe-{plan}"), async |effect: &Effect| {
             let response = page
@@ -42,7 +66,10 @@ async fn subscribe(run: &Run, page: &Page, plan: &str) -> Result<u16, Error> {
                 .header("Idempotency-Key", effect.idempotency_key())
                 .json(serde_json::json!({ "plan": plan }))
                 .await?;
-            Ok(response.status())
+            match response.status() {
+                status @ 200..=299 => Ok(status),
+                status => Err(ShopError::Refused(status)), // returned as it is, or the source of `effect_uncertain`
+            }
         })
         .repeatable()
         .await?;
@@ -62,10 +89,10 @@ async fn contact_sellers(gf: &Goodfetch, emails: Vec<String>) -> Result<(), Erro
     let listing = crawl.label::<Seller>("listing")?;
     crawl.handle(&listing, async |ctx: CrawlContext<Seller>| {
         let page = ctx.page();
+        page.get_by_label("Email").fill(ctx.request().payload().email.as_str()).await?; // preparing the page is no part of the Effect
         let sent = ctx
             .run()
             .effect("contact-seller", async |_effect: &Effect| {
-                page.get_by_label("Email").fill(ctx.request().payload().email.as_str()).await?;
                 page.get_by_role(AriaRole::Button.name("Contact seller")).click().await?;
                 page.get_by_text("Message sent").wait_for(Default::default()).await
             })

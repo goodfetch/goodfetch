@@ -8,9 +8,11 @@ Run's ID finds what it already did.
 
 Goodfetch judges a body by what it sent for it while the body ran: a body that returned is done and never runs again;
 one that ended before anything was sent was not performed; one that ended after a send is uncertain
-(`EffectUncertainError`) until a person reconciles it (ADR 0029), unless it is repeatable. There is no separate check: a
-body that checks first, or sends `effect.idempotency_key`, is repeatable. There is no `with` form, since a context
-manager cannot skip its own body.
+(`EffectUncertainError`) until a person reconciles it (ADR 0029), unless it is repeatable. A body counts as sent from its
+start while Goodfetch cannot see every command (a raw CDP attach, a lent page, a browser shared with other code).
+Prepare the page before the declaration: the body holds the action that commits the Effect and the reads of its
+result. There is no separate check: a body that checks first, or sends `effect.idempotency_key`, is repeatable. There
+is no `with` form, since a context manager cannot skip its own body.
 """
 
 from collections.abc import Awaitable, Callable
@@ -91,11 +93,14 @@ class DeclaresEffects:
     def effect(self, key: str, body: Callable[[Effect], J], *, repeatable: bool = False) -> EffectResult[J]:
         """Performs `body` as the Effect `key`, unless the Run's Effect journal already answers it.
 
-        The key, at most 255 characters, names one Effect in its namespace: the crawl request in a handler, the Run
-        elsewhere. A body that raises before Goodfetch sent anything raises its own error unchanged; one that raises
-        after a send raises `EffectUncertainError` from it, unless `repeatable`. `repeatable` declares the body safe to
-        run again (ADR 0010). The program's own I/O inside the body is invisible to the journal. The body runs on the
-        calling thread.
+        The key, at most 255 code points, names one Effect in its namespace: the crawl request in a handler or a Hook,
+        the Run elsewhere; declaring it again while its body runs, or after this attempt got its answer, raises
+        `EffectKeyReusedError`. A body that raises before Goodfetch sent anything raises its own error unchanged; one
+        that raises after a send raises `EffectUncertainError` from it, unless `repeatable`, which declares the body
+        safe to run again (ADR 0010). `CancelledError`, `KeyboardInterrupt` and `AttemptEndedError` propagate unchanged,
+        and the next declaration of the key acts on what was sent. The program's own I/O inside the body is invisible
+        to the journal. No `timeout`: the body's own calls carry theirs (ADR 0080). The body runs on the calling
+        thread.
         """
 
 class AsyncDeclaresEffects:
@@ -119,11 +124,13 @@ class EffectKeyInvalidError(ProgramError):
 @dataclass(frozen=True, kw_only=True)
 class EffectKeyReusedDetails:
     key: str
-    source: Literal["performed", "journal", "reconciled"] | str
+    answer: Literal["performed", "journal", "reconciled", "running"] | str
+    """`running`: its body is still running in this attempt."""
 
 @final
 class EffectKeyReusedError(ProgramError):
-    """A key declared again after this attempt already got its answer: a loop whose key lacks its item."""
+    """A key declared again while its body runs or after this attempt got its answer: a loop whose key lacks its
+    varying part."""
 
     @property
     def details(self) -> EffectKeyReusedDetails: ...
@@ -137,8 +144,8 @@ class EffectOutputInvalidDetails:
 
 @final
 class EffectOutputInvalidError(ProgramError):
-    """The body returned a value that is not JSON or is larger than `effect.output.max_size`; judged as a body that did
-    not return."""
+    """The body returned a value that is not JSON or is larger than `effect.output.max_size`: raised as such when nothing
+    was sent, and as the cause of `EffectUncertainError` after a send."""
 
     @property
     def details(self) -> EffectOutputInvalidDetails: ...

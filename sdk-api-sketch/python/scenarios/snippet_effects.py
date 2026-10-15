@@ -74,8 +74,9 @@ listing = crawl.label("listing", payload=Seller)
 
 @crawl.handle(listing)
 async def contact_seller(ctx: AsyncCrawlContext[Seller]) -> None:
+    await ctx.page.get_by_label("Email").fill(ctx.request.payload.email)  # preparing the page is no part of the Effect
+
     async def send(effect: Effect) -> None:
-        await ctx.page.get_by_label("Email").fill(ctx.request.payload.email)
         await ctx.page.get_by_role("button", name="Contact seller").click()
         await ctx.page.get_by_text("Message sent").wait_for()
 

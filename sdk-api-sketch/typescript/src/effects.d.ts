@@ -7,7 +7,9 @@
 // - Goodfetch judges a body by what it sent for it while the body ran: a body that returned is done
 //   and never runs again; one that ended before anything was sent was not performed; one that ended
 //   after a send is uncertain (`effect_uncertain`) until a person reconciles it (ADR 0029), unless it
-//   is repeatable.
+//   is repeatable. A body counts as sent from its start while Goodfetch cannot see every command (a
+//   raw CDP attach, a lent page, a browser shared with other code). Prepare the page before the
+//   declaration: the body holds the action that commits the Effect and the reads of its result.
 // - No separate check: a body that checks first, or sends `effect.idempotencyKey`, is repeatable.
 
 import type { JsonValue } from "./data.js";
@@ -45,8 +47,7 @@ export interface EffectOptions {
  * - `unknown`: a source a newer engine sends, kept as received (ADR 0079).
  */
 export type EffectResult<T> =
-  | { readonly source: "performed"; readonly output: T }
-  | { readonly source: "journal"; readonly output: T; readonly performedAt: Date }
+  | { readonly source: "performed" | "journal"; readonly output: T; readonly performedAt: Date }
   | { readonly source: "reconciled"; readonly reconciledBy: string; readonly reconciledAt: Date }
   | { readonly source: "unknown"; readonly raw: string };
 
@@ -57,10 +58,14 @@ export type EffectOutput = JsonValue | void;
 export interface DeclaresEffects {
   /**
    * Performs the body as the Effect `key`, unless the Run's Effect journal already answers it.
-   * The key, at most 255 characters, names one Effect in its namespace: the crawl request in a
-   * handler, the Run elsewhere. A body that throws before Goodfetch sent anything throws its own
-   * error unchanged; one that throws after a send throws `EffectUncertainError`, chaining it, unless
-   * `repeatable`. The program's own I/O inside the body is invisible to the journal.
+   * The key, at most 255 code points, names one Effect in its namespace: the crawl request in a
+   * handler or a Hook, the Run elsewhere; declaring it again while its body runs, or after this
+   * attempt got its answer, throws `EffectKeyReusedError`. A body that throws before Goodfetch sent
+   * anything throws its own error unchanged; one that throws after a send throws
+   * `EffectUncertainError`, chaining it, unless `repeatable`. An abort, or the end of the attempt
+   * (`AttemptEndedError`), propagates unchanged, and the next declaration of the key acts on what was
+   * sent. The program's own I/O inside the body is invisible to the journal. No `timeout` or
+   * `signal`: the body's own calls carry theirs (ADR 0080).
    */
   effect<T extends EffectOutput>(key: string, body: (effect: Effect) => Promise<T>, options?: EffectOptions): Promise<EffectResult<T>>;
 }
@@ -103,13 +108,17 @@ export declare class EffectKeyInvalidError extends ProgramError {
   readonly details: { readonly key: string };
 }
 
-/** A key declared again after this attempt already got its answer: a loop whose key lacks its item. */
+/** A key declared again while its body runs or after this attempt got its answer: a loop whose key lacks its varying part. */
 export declare class EffectKeyReusedError extends ProgramError {
   readonly code: "effect_key_reused";
-  readonly details: { readonly key: string; readonly source: "performed" | "journal" | "reconciled" | (string & {}) };
+  /** `running`: its body is still running in this attempt. */
+  readonly details: { readonly key: string; readonly answer: "performed" | "journal" | "reconciled" | "running" | (string & {}) };
 }
 
-/** The body returned a value that is not JSON or is larger than `effect.output.max_size`; judged as a body that did not return. */
+/**
+ * The body returned a value that is not JSON or is larger than `effect.output.max_size`: thrown as
+ * such when nothing was sent, and as the cause of `EffectUncertainError` after a send.
+ */
 export declare class EffectOutputInvalidError extends ProgramError {
   readonly code: "effect_output_invalid";
   readonly details: { readonly key: string; readonly problem: "not_json" | "too_large" | (string & {}); readonly size: number | null };

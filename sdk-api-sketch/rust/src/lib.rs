@@ -43,7 +43,8 @@ pub use crawl::{
 };
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
 pub use effects::{
-    DeclareEffect, Effect, EffectKeyInvalid, EffectKeyReused, EffectOutputInvalid, EffectResult, UncertainEffect, UncertainWhy,
+    BodyError, DeclareEffect, Effect, EffectKeyInvalid, EffectKeyReused, EffectOutputInvalid, EffectResult, KeyAnswer, OutputProblem,
+    UncertainEffect, UncertainWhy,
 };
 pub use hooks::{
     AfterResponseContext, BackendRequest, BackendResponse, BeforeRequestContext, FetchCall, HandlerError, HeaderForbidden, HookDuplicate, HookFailed, HookIneffective, HookOn,

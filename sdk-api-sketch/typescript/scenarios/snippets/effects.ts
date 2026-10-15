@@ -53,9 +53,9 @@ export async function subscribe(run: Run, page: Page, plan: string): Promise<num
 const crawl = new Crawl();
 const listing = crawl.label("listing", { payload: z.object({ email: z.email() }) });
 crawl.handle(listing, async ({ page, request, run }) => {
+  await page.getByLabel("Email").fill(request.payload.email); // preparing the page is no part of the Effect
   try {
     const sent = await run.effect("contact-seller", async () => {
-      await page.getByLabel("Email").fill(request.payload.email);
       await page.getByRole("button", { name: "Contact seller" }).click();
       await page.getByText("Message sent").waitFor();
     });

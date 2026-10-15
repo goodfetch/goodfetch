@@ -85,6 +85,7 @@ Generated for each registered format, each with its Error code and message snaps
 - **Clean-up rules channel** with sets of several minors: the newest readable set is used (ADR 0047).
 - **An Operator policy found only for an older major:** the engine refuses to start and names `upgrade-files` (ADR 0030).
 - **Handshakes** (the JSON-RPC protocol, the Browser host, the plugin protocol's range, the peer protocol): a refused version is refused in the reply to `hello`, before any other message, and the connection closes. This replaces a time budget, such as Stagehand's 5 seconds, with a check that cannot flake.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): between an engine and a Browser host only another major is refused; a fabricated `hello` of a newer or older minor checks that both sides settle on the lower one, and a Session needing more than an older Browser host's minor checks that the engine fails it with `browser_host_outdated` before sending it to the Browser host.
 
 A test fabricates a version by writing the header, or by sending its own `hello`. No build carries a version override (ADR 0059). Each handshake refusal is tested twice:
 - in the Quick suite, in process: the handshake code receives the fabricated `hello` over an in-memory transport, and the test checks the reply and that the transport closes;
@@ -96,6 +97,7 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - **Clients:** the TypeScript SDK, the Python SDK, the Rust crate's client, the CLI and the MCP server, against the current Daemon, on Linux with one runtime each. The SDKs also run over stdio, with `GOODFETCH_ENGINE_PATH` pointing at the current binary, the hotfix path of ADR 0030 (see the amendment to ADR 0024 below).
   - **The Console:** a Console page served by an older Daemon keeps working after the current Daemon replaces it on the same Goodfetch home.
   - **The Browser host:** older engines against the current Browser host.
+    > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): the Browser host runs in both directions: older engines against the current Browser host, and the current engine against older Browser hosts, which settle on the lower minor.
   - **Plugins:** older first-party Plugins, as OCI artifacts by digest, through the plugin conformance suite against the current engine.
 
   An SDK and the Attached engine it ships with never skew (ADR 0024); only `GOODFETCH_ENGINE_PATH` pairs an SDK with another engine. The `0.y` previews have no cross-minor skew, because each preview counts as a major (ADR 0030).

@@ -364,6 +364,18 @@ impl<P> CrawlContext<P> {
         unimplemented!()
     }
 
+    /// Reads `stream`, one of this page's, for the rest of the attempt, inside [`Crawl::serve`],
+    /// calling `handler` with each item, as [`crate::PageStageContext::for_each`] does (ADR 0111).
+    /// On a context read from [`CrawlRun::crawl_requests`] it fails with `setting_invalid`.
+    pub fn for_each<T, F>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
+    where
+        T: 'static,
+        F: AsyncFn(T) -> Result<(), Error> + 'static,
+    {
+        let _ = (stream, handler);
+        unimplemented!()
+    }
+
     /// The crawl's Run, bound to this attempt (ADR 0093): `add_seed` and its Key-value store's
     /// writes through it are staged with the attempt, and its reads see them first. The program's
     /// own `run` value writes at once. `push` is in [`crate::output`].

@@ -67,6 +67,8 @@ It also builds on decisions in review when it was made:
 
 Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) and `run`, for its Key-value store (ADR 0103), which Script Hooks also have (ADR 0051). A context belongs to one call: once the Hook has returned or ended the work, a call on it fails with `attempt_ended` (ADR 0093).
 
+> Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): a context's `run` also declares Effects with `run.effect`, in its crawl request's namespace; a Hook call belongs to its request's attempt for the window, `effect_key_reused` and `effect_staging_refused`.
+
 | Stage | Also in the context | Returns | Ends the work with |
 |---|---|---|---|
 | before request | the tier about to fetch, the request's `method` and `body` as enqueued, the headers as built so far (the enqueue's own included), `previousError` | `{ url?, headers? }`, or nothing | `skip(message)`: `skipped`, reason `hook` |
@@ -89,6 +91,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 ### What a before-request Hook may change
 
 - **The URL and headers, never the method or the body.** A crawl request carries its method, headers and body from its enqueue or seed (ADR 0093), so a crawl of a POST or GraphQL API states each request where it knows it, and a Hook reads them (to sign a request, say) without rebuilding them. The method and the body are part of the request's identity in the Frontier (ADR 0093), and whether a non-GET request is an Effect is [Effects a program declares in code](https://github.com/goodfetch/goodfetch/issues/500)'s ([PR #523](https://github.com/goodfetch/goodfetch/pull/523)). A Hook that changed them would change what the Frontier had deduplicated, what robots.txt and Politeness read, and whether the request is an Effect (ADR 0010), unseen (G5).
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): a crawl request is a read whatever its method; the method and the body still stay the enqueue's, for the Frontier, robots.txt and Politeness.
 - **A header set to `null` is removed.**
 - **Bearer tokens are area 5's.** Whether a crawl request may carry `Authorization` built from a Secret placeholder, set by its enqueue or by a Hook in code, for an API behind a Bearer token, and what the engine's interception does with a route's `Authorization` or `Cookie` override on a crawl request's own fetch, are area 5's spec, under ADR 0092's rule on where a placeholder goes. Until then, a handler sends such a call with `page.request`, which takes a placeholder in any header (ADR 0092).
 - **The engine's own headers are refused.** ADR 0033's forbidden headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method overrides) fail the Hook with `header_forbidden`, wrapped in `hook_failed`.

@@ -59,6 +59,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 ### What a push guarantees
 
 - **Staged with the attempt (G1).**
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): while a declared Effect's body runs in an attempt, a `ctx.push`, an enqueue, a seed or a Key-value store write staged with that attempt fails with `effect_staging_refused`, since a re-run that finds the Effect in the Effect journal does not run the body again.
   - `ctx.push` checks the Record and stages it. It resolves once the Record is staged, not once it is committed.
   - The attempt's Records commit together with its enqueues, its seeds added through `ctx.run.addSeed` and its Key-value store writes, under a valid lease and run epoch, once the handler returns (ADR 0003).
   - An attempt whose handler fails, or that ends early (at `skip`, at `retry`, at an escalation, at the handler's timeout, at a lost lease, or when the program closes the Run; ADR 0093), discards them. A retried request therefore commits its Records once, and a failed one leaves none.

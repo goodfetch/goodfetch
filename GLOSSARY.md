@@ -177,8 +177,12 @@ The per-user record, on one machine or in a Daemon group, of the Usage reserved 
 _Avoid_: billing, meter, spend log
 
 **Effect**:
-An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
+An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order; a program's own actions are Effects only when it declares them. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
 _Avoid_: side effect, mutation, write
+
+**Effect key**:
+The name a program gives an Effect it declares, unique within its Run or within one crawl request, by which a retried or resumed run finds that Effect in the Effect journal.
+_Avoid_: step ID, effect name, idempotency key (the opaque key a site receives)
 
 **Reconciliation**:
 A person's recorded answer about an uncertain Effect: it happened, it did not happen, or it stays uncertain. An agent can ask for one but never give it.

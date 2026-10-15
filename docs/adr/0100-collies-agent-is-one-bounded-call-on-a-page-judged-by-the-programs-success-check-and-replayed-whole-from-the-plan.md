@@ -104,12 +104,14 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
 
   OpenAI Agents' `@function_tool`, Pydantic AI's `@agent.tool`, the AI SDK's `tool()` and Browser Use's `@tools.action` are the forms models know. Browser Use injects parameters by name, and a wrong name fails silently.
 - **An Effect unless `readOnly`** (G5). As ADR 0011 classes a site's WebMCP tools, an Agent tool is journaled and never redone (ADR 0010). A `category` from ADR 0014's list asks a person for confirmation before each call unless the run allows that category (ADR 0014). Payment and accepting terms always ask, since their allowances name domains (ADRs 0045, 0048) and a tool has none.
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): a tool that is not read-only may be `repeatable` (`repeatable: true`, `repeatable=True`, `.repeatable()`), and a raise from it then leaves no uncertain Effect, so a replay or a later task may call it again. Its call carries an `idempotencyKey` derived from the tool call's Effect journal entry: `call.idempotencyKey` in TypeScript, an `AgentToolCall` third parameter in Python and Rust.
 - **What a tool raises** (G1), by the Success check's rule:
   - a `GoodfetchError` ends the task with its own code;
   - a cancellation is never wrapped;
   - any other exception, or in Rust an error that is not a Goodfetch one, ends the task with `agent_tool_failed`, a `ProgramError` chaining it and naming its type and message.
 
   A bug must not read as the model's problem. An answer the model should act on is a value the tool returns; in Pydantic AI too, an exception other than `ModelRetry` or `ToolFailed` ends the run. A tool that is not read-only and raised leaves its Effect uncertain in the Effect journal (ADR 0010), so the Run's Verdict waits for a person to reconcile it (ADR 0029); `agent_tool_failed` says so in its details, and whatever error ends the task lists the tool in `agentTask`.
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): a raise from a `repeatable` tool leaves no uncertain Effect.
 - **Two tools with one name, or a tool named like a built-in action,** are refused with `agent_tool_invalid`, a `ProgramError`, before the task starts (G3).
 - **No MCP servers as tools.** A tool's function can call any MCP client the program uses, so the SDK needs no new type for it (G7, S2).
 
@@ -236,6 +238,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
 - **Other tickets of the map.**
   - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) gives the Run's report, where the Run's Verdict and `PlanReport` sit, and reading the Run trace from code.
   - [Effects a program declares in code](https://github.com/goodfetch/goodfetch/issues/500) decides whether an Agent tool takes a function that tells whether its Effect already happened.
+    > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): it takes none; a tool that is not read-only may be `repeatable` instead, and its call carries an `idempotencyKey`.
   - [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471) spells the Agent's CLI command, MCP tool and profiles, and how those surfaces state a Success check inside the task.
     > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): it names the MCP tool `page_agent` and any CLI command `page agent`, and gives the profiles and the in-task Success check to area 11's spec.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) replays a task's Plan entry in tests.

@@ -210,6 +210,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - Which operations the CLI offers is area 11's.
 - **ADR 0100's Agent** follows these rules: its MCP tool is `page_agent`, and a CLI command for it, where area 11's spec offers one, reads `page agent`. Which MCP profiles include it, and how the CLI and MCP state a Success check inside the task, are area 11's spec, which owns the profiles (ADR 0095) and what the CLI offers; until then, ADR 0100's interim holds, the catalog's `expect` evaluated after the task returns.
 - **An entry kept off agent surfaces** (ADR 0011's list, ADR 0041's raising of a Limit, ADR 0029's answer about an uncertain Effect, ADR 0089's `page.lend()`, and [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md)'s reading and writing of a Session's cookies and a page's storage) is generated for no MCP tool, Framework adapter, Code mode global or skill. ADR 0092's cookie and storage operations get no CLI command either.
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): `effect.open` and `effect.close`, which carry `run.effect`, are kept off them too.
 - **Code mode and Script Hooks** keep ADR 0051's TypeScript names.
 - **Integrations** use canonical names as identifiers.
 - **Reference pages** show the canonical name and each language's spelling.

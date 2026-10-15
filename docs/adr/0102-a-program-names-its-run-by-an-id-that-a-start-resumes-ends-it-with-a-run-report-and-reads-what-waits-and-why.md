@@ -118,6 +118,7 @@ Crawlee 4, unreleased, now keeps the same request manager across repeated `run()
   - `nothingDone` (G1): none, or `already_ended` (the start found the Run ended), `no_seed_handled` (no seed reached a handler: each was refused when added or skipped when fetched, counted by an enqueue's reason or a skip reason) or `nothing_pending` (a resume or a retry found nothing left);
   - `consoleUrl`: the Run's page in the Console, where its Run trace replays, when the engine knows a Console address (ADR 0031), or none;
   - `startedAt` and `endedAt`.
+  > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): it also holds `uncertainEffects`, each Effect the Run left uncertain (a declared Effect or an AI action), with its Effect journal entry, key or instruction, crawl request, reason, first command sent and since when, until a person reconciles it (ADR 0029).
 - **Points in time.** Every point in time the Run carries is the language's own type, as ADR 0092 has it (a `Date`, a time-zone-aware `datetime` in UTC, a `SystemTime`): `startedAt` and `endedAt`, an outcome's `endedAt`, a pause's `since` and `deadline`, when a held domain is next admitted, an in-flight request's start, a Checkpoint's time, `checkpointAt`, `nothingDone`'s `endedAt`, a period's `resetsAt` and a progress value's own. Durations stay ADR 0080's.
 - **A crawl's report adds:**
   - `requests`: succeeded, failed, skipped, blocked and pending, with counts by skip reason, Error code and Block cause;

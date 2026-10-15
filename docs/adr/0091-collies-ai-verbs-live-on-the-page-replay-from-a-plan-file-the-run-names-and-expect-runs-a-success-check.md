@@ -108,6 +108,8 @@ ADR 0079's rule applied to each case: a call raises when it cannot keep its prom
 
 A navigation an AI step starts toward a domain the run's policy forbids raises the same `RefusedError` as `goto` (ADR 0014), and a Secret placeholder `act` would type on a browser other code may read raises ADR 0092's `secret_input_refused`. A step replayed from the Plan sends nothing to a model, so an AI-use signal does not refuse it. Model provider failures are Models, usage and cost in the SDK API's codes, which `model_not_configured` joins.
 
+> Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): `effect_uncertain` also covers an Effect a program declares with `run.effect` whose body ended after something was sent, with the Effect key and the reason (`failed_after_send`, `interrupted` or `journal_incomplete`) in its details.
+
 ## Considered Options
 
 - **The verbs on a runtime object, the page passed in,** as Stagehand v4: rejected. Without a default page every call repeats it; with one, the default is hidden state (G2). **A separate AI object bound to a page,** as Midscene's agent: rejected; one more concept and lifecycle for nothing the page lacks (S2, T).

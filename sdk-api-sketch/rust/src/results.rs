@@ -239,8 +239,8 @@ pub enum ErrorCode {
     /// `agent_tool_invalid`, a program error: two Agent tools share a name, or one takes a built-in
     /// action's (ADR 0100).
     AgentToolInvalid,
-    /// `success_check_threw`, a program error: the Agent's Success check returned an error other
-    /// than `success_check_failed`, kept as the `source()`: a bug, never a rejection (ADR 0100).
+    /// `success_check_threw`, a program error: the Agent's Success check returned an error that is
+    /// not a Goodfetch one, kept as the `source()`: a bug, never a rejection (ADR 0100).
     SuccessCheckThrew,
     /// `response_not_recorded`, a refusal: a replaying Run's recording lacks the request, which was
     /// never sent; not retryable (ADR 0105).

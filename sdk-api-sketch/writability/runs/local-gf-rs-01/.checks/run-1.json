@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 1,
+  "warnings": 0,
+  "output": "s01_dependent_form.rs:49:7: error: mismatched closing delimiter: `}`: mismatched closing delimiter, unclosed delimiter",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T22:10:24",
+  "by": "agent"
+}

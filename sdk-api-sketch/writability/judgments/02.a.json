@@ -1,0 +1,30 @@
+{"scenario": "02", "requirements": [
+  {"id": "R1", "text": "Opens https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html in a browser page."},
+  {"id": "R2", "text": "Declares a typed schema: title text, price a decimal number of pounds, copies in stock an integer, rating constrained to 1..5, description text."},
+  {"id": "R3", "text": "Has a language model read the page to fill the schema, with no hand-written selectors."},
+  {"id": "R4", "text": "Chooses the model by name in the program (argument, setting or flag), and the same path works for a locally served model (e.g. Ollama) as for a hosted one."},
+  {"id": "R5", "text": "Prints the tokens used and their cost next to the extracted result."},
+  {"id": "R6", "text": "When a field is absent from the page or the answer does not have the expected type, reports which field instead of returning an empty or wrong value."},
+  {"id": "R7", "text": "Closes what it opens (connection/Run or browser/Stagehand) and awaits its calls."}
+], "programs": [
+  {"run": "sonnet-gf-ts-02", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Model named by argv/env and set as ai.model on the connection; extract in model mode with a Zod schema (rating as literal union); extraction_incomplete/extraction_invalid reported per field path via duck-typed error checks, with usage on errors; await using closes everything."},
+  {"run": "sonnet-gf-py-02", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Pydantic Book with Decimal price and Literal[1..5] rating, model from --model or env passed per call and in settings; ExtractionIncompleteError and ExtractionInvalidError name each field; usage and price printed, unpriced handled; async with closes."},
+  {"run": "sonnet-gf-rs-02", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Model from argv set as ai.model on the Run; custom deserializers for price and rating are rejections fed back to the model per the data.rs doc; details::<ExtractionIncomplete>/<ExtractionInvalid> name fields; run and connection closed (Run closed rather than finished, which only stops it)."},
+  {"run": "sonnet-ld-ts-02-stagehand", "verdict": "partial", "missed": ["R5", "R7"], "api_misuses": [
+     {"member": "stagehand.close()", "assumed": "also shuts down the browser launched with localBrowser.launch()", "doc_says": "Stagehand 4.2.1's close() only ends its RPC session and releases its claim on the browser handle; the launched Chrome stays open until browser.close() is called"}
+   ], "site_errors": [],
+   "notes": "Nullable schema plus a hand validator names missing or mistyped fields, and a local OpenAI-compatible ClientLLM callback covers local models; but the launched browser is never closed, and a hosted model's cost is printed only if the user sets PRICE_* environment variables, otherwise 'unknown'."},
+  {"run": "haiku-gf-ts-02", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Model reference from argv/env passed per call, extract in model mode with a Zod schema; Incomplete/Invalid errors listed per field path with usage; await using closes the connection and Run."},
+  {"run": "haiku-gf-py-02", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Sync API with ai.model from --model (default vercel/openai/gpt-4o-mini, local ollama/... accepted); float price is a decimal number as in the TypeScript versions; both extraction errors name fields and print usage; with blocks close everything."},
+  {"run": "haiku-gf-rs-02", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Model from argv set as ai.model on the Run, schemars range on rating, extract in model mode; ExtractionIncomplete/ExtractionInvalid details name each field and usage is printed on success and failure; Run and connection closed."},
+  {"run": "haiku-ld-ts-02-stagehand", "verdict": "partial", "missed": ["R5", "R7"], "api_misuses": [
+     {"member": "stagehand.close()", "assumed": "also shuts down the browser launched with localBrowser.launch()", "doc_says": "Stagehand 4.2.1's close() only ends its RPC session and releases its claim on the browser handle; the launched Chrome stays open until browser.close() is called"}
+   ], "site_errors": [],
+   "notes": "Lenient nullable schema then per-field Zod checks name missing or mistyped fields, tokens from stagehand.metrics(), local model via a ClientLLM callback; but the launched browser is never closed, and a hosted model's cost is 'unknown' unless PRICE_* environment variables are set."}
+]}

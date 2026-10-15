@@ -1,0 +1,33 @@
+{"scenario": "01",
+ "requirements": [
+  {"id": "R1", "text": "Open https://quotes.toscrape.com/search.aspx, failing with a step-naming error if it cannot be reached or is not the search form."},
+  {"id": "R2", "text": "Choose the author \"Albert Einstein\" and let the postback reload complete, so the tag is chosen from the reloaded, author-specific tag list (no race with the old document)."},
+  {"id": "R3", "text": "Choose the tag \"inspirational\"; if it is not offered, fail naming the step and what was offered."},
+  {"id": "R4", "text": "Press Search and wait until the results document (the postback to /filter.aspx) has finished loading before reading it; a wait keyed to the wrong URL or to the first result element only does not meet this."},
+  {"id": "R5", "text": "Return every quote shown as typed objects with text, author and tag, read with locators that match the results page (.quote with .content, .author, .tag)."},
+  {"id": "R6", "text": "When no quote matches, return an empty list and say so, while a broken, changed or too-slow results page fails instead of being read as no match."},
+  {"id": "R7", "text": "When the page does not behave as described, fail with an error that names the step and what was seen."},
+  {"id": "R8", "text": "Close everything the program opened (browser/connection, Run or context, page) on every path, including failures."}
+ ],
+ "programs": [
+  {"run": "sonnet-gf-ts-01", "verdict": "partial", "missed": ["R6"], "api_misuses": [],
+   "notes": "Correct flow: waits for the inspirational option after the author postback, then clicks Search and waits for networkidle before reading .content/.author. But no .quote within 3 s is turned into an empty list with no Page check or heading check, so an error page or changed layout reads as 'no match'."},
+  {"run": "sonnet-gf-py-01", "verdict": "wrong", "missed": ["R4", "R5", "R6"], "api_misuses": [],
+   "notes": "It wraps the Search click in page.expect_response(_is_search_response), which only matches URLs ending in /search.aspx. Search posts to /filter.aspx, so that wait hits deadline_exceeded and the program raises FormStepError instead of returning quotes. An empty result would also not be told apart from a broken page."},
+  {"run": "sonnet-gf-rs-01", "verdict": "partial", "missed": ["R6"], "api_misuses": [],
+   "notes": "Waits for the exact tag option after the author postback, arms wait_for_response(\"**/filter.aspx\").during(click), waits for the load, reads with the right selectors, and closes the page, Run and connection on every path. A count of 0 returns an empty list with no status, Page or heading check, so a broken results page reads as no match."},
+  {"run": "sonnet-ld-py-01-playwright", "verdict": "partial", "missed": ["R4", "R6"], "api_misuses": [],
+   "notes": "Author, tag and Search steps are sound and context/browser close in finally. After the click it reads as soon as the first div.quote is attached, without a load wait. If no quote appears within 10 s it returns [], so a slow site or changed layout silently reads as no match."},
+  {"run": "sonnet-ld-ts-01-playwright", "verdict": "partial", "missed": ["R4", "R6"], "api_misuses": [],
+   "notes": "Same shape as the Python sonnet leader: it reads once the first .quote is visible, without waiting for the results document to load. A TimeoutError on that wait becomes an empty list, so a slow or changed results page is reported as no match."},
+  {"run": "haiku-gf-ts-01", "verdict": "wrong", "missed": ["R4", "R5"], "api_misuses": [],
+   "notes": "The Search step waits for a response matching /\\/search\\.aspx/, but Search posts to /filter.aspx, so it times out. Even past that, it reads span.text, which the results page does not have (its text is .content), so textContent hits its deadline."},
+  {"run": "haiku-gf-py-01", "verdict": "wrong", "missed": ["R4", "R5"], "api_misuses": [],
+   "notes": "The reload marker handles the author postback well. But the results are read as soon as a .quote exists, not after load, and each quote's text comes from .text, which the results page does not have (.content), so text_content fails and the program raises."},
+  {"run": "haiku-gf-rs-01", "verdict": "wrong", "missed": ["R4", "R5"], "api_misuses": [],
+   "notes": "Search is wrapped in wait_for_response with a predicate for search.aspx, which never matches the /filter.aspx postback, so the step fails with deadline_exceeded. It also reads span.text and small.author, which do not match the results page's .content/.author spans."},
+  {"run": "haiku-ld-py-01-playwright", "verdict": "wrong", "missed": ["R5"], "api_misuses": [],
+   "notes": "expect_navigation around both postbacks is sound, and the context and browser are closed. But it reads span.text and small.author, which the filter.aspx results do not have, so inner_text times out and the program raises SearchStepError instead of returning the quote."},
+  {"run": "haiku-ld-ts-01-playwright", "verdict": "wrong", "missed": ["R5"], "api_misuses": [],
+   "notes": "Navigation waits and cleanup are sound, but it reads .text, which the results page lacks (.content). allTextContents returns [] against 1 quote block, so it throws the 'quote blocks but 0 quote texts' StepError instead of returning the quote."}
+ ]}

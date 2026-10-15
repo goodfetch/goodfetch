@@ -6,3 +6,8 @@ DEST=$(cd "$(dirname "$0")/.." && pwd)/runs
 mkdir -p "$DEST"
 rsync -a --delete --exclude node_modules --exclude mypy_cache --exclude 'pyright.*' --exclude 'tsconfig.*.json' \
   --exclude __pycache__ --exclude check --exclude 'golden-*' "$WORK/runs/" "$DEST/"
+# The judges' prompts and verdicts.
+if [ -d "$WORK/judge" ]; then
+  mkdir -p "$DEST/../judgments"
+  rsync -a "$WORK/judge/" "$DEST/../judgments/"
+fi

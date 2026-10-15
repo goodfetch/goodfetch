@@ -232,4 +232,5 @@ Nothing is added to the SDK API.
   - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) reads outcomes with their Record counts, each Sink's delivery status, and opens a past Run by ID.
   - [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481) shapes the "Record before commit" Hook and SDK-handler Sinks.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) records what a test handler pushed.
+    > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): `runHandler`'s `AttemptResult.records(dataset)` returns each Record the attempt pushed, as its Dataset's schema parses it, even when a crawl would discard the attempt; a Record's committed form and what Hooks drop or reject are read with `run.records()` and `run.rejectedRecords()` from a crawl started on a Response recording.
 - **The `prototype/sdk-api` sketch** holds these signatures in its `output` files for each language, with their snippets.

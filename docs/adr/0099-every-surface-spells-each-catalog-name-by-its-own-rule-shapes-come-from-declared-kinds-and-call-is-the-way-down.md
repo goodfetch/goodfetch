@@ -91,7 +91,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   |---|---|---|---|
   | Round trip | `async` method | `async def` in an `Async…` class, a plain method in its sync twin | method returning a `Call<T>` builder, awaited; `send()` in `blocking` |
   | A read the SDK answers itself, on a handle | method, as all of Playwright's are (`page.url()`, `response.ok()`, `run.id()`, `connection.engine()`) | a read with no arguments is a property, except a name starting `is_` or `as_`, which is a method: Playwright for Python's generator rule (`response.ok`, `page.url`, `run.id`, `page.is_closed()`, CM A2) | method (C-GETTER) |
-  | Builder without I/O (`getByRole`, `filter`) | sync method | sync method | method |
+  | Builder without I/O (`getByRole`, `filter`, `first`) | sync method | sync method; a property when it takes no argument (`locator.first`), by the same generator rule | method |
   | Sub-object without I/O (`keyboard`, `request`, `identities`) | `readonly` property | property | method |
   | Waiter (ADR 0080) | `waitForX(…)` | `wait_for_x(…)`, and an `expect_x` block for an event the program's own action triggers | `wait_for_x(…)` returning a `Waiter` with `during(action)` |
   | Side-activity event (ADR 0081) | `on('x', listener)` returning a `Subscription` | the same | `events(events::X)` returning an `EventStream` |
@@ -271,6 +271,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - Class names follow this ADR's initialism rule (`CDPCommandRefusedError`).
   - The language `hello` carries is one of six forms, and names besides targets are rendered in it.
   - Rust's `ErrorCode` is an open value type with constants, and Rust's error details are read by type, no longer through enums.
+- **Amends ADR 0085.** Its raw CDP way down is spelled `newCDPSession()` and `CDPSession` in TypeScript and Python, `new_cdp_session()` and `CdpSession` in Rust; Rust's route answer is `r#continue()`.
 - **Amends ADR 0083.** "Camelcases each segment" applies the initialism rule (`baseURL`).
 - **Amends ADR 0030.**
   - Each language's deprecation marker and its gaps are as above.
@@ -291,7 +292,6 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - Area 11 (Client surfaces) builds the generators, the manifests and their checks, `call`, the markers, `Connection`, and the CLI's and MCP's names.
   - Area 12 (Console) shows each call in its Client's form.
 - **Other tickets.**
-  - [Collie's page API](https://github.com/goodfetch/automan/issues/472) spells `newCDPSession` and `CDPSession` in TypeScript and Python, `r#continue` in Rust, `continue_` and the `ok` property in Python.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) applies the remaining renames: initialisms (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes), TypeScript reads on handles as methods (`run.id()`, `run.startedAs()`), Rust's open `ErrorCode` and `details::<D>()`, and `call` on every handle.
   - [The Run in code](https://github.com/goodfetch/automan/issues/478) spells its TypeScript reads as methods (`run.id()`, `run.startedAs()`).
   - [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476) gets `identities` as a sub-object in every language, and its cookie operations kept off agent surfaces.

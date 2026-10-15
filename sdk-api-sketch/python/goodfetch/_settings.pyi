@@ -10,8 +10,8 @@ allows it. A value: set. The engine resolves the layers, so the SDK sends only w
 
 from dataclasses import dataclass
 from datetime import timedelta
-from collections.abc import Sequence
-from typing import Literal, NotRequired, TypeAlias, TypedDict, final
+from collections.abc import Mapping, Sequence
+from typing import Literal, NotRequired, Required, TypeAlias, TypedDict, final
 
 from goodfetch._crawl import FetchTier, UrlPattern
 from goodfetch._politeness import (
@@ -182,6 +182,22 @@ class FetchSettings(TypedDict, total=False):
     tier_race: bool
     """ADR 0040's `tier_race`. Built-in: False."""
 
+SinkWriteMode: TypeAlias = Literal["append", "upsert", "insert_only", "replace", "history"]
+"""A Sink's write mode (ADR 0026). The keyed ones need a key: the Sink's own or its Datasets'."""
+
+class SinkSettings(TypedDict, total=False):
+    """`sinks.<name>.*`: one Sink each (ADRs 0026, 0103), set on a connection or a crawl's Run, never on a Label. A
+    sample: each Sink type's own keys (its destination as a Secret reference, its table or bucket) are area 6's spec."""
+
+    type: Required[str]
+    datasets: Required[Sequence[str]]
+    """The Datasets it receives, by name. One the crawl does not declare is refused when the Run starts, with
+    `setting_invalid` naming the closest."""
+    mode: SinkWriteMode
+    """Built-in: `append`."""
+    key: Sequence[str]
+    """Built-in: each Dataset's own `key`."""
+
 class Settings(TypedDict, total=False):
     """Every setting, as a connection takes them. A sample of the generated type."""
 
@@ -206,6 +222,8 @@ class Settings(TypedDict, total=False):
     """`secrets.<name>`: the Secret placeholders' bindings (ADR 0092)."""
     proxy: ProxySettings
     """`proxy.*` (ADRs 0021, 0092)."""
+    sinks: Mapping[str, SinkSettings]
+    """`sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets."""
 
 class CrawlRunSettings(TypedDict, total=False):
     """A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2)."""
@@ -218,6 +236,7 @@ class CrawlRunSettings(TypedDict, total=False):
     politeness: PolitenessSettings
     site_preferences: SitePreferencesSettings
     ai: AiSettings
+    sinks: Mapping[str, SinkSettings]
 
 class LabelTimeoutSettings(PageTimeoutSettings, total=False):
     """The phases a Label can set: a page's, and its handler's."""

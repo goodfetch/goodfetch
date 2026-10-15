@@ -153,6 +153,24 @@ export interface FetchSettings {
   readonly tierRace?: boolean;
 }
 
+/** A Sink's write mode (ADR 0026). The keyed ones need a key: the Sink's own or its Datasets'. */
+export type SinkWriteMode = "append" | "upsert" | "insert_only" | "replace" | "history";
+
+/**
+ * `sinks.<name>.*`: one Sink each (ADRs 0026, 0103), set on a connection or a crawl's Run, never on a
+ * Label. A sample: each Sink type's own keys (its destination as a Secret reference, its table or
+ * bucket) are area 6's spec.
+ */
+export interface SinkSettings {
+  readonly type: string;
+  /** The Datasets it receives, by name. One the crawl does not declare is refused when the Run starts, with `setting_invalid` naming the closest. */
+  readonly datasets: readonly string[];
+  /** Built-in: `append`. */
+  readonly mode?: SinkWriteMode;
+  /** Built-in: each Dataset's own `key`. */
+  readonly key?: readonly string[];
+}
+
 /** Every setting, as a connection takes them. A sample of the generated type. */
 export interface Settings {
   readonly timeout?: TimeoutSettings;
@@ -176,6 +194,8 @@ export interface Settings {
   readonly secrets?: SecretsSettings;
   /** `proxy.*` (ADRs 0021, 0092). */
   readonly proxy?: ProxySettings;
+  /** `sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets. */
+  readonly sinks?: Readonly<Record<string, SinkSettings>>;
 }
 
 /** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */

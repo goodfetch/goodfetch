@@ -2,20 +2,14 @@
 
 from collections.abc import Sequence
 from decimal import Decimal
-from typing import Literal, TypeVar
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from goodfetch import AsyncCrawl, AsyncCrawlContext, AsyncPage, Dataset, JsonValue
+from goodfetch import AsyncCrawl, AsyncCrawlContext, AsyncPage, JsonValue
 
-T = TypeVar("T")
-
-# Provisional signatures, each its owner's to decide: Datasets are #479's. `page.extract` is ADR 0091's; a crawl's Labels,
-# handlers and `enqueue` are ADR 0093's (snippet_crawl.py).
-
-
-def dataset(name: str, schema: type[T]) -> Dataset[T]:
-    raise NotImplementedError
+# `page.extract` is ADR 0091's; a crawl's Labels, handlers and `enqueue` are ADR 0093's (snippet_crawl.py), its Datasets
+# and `push` ADR 0103's (snippet_output.py).
 
 
 # Scenario 02: a typed model; Pydantic writes the Decimal as an exact string on the wire, never a float.
@@ -53,7 +47,7 @@ class BookRecord(Book):
 
 crawl = AsyncCrawl()
 book_page = crawl.label("book", payload=BookPayload)
-books = dataset("books", BookRecord)
+books = crawl.dataset("books", schema=BookRecord)
 
 
 async def on_category_page(ctx: AsyncCrawlContext[None], category_name: str, book_urls: Sequence[str]) -> None:
@@ -66,4 +60,4 @@ async def on_category_page(ctx: AsyncCrawlContext[None], category_name: str, boo
 @crawl.handle(book_page)
 async def on_book_page(ctx: AsyncCrawlContext[BookPayload]) -> None:
     book = (await ctx.page.extract("the book on this page", Book)).output
-    await books.push(BookRecord(**book.model_dump(), url=ctx.page.url, category=ctx.request.payload.category))
+    await ctx.push(books, BookRecord(**book.model_dump(), url=ctx.page.url, category=ctx.request.payload.category))

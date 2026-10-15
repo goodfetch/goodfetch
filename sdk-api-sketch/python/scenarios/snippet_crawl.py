@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from collections.abc import AsyncIterable
 from decimal import Decimal
-from typing import Literal, TypeVar
+from typing import Literal
 from urllib.parse import urljoin, urlsplit
 
 from pydantic import BaseModel, Field
@@ -19,19 +19,13 @@ from goodfetch import (
     CrawlRequestFailed,
     CrawlRequestOutcome,
     CrawlRequestSkipped,
-    Dataset,
     seed,
 )
 
 log = logging.getLogger(__name__)
-T = TypeVar("T")
 
-# Provisional, each its owner's to decide: Datasets and push are #479's, reading outcomes #478's. `page.extract` is ADR
-# 0091's.
-
-
-def dataset(name: str, schema: type[T]) -> Dataset[T]:
-    raise NotImplementedError
+# Provisional, its owner's to decide: reading outcomes is #478's. `page.extract` is ADR 0091's; Datasets and `push` are
+# ADR 0103's (snippet_output.py).
 
 
 def outcomes_of(run_id: str) -> AsyncIterable[CrawlRequestOutcome]:
@@ -56,10 +50,9 @@ class BookPayload(BaseModel):
     category: str = Field(min_length=1)
 
 
-books = dataset("books", Book)
-
 # The declaration needs no connection: the module holds it, and importing it does nothing.
 crawl = AsyncCrawl()
+books = crawl.dataset("books", schema=Book, key=("url",))
 home = crawl.label("home")
 category = crawl.label("category", payload=CategoryPayload)
 book = crawl.label("book", payload=BookPayload)
@@ -95,7 +88,8 @@ async def on_book(ctx: AsyncCrawlContext[BookPayload]) -> None:
     stock = re.search(r"(\d+) available", await main.locator(".availability").text_content())
     stars = await main.locator(".star-rating").get_attribute("class") or ""
     rating = next((i for i, w in enumerate(["One", "Two", "Three", "Four", "Five"], 1) if w in stars), 1)
-    await books.push(
+    await ctx.push(
+        books,
         Book.model_validate(
             {
                 "title": await main.locator("h1").text_content(),
@@ -147,8 +141,8 @@ class Quote(BaseModel):
     version: str
 
 
-quotes = dataset("quotes", Quote)
 quotes_crawl = AsyncCrawl()
+quotes = quotes_crawl.dataset("quotes", schema=Quote)
 quote_page = quotes_crawl.label("quotes")
 # The scrolling page reads the JSON the page loads, which only a browser does: its own Label forces it.
 scroll_page = quotes_crawl.label("scroll", settings={"fetch": {"tier": "browser"}})
@@ -160,7 +154,8 @@ async def on_quotes(ctx: AsyncCrawlContext[None]) -> None:
     # browser instead of passing as an empty success (failure point 1).
     await ctx.page.locator(".quote").first.wait_for()
     for q in await ctx.page.locator(".quote").all():
-        await quotes.push(
+        await ctx.push(
+            quotes,
             Quote(
                 text=await q.locator(".text").text_content(),
                 author=await q.locator(".author").text_content(),
@@ -196,6 +191,7 @@ class BookFields(BaseModel):
 
 ai_crawl = AsyncCrawl()
 ai_book = ai_crawl.label("book")
+ai_books = ai_crawl.dataset("books", schema=Book, key=("url",))  # its own: a crawl pushes only to Datasets it declares
 
 
 @ai_crawl.handle(ai_book)
@@ -203,7 +199,7 @@ async def on_ai_book(ctx: AsyncCrawlContext[None]) -> None:
     fields = (await ctx.page.extract("the book on this page", BookFields)).output
     if not fields.title:
         ctx.retry("the title had not rendered")  # `retry_requested`, under crawl.retry.max
-    await books.push(Book(**fields.model_dump(), url=ctx.page.url, category="unknown"))
+    await ctx.push(ai_books, Book(**fields.model_dump(), url=ctx.page.url, category="unknown"))
 
 
 # A Label with Sessions of its own (ADRs 0092, 0093): the account's orders need the saved login, the catalogue does not.

@@ -460,6 +460,12 @@ pub enum ErrorDetails {
     ModelUnavailable(crate::models::ModelUnavailable),
     /// Of `model_output_invalid`.
     ModelOutputInvalid(crate::models::ModelOutputInvalid),
+    /// Of `record_invalid`.
+    RecordInvalid(crate::output::RecordInvalid),
+    /// Of `dataset_key_invalid`.
+    DatasetKeyInvalid(crate::output::DatasetKeyInvalid),
+    /// Of `value_invalid`.
+    ValueInvalid(crate::output::ValueInvalid),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
@@ -610,8 +616,12 @@ pub struct CrawlRequestOutcome {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum CrawlRequestOutcomeKind {
-    /// Handled, its outputs committed.
-    Succeeded,
+    /// Handled, its outputs committed: per Dataset name, what its commit did to the Records it
+    /// pushed (ADR 0103); empty when it pushed none.
+    Succeeded {
+        /// Per Dataset name.
+        records: std::collections::BTreeMap<String, crate::output::RecordCounts>,
+    },
     /// Failed, with its error.
     Failed(Error),
     /// Skipped, with the reason and a Hook's or the handler's own message.

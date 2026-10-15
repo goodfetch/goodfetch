@@ -23,7 +23,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::concurrency::EventStream;
-use crate::data::{Label, Schema};
+use crate::data::{Dataset, Label, Schema};
 use crate::lifecycle::{Goodfetch, Page, Run};
 use crate::page::{Locator, Response};
 use crate::results::Error;
@@ -102,6 +102,23 @@ impl<'a> Crawl<'a> {
     /// `setting_not_applicable`.
     pub fn label_with<P>(&mut self, name: &str, payload: Schema<P>, settings: Settings) -> Result<Label<P>, Error> {
         let _ = (name, payload, settings);
+        unimplemented!()
+    }
+
+    /// Declares a Dataset of `T`, with the schema `schemars` derives, and returns its typed handle
+    /// (ADR 0103): there is no default Dataset, so every push names one. `serde_json::Map` takes
+    /// any JSON object. A second Dataset of the same name fails at once with `dataset_duplicate`.
+    pub fn dataset<T: JsonSchema + Serialize + DeserializeOwned>(&mut self, name: &str) -> Result<Dataset<T>, Error> {
+        let _ = name;
+        unimplemented!()
+    }
+
+    /// Declares a Dataset with an explicit schema (a hand-written JSON Schema is the way down) and
+    /// a key: the top-level fields that identify a Record, which Sinks' keyed write modes and
+    /// Baseline comparisons use. A field the schema does not require fails with
+    /// `dataset_key_invalid`.
+    pub fn dataset_with<T>(&mut self, name: &str, schema: Schema<T>, key: &[&str]) -> Result<Dataset<T>, Error> {
+        let _ = (name, schema, key);
         unimplemented!()
     }
 
@@ -229,7 +246,9 @@ impl<P> CrawlContext<P> {
         unimplemented!()
     }
 
-    /// The crawl's Run: its Datasets and Key-value store are #479's.
+    /// The crawl's Run, bound to this attempt (ADR 0093): `add_seed` and its Key-value store's
+    /// writes through it are staged with the attempt, and its reads see them first. The program's
+    /// own `run` value writes at once. `push` is in [`crate::output`].
     pub fn run(&self) -> &CrawlRun {
         unimplemented!()
     }
@@ -425,7 +444,8 @@ impl CrawlCall {
     }
 }
 
-/// A crawl's Run. Its outcomes, progress and resume are #478's. A cheap clone (ADR 0081).
+/// A crawl's Run. Its outcomes, progress and resume are #478's; its Records, rejection table,
+/// Exports and Key-value store are ADR 0103's ([`crate::output`]). A cheap clone (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct CrawlRun {
     _private: (),

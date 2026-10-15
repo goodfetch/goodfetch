@@ -8,6 +8,7 @@ import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrenc
 import type { Crawl, CrawlRun, CrawlStartOptions } from "./crawl.js";
 import type { JsonValue } from "./data.js";
 import type { ModelProviderHandler, ReadsUsage } from "./models.js";
+import type { KeyValueStore } from "./output.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
 import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
@@ -141,6 +142,11 @@ export interface NewSessionOptions extends CallOptions {
 /** A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID. */
 export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage {
   readonly id: string;
+  /**
+   * The Run's Key-value store, Collie's included (ADR 0103). Writes commit at once, or, through a
+   * handler's `ctx.run`, are staged with its attempt.
+   */
+  readonly keyValueStore: KeyValueStore;
   /**
    * Opens a page in the Run's default Session, which the first call opens with the Run's settings and
    * every later call shares; `page.session()` reaches it. Once it is closed, this throws `ClosedError`.

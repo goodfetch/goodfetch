@@ -19,7 +19,7 @@ fn count(outcomes: Vec<CrawlRequestOutcome>) -> (u32, u32, u32, u32) {
     let (mut ok, mut failed, mut skipped, mut blocked) = (0, 0, 0, 0);
     for outcome in outcomes {
         match outcome.kind {
-            CrawlRequestOutcomeKind::Succeeded => ok += 1,
+            CrawlRequestOutcomeKind::Succeeded { .. } => ok += 1,
             CrawlRequestOutcomeKind::Failed(err) => {
                 failed += 1;
                 let _ = (err.code(), outcome.attempts, outcome.attempt_errors.len());

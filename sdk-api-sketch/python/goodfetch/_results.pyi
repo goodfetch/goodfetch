@@ -322,8 +322,21 @@ class CrawlRequestRef:
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class RecordCounts:
+    """What a request's commit did to its Records in one Dataset (ADR 0103)."""
+
+    committed: int
+    dropped: int
+    """Dropped with a reason by a "Record before commit" Hook: counted, never stored."""
+    rejected: int
+    """In the Dataset's rejection table, read with `run.rejected_records()`."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class CrawlRequestSucceeded:
     request: CrawlRequestRef
+    records: Mapping[str, RecordCounts]
+    """Per Dataset name, what its commit did to the Records it pushed (ADR 0103); empty when it pushed none."""
     attempts: int
     """Retries are not an outcome: every outcome counts its attempts and keeps the failed ones."""
     attempt_errors: Sequence[GoodfetchError]

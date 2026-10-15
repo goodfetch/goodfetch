@@ -5,6 +5,7 @@
 // and their details in goodfetch-protocol, and codegen writes one class per code.
 
 import type { ModelUsage } from "./models.js";
+import type { RecordCounts } from "./output.js";
 import type { DeadlineExceededDetails } from "./time.js";
 
 /** A group of Error codes sharing one remedy, carried on the wire as the JSON-RPC numeric class. */
@@ -274,7 +275,11 @@ export interface CrawlRequestRef {
  * reads outcomes is #478's.
  */
 export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef } & (
-    | { readonly kind: "succeeded" }
+    | {
+        readonly kind: "succeeded";
+        /** Per Dataset name, what its commit did to the Records it pushed (ADR 0103); empty when it pushed none. */
+        readonly records: Readonly<Record<string, RecordCounts>>;
+      }
     | { readonly kind: "failed"; readonly error: GoodfetchError }
     | { readonly kind: "skipped"; readonly reason: SkipReason; readonly message: string | null }
     | { readonly kind: "blocked"; readonly blockCause: BlockCause }

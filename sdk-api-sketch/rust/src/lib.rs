@@ -10,6 +10,7 @@ pub mod crawl;
 pub mod data;
 pub mod lifecycle;
 pub mod models;
+pub mod output;
 pub mod page;
 pub mod results;
 pub mod sessions;
@@ -22,7 +23,7 @@ pub use ai::{
     ResponseExpectations, StepReport, StepResult, StepSource, SuccessCheckFailed, TargetNotFound, VariablesMismatch,
     WhyNoRepair, expect,
 };
-pub use concurrency::{EventStream, Record, events};
+pub use concurrency::{EventStream, events};
 pub use crawl::{
     Crawl, CrawlCall, CrawlContext, CrawlRequest, CrawlRun, Enqueue, EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, Foxhound,
     NotAddedReason, Seed, StartCrawl, UrlPattern,
@@ -34,6 +35,10 @@ pub use models::{
     ModelFailure, ModelFormat, ModelHandlerFailed, ModelMessage, ModelOutputInvalid, ModelProvider, ModelReference, ModelRequest,
     ModelResponse, ModelTool, ModelToolCall, ModelUnavailable, ModelUsage, ModelUsageOf, ReportedTokens, RunUsage, StructuredOutput,
     StructuredOutputStrategy, UnavailableReason,
+};
+pub use output::{
+    Compression, DatasetKeyInvalid, DatasetRecord, Export, ExportCall, ExportFormat, KeyValueStore, RecordCounts, RecordInvalid, RejectedRecord,
+    SinkConfig, SinkWriteMode, StoredBytes, ValueInvalid,
 };
 pub use page::{
     Abort, AbortReason, Action, ApiRequest, AriaRole, BoundingBox, ByRole, CdpSession, ConsoleLocation, ConsoleMessage, Dialog,

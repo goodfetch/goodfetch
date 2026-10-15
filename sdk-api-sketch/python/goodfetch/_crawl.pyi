@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar, final, overload
 
-from goodfetch._data import JsonSchema, JsonValue, Label
+from goodfetch._data import Dataset, JsonObject, JsonSchema, JsonValue, Label
 from goodfetch._lifecycle import AsyncCrawlRun, AsyncPage, CrawlRun, Page
 from goodfetch._page import AsyncLocator, AsyncResponse, Locator, Response
 from goodfetch._results import PageError, ProgramError, RefusedError, UnavailableError
@@ -24,6 +24,7 @@ from goodfetch._settings import LabelSettings
 from goodfetch._time import Timeout
 
 P = TypeVar("P")
+T = TypeVar("T")
 Q = TypeVar("Q")
 L = TypeVar("L")
 
@@ -124,7 +125,13 @@ class AsyncCrawlContext(_ContextBase[P]):
         """The main document's final response, after redirects; its body is always kept."""
     @property
     def run(self) -> AsyncCrawlRun:
-        """The crawl's Run: its Datasets and Key-value store are #479's."""
+        """The crawl's Run, bound to this attempt (ADR 0093): `add_seed` and its Key-value store's writes through it are
+        staged with the attempt, and its reads see them first. The program's own `run` value writes at once."""
+    async def push(self, dataset: Dataset[T], record: T, *, timeout: Timeout = ...) -> None:
+        """Stages a Record with this attempt (ADR 0103): it commits with the attempt, numbered in its Dataset, or is
+        discarded if the attempt fails, retries, escalates, skips or loses its lease. Returns once staged. A Record
+        failing the Dataset's schema, not JSON, or lacking its key's fields raises `RecordInvalidError` and is not
+        staged; a Dataset of another crawl raises `DatasetUnknownError`."""
     @overload
     async def enqueue(
         self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
@@ -169,6 +176,7 @@ class CrawlContext(_ContextBase[P]):
     def response(self) -> Response: ...
     @property
     def run(self) -> CrawlRun: ...
+    def push(self, dataset: Dataset[T], record: T, *, timeout: Timeout = ...) -> None: ...
     @overload
     def enqueue(
         self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
@@ -218,6 +226,17 @@ class _Declares(Generic[L]):
     @overload
     def label(self, name: str, *, payload: JsonSchema, settings: LabelSettings = ..., login: L | None = None) -> Label[JsonValue]:
         """A JSON Schema written by hand: the way down."""
+    @overload
+    def dataset(self, name: str, *, key: Sequence[str] = ()) -> Dataset[JsonObject]:
+        """Declares a Dataset and returns its typed handle (ADR 0103): there is no default Dataset, so every push names
+        one. A second Dataset of the same name raises `DatasetDuplicateError`. `key` lists the top-level fields that
+        identify a Record, which Sinks' keyed write modes and Baseline comparisons use; one the schema does not require
+        raises `DatasetKeyInvalidError`."""
+    @overload
+    def dataset(self, name: str, *, schema: type[T], key: Sequence[str] = ()) -> Dataset[T]:
+        """A Pydantic model, or any class Pydantic's `TypeAdapter` accepts (ADR 0082)."""
+    @overload
+    def dataset(self, name: str, *, schema: JsonSchema, key: Sequence[str] = ()) -> Dataset[JsonValue]: ...
 
 @final
 class AsyncCrawl(_Declares[Callable[[AsyncPage], Awaitable[None]]]):

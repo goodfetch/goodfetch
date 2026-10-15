@@ -18,8 +18,8 @@
 //! awaits, may borrow local state, and need neither `Send` nor `'static`. Dropping a stream
 //! unsubscribes without blocking. [`crate::blocking`] is the same API without `async`.
 //!
-//! The page's events, routes, dialogs and the data they carry are ADR 0085's, in `page`;
-//! [`Run::records`] is #479's.
+//! The page's events, routes, dialogs and the data they carry are ADR 0085's, in `page`. A crawl's
+//! Records are read with [`CrawlRun::records`](crate::crawl::CrawlRun::records) (ADR 0103).
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -169,20 +169,6 @@ pub mod events {
     }
 }
 
-/// A Record a crawl committed. A placeholder: a Record has its Dataset's type (ADR 0082).
-#[derive(Debug, Clone)]
-pub struct Record {
-    _private: (),
-}
-
-impl Record {
-    /// A text field by name.
-    pub fn text(&self, field: &str) -> Option<&str> {
-        let _ = field;
-        unimplemented!()
-    }
-}
-
 /// The page's events.
 impl Page {
     /// The event's stream, subscribed when called: Rust's form of `on` (ADR 0081).
@@ -205,14 +191,6 @@ impl Session {
     /// The event's stream, subscribed when called.
     pub fn events<E: events::SessionEvent>(&self, event: E) -> EventStream<E::Data> {
         let _ = event;
-        unimplemented!()
-    }
-}
-
-/// The Run's sequences.
-impl Run {
-    /// Placeholder for #479: the Run's Records. Where the sequence starts is #479's.
-    pub fn records(&self) -> EventStream<Record> {
         unimplemented!()
     }
 }

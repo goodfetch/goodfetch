@@ -1,11 +1,11 @@
 //! Snippet for Typed data: schemas, Records and Payloads (#469), on golden scenarios 02 and 05.
 
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::{Dataset, Error, Label, Page, Schema};
+use goodfetch_sdk_sketch::{CrawlContext, Dataset, Error, Label, Page, Schema};
 use serde::{Deserialize, Serialize};
 
-// Provisional signatures, each its owner's to decide: a crawl's Labels, handlers and `enqueue` are
-// #477's, Datasets are #479's. `page.extract` is ADR 0091's.
+// Provisional, its owner's to decide: `page.extract` is ADR 0091's. A crawl's Labels, handlers and
+// `enqueue` are ADR 0093's, its Datasets and `push` ADR 0103's.
 async fn enqueue<P: Serialize>(url: &str, label: &Label<P>, payload: &P) -> Result<(), Error> {
     let _ = (url, label, payload);
     unimplemented!()
@@ -59,9 +59,10 @@ async fn on_category_page(book_page: &Label<BookPayload>, category: &str, book_u
     Ok(())
 }
 
-async fn on_book_page(page: &Page, books: &Dataset<BookRecord>, url: &str, payload: BookPayload) -> Result<(), Error> {
-    let book = page.extract("the book on this page", Schema::<Book>::of()).await?.output;
-    books.push(&BookRecord { book, url: url.to_owned(), category: payload.category }).await
+async fn on_book_page(ctx: &CrawlContext<BookPayload>, books: &Dataset<BookRecord>) -> Result<(), Error> {
+    let book = ctx.page().extract("the book on this page", Schema::<Book>::of()).await?.output;
+    let record = BookRecord { book, url: ctx.page().url(), category: ctx.request().payload().category.clone() };
+    ctx.push(books, &record).await
 }
 
 fn main() {

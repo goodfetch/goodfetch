@@ -37,17 +37,18 @@ class SchemaIssue:
     path: Sequence[str | int]
 
 class Dataset(Generic[T]):
-    """A Run's Dataset of `T`, the schema it was declared with, or `JsonObject` when it declares none.
+    """A handle on a crawl's Dataset of `T`, the schema it was declared with, or `JsonObject` when it declares none.
 
-    The engine validates every Record against the schema's JSON Schema. How a Dataset is declared, how Records are read
-    and what becomes of a rejected one are #479's.
+    The engine validates every Record against the schema's JSON Schema. A crawl declares it with `crawl.dataset()`, a
+    handler pushes with `ctx.push()`, and a program reads with `run.records()` (ADR 0103, `_output`). A value the model
+    cannot dump as JSON raises `RecordInvalidError`; nothing is ever turned into a string or pickled.
     """
 
     @property
     def name(self) -> str: ...
-    async def push(self, record: T) -> None:
-        """Provisional: push or pull is #479's. A value the model cannot dump as JSON raises
-        `ProgramError`; nothing is ever turned into a string or pickled."""
+    @property
+    def key(self) -> Sequence[str]:
+        """The fields that identify a Record (ADR 0103); empty when it declares none."""
 
 class Label(Generic[P]):
     """A handle on a Label, carrying its Payload's type; `Label[None]` when it has none.

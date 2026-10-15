@@ -16,7 +16,8 @@
 // backreferences, and linear time. A `RegExp` using either fails at the call with a `ProgramError`
 // naming the construct. A predicate runs here, on the events the engine sends while it is armed, and
 // never in the page: page functions take an explicit argument (ADR 0085).
-// The page's events, routes, dialogs and the data they carry are ADR 0085's (page.d.ts); `run.records()` is #479's.
+// The page's events, routes, dialogs and the data they carry are ADR 0085's (page.d.ts). A crawl's
+// Records are read with `run.records(dataset)` on its `CrawlRun` (ADR 0103, crawl.d.ts).
 
 import type { DialogHandler, PageEventMap } from "./page.js";
 import type { CallOptions } from "./time.js";
@@ -66,8 +67,8 @@ export interface PageEvents {
   ): Promise<PageEventMap[K]>;
 }
 
-/** The Run's sequences. */
-export interface RunEvents {
-  /** Placeholder for #479: the Run's Records. They have their Dataset's type (ADR 0082); how they are read is #479's. */
-  records(): EventIterator<Readonly<Record<string, unknown>>>;
-}
+/**
+ * The Run's sequences. Its progress until it ends is #478's; a crawl's Records are read from its
+ * `CrawlRun`, since only Foxhound has Datasets (ADRs 0084, 0103).
+ */
+export interface RunEvents {}

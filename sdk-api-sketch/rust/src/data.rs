@@ -17,12 +17,10 @@
 use std::marker::PhantomData;
 
 use schemars::JsonSchema;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 pub use schemars;
 
-use crate::results::Error;
 
 /// A schema the engine validates against, with the Rust type its values parse into.
 #[derive(Debug, Clone)]
@@ -45,9 +43,10 @@ impl Schema<serde_json::Value> {
     }
 }
 
-/// A Run's Dataset of `T`, the type it was declared with, or [`serde_json::Map`] when it declares
-/// none. The engine validates every Record against its JSON Schema; how a Dataset is declared, how
-/// Records are read and what becomes of a rejected one are #479's. A cheap clone (ADR 0081).
+/// A handle on a crawl's Dataset of `T`, the type it was declared with, or [`serde_json::Map`] when
+/// it declares none. The engine validates every Record against its JSON Schema. A crawl declares it
+/// with `Crawl::dataset`, a handler pushes with `ctx.push`, and a program reads with `run.records`
+/// (ADR 0103, [`crate::output`]). A cheap clone (ADR 0081).
 #[derive(Debug)]
 pub struct Dataset<T> {
     _type: PhantomData<fn(T) -> T>,
@@ -59,15 +58,14 @@ impl<T> Clone for Dataset<T> {
     }
 }
 
-impl<T: Serialize> Dataset<T> {
+impl<T> Dataset<T> {
     /// The Dataset's name.
     pub fn name(&self) -> &str {
         unimplemented!()
     }
 
-    /// Provisional: push or pull is #479's.
-    pub async fn push(&self, record: &T) -> Result<(), Error> {
-        let _ = record;
+    /// The fields that identify a Record (ADR 0103); empty when it declares none.
+    pub fn key(&self) -> &[String] {
         unimplemented!()
     }
 }

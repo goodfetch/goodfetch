@@ -20,7 +20,7 @@ A predicate runs in the program, on the events the engine sends while it is arme
 The page's events, routes, dialogs and the data they carry are ADR 0085's (`_page`); `records()` is #479's.
 """
 
-from collections.abc import Awaitable, Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from types import TracebackType
 from typing import Generic, Literal, Self, TypeAlias, TypeVar, final, overload
@@ -174,8 +174,8 @@ class AsyncPageEvents:
     ) -> AsyncWebSocket: ...
 
 class AsyncRunEvents:
-    def records(self) -> AsyncEventIterator[Mapping[str, object]]:
-        """Placeholder for #479: the Run's Records. They have their Dataset's type (ADR 0082); how they are read is #479's."""
+    """The Run's sequences. Its progress until it ends is #478's; a crawl's Records are read from its `AsyncCrawlRun`,
+    since only Foxhound has Datasets (ADRs 0084, 0103)."""
 
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
 
@@ -285,5 +285,4 @@ class PageEvents:
     ) -> WebSocket: ...
 
 class RunEvents:
-    def records(self) -> EventIterator[Mapping[str, object]]:
-        """Placeholder for #479: the Run's Records. They have their Dataset's type (ADR 0082); how they are read is #479's."""
+    """The Run's sequences; a crawl's Records are read from its `CrawlRun` (ADR 0103)."""

@@ -4,10 +4,21 @@
 // its start and resume verbs are #478's, so `Foxhound.start` in lifecycle.d.ts is provisional.
 // A handler receives one context on every fetch tier: Collie's page over the request's document,
 // with a call that only a browser can serve escalating the request to the browser tier.
-// Outcomes and skip reasons are in results.d.ts, the settings in settings.d.ts.
+// Outcomes and skip reasons are in results.d.ts, the settings in settings.d.ts. Datasets, pushing and
+// reading Records are ADR 0103's (output.d.ts).
 
-import type { Label, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "./data.js";
+import type { EventIterator } from "./concurrency.js";
+import type { Dataset, JsonObject, Label, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "./data.js";
 import type { Page, Run } from "./lifecycle.js";
+import type {
+  DatasetOptions,
+  DatasetRecord,
+  Export,
+  ExportOptions,
+  KeyField,
+  RecordsOptions,
+  RejectedRecord,
+} from "./output.js";
 import type { Locator, Response } from "./page.js";
 import type { PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
 import type { CrawlRunSettings, LabelSettings } from "./settings.js";
@@ -56,6 +67,13 @@ export declare class Crawl {
    */
   label(name: string, options?: LabelOptions<undefined>): Label<undefined>;
   label<S extends Schema>(name: string, options: LabelOptions<S> & { readonly payload: S }): Label<SchemaInput<S>, SchemaOutput<S>>;
+  /**
+   * Declares a Dataset and returns its typed handle (ADR 0103): there is no default Dataset, so every
+   * push names one. A second Dataset of the same name throws `DatasetDuplicateError` at once, and a
+   * `key` on a field the schema does not require throws `DatasetKeyInvalidError`.
+   */
+  dataset(name: string, options?: { readonly key?: readonly KeyField<JsonObject>[] }): Dataset<JsonObject>;
+  dataset<S extends Schema>(name: string, options: DatasetOptions<S>): Dataset<SchemaInput<S>, SchemaOutput<S>>;
   /**
    * Attaches the Label's one handler. A second handler throws `LabelDuplicateError` at once; a Label
    * left without one makes the Run's start throw `LabelUnhandledError`.
@@ -164,8 +182,20 @@ export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefine
   readonly response: Response;
   /** The tier that fetched this attempt. */
   readonly tier: ReportedFetchTier;
-  /** The crawl's Run: its Datasets and Key-value store are #479's. */
+  /**
+   * The crawl's Run, bound to this attempt (ADR 0093): `addSeed` and its Key-value store's writes
+   * through it are staged with the attempt, and its reads see them first. The program's own `run`
+   * value writes at once.
+   */
   readonly run: CrawlRun;
+  /**
+   * Stages a Record with this attempt (ADR 0103): it commits with the attempt, numbered in its
+   * Dataset, or is discarded if the attempt fails, retries, escalates, skips or loses its lease.
+   * Resolves once staged. A Record failing the Dataset's schema, not JSON, or lacking its key's
+   * fields throws `RecordInvalidError` and is not staged; a Dataset of another crawl throws
+   * `DatasetUnknownError`.
+   */
+  push<I>(dataset: Dataset<I, unknown>, record: NoInfer<I>, options?: CallOptions): Promise<void>;
   /** Adds one URL to the Frontier, checked against the crawl's scope; a Payload failing its schema throws `PayloadInvalidError`. */
   enqueue<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, EnqueueOptions>): Promise<Enqueued>;
   /** Adds every link the locator matches, each `href` resolved against the document's base URL. */
@@ -189,8 +219,19 @@ export interface CrawlStartOptions {
   readonly limits?: Limits;
 }
 
-/** A crawl's Run. Its outcomes, progress and resume are #478's. */
+/** A crawl's Run. Its outcomes, progress and resume are #478's; its Records are ADR 0103's. */
 export interface CrawlRun extends Run {
+  /**
+   * The Dataset's committed Records, from its first (or after `after`), following the Run live until
+   * it ends and every Record is read (ADR 0103). A cursor over run state: reading slowly, or not at
+   * all, never slows the crawl. One a native parse rejects ends the loop with `RecordInvalidError`
+   * carrying its number.
+   */
+  records<O>(dataset: Dataset<unknown, O>, options?: RecordsOptions): EventIterator<DatasetRecord<O>>;
+  /** The Dataset's rejection table, in the same order. */
+  rejectedRecords(dataset: Dataset<unknown, unknown>, options?: RecordsOptions): EventIterator<RejectedRecord>;
+  /** Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs. */
+  export(dataset: Dataset<unknown, unknown>, options: ExportOptions): Promise<Export>;
   /**
    * Adds a seed to the running crawl (ADR 0037's CO-03), committed at once, or staged with the attempt
    * when called through a handler's `ctx.run`. A seed widens the scope by its host, where a handler's

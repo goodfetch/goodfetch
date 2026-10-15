@@ -1,5 +1,5 @@
 // Snippet for Concurrency model per language (#468).
-import { Goodfetch, ListenerFailedError, type Logger } from "goodfetch";
+import { Goodfetch, ListenerFailedError, type CrawlRun, type Dataset, type Logger } from "goodfetch";
 
 declare const log: Logger; // the program's own logger
 
@@ -28,12 +28,15 @@ export async function firstBooks(limit: number, stop: AbortSignal): Promise<stri
     if (error instanceof ListenerFailedError) log.error(error.message, { event: error.details.event });
     throw error;
   }
+  return (await page.locator("article.product_pod h3 a").allTextContents()).slice(0, limit);
+}
 
-  // A sequence read to its end; leaving the loop unsubscribes without waiting (Q10).
+// A sequence read to its end; leaving the loop unsubscribes without waiting (Q10). A crawl's Records
+// are typed by their Dataset and read from its Run (ADR 0103).
+export async function firstTitles(run: CrawlRun, books: Dataset<{ title: string }>, limit: number): Promise<string[]> {
   const titles: string[] = [];
-  for await (const record of run.records()) {
-    const title = record["title"];
-    if (typeof title === "string") titles.push(title);
+  for await (const record of run.records(books)) {
+    titles.push(record.value.title);
     if (titles.length >= limit) break;
   }
   return titles;

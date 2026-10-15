@@ -65,16 +65,18 @@ export type SchemaInput<S extends Schema> = S extends StandardSchemaWithJson<inf
 export type SchemaOutput<S extends Schema> = S extends StandardSchemaWithJson<unknown, infer O> ? O : JsonValue;
 
 /**
- * A Run's Dataset, typed by the schema it was declared with, or taking any JSON object when it
- * declares none. The engine validates every Record against the schema's JSON Schema; how a Dataset
- * is declared, how Records are read and what becomes of a rejected one are #479's.
+ * A handle on a crawl's Dataset, typed by the schema it was declared with, or taking any JSON object
+ * when it declares none. The engine validates every Record against the schema's JSON Schema. A crawl
+ * declares it with `crawl.dataset()`, a handler pushes with `ctx.push()`, and a program reads with
+ * `run.records()` (ADR 0103, output.d.ts). Standard Schema only parses, so a pushed value is already
+ * JSON: the schema's input side.
  */
 export interface Dataset<Input = JsonObject, Output = Input> {
   readonly name: string;
-  /** Provisional: push or pull is #479's. Takes the input type; a value that is not JSON throws `ProgramError`: Standard Schema only parses, so a sent value is already JSON. */
-  push(record: Input): Promise<void>;
-  /** Phantom: carries the output type a Record is read back as. */
-  readonly "~output"?: Output;
+  /** The fields that identify a Record (ADR 0103); empty when it declares none. */
+  readonly key: readonly string[];
+  /** Phantom: carries the type a push takes and the type a Record is read back as. */
+  readonly "~types"?: { readonly input: Input; readonly output: Output };
 }
 
 /**

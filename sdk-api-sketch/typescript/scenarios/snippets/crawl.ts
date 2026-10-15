@@ -1,19 +1,9 @@
 // Snippet for Crawl definition and handler context (#477, ADR 0093), on golden scenarios 05, 06 and 08.
 import { z } from "zod";
-import {
-  Crawl,
-  Goodfetch,
-  seed,
-  type CrawlRequestOutcome,
-  type Dataset,
-  type Logger,
-  type SchemaInput,
-  type SchemaOutput,
-} from "goodfetch";
+import { Crawl, Goodfetch, seed, type CrawlRequestOutcome, type Logger } from "goodfetch";
 
-// Provisional, each its owner's to decide: Datasets and push are #479's, reading outcomes #478's.
-// `page.extract` is ADR 0091's.
-declare function dataset<S extends z.ZodType>(name: string, schema: S): Dataset<SchemaInput<S>, SchemaOutput<S>>;
+// Provisional, its owner's to decide: reading outcomes is #478's. `page.extract` is ADR 0091's;
+// Datasets and `push` are ADR 0103's (output.ts).
 declare const log: Logger;
 
 // Scenario 05: three kinds of page, the category name passed as a typed Payload.
@@ -25,10 +15,9 @@ const Book = z.object({
   url: z.url(),
   category: z.string(),
 });
-const books = dataset("books", Book);
-
 // The declaration needs no connection: a module may hold it.
 const crawl = new Crawl();
+const books = crawl.dataset("books", { schema: Book, key: ["url"] });
 const home = crawl.label("home");
 const category = crawl.label("category", { payload: z.object({ name: z.string().min(1) }) });
 const book = crawl.label("book", {
@@ -51,12 +40,12 @@ crawl.handle(category, async ({ page, request, enqueueLinks }) => {
   await enqueueLinks(page.locator("li.next a"), request.label, { name: request.payload.name });
 });
 
-crawl.handle(book, async ({ page, request, skip }) => {
+crawl.handle(book, async ({ page, request, skip, push }) => {
   const price = await page.locator(".product_main .price_color").textContent(); // waits; over HTTP, a missing price escalates
   const match = /£(\d+\.\d{2})/.exec(price);
   if (match?.[1] === undefined) return skip(`no price in "${price}"`); // ends the request `skipped`, reason `handler`
   const stock = /(\d+) available/.exec(await page.locator(".product_main .availability").textContent());
-  await books.push({
+  await push(books, {
     title: await page.locator(".product_main h1").textContent(),
     price: match[1],
     inStock: Number(stock?.[1] ?? 0),
@@ -101,18 +90,20 @@ export function mistakes(): void {
 }
 
 // Scenario 06: one handler over HTTP, the JavaScript version and the scrolling one; no second crawler.
-const quotes = dataset("quotes", z.object({ text: z.string(), author: z.string(), tags: z.array(z.string()), version: z.string() }));
 const quotesCrawl = new Crawl();
+const quotes = quotesCrawl.dataset("quotes", {
+  schema: z.object({ text: z.string(), author: z.string(), tags: z.array(z.string()), version: z.string() }),
+});
 const quotePage = quotesCrawl.label("quotes");
 // The scrolling page reads the JSON the page loads, which only a browser does: its own Label forces it.
 const scrollPage = quotesCrawl.label("scroll", { settings: { fetch: { tier: "browser" } } });
 
-quotesCrawl.handle(quotePage, async ({ page, request, tier, enqueueLinks }) => {
+quotesCrawl.handle(quotePage, async ({ page, request, tier, enqueueLinks, push }) => {
   // Waiting for a quote is what this page must hold: over HTTP, /js/'s empty document escalates the
   // request to the browser instead of passing as an empty success (failure point 1).
   await page.locator(".quote").first().waitFor();
   for (const q of await page.locator(".quote").all()) {
-    await quotes.push({
+    await push(quotes, {
       text: await q.locator(".text").textContent(),
       author: await q.locator(".author").textContent(),
       tags: await q.locator(".tag").allTextContents(),
@@ -148,10 +139,11 @@ export async function scenario06(): Promise<void> {
 // per Label on a domain.
 const aiCrawl = new Crawl();
 const aiBook = aiCrawl.label("book");
-aiCrawl.handle(aiBook, async ({ page, retry }) => {
+const aiBooks = aiCrawl.dataset("books", { schema: Book, key: ["url"] }); // its own: a crawl pushes only to Datasets it declares
+aiCrawl.handle(aiBook, async ({ page, retry, push }) => {
   const { output: fields } = await page.extract("the book on this page", Book.omit({ url: true, category: true }));
   if (fields.title === "") return retry("the title had not rendered"); // `retry_requested`, under crawl.retry.max
-  await books.push({ ...fields, url: page.url(), category: "unknown" });
+  await push(aiBooks, { ...fields, url: page.url(), category: "unknown" });
 });
 
 // A Label with Sessions of its own (ADRs 0092, 0093): the account's orders need the saved login, the

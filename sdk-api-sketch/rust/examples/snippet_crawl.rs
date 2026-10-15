@@ -6,13 +6,11 @@ use std::time::Duration;
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::settings::{crawl, fetch, timeout};
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlContext, Dataset, ElementState, Enqueued, Error, FetchTier, Goodfetch, Schema, Seed,
-    Settings,
+    ConnectOptions, Crawl, CrawlContext, ElementState, Enqueued, Error, FetchTier, Goodfetch, Schema, Seed, Settings,
 };
 use serde::{Deserialize, Serialize};
 
-// Provisional, each its owner's to decide: Datasets and push are #479's. `page.extract` is ADR
-// 0091's.
+// `page.extract` is ADR 0091's; Datasets and `push` are ADR 0103's (snippet_output.rs).
 
 /// Scenario 05: a book, the category passed from its category page.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -39,8 +37,9 @@ struct BookPayload {
 
 /// Scenario 05: three kinds of page. Handlers borrow `books` and the Labels: they run inside the
 /// future of `serve`, so they need neither `Send` nor `'static` (ADR 0081).
-async fn scenario_05(books: &Dataset<Book>) -> Result<(), Error> {
+async fn scenario_05() -> Result<(), Error> {
     let mut crawl = Crawl::new();
+    let books = crawl.dataset_with("books", Schema::<Book>::of(), &["url"])?;
     let home = crawl.label::<()>("home")?;
     let category = crawl.label::<CategoryPayload>("category")?;
     let book = crawl.label_with(
@@ -79,15 +78,18 @@ async fn scenario_05(books: &Dataset<Book>) -> Result<(), Error> {
         let Some(pounds) = price.strip_prefix('£') else {
             return Err(ctx.skip(&format!("no price in {price:?}"))); // `skipped`, reason `handler`
         };
-        books
-            .push(&Book {
+        // Staged with the attempt, committed with it (ADR 0103).
+        ctx.push(
+            &books,
+            &Book {
                 title: main.locator("h1").text_content().await?,
                 price: pounds.to_owned(),
                 in_stock: 0,
                 url: ctx.page().url(), // the final URL, after redirects
                 category: ctx.request().payload().category.clone(),
-            })
-            .await
+            },
+        )
+        .await
     })?;
 
     let gf = Goodfetch::connect(ConnectOptions::default()).await?;

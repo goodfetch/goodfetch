@@ -4,7 +4,9 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from goodfetch import AsyncGoodfetch, AsyncRoute, Goodfetch, ListenerFailedError, Page, Route
+from pydantic import BaseModel
+
+from goodfetch import AsyncCrawlRun, AsyncGoodfetch, AsyncRoute, Dataset, Goodfetch, ListenerFailedError, Page, Route
 
 log = logging.getLogger("bookshop")
 
@@ -35,15 +37,22 @@ async def first_books(limit: int) -> list[str]:
                         log.error("listener for %s failed", error.details.event)
                         raise
 
-            # A sequence read to its end; leaving the loop with `break` releases it, which unsubscribes (Q10).
-            titles: list[str] = []
-            async for record in run.records():
-                title = record.get("title")
-                if isinstance(title, str):
-                    titles.append(title)
-                if len(titles) >= limit:
-                    break
-            return titles
+            return (await page.locator("article.product_pod h3 a").all_text_contents())[:limit]
+
+
+class Title(BaseModel):
+    title: str
+
+
+async def first_titles(run: AsyncCrawlRun, books: Dataset[Title], limit: int) -> list[str]:
+    """A sequence read to its end; leaving the loop with `break` releases it, which unsubscribes (Q10). A crawl's Records
+    are typed by their Dataset and read from its Run (ADR 0103)."""
+    titles: list[str] = []
+    async for record in run.records(books):
+        titles.append(record.value.title)
+        if len(titles) >= limit:
+            break
+    return titles
 
 
 def in_a_notebook_cell() -> int:

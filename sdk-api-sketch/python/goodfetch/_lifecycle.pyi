@@ -13,9 +13,20 @@ from types import TracebackType
 from typing import Any, Literal, Never, Protocol, Self, TypeAlias, TypeVar, final, overload
 
 from goodfetch._ai import AiVerbs, AsyncAiVerbs, AsyncElementReferences, ElementReferences
-from goodfetch._concurrency import AsyncListener, AsyncPageEvents, AsyncRunEvents, Listener, PageEvents, RunEvents, Subscription
+from goodfetch._concurrency import (
+    AsyncEventIterator,
+    AsyncListener,
+    AsyncPageEvents,
+    AsyncRunEvents,
+    EventIterator,
+    Listener,
+    PageEvents,
+    RunEvents,
+    Subscription,
+)
 from goodfetch._data import JsonValue
 from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, RunUsage
+from goodfetch._output import AsyncExport, AsyncKeyValueStore, DatasetRecord, Export, ExportFormat, KeyValueStore, RejectedRecord
 from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler
 from goodfetch._sessions import (
     AsyncIdentities,
@@ -29,11 +40,12 @@ from goodfetch._sessions import (
     SessionSource,
 )
 from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, Seed
-from goodfetch._data import Label
+from goodfetch._data import Dataset, Label
 from goodfetch._settings import CrawlRunSettings, ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
 from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout, UrlMatcher
 
 _P = TypeVar("_P")
+_T = TypeVar("_T")
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -151,6 +163,10 @@ class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
     def id(self) -> str: ...
     async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
+    @property
+    def key_value_store(self) -> AsyncKeyValueStore:
+        """The Run's Key-value store, Collie's included (ADR 0103). Writes commit at once, or, through a handler's
+        `ctx.run`, are staged with its attempt."""
     async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage:
         """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later
         call shares; `page.session` reaches it. Once it is closed, this raises `ClosedError`."""
@@ -197,12 +213,25 @@ class AsyncCollie:
 
 @final
 class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
-    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's."""
+    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's; its Records are ADR 0103's."""
 
     @property
     def id(self) -> str: ...
     async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
+    @property
+    def key_value_store(self) -> AsyncKeyValueStore:
+        """Writes commit at once, or, through a handler's `ctx.run`, are staged with its attempt."""
+    def records(self, dataset: Dataset[_T], *, after: int = 0) -> AsyncEventIterator[DatasetRecord[_T]]:
+        """The Dataset's committed Records, from its first (or after `after`), following the Run live until it ends and
+        every Record is read (ADR 0103). A cursor over run state: reading slowly, or not at all, never slows the crawl.
+        One the native parse rejects ends the loop with `RecordInvalidError` carrying its number."""
+    def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> AsyncEventIterator[RejectedRecord]:
+        """The Dataset's rejection table, in the same order."""
+    async def export(
+        self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
+    ) -> AsyncExport:
+        """Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs."""
     @overload
     async def add_seed(
         self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
@@ -333,6 +362,8 @@ class Run(_Closeable, _ExplainsSettings, RunEvents):
     def id(self) -> str: ...
     def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
+    @property
+    def key_value_store(self) -> KeyValueStore: ...
     def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page:
         """Opens a page in the Run's default Session, shared by every later call; `page.session` reaches it."""
     def new_session(
@@ -372,12 +403,19 @@ class Collie:
 
 @final
 class CrawlRun(_Closeable, _ExplainsSettings, RunEvents):
-    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's."""
+    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's; its Records are ADR 0103's."""
 
     @property
     def id(self) -> str: ...
     def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
+    @property
+    def key_value_store(self) -> KeyValueStore: ...
+    def records(self, dataset: Dataset[_T], *, after: int = 0) -> EventIterator[DatasetRecord[_T]]: ...
+    def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> EventIterator[RejectedRecord]: ...
+    def export(
+        self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
+    ) -> Export: ...
     @overload
     def add_seed(
         self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...

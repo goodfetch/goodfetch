@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use futures_util::TryStreamExt;
 use futures_util::future::{Either, select};
-use goodfetch_sdk_sketch::{ConnectOptions, Error, Page, Run, UrlMatcher, blocking, events};
+use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
+use goodfetch_sdk_sketch::{ConnectOptions, CrawlRun, Dataset, Error, Page, UrlMatcher, blocking, events};
+use serde::Deserialize;
 
 /// Handles are cheap clones and a call owns what it needs, so its future can be spawned on any
 /// executor (Q4).
@@ -54,14 +56,19 @@ async fn browse(page: &Page) -> Result<String, Error> {
     Ok(format!("{} {first_log}", fresh.url()))
 }
 
-/// A sequence read to its end; dropping the stream unsubscribes (Q10).
-async fn titles(run: &Run, limit: usize) -> Result<Vec<String>, Error> {
-    let mut records = run.records();
+/// A book's title, as a crawl's Dataset holds it.
+#[derive(Debug, Deserialize, JsonSchema)]
+struct Title {
+    title: String,
+}
+
+/// A sequence read to its end; dropping the stream unsubscribes (Q10). A crawl's Records are typed
+/// by their Dataset and read from its Run (ADR 0103).
+async fn titles(run: &CrawlRun, books: &Dataset<Title>, limit: usize) -> Result<Vec<String>, Error> {
+    let mut records = run.records(books);
     let mut titles = Vec::new();
     while let Some(record) = records.next().await {
-        if let Some(title) = record?.text("title") {
-            titles.push(title.to_owned());
-        }
+        titles.push(record?.value.title);
         if titles.len() >= limit {
             break;
         }
@@ -74,10 +81,12 @@ fn script() -> Result<usize, Error> {
     let gf = blocking::Goodfetch::connect(ConnectOptions::default())?;
     let run = gf.collie().start().send()?;
     let page = run.new_page().send()?;
+    let console = page.events(events::Console); // an Iterator, subscribed when called
     page.goto("https://books.toscrape.com/")
         .timeout(Duration::from_secs(10))
         .send()?;
-    let count = run.records().take(20).count();
+    page.close().send()?; // ends the sequence
+    let count = console.take(20).count();
     gf.close().send()?;
     Ok(count)
 }

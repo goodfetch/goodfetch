@@ -11,7 +11,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::concurrency::{Record, events};
+use crate::concurrency::events;
 use crate::lifecycle::ConnectOptions;
 use crate::results::Error;
 use crate::page::Response;
@@ -141,11 +141,6 @@ impl Run {
         unimplemented!()
     }
 
-    /// Placeholder for #479: the Run's Records.
-    pub fn records(&self) -> EventIter<Record> {
-        unimplemented!()
-    }
-
     /// Stops the Run if unfinished. Idempotent.
     pub fn close(&self) -> Call<()> {
         unimplemented!()
@@ -271,6 +266,12 @@ impl<P> CrawlContext<P> {
     /// Adds one URL to the Frontier, as the async context does.
     pub fn enqueue<Q: serde::Serialize>(&self, url: &str, label: &crate::Label<Q>, payload: Q) -> Call<crate::Enqueued> {
         let _ = (url, label, payload);
+        unimplemented!()
+    }
+
+    /// Stages a Record with this attempt, as the async `push` does (ADR 0103).
+    pub fn push<T: serde::Serialize>(&self, dataset: &crate::Dataset<T>, record: &T) -> Call<()> {
+        let _ = (dataset, record);
         unimplemented!()
     }
 

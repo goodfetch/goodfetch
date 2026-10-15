@@ -6,7 +6,7 @@
    "primary": "headings"
   },
   "case": "entities-unicode",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "# Café — Menü\n\nTexte.\n\n## « Prix » 10 €\n\nFin.\n\n## 数据 提取\n\n内容。\n",

@@ -15,7 +15,7 @@ test('campaign rejects a retained fixture corpus that exceeds the coordinator bu
 });
 
 test('a worker reporting success with incomplete data fails the private oracle and gets no performance trials', async () => {
-  const outputRoot = await mkdtemp(join(tmpdir(), 'automan-lab-contract-'));
+  const outputRoot = await mkdtemp(join(tmpdir(), 'goodfetch-lab-contract-'));
   const script = `const lines=require('node:readline').createInterface({input:process.stdin});lines.on('line',line=>{const m=JSON.parse(line);const result=m.method==='hello'?{capabilities:['http-catalog']} : m.method==='run'?{status:'ok',records:[]} : {};process.stdout.write(JSON.stringify({version:1,id:m.id,result})+'\\n');if(m.method==='close'){lines.close();process.stdin.destroy()}})`;
   const result = await runCampaign(config, { outputRoot, skipEnvironment: true, command: () => ({ command: process.execPath, args: ['-e', script], timeoutMs: 1000 }) });
   assert.equal(result.rows.length, 1); assert.equal(result.rows[0]!.status, 'failed');

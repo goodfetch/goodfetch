@@ -2,7 +2,7 @@
 
 Until now, Lightpanda and Chrome ran in separate runs: the verdict, which pairs blocks within a run, had nothing to compare. A bench campaign can now list several harness browsers (`browserHosts`). Each driver then runs once per browser and per block, in a randomized order, and the browser becomes a factor of the cell.
 
-Run: `light-engine-paired-2026-10-09T16-29-54-931Z-c62471`, `local-dev`. It covers 4 drivers, 5 scenarios, 5 blocks and 5 iterations, with the Automan guard on the CDP and Puppeteer drivers, and native Playwright.
+Run: `light-engine-paired-2026-10-09T16-29-54-931Z-c62471`, `local-dev`. It covers 4 drivers, 5 scenarios, 5 blocks and 5 iterations, with the Collie guard on the CDP and Puppeteer drivers, and native Playwright.
 
 ## Results
 

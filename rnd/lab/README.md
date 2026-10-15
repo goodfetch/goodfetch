@@ -1,6 +1,6 @@
-# Automan Lab
+# Goodfetch Lab
 
-Operational local lab: crawl engines, browser and storage primitives, with controlled data and independent validation. Built October 7–8, 2026. The first results qualify configurations on these fixtures; they demonstrate neither universal superiority nor Automan's final architecture.
+Operational local lab: crawl engines, browser and storage primitives, with controlled data and independent validation. Built October 7–8, 2026. The first results qualify configurations on these fixtures; they demonstrate neither universal superiority nor Goodfetch's final architecture.
 
 The [new results for the durable workflow and common SQLite](reports/workflow-2026-10-08.md) extend the lab with Node/Rust sync/Go, recovery and Crawlee pool wake-up.
 
@@ -69,7 +69,7 @@ pnpm lab run campaigns/v2/bench/browser-driver-rtt-0.json          # then -20, -
 pnpm lab run campaigns/v2/actionability/browser-actionability-extended.json
 ```
 
-Two direct CDP drivers send the same command sequence for each operation: `node-cdp` (`adapters/cdp-node`) and `rust-cdp` (`adapters/cdp-rust`, compiled by `pnpm bootstrap`). They inject the same page scripts, read from `adapters/browser-scripts/`: waits, extraction, and the Automan guard (uniqueness, visibility, enablement, stability, hit-test, shadow DOM included). A comparison between the two therefore isolates the language used for the protocol. Each task reports its number of CDP commands, and an integration test requires it to be identical between the two languages.
+Two direct CDP drivers send the same command sequence for each operation: `node-cdp` (`adapters/cdp-node`) and `rust-cdp` (`adapters/cdp-rust`, compiled by `pnpm bootstrap`). They inject the same page scripts, read from `adapters/browser-scripts/`: waits, extraction, and the Collie guard (uniqueness, visibility, enablement, stability, hit-test, shadow DOM included). A comparison between the two therefore isolates the language used for the protocol. Each task reports its number of CDP commands, and an integration test requires it to be identical between the two languages.
 
 The `browser-driver-primitives` matrix (`actionability` lane, `config.scenario: "primitives"`) checks ten gestures with a fresh adapter per cell: hover, double click, right click, drag-and-drop via pointer events, mouse wheel, Enter key, `contenteditable`, Unicode input, target moved under the pointer (a decoy takes its place) and target replaced by a destructive control (`retarget`, which must be refused without effect). The oracle requires a single effect of the right type, coming from an `isTrusted` event, and no effect on a decoy. Native HTML5 drag-and-drop and IME composition are outside this matrix.
 
@@ -245,6 +245,6 @@ First define the observable result and the oracle; add a backend-independent fix
 
 The automated tests cover oracle, persistence, false successes, corrupted/out-of-order protocol, timeout and descendants, overload/admission, metrics and config validation. The real campaigns cover the installed libraries. Performance must not become unstable assertions on a laptop; portable CI validates the contracts, and performance comparisons use a reserved machine.
 
-The TypeScript runner is a measurement tool that drives several processes/languages. Its choice does not set the language of the future Automan engine. Rust/Tokio remains the candidate for the portable core; Node is the measurement reference and a compatibility path. The native Rust/Node HTTP workflow comparison is verified on 30 cells; the native Rust Chromium driver and an integrated Go core remain to be qualified.
+The TypeScript runner is a measurement tool that drives several processes/languages. Its choice does not set the language of the future Goodfetch engine. Rust/Tokio remains the candidate for the portable core; Node is the measurement reference and a compatibility path. The native Rust/Node HTTP workflow comparison is verified on 30 cells; the native Rust Chromium driver and an integrated Go core remain to be qualified.
 
 [Commands for reproducing and regenerating the evidence](reports/qualification-reproduce.md). The fixed guards pass 162/162 cells and the SQLite readers/checkpoints 108/108; the failures of the native configurations remain visible in the report.

@@ -6,7 +6,7 @@
    "primary": "links"
   },
   "case": "titled-and-formatted",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "See [the *spec*](https://example.test/spec \"The spec\") and [**FAQ**](https://example.test/faq).\n",

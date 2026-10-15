@@ -1,1 +1,1 @@
-(()=>{const guard=window.__automanGuard;if(!guard)return null;guard.disarm();delete window.__automanGuard;return guard.state.intercepted??(guard.state.reached||!guard.state.requireReach?null:'missed')})()
+(()=>{const guard=window.__goodfetchGuard;if(!guard)return null;guard.disarm();delete window.__goodfetchGuard;return guard.state.intercepted??(guard.state.reached||!guard.state.requireReach?null:'missed')})()

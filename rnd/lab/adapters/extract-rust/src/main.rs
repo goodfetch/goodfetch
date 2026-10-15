@@ -112,8 +112,8 @@ mod lol {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    const START: &str = "<!--automan-scope-start-->";
-    const END: &str = "<!--automan-scope-end-->";
+    const START: &str = "<!--goodfetch-scope-start-->";
+    const END: &str = "<!--goodfetch-scope-end-->";
     const BOILERPLATE_TAGS: &str = "script, style, noscript, template, svg, canvas, iframe, object, embed, nav, footer, aside, form, button, select, textarea, dialog, menu";
     const BOILERPLATE_ATTRS: &str = "[role=navigation], [role=banner], [role=contentinfo], [role=complementary], [role=search], [role=dialog], [role=alertdialog], [role=menu], [role=menubar], [aria-hidden=true], [hidden]";
     // Whole tokens of class or id, split on whitespace, '-' and '_'.
@@ -242,7 +242,7 @@ const VERSIONS: &[(&str, &str)] = &[("rs-trafilatura", "0.2.2"), ("dom_smoothie"
 
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();
-    // A one-shot form for checks outside the protocol: automan-lab-extract <mode> --file <path>
+    // A one-shot form for checks outside the protocol: goodfetch-lab-extract <mode> --file <path>
     if std::env::args().nth(2).as_deref() == Some("--file") {
         let path = std::env::args().nth(3).unwrap_or_default();
         match read_page(&path).and_then(|html| extract(&mode, &html, None)) {

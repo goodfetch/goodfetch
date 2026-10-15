@@ -10,7 +10,7 @@ import {readWorkflow} from '../src/workflow.ts';
 import {labRoot} from '../src/registry.ts';
 
 for(const target of ['job-claimed','batch-committed'])test(`a new coordinator process recovers persisted state after a complete ${target} stop`,{skip:process.platform==='win32'},async()=>{
-  const fixtures=await startFixtures();const directory=await mkdtemp(join(tmpdir(),'automan-coordinator-'));const path=join(directory,'state.sqlite');const flag=join(directory,'paused.json');const output=join(directory,'completed.json');
+  const fixtures=await startFixtures();const directory=await mkdtemp(join(tmpdir(),'goodfetch-coordinator-'));const path=join(directory,'state.sqlite');const flag=join(directory,'paused.json');const output=join(directory,'completed.json');
   const fixture=await fixtures.createRun({scenario:'http-catalog',seed:42,pages:1});
   const jobs=[{jobId:'job-0',task:{scenario:'http-catalog',seed:42,pages:1,actions:1,timeoutMs:10000,variant:'normal',url:fixture.url}}];
   const config={path,backend:'node-http',concurrency:1,batchJobs:1,maxBatchWaitMs:10,leaseMs:1000,timeoutMs:10000};

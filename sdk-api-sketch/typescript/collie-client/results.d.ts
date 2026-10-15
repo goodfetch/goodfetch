@@ -189,14 +189,29 @@ export declare class ClosedError extends ProgramError {
   readonly code: "closed";
 }
 
+/** Who stopped a call in flight and what closed or stopped under it (ADRs 0080, 0113). */
+export interface CallCancelledDetails {
+  /**
+   * A person in the Console, another Client, the program closing a parent value from another task,
+   * or the browser outside every Client: the page's window or tab closed on the desktop, its own
+   * `window.close()`, the browser quitting.
+   */
+  readonly by: "person" | "client" | "program" | "browser" | (string & {});
+  /** What closed or stopped under the call; `browser` ends every Session in it. */
+  readonly closed: "page" | "session" | "browser" | "run" | "connection" | (string & {});
+  /** Whom the stopping Client acts for, when known. */
+  readonly person: string | null;
+}
 /**
- * Someone else stopped the call in flight: a person, another Client, or the program closing a
- * parent value. Not retryable; `observed` says who, and `fix` names resuming the Run, or the close
- * that stopped the call. The caller's own abort rejects with `signal.reason` instead and never
- * raises this (ADR 0080).
+ * Someone else stopped the call in flight: a person, another Client, the program closing a parent
+ * value, or the browser closing the page, such as its window closed during a Human pause (ADR 0113).
+ * Not retryable; `details` says who and what closed, `observed` renders it, and `fix` names resuming
+ * the Run, the close that stopped the call, or for a closed page opening another and pausing again.
+ * The caller's own abort rejects with `signal.reason` instead and never raises this (ADR 0080).
  */
 export declare class CallCancelledError extends UnavailableError {
   readonly code: "call_cancelled";
+  readonly details: CallCancelledDetails;
 }
 
 /** Details of `handler_failed`: the user's own exception, as text, since the outcome outlives the process. */
@@ -294,8 +309,8 @@ export type StopReason =
   | { readonly kind: "no_progress"; readonly source: LimitSource }
   /** The Run's Model allowance is reached (ADR 0107): the task stops and the Run goes on; `source` names `ai.allowance.<kind>`. */
   | { readonly kind: "model_allowance"; readonly source: LimitSource }
-  /** Who stopped it: a person in the Console, another Client, or the program closing the page or the Run. */
-  | { readonly kind: "abort"; readonly by: "person" | "client" | "program" | (string & {}) }
+  /** Who stopped it: a person in the Console, another Client, the program closing the page or the Run, or the browser closing the page outside every Client (ADR 0113). */
+  | { readonly kind: "abort"; readonly by: "person" | "client" | "program" | "browser" | (string & {}) }
   | { readonly kind: "unknown"; readonly raw: string };
 
 /** What the model said about its own work: a signal, never proof (ADR 0013). */

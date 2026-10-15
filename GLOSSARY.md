@@ -413,7 +413,7 @@ The requirement that every extracted value appears in its page or follows from a
 _Avoid_: verification, fact-check
 
 **Human pause**:
-The state of a Session's work items while they wait for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.
+The state of a Session's work while it waits for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.
 _Avoid_: manual step, HITL
 
 ## Security and compliance

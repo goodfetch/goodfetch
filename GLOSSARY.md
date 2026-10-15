@@ -286,6 +286,10 @@ _Avoid_: purchase, paid request, micropayment
 The per-user store of responses that later runs may reuse instead of fetching the page again.
 _Avoid_: HTTP cache, page cache, crawl cache
 
+**Response recording**:
+The responses one run received, kept in a WARC file the program names, from which a later run is answered instead of the network.
+_Avoid_: cassette, HAR (for a recording), fixture (alone), Response cache (for a recording)
+
 **Filter list**:
 A list of rules, published or the user's own, naming the ads, trackers and page annoyances that a run blocks, hides, or removes from what it extracts.
 _Avoid_: blocklist, adlist, ruleset
@@ -539,6 +543,10 @@ _Avoid_: golden files, legacy fixtures, test data (for these files)
 **Scripted engine**:
 A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
 _Avoid_: fake engine, mock engine, mock server
+
+**Testing kit**:
+The public module of each SDK for testing a program written against it, holding a Scripted model and a test engine from which nothing leaves the machine unless a test records.
+_Avoid_: test utilities, test helpers, mock library
 
 **Reference screenshot**:
 A committed image of a screen or component in one state, which a visual test compares the current rendering with, pixel for pixel.

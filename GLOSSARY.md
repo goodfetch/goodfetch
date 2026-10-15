@@ -322,6 +322,10 @@ _Avoid_: screencast, stream, remote desktop
 The recording of what a run's Sessions did, such as their screens, page snapshots and network traffic, kept so a person can replay it.
 _Avoid_: session recording, replay (for the recording), video
 
+**Gesture**:
+A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
+_Avoid_: interaction, command (for a gesture)
+
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
 _Avoid_: contract, validator, assertion

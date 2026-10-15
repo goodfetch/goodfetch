@@ -1,6 +1,6 @@
 # Pain coverage matrix
 
-Every developer pain the [consumer API research](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) found, and how the SDK API answers it. Its rows were set by [Golden scenarios and the pain coverage matrix](https://github.com/goodfetch/automan/issues/463). It is the map's own working list, distinct from the pain rows of the V1 scope matrix ([ADR 0037](https://github.com/goodfetch/automan/blob/main/docs/adr/0037-v1-scope-parity-and-pain-coverage.md)), which cover the market's pains rather than the SDK API's.
+Every developer pain the [consumer API research](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) found, and how the SDK API answers it. Its rows were set by [Golden scenarios and the pain coverage matrix](https://github.com/goodfetch/automan/issues/463). It is the map's own working list, distinct from the pain rows of the V1 scope matrix ([ADR 0037](https://github.com/goodfetch/automan/blob/main/docs/adr/0037-v1-scope-parity-and-pain-coverage.md)), which cover the market's pains rather than the SDK API's. Failure modes that no one reported, because experienced teams handle them without filing issues, are in the [pitfall catalog](pitfalls.md), each handled, a gap ticket on the map, or declined.
 
 ## How a row closes
 

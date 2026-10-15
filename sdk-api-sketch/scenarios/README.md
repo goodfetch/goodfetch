@@ -15,7 +15,7 @@ A **golden scenario** is a complete program for a task developers commonly write
 | 05 | [Crawl two page types into a Dataset](05-two-page-crawl.md) | Crawlee 3.18 and Scrapy 2.19 | Foxhound |
 | 06 | [Crawl with HTTP and a browser only where needed](06-mixed-fetch-crawl.md) | Crawlee 3.18 and scrapy-playwright 0.0.48 | Foxhound |
 | 07 | [Resume a killed crawl and retry its failures](07-resume-and-retry.md) | Scrapy 2.19 and Crawlee 3.18 | Foxhound |
-| 08 | [Extract with AI inside a crawl, learning once per page type](08-ai-in-crawl-handler.md) | Crawlee 3.18 and Crawlee for Python 1.10 | Both |
+| 08 | [Extract with AI inside a crawl, learning once per page type](08-ai-in-crawl-handler.md) | Crawlee 3.18 and Crawlee for Python 1.11 | Both |
 | 09 | [Add an AI step to an existing Playwright program](09-ai-in-playwright-program.md) | Stagehand 3.7 | Collie |
 | 10 | [Test a crawl offline](10-offline-crawl-tests.md) | Scrapy 2.19 | Foxhound |
 | 11 | [Reach a goal from one instruction, with limits and a verdict](11-agent-goal.md) | Browser Use 0.13 | Collie |
@@ -43,7 +43,10 @@ Each task statement says what the developer wants, never which Goodfetch call do
 | TypeScript | `typescript/scenarios/NN-slug.ts` |
 | Python | `python/scenarios/sNN_slug.py` |
 | Rust | `rust/examples/sNN_slug.rs` |
-| Leader | `scenarios/leaders/NN-slug.<library>.<ext>`, with the leader's own package manifest, type-checked by `check.sh` |
+| Leader, TypeScript | `scenarios/leaders/NN-slug.<library>.ts`, or `scenarios/leaders/stagehand3/` for the programs on Stagehand 3.7.3 (08, 09), each folder with its own `package.json` |
+| Leader, Python | `scenarios/leaders/sNN_slug_<library>.py`, importable by module name so a test imports the spider it tests; one environment per leader, pinned in `check.sh` |
+
+`check.sh` type-checks the leaders' programs against their real packages: tsc 7.0.2 in each TypeScript folder, and pyright in standard mode in one `uv` environment per Python leader. Browsers are not downloaded and nothing is run.
 
 ## The leader's program
 
@@ -72,6 +75,30 @@ The measures table of every scenario has this shape:
 | Goodfetch TypeScript | | | | |
 | Goodfetch Python | | | | |
 | Goodfetch Rust | | | | |
+
+## Comparison
+
+Filled by [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483). Each cell is **concepts · lines · failure points typed/generic/silent**, from each description's Measures table, where the counted names, the setup commands, every failure point's score and the verdict are. Scenario 09 counts only the added step's lines; scenario 10 counts the test files only.
+
+| # | Leader | Goodfetch TypeScript | Goodfetch Python | Goodfetch Rust |
+|---|---|---|---|---|
+| [01](01-dependent-form.md) | Playwright (TypeScript): 24 · 37 · 1/5/0<br>Playwright (Python): 26 · 38 · 1/5/0 | 27 · 34 · 6/0/0 | 26 · 44 · 6/0/0 | 39 · 57 · 6/0/0 |
+| [02](02-typed-extract.md) | Stagehand (TypeScript): 40 · 76 · 0/3/3 | 28 · 43 · 6/0/0 | 28 · 56 · 6/0/0 | 36 · 63 · 6/0/0 |
+| [03](03-replay-ai-steps.md) | Stagehand (TypeScript): 28 · 44 · 0/5/1 | 24 · 25 · 6/0/0 | 24 · 36 · 6/0/0 | 35 · 53 · 6/0/0 |
+| [04](04-login-human-pause.md) | Playwright (TypeScript): 21 · 42 · 1/2/3<br>Playwright (Python): 22 · 39 · 1/2/3 | 41 · 59 · 6/0/0 | 39 · 58 · 6/0/0 | 52 · 86 · 6/0/0 |
+| [05](05-two-page-crawl.md) | Crawlee (TypeScript): 31 · 69 · 3/2/3<br>Scrapy (Python): 36 · 91 · 0/5/3 | 45 · 69 · 7/1/0 | 48 · 96 · 7/1/0 | 55 · 158 · 7/1/0 |
+| [06](06-mixed-fetch-crawl.md) | Crawlee (TypeScript): 35 · 100 · 1/5/0<br>scrapy-playwright (Python): 42 · 78 · 1/5/0 | 51 · 84 · 6/0/0 | 52 · 98 · 6/0/0 | 71 · 132 · 6/0/0 |
+| [07](07-resume-and-retry.md) | Scrapy (Python): 46 · 77 · 0/3/3<br>Crawlee (TypeScript): 35 · 43 · 0/4/2 | 37 · 42 · 6/0/0 | 37 · 53 · 6/0/0 | 44 · 90 · 6/0/0 |
+| [08](08-ai-in-crawl-handler.md) | Crawlee with Stagehand (TypeScript): 34 · 102 · 0/3/3<br>Crawlee for Python with PydanticAI: 32 · 98 · 1/4/1 | 44 · 51 · 6/0/0 | 46 · 66 · 6/0/0 | 54 · 124 · 6/0/0 |
+| [09](09-ai-in-playwright-program.md) | Stagehand 3 with Playwright (TypeScript): 13 · 24 · 1/2/2 | 10 · 17 · 4/0/1 | 13 · 24 · 4/0/1 | 21 · 40 · 5/0/0 |
+| [10](10-offline-crawl-tests.md) | Scrapy (Python): 16 · 34 · 0/3/1 | 31 · 47 · 5/0/0 | 32 · 59 · 5/0/0 | 39 · 86 · 5/0/0 |
+| [11](11-agent-goal.md) | Browser Use (Python): 29 · 64 · 0/6/1 | 35 · 40 · 7/0/0 | 38 · 63 · 7/0/0 | 41 · 74 · 7/0/0 |
+| [12](12-crawl-in-a-service.md) | Scrapy (Python): 29 · 65 · 6/0/0 | 41 · 83 · 6/0/0 | 34 · 65 · 6/0/0 | 41 · 105 · 6/0/0 |
+
+- **Failure points.** Of the 73 failure points, Goodfetch's TypeScript and Python programs score 71 typed, 1 generic and 1 silent, and its Rust programs 72 typed and 1 generic; the leaders' 18 programs score most of theirs generic, and 29 silent between them. The generic one is a failed Export write in 05 ([#527](https://github.com/goodfetch/goodfetch/issues/527)), and the silent one 09's two drivers acting on a borrowed page at once ([#533](https://github.com/goodfetch/goodfetch/issues/533)), which G1 does not accept: both are raised as tickets.
+- **Lines.** Against a TypeScript leader, Goodfetch's TypeScript is as short or shorter in eight of nine scenarios, the exception being 04, where it states the Saved identity, the Secret binding and the expired-login outcome that Playwright's program leaves out. Against a Python leader, Goodfetch's Python is shorter in 07, 08 and 11, level in 12 and longer in the rest, mostly from typed error handling that ruff's 88 columns split. Rust, with no scored leader, is the longest everywhere.
+- **Concepts.** Goodfetch names fewer concepts than its leader in 02, 03 and 09, where the leader needs a price table, a file of resolved actions or a schema check of its own, and in Python's 07 (Scrapy's `JOBDIR` and signals); as many in Python's 01; and more in the others: its programs read typed outcomes, reasons, Verdicts and fixes that the leaders' programs leave as exception text or the program's own code (G1, G6), and they close what they open (G4).
+- **Setup.** Goodfetch needs one package install per language, browsers being fetched on first use (ADRs 0024, 0057), where Playwright, Stagehand and scrapy-playwright add a browser install; a model scenario adds the model provider's key in every program.
 
 ## After the sketch
 

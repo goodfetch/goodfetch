@@ -211,7 +211,7 @@ export interface EnqueueLinksOptions extends CallOptions {
   readonly include?: readonly URLPattern[];
   /** No link matching any of these. */
   readonly exclude?: readonly URLPattern[];
-  /** At most this many links added. */
+  /** At most this many links added: the first in document order, once `include` and `exclude` have filtered them. */
   readonly limit?: number;
 }
 
@@ -312,6 +312,8 @@ export interface CrawlStartOptions {
   readonly plan?: string;
   /** The Run's Response recording (ADR 0105), an input like its seeds: replayed, or recorded into. */
   readonly recording?: Recording;
+  /** Aborting the start sends `$/cancel` (ADR 0080): the start rejects with `signal.reason`, and a Run it already began stays, to be closed or resumed by its ID. */
+  readonly signal?: AbortSignal;
 }
 
 /** Which outcomes `outcomes()` reads, filtered in the engine (ADR 0081). */

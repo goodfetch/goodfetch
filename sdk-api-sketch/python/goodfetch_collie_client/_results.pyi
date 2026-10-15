@@ -69,6 +69,8 @@ KnownErrorCode: TypeAlias = Literal[
     "scripted_model_exhausted",
     "scripted_model_unused",
     "session_reserved",
+    "borrow_requires_cdp",
+    "browser_borrowed",
     "attach_ended",
     "internal",
 ]

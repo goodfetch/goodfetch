@@ -26,7 +26,7 @@ async fn log_in_once() -> Result<(), Error> {
     let page = session.new_page().await?;
     page.goto("https://quotes.toscrape.com/login").await?;
     page.get_by_label("Username").fill("alice").await?;
-    page.get_by_label("Password")
+    page.locator("#password")
         .fill(secret("password"))
         .await?;
     // The Human pause: no clock runs while it waits, and it ends once the Logout link shows.
@@ -80,7 +80,7 @@ async fn session_with_login(run: &Run) -> Result<Session, Error> {
         .source(SessionSource::saved_identity("quotes"))
         .login(async |page: Page| {
             page.get_by_label("Username").fill("alice").await?;
-            page.get_by_label("Password")
+            page.locator("#password")
                 .fill(secret("password"))
                 .await?;
             page.get_by_role(AriaRole::Button.name("Login"))

@@ -3,3 +3,5 @@ rust/Cargo.lock
 python/.mypy_cache/
 __pycache__/
 typescript/node_modules/
+scenarios/leaders/node_modules/
+scenarios/leaders/stagehand3/node_modules/

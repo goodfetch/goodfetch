@@ -31,6 +31,7 @@ from goodfetch_collie_client._models import RunUsage
 from goodfetch_collie_client._output import AsyncKeyValueStore, KeyValueStore
 from goodfetch_collie_client._page import AsyncPageAPI, AsyncRouteHandler, PageAPI, RouteHandler
 from goodfetch_collie_client._recording import Recording
+from goodfetch_collie_client._results import ProgramError, RefusedError
 from goodfetch_collie_client._run import AsyncRunControl, AsyncRunView, RunControl, RunProgress, RunReport, RunView
 from goodfetch_collie_client._sessions import (
     AsyncIdentities,
@@ -345,3 +346,12 @@ class Connection(_Closeable, _ExplainsSettings, RawCall):
         written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
     def open_run(self, id: str, *, timeout: Timeout = ...) -> RunView[RunReport, RunProgress]: ...
+
+@final
+class BorrowRequiresCDPError(ProgramError):
+    """`run.borrow()` was given a Firefox or WebKit page, which exposes no CDP (ADRs 0056, 0089): borrow a Chromium page."""
+
+@final
+class BrowserBorrowedError(RefusedError):
+    """Another Run already borrows this browser, judged on the browser the connection reaches, not on its address (ADR
+    0056)."""

@@ -206,7 +206,9 @@ class AsyncCrawlContext(_ContextBase[P]):
         limit: int | None = None,
         priority: int = 0,
         timeout: Timeout = ...,
-    ) -> EnqueuedLinks: ...
+    ) -> EnqueuedLinks:
+        """Adds every link the locator matches, each `href` resolved against the document's base URL; `limit` keeps
+        the first in document order, once `include` and `exclude` have filtered them."""
 
 @final
 class CrawlContext(_ContextBase[P]):

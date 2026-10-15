@@ -14,13 +14,13 @@
 import type { Connection, GoodfetchError, Logger, ModelProviderHandler, ModelRequest, ModelResponse, ProgramError, Settings } from "@goodfetch/collie-client";
 
 /** Options of starting a test engine. */
-export interface TestEngineOptions {
+export interface TestEngineOptions<S = Settings> {
   /**
    * Settings for its connection and everything beneath it (ADR 0083). Every host its `resolve`
    * setting (ADR 0059) maps to loopback, such as a test's own server, is allowlisted (ADR 0017) and
    * reached live even while a Run replays.
    */
-  readonly settings?: Settings;
+  readonly settings?: S;
   /**
    * The environment map, `connect()`'s own option (ADRs 0062, 0083): the process's own when left out.
    * Only `GOODFETCH_HOME` (to read its browser cache, never to write), `GOODFETCH_BROWSERS_PATH` and

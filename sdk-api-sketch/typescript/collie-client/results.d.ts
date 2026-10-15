@@ -52,6 +52,8 @@ export type KnownErrorCode =
   | "download_failed"
   | "cdp_command_refused"
   | "session_reserved"
+  | "borrow_requires_cdp"
+  | "browser_borrowed"
   | "attach_ended"
   | "secret_unbound"
   | "secret_unavailable"

@@ -151,6 +151,11 @@ impl ErrorCode {
     /// `session_reserved`: a second `page.lend()` on a Session while one attach is open, or a lend
     /// of a Session a handler's attach reserves (ADR 0089).
     pub const SESSION_RESERVED: ErrorCode = ErrorCode::new("session_reserved");
+    /// `borrow_requires_cdp`: a borrow of a browser that exposes no CDP, such as Firefox or WebKit
+    /// (ADRs 0056, 0089).
+    pub const BORROW_REQUIRES_CDP: ErrorCode = ErrorCode::new("borrow_requires_cdp");
+    /// `browser_borrowed`, a refusal: another Run already borrows this browser (ADR 0056).
+    pub const BROWSER_BORROWED: ErrorCode = ErrorCode::new("browser_borrowed");
     /// `attach_ended`: a Lent page's attach was cut (ADRs 0003, 0089).
     pub const ATTACH_ENDED: ErrorCode = ErrorCode::new("attach_ended");
     /// `value_invalid`: a Key-value store value that is not JSON, fails its schema or holds bytes

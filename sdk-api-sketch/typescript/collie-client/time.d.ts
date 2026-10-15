@@ -120,6 +120,8 @@ export interface StartOptions {
    * answers every request from it and sends none, `record` writes what the Run received when it ends.
    */
   readonly recording?: Recording;
+  /** Aborting the start sends `$/cancel` (ADR 0080): the start rejects with `signal.reason`, and a Run it already began stays, to be closed or resumed by its ID. */
+  readonly signal?: AbortSignal;
 }
 
 /**

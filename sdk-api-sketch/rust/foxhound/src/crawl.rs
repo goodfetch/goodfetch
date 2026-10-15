@@ -547,7 +547,8 @@ impl EnqueueLinks {
         unimplemented!()
     }
 
-    /// At most this many links added.
+    /// At most this many links added: the first in document order, once `include` and `exclude`
+    /// have filtered them.
     pub fn limit(self, limit: u32) -> Self {
         let _ = limit;
         unimplemented!()

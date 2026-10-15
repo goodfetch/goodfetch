@@ -15,6 +15,7 @@ import type { LendsPage } from "./lending.js";
 import type { ModelProviderHandler, ReadsUsage } from "./models.js";
 import type { KeyValueStore } from "./output.js";
 import type { ProxyProviderHandler } from "./plugins.js";
+import type { ProgramError, RefusedError } from "./results.js";
 import type { PageAPI, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
 import type { RunControl, RunView } from "./run.js";
 import type { Identities, PageStorage, PausesForHuman, ResolveSecret, SessionStateAPI, SessionSource } from "./sessions.js";
@@ -185,4 +186,13 @@ export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage,
   borrow(page: BorrowablePage): Promise<Page>;
   /** Borrows the user's own browser, in its default context. Ending the borrow never closes it. */
   borrow(browser: BorrowableBrowser): Promise<Session>;
+}
+
+/** `run.borrow()` was given a Firefox or WebKit page, which exposes no CDP (ADRs 0056, 0089): borrow a Chromium page. */
+export declare class BorrowRequiresCDPError extends ProgramError {
+  readonly code: "borrow_requires_cdp";
+}
+/** Another Run already borrows this browser, judged on the browser the connection reaches, not on its address (ADR 0056). */
+export declare class BrowserBorrowedError extends RefusedError {
+  readonly code: "browser_borrowed";
 }

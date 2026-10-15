@@ -24,7 +24,7 @@ async def log_in_once() -> None:
                 page = await session.new_page()
                 await page.goto("https://quotes.toscrape.com/login")
                 await page.get_by_label("Username").fill("alice")
-                await page.get_by_label("Password").fill(secret("password"))
+                await page.locator("#password").fill(secret("password"))
                 try:
                     # The Human pause: no clock runs while it waits, and it ends once the Logout link shows.
                     await page.pause(

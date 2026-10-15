@@ -21,6 +21,7 @@ import type { Crawl, Enqueued, FetchTier, ReportedFetchTier } from "./crawl.js";
 import type { Dataset, Label, PayloadInput } from "./data.js";
 import type { Foxhound } from "./connection.js";
 import type { SkipReason } from "./outcomes.js";
+import type { Settings } from "./settings.js";
 
 /** The document a handler runs on, given as `route.fulfill` gives a response, or read from a saved file. */
 export interface SavedResponse {
@@ -167,15 +168,10 @@ export type HookResult =
   | { readonly kind: "failed"; readonly error: GoodfetchError }
   | { readonly kind: "unknown"; readonly raw: string };
 
-/**
- * A real engine for one test: a temporary Goodfetch home removed when it closes, a cleared
- * environment, no project file unless named, `offline` (ADR 0043), short durations, and no Model
- * provider unless the test registers or configures one, so a call that needs a model with none
-
 /** Foxhound's test engine: the shared one, with a `Foxhound` connection and a crawl's handlers and Hooks run alone. */
 export declare class TestEngine implements SharedTestEngine<Foxhound> {
   private constructor();
-  static start(options?: TestEngineOptions): Promise<TestEngine>;
+  static start(options?: TestEngineOptions<Settings>): Promise<TestEngine>;
   readonly connection: Foxhound;
   /**
    * Runs the Label's handler, the one the crawl attached, on one request, with the Label's settings,

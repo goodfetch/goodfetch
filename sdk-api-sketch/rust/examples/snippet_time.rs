@@ -18,9 +18,9 @@ async fn search_quotes() -> Result<usize, Error> {
     let page = run.new_page().await?;
     page.goto("https://quotes.toscrape.com/search.aspx").timeout(Duration::from_secs(10)).await?;
 
-    // Choosing an author posts the form back to search.aspx and reloads the tag list: `during` arms the waiter before driving the action (P02).
+    // Choosing an author posts the form to filter.aspx and reloads the tag list: `during` arms the waiter before driving the action (P02).
     let (tags, _selected) = page
-        .wait_for_response("**/search.aspx")
+        .wait_for_response("**/filter.aspx")
         .during(page.locator("#author").select_option([SelectOption::from("Albert Einstein")]))
         .await?;
     let _ = tags.status();

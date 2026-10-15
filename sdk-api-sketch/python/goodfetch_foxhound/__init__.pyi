@@ -100,7 +100,9 @@ from goodfetch_collie_client import BorrowableAsyncBrowser as BorrowableAsyncBro
 from goodfetch_collie_client import BorrowableAsyncPage as BorrowableAsyncPage
 from goodfetch_collie_client import BorrowableBrowser as BorrowableBrowser
 from goodfetch_collie_client import BorrowablePage as BorrowablePage
+from goodfetch_collie_client import BorrowRequiresCDPError as BorrowRequiresCDPError
 from goodfetch_collie_client import BoundingBox as BoundingBox
+from goodfetch_collie_client import BrowserBorrowedError as BrowserBorrowedError
 from goodfetch_collie_client import BrowserName as BrowserName
 from goodfetch_collie_client import BrowserSessionClass as BrowserSessionClass
 from goodfetch_collie_client import BrowserSettings as BrowserSettings
@@ -452,168 +454,150 @@ from goodfetch_collie_client import WebSocketFrame as WebSocketFrame
 from goodfetch_collie_client import WebStorage as WebStorage
 from goodfetch_collie_client import WebStorageItem as WebStorageItem
 from goodfetch_collie_client import World as World
-from goodfetch_foxhound._connection import (
-    AsyncCrawlRun as AsyncCrawlRun,
-    AsyncCrawlRunView as AsyncCrawlRunView,
-    AsyncFoxhound as AsyncFoxhound,
-    CrawlRun as CrawlRun,
-    CrawlRunView as CrawlRunView,
-    Foxhound as Foxhound,
-)
-from goodfetch_foxhound._crawl import (
-    AsyncCrawl as AsyncCrawl,
-    AsyncCrawlContext as AsyncCrawlContext,
-    AsyncHandler as AsyncHandler,
-    AttemptEndReason as AttemptEndReason,
-    AttemptEndedError as AttemptEndedError,
-    BrowserRequiredError as BrowserRequiredError,
-    Crawl as Crawl,
-    CrawlContext as CrawlContext,
-    CrawlRequest as CrawlRequest,
-    EnqueueAdded as EnqueueAdded,
-    EnqueueNotAdded as EnqueueNotAdded,
-    Enqueued as Enqueued,
-    EnqueuedLinks as EnqueuedLinks,
-    FetchTier as FetchTier,
-    Handler as Handler,
-    HandlerLostError as HandlerLostError,
-    LabelDuplicateError as LabelDuplicateError,
-    LabelUnhandledError as LabelUnhandledError,
-    LabelUnknownError as LabelUnknownError,
-    LinkInfo as LinkInfo,
-    NotAddedReason as NotAddedReason,
-    ResponseNotOKError as ResponseNotOKError,
-    ResponseUnavailableError as ResponseUnavailableError,
-    RetryRequestedError as RetryRequestedError,
-    Seed as Seed,
-    SitePreferencesRefusedError as SitePreferencesRefusedError,
-    SitemapSeed as SitemapSeed,
-    URLPattern as URLPattern,
-    seed as seed,
-    sitemap as sitemap,
-)
-from goodfetch_foxhound._data import (
-    Dataset as Dataset,
-    Label as Label,
-    PayloadInvalidDetails as PayloadInvalidDetails,
-    PayloadInvalidError as PayloadInvalidError,
-    PayloadSchemaChangedDetails as PayloadSchemaChangedDetails,
-    PayloadSchemaChangedError as PayloadSchemaChangedError,
-)
-from goodfetch_foxhound._hooks import (
-    AfterResponseContext as AfterResponseContext,
-    AfterResponseHook as AfterResponseHook,
-    AsyncAfterResponseContext as AsyncAfterResponseContext,
-    AsyncAfterResponseHook as AsyncAfterResponseHook,
-    AsyncBeforeRequestContext as AsyncBeforeRequestContext,
-    AsyncBeforeRequestHook as AsyncBeforeRequestHook,
-    AsyncFetchBackendHandler as AsyncFetchBackendHandler,
-    AsyncHooks as AsyncHooks,
-    AsyncPageStageContext as AsyncPageStageContext,
-    AsyncPageStageHook as AsyncPageStageHook,
-    AsyncRecordCommitContext as AsyncRecordCommitContext,
-    AsyncRecordCommitHook as AsyncRecordCommitHook,
-    AsyncSinkHandler as AsyncSinkHandler,
-    BackendRequest as BackendRequest,
-    BackendResponse as BackendResponse,
-    BeforeRequestContext as BeforeRequestContext,
-    BeforeRequestHook as BeforeRequestHook,
-    FetchBackendHandler as FetchBackendHandler,
-    FetchHandlerFailedError as FetchHandlerFailedError,
-    HeaderForbiddenDetails as HeaderForbiddenDetails,
-    HeaderForbiddenError as HeaderForbiddenError,
-    HookDuplicateDetails as HookDuplicateDetails,
-    HookDuplicateError as HookDuplicateError,
-    HookFailedDetails as HookFailedDetails,
-    HookFailedError as HookFailedError,
-    HookIneffectiveDetails as HookIneffectiveDetails,
-    HookIneffectiveError as HookIneffectiveError,
-    HookStage as HookStage,
-    PageStageContext as PageStageContext,
-    PageStageHook as PageStageHook,
-    RecordCommitContext as RecordCommitContext,
-    RecordCommitHook as RecordCommitHook,
-    ReportedHookStage as ReportedHookStage,
-    RequestChange as RequestChange,
-    ResponseChange as ResponseChange,
-    SinkDelivery as SinkDelivery,
-    SinkHandler as SinkHandler,
-    SinkHandlerFailedError as SinkHandlerFailedError,
-    SyncHooks as SyncHooks,
-)
-from goodfetch_foxhound._outcomes import (
-    CrawlRequestBlocked as CrawlRequestBlocked,
-    CrawlRequestFailed as CrawlRequestFailed,
-    CrawlRequestOutcome as CrawlRequestOutcome,
-    CrawlRequestOutcomeUnknown as CrawlRequestOutcomeUnknown,
-    CrawlRequestRef as CrawlRequestRef,
-    CrawlRequestSkipped as CrawlRequestSkipped,
-    CrawlRequestSucceeded as CrawlRequestSucceeded,
-    ErrorCode as ErrorCode,
-    HandlerFailedError as HandlerFailedError,
-    KnownErrorCode as KnownErrorCode,
-    RecordCounts as RecordCounts,
-    SkipReason as SkipReason,
-)
-from goodfetch_foxhound._output import (
-    AsyncExport as AsyncExport,
-    DatasetDetails as DatasetDetails,
-    DatasetDuplicateError as DatasetDuplicateError,
-    DatasetKeyInvalidDetails as DatasetKeyInvalidDetails,
-    DatasetKeyInvalidError as DatasetKeyInvalidError,
-    DatasetRecord as DatasetRecord,
-    DatasetUnknownDetails as DatasetUnknownDetails,
-    DatasetUnknownError as DatasetUnknownError,
-    Export as Export,
-    ExportFormat as ExportFormat,
-    RecordInvalidDetails as RecordInvalidDetails,
-    RecordInvalidError as RecordInvalidError,
-    RejectedRecord as RejectedRecord,
-)
-from goodfetch_foxhound._politeness import (
-    BackoffSettings as BackoffSettings,
-    DomainPolitenessSettings as DomainPolitenessSettings,
-    IPPolitenessSettings as IPPolitenessSettings,
-    PolitenessSettings as PolitenessSettings,
-    SitePreferencesSettings as SitePreferencesSettings,
-)
-from goodfetch_foxhound._run import (
-    CrawlConcurrency as CrawlConcurrency,
-    CrawlRequestCounts as CrawlRequestCounts,
-    CrawlRequestTotals as CrawlRequestTotals,
-    CrawlRunProgress as CrawlRunProgress,
-    CrawlRunReport as CrawlRunReport,
-    CrawlUncertainEffect as CrawlUncertainEffect,
-    DatasetTotals as DatasetTotals,
-    GovernorState as GovernorState,
-    HandlerConcurrency as HandlerConcurrency,
-    InFlightRequest as InFlightRequest,
-    LearnedRule as LearnedRule,
-    PermitWait as PermitWait,
-    SinkDeliveryStatus as SinkDeliveryStatus,
-    SitemapTotals as SitemapTotals,
-    UnreadSitemap as UnreadSitemap,
-    WaitGroup as WaitGroup,
-    WaitReason as WaitReason,
-    WaitingDomain as WaitingDomain,
-)
-from goodfetch_foxhound._settings import (
-    CrawlHandlerSettings as CrawlHandlerSettings,
-    CrawlRetrySettings as CrawlRetrySettings,
-    CrawlRunSettings as CrawlRunSettings,
-    CrawlScopeSettings as CrawlScopeSettings,
-    CrawlScopeStrategy as CrawlScopeStrategy,
-    CrawlSettings as CrawlSettings,
-    FetchSettings as FetchSettings,
-    LabelCrawlSettings as LabelCrawlSettings,
-    LabelFetchSettings as LabelFetchSettings,
-    LabelSettings as LabelSettings,
-    LabelTimeoutSettings as LabelTimeoutSettings,
-    PayloadSettings as PayloadSettings,
-    RunTimeoutSettings as RunTimeoutSettings,
-    SettingKey as SettingKey,
-    Settings as Settings,
-    SinkSettings as SinkSettings,
-    SinkWriteMode as SinkWriteMode,
-    TimeoutSettings as TimeoutSettings,
-)
+from goodfetch_foxhound._connection import AsyncCrawlRun as AsyncCrawlRun
+from goodfetch_foxhound._connection import AsyncCrawlRunView as AsyncCrawlRunView
+from goodfetch_foxhound._connection import AsyncFoxhound as AsyncFoxhound
+from goodfetch_foxhound._connection import CrawlRun as CrawlRun
+from goodfetch_foxhound._connection import CrawlRunView as CrawlRunView
+from goodfetch_foxhound._connection import Foxhound as Foxhound
+from goodfetch_foxhound._crawl import AsyncCrawl as AsyncCrawl
+from goodfetch_foxhound._crawl import AsyncCrawlContext as AsyncCrawlContext
+from goodfetch_foxhound._crawl import AsyncHandler as AsyncHandler
+from goodfetch_foxhound._crawl import AttemptEndedError as AttemptEndedError
+from goodfetch_foxhound._crawl import AttemptEndReason as AttemptEndReason
+from goodfetch_foxhound._crawl import BrowserRequiredError as BrowserRequiredError
+from goodfetch_foxhound._crawl import Crawl as Crawl
+from goodfetch_foxhound._crawl import CrawlContext as CrawlContext
+from goodfetch_foxhound._crawl import CrawlRequest as CrawlRequest
+from goodfetch_foxhound._crawl import EnqueueAdded as EnqueueAdded
+from goodfetch_foxhound._crawl import Enqueued as Enqueued
+from goodfetch_foxhound._crawl import EnqueuedLinks as EnqueuedLinks
+from goodfetch_foxhound._crawl import EnqueueNotAdded as EnqueueNotAdded
+from goodfetch_foxhound._crawl import FetchTier as FetchTier
+from goodfetch_foxhound._crawl import Handler as Handler
+from goodfetch_foxhound._crawl import HandlerLostError as HandlerLostError
+from goodfetch_foxhound._crawl import LabelDuplicateError as LabelDuplicateError
+from goodfetch_foxhound._crawl import LabelUnhandledError as LabelUnhandledError
+from goodfetch_foxhound._crawl import LabelUnknownError as LabelUnknownError
+from goodfetch_foxhound._crawl import LinkInfo as LinkInfo
+from goodfetch_foxhound._crawl import NotAddedReason as NotAddedReason
+from goodfetch_foxhound._crawl import ResponseNotOKError as ResponseNotOKError
+from goodfetch_foxhound._crawl import ResponseUnavailableError as ResponseUnavailableError
+from goodfetch_foxhound._crawl import RetryRequestedError as RetryRequestedError
+from goodfetch_foxhound._crawl import Seed as Seed
+from goodfetch_foxhound._crawl import seed as seed
+from goodfetch_foxhound._crawl import sitemap as sitemap
+from goodfetch_foxhound._crawl import SitemapSeed as SitemapSeed
+from goodfetch_foxhound._crawl import SitePreferencesRefusedError as SitePreferencesRefusedError
+from goodfetch_foxhound._crawl import URLPattern as URLPattern
+from goodfetch_foxhound._data import Dataset as Dataset
+from goodfetch_foxhound._data import Label as Label
+from goodfetch_foxhound._data import PayloadInvalidDetails as PayloadInvalidDetails
+from goodfetch_foxhound._data import PayloadInvalidError as PayloadInvalidError
+from goodfetch_foxhound._data import PayloadSchemaChangedDetails as PayloadSchemaChangedDetails
+from goodfetch_foxhound._data import PayloadSchemaChangedError as PayloadSchemaChangedError
+from goodfetch_foxhound._hooks import AfterResponseContext as AfterResponseContext
+from goodfetch_foxhound._hooks import AfterResponseHook as AfterResponseHook
+from goodfetch_foxhound._hooks import AsyncAfterResponseContext as AsyncAfterResponseContext
+from goodfetch_foxhound._hooks import AsyncAfterResponseHook as AsyncAfterResponseHook
+from goodfetch_foxhound._hooks import AsyncBeforeRequestContext as AsyncBeforeRequestContext
+from goodfetch_foxhound._hooks import AsyncBeforeRequestHook as AsyncBeforeRequestHook
+from goodfetch_foxhound._hooks import AsyncFetchBackendHandler as AsyncFetchBackendHandler
+from goodfetch_foxhound._hooks import AsyncHooks as AsyncHooks
+from goodfetch_foxhound._hooks import AsyncPageStageContext as AsyncPageStageContext
+from goodfetch_foxhound._hooks import AsyncPageStageHook as AsyncPageStageHook
+from goodfetch_foxhound._hooks import AsyncRecordCommitContext as AsyncRecordCommitContext
+from goodfetch_foxhound._hooks import AsyncRecordCommitHook as AsyncRecordCommitHook
+from goodfetch_foxhound._hooks import AsyncSinkHandler as AsyncSinkHandler
+from goodfetch_foxhound._hooks import BackendRequest as BackendRequest
+from goodfetch_foxhound._hooks import BackendResponse as BackendResponse
+from goodfetch_foxhound._hooks import BeforeRequestContext as BeforeRequestContext
+from goodfetch_foxhound._hooks import BeforeRequestHook as BeforeRequestHook
+from goodfetch_foxhound._hooks import FetchBackendHandler as FetchBackendHandler
+from goodfetch_foxhound._hooks import FetchHandlerFailedError as FetchHandlerFailedError
+from goodfetch_foxhound._hooks import HeaderForbiddenDetails as HeaderForbiddenDetails
+from goodfetch_foxhound._hooks import HeaderForbiddenError as HeaderForbiddenError
+from goodfetch_foxhound._hooks import HookDuplicateDetails as HookDuplicateDetails
+from goodfetch_foxhound._hooks import HookDuplicateError as HookDuplicateError
+from goodfetch_foxhound._hooks import HookFailedDetails as HookFailedDetails
+from goodfetch_foxhound._hooks import HookFailedError as HookFailedError
+from goodfetch_foxhound._hooks import HookIneffectiveDetails as HookIneffectiveDetails
+from goodfetch_foxhound._hooks import HookIneffectiveError as HookIneffectiveError
+from goodfetch_foxhound._hooks import HookStage as HookStage
+from goodfetch_foxhound._hooks import PageStageContext as PageStageContext
+from goodfetch_foxhound._hooks import PageStageHook as PageStageHook
+from goodfetch_foxhound._hooks import RecordCommitContext as RecordCommitContext
+from goodfetch_foxhound._hooks import RecordCommitHook as RecordCommitHook
+from goodfetch_foxhound._hooks import ReportedHookStage as ReportedHookStage
+from goodfetch_foxhound._hooks import RequestChange as RequestChange
+from goodfetch_foxhound._hooks import ResponseChange as ResponseChange
+from goodfetch_foxhound._hooks import SinkDelivery as SinkDelivery
+from goodfetch_foxhound._hooks import SinkHandler as SinkHandler
+from goodfetch_foxhound._hooks import SinkHandlerFailedError as SinkHandlerFailedError
+from goodfetch_foxhound._hooks import SyncHooks as SyncHooks
+from goodfetch_foxhound._outcomes import CrawlRequestBlocked as CrawlRequestBlocked
+from goodfetch_foxhound._outcomes import CrawlRequestFailed as CrawlRequestFailed
+from goodfetch_foxhound._outcomes import CrawlRequestOutcome as CrawlRequestOutcome
+from goodfetch_foxhound._outcomes import CrawlRequestOutcomeUnknown as CrawlRequestOutcomeUnknown
+from goodfetch_foxhound._outcomes import CrawlRequestRef as CrawlRequestRef
+from goodfetch_foxhound._outcomes import CrawlRequestSkipped as CrawlRequestSkipped
+from goodfetch_foxhound._outcomes import CrawlRequestSucceeded as CrawlRequestSucceeded
+from goodfetch_foxhound._outcomes import ErrorCode as ErrorCode
+from goodfetch_foxhound._outcomes import HandlerFailedError as HandlerFailedError
+from goodfetch_foxhound._outcomes import KnownErrorCode as KnownErrorCode
+from goodfetch_foxhound._outcomes import RecordCounts as RecordCounts
+from goodfetch_foxhound._outcomes import SkipReason as SkipReason
+from goodfetch_foxhound._output import AsyncExport as AsyncExport
+from goodfetch_foxhound._output import DatasetDetails as DatasetDetails
+from goodfetch_foxhound._output import DatasetDuplicateError as DatasetDuplicateError
+from goodfetch_foxhound._output import DatasetKeyInvalidDetails as DatasetKeyInvalidDetails
+from goodfetch_foxhound._output import DatasetKeyInvalidError as DatasetKeyInvalidError
+from goodfetch_foxhound._output import DatasetRecord as DatasetRecord
+from goodfetch_foxhound._output import DatasetUnknownDetails as DatasetUnknownDetails
+from goodfetch_foxhound._output import DatasetUnknownError as DatasetUnknownError
+from goodfetch_foxhound._output import Export as Export
+from goodfetch_foxhound._output import ExportFormat as ExportFormat
+from goodfetch_foxhound._output import RecordInvalidDetails as RecordInvalidDetails
+from goodfetch_foxhound._output import RecordInvalidError as RecordInvalidError
+from goodfetch_foxhound._output import RejectedRecord as RejectedRecord
+from goodfetch_foxhound._politeness import BackoffSettings as BackoffSettings
+from goodfetch_foxhound._politeness import DomainPolitenessSettings as DomainPolitenessSettings
+from goodfetch_foxhound._politeness import IPPolitenessSettings as IPPolitenessSettings
+from goodfetch_foxhound._politeness import PolitenessSettings as PolitenessSettings
+from goodfetch_foxhound._politeness import SitePreferencesSettings as SitePreferencesSettings
+from goodfetch_foxhound._run import CrawlConcurrency as CrawlConcurrency
+from goodfetch_foxhound._run import CrawlRequestCounts as CrawlRequestCounts
+from goodfetch_foxhound._run import CrawlRequestTotals as CrawlRequestTotals
+from goodfetch_foxhound._run import CrawlRunProgress as CrawlRunProgress
+from goodfetch_foxhound._run import CrawlRunReport as CrawlRunReport
+from goodfetch_foxhound._run import CrawlUncertainEffect as CrawlUncertainEffect
+from goodfetch_foxhound._run import DatasetTotals as DatasetTotals
+from goodfetch_foxhound._run import GovernorState as GovernorState
+from goodfetch_foxhound._run import HandlerConcurrency as HandlerConcurrency
+from goodfetch_foxhound._run import InFlightRequest as InFlightRequest
+from goodfetch_foxhound._run import LearnedRule as LearnedRule
+from goodfetch_foxhound._run import PermitWait as PermitWait
+from goodfetch_foxhound._run import SinkDeliveryStatus as SinkDeliveryStatus
+from goodfetch_foxhound._run import SitemapTotals as SitemapTotals
+from goodfetch_foxhound._run import UnreadSitemap as UnreadSitemap
+from goodfetch_foxhound._run import WaitGroup as WaitGroup
+from goodfetch_foxhound._run import WaitingDomain as WaitingDomain
+from goodfetch_foxhound._run import WaitReason as WaitReason
+from goodfetch_foxhound._settings import CrawlHandlerSettings as CrawlHandlerSettings
+from goodfetch_foxhound._settings import CrawlRetrySettings as CrawlRetrySettings
+from goodfetch_foxhound._settings import CrawlRunSettings as CrawlRunSettings
+from goodfetch_foxhound._settings import CrawlScopeSettings as CrawlScopeSettings
+from goodfetch_foxhound._settings import CrawlScopeStrategy as CrawlScopeStrategy
+from goodfetch_foxhound._settings import CrawlSettings as CrawlSettings
+from goodfetch_foxhound._settings import FetchSettings as FetchSettings
+from goodfetch_foxhound._settings import LabelCrawlSettings as LabelCrawlSettings
+from goodfetch_foxhound._settings import LabelFetchSettings as LabelFetchSettings
+from goodfetch_foxhound._settings import LabelSettings as LabelSettings
+from goodfetch_foxhound._settings import LabelTimeoutSettings as LabelTimeoutSettings
+from goodfetch_foxhound._settings import PayloadSettings as PayloadSettings
+from goodfetch_foxhound._settings import RunTimeoutSettings as RunTimeoutSettings
+from goodfetch_foxhound._settings import SettingKey as SettingKey
+from goodfetch_foxhound._settings import Settings as Settings
+from goodfetch_foxhound._settings import SinkSettings as SinkSettings
+from goodfetch_foxhound._settings import SinkWriteMode as SinkWriteMode
+from goodfetch_foxhound._settings import TimeoutSettings as TimeoutSettings

@@ -18,14 +18,23 @@ schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 
-# The concurrency snippet drives streams with `futures-util`'s combinators.
+# The concurrency snippet drives streams with `futures-util`'s combinators; the golden scenarios run
+# on Tokio, the program's own choice of executor (ADR 0081), and scenario 12 serves with axum.
 [dev-dependencies]
+axum = "0.8.9"
 futures-util = "0.3.34"
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "signal"] }
 
 # The testing kits' snippet and golden scenario 10 use `goodfetch_foxhound::testing`, behind `test-util` (ADR 0069).
 [[example]]
 name = "snippet_testing"
 required-features = ["test-util"]
+
+# Golden scenario 10 is a test file: `cargo test --example s10_offline_crawl_tests`.
+[[example]]
+name = "s10_offline_crawl_tests"
+required-features = ["test-util"]
+test = true
 
 # Standalone: not part of any Goodfetch workspace.
 [workspace]

@@ -18,8 +18,8 @@ async def search_quotes() -> int:
             page = await run.new_page()
             await page.goto("https://quotes.toscrape.com/search.aspx", timeout=timedelta(seconds=10))
 
-            # Choosing an author posts the form back to search.aspx and reloads the tag list: the waiter is armed before the block runs (P02).
-            async with page.expect_response("**/search.aspx") as tags:
+            # Choosing an author posts the form to filter.aspx and reloads the tag list: the waiter is armed before the block runs (P02).
+            async with page.expect_response("**/filter.aspx") as tags:
                 await page.locator("#author").select_option("Albert Einstein")
             await tags.value
 
@@ -43,6 +43,6 @@ async def search_quotes() -> int:
 def search_quotes_blocking() -> None:
     with Collie.connect() as collie, collie.start(timeout=timedelta(minutes=30)) as run:
         page = run.new_page()
-        with page.expect_response("**/search.aspx") as tags:
+        with page.expect_response("**/filter.aspx") as tags:
             page.locator("#author").select_option("Albert Einstein")
         log.info("tags reloaded: %s", tags.value.status)

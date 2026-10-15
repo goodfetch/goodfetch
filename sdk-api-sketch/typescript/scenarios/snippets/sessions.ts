@@ -18,7 +18,7 @@ export async function logInOnce(): Promise<void> {
   const page = await session.newPage();
   await page.goto("https://quotes.toscrape.com/login");
   await page.getByLabel("Username").fill("alice");
-  await page.getByLabel("Password").fill(secret("password"));
+  await page.locator("#password").fill(secret("password"));
   try {
     // The Human pause: no clock runs while it waits, and it ends once the Logout link shows.
     await page.pause({

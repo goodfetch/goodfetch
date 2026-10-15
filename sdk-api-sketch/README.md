@@ -4,33 +4,42 @@ The API sketch of the map [The SDK API of Collie and Foxhound](https://github.co
 
 ## Layout
 
+Each language has ADR 0095's three packages: the Collie client package, with every value a Collie connection hands out and no executable; Collie's package, with the `Collie` connection; and Foxhound's, with the `Foxhound` connection and what only Foxhound hands out (crawls, Datasets, Records, Exports, Hooks, Politeness toward sites, the crawl settings and Error codes). Both Products' packages re-export the client package, so a handler's Page and a Collie program's Page are one type.
+
 ```text
 sdk-api-sketch/
-├── check.sh            # type-checks all three languages
+├── check.sh                 # type-checks all three languages, then the leaders' programs
+├── manifest.md              # the hand-written members of each SDK (ADR 0099)
 ├── typescript/
-│   ├── src/            # .d.ts declarations, re-exported from index.d.ts
-│   └── scenarios/      # golden scenarios as .ts programs importing "goodfetch"
+│   ├── collie-client/       # @goodfetch/collie-client (+ /testing): .d.ts re-exported from index.d.ts
+│   ├── collie/              # @goodfetch/collie (+ /testing): Collie
+│   ├── foxhound/            # @goodfetch/foxhound (+ /testing): Foxhound and its own values
+│   └── scenarios/           # golden scenarios as .ts programs; snippets/ holds each ticket's snippets
 ├── python/
-│   ├── goodfetch/      # .pyi stubs, re-exported from __init__.pyi
-│   └── scenarios/      # golden scenarios as .py programs
-├── rust/
-│   ├── src/            # modules re-exported from lib.rs
-│   └── examples/       # golden scenarios as examples
-├── scenarios/          # one description per golden scenario: task, leader, pains, failure points, measures
-│   └── leaders/        # the leaders' programs, with their own package manifests
-└── pain-coverage.md    # every researched pain and how the SDK API answers it
+│   ├── goodfetch_collie_client/  # .pyi stubs, re-exported from __init__.pyi; testing.pyi
+│   ├── goodfetch_collie/         # Collie, AsyncCollie; testing.pyi
+│   ├── goodfetch_foxhound/       # Foxhound, AsyncFoxhound and Foxhound's own values; testing.pyi
+│   └── scenarios/                # golden scenarios as .py programs, beside the snippet_*.py snippets
+├── rust/                    # a workspace; its own package holds the scenarios as examples
+│   ├── collie-client/       # goodfetch-collie-client
+│   ├── collie/              # goodfetch-collie: Collie, blocking::Collie, testing
+│   ├── foxhound/            # goodfetch-foxhound: Foxhound, error_code, settings, testing
+│   └── examples/            # golden scenarios (sNN_slug.rs) and snippets (snippet_*.rs)
+├── scenarios/               # one description per golden scenario: task, leader, pains, failure points, measures
+│   └── leaders/             # the leaders' programs, with their own package manifests
+└── pain-coverage.md         # every researched pain and how the SDK API answers it
 ```
 
 [`scenarios/README.md`](scenarios/README.md) lists the twelve golden scenarios and how they are measured. [`pain-coverage.md`](pain-coverage.md) is the pain coverage matrix.
 
 ## Conventions
 
-- **One file per ticket topic** in each language, for example `typescript/src/lifecycle.d.ts`, `python/goodfetch/_lifecycle.pyi` and `rust/src/lifecycle.rs`, re-exported from the language's entry file.
+- **One file per ticket topic** in each language, for example `typescript/collie-client/lifecycle.d.ts`, `python/goodfetch_collie_client/_lifecycle.pyi` and `rust/collie-client/src/lifecycle.rs`, re-exported from the package's entry file; a topic with Foxhound's own part has a file of the same name in Foxhound's package (`foxhound/settings.d.ts`, `goodfetch_foxhound/_settings.pyi`, `foxhound/src/settings.rs`).
 - **Each ticket fills its matrix rows.** A grilling ticket fills its rows of `pain-coverage.md` (closes as, feature, scenarios, principles) in the same commit as its signatures and snippets.
-- **Snippets.** A ticket's usage examples sit beside the golden scenarios, type-checked with them, until #483 writes the programs: `typescript/scenarios/snippets/<topic>.ts`, `python/scenarios/snippet_<topic>.py` and `rust/examples/snippet_<topic>.rs`.
+- **Golden scenarios and snippets.** The golden scenarios are `typescript/scenarios/NN-slug.ts`, `python/scenarios/sNN_slug.py` and `rust/examples/sNN_slug.rs` (scenarios/README.md). A ticket's usage examples stay beside them as snippets, type-checked with them, for the shapes no golden scenario shows: `typescript/scenarios/snippets/<topic>.ts`, `python/scenarios/snippet_<topic>.py` and `rust/examples/snippet_<topic>.rs`.
 - **Signatures only.** Rust bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
-- **The testing kit is its own entry** (ADR 0069): `typescript/src/testing.d.ts` is the `goodfetch/testing` subpath, `python/goodfetch/testing.pyi` the `goodfetch.testing` module, and `rust/src/testing.rs` sits behind the `test-util` feature, which `check.sh` turns on with every other feature.
-- **Placeholder names.** The package and import name `goodfetch` stands in for the names ADR 0090 settled (`@goodfetch/collie` and `@goodfetch/foxhound` on npm, `goodfetch_collie` and `goodfetch_foxhound` imports, `goodfetch-collie` and `goodfetch-foxhound` crates) until [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) rewrites the sketch into ADR 0095's packages.
+- **The testing kits are their own entries** (ADRs 0069, 0090): `@goodfetch/collie/testing` and `@goodfetch/foxhound/testing` (with the shared `@goodfetch/collie-client/testing`), `goodfetch_collie.testing` and `goodfetch_foxhound.testing`, and `goodfetch_collie::testing` and `goodfetch_foxhound::testing` behind the `test-util` feature, which `check.sh` turns on with every other feature. Foxhound's adds `runHandler` and `runHook`.
+- **Package names follow ADRs 0090 and 0095.** A program imports only its Product's package; only a library meant to serve both imports the client package. The connection is the Product (`Collie.connect()`, `AsyncCollie.connect()`, `Collie::connect(…)`, Foxhound's likewise), and both implement `Connection`, which carries Collie's Run start. In the SDK, Rust's catalog types come from `goodfetch-protocol`, Foxhound's from its `foxhound` module (ADR 0099); the sketch defines them in the crates themselves. Where a name both packages define means more in Foxhound's (`Settings`, `SettingKey`, `TimeoutSettings`, `KnownErrorCode`, `ConnectOptions`), Foxhound's package gives its own, which adds its keys or values to Collie's.
 - **Names follow ADR 0099** ([Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471)).
   - **One rule per language.** Every name is the catalog's snake_case words, spelled by one rule per language:
     - TypeScript: camelCase members and PascalCase types;
@@ -40,7 +49,8 @@ sdk-api-sketch/
   - **Keywords.** TypeScript escapes none (`route.continue()`), Python adds a trailing underscore (`continue_`), and Rust uses a raw identifier (`r#continue`).
   - **Reads the SDK answers itself on a handle.** In TypeScript they are a method, as all of Playwright's are (`page.url()`, `connection.engine()`); a sub-object reached without I/O is a `readonly` property (`page.keyboard`). In Python a read with no arguments is a property, except `is_`/`as_` names. In Rust they are a method.
   - **The raw catalog call** is `call(operation, params)` on the connection and on every handle (`catalog` files), with `params` a builder method in Rust (`call(op).params(…)`). The sketch shows it on the Run, Session, Page and Locator.
-  - **Renames left for [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483).** It applies them when it rewrites the sketch into three packages. TypeScript and Python names still spelled with an initialism as a word become `JSONValue`, `JSONObject`, `JSONSchema`, `URLMatcher`, `PageAPI`, `AIWorkResult`, `ResponseNotJSONError` and the like. TypeScript reads on handles still spelled as properties become methods (`run.id()`, `run.startedAs()`). Rust's `ErrorCode` and `ErrorDetails` enums become ADR 0099's open `ErrorCode`, a newtype holding the code inline with Collie's codes as associated constants and Foxhound's as free constants re-exported by Foxhound's crate, and `details::<D>()`. `Goodfetch` gives way to `Collie` and `Foxhound`, both implementing `Connection`. ADR 0089's lending helpers are free functions: `lendToPlaywright(page, chromium)` and `lendToPuppeteer(page, puppeteer)` in TypeScript, `lend_to_playwright(page, chromium)` and `lend_to_browser_use(page, BrowserSession)` in Python.
+  - **Open value types in Rust.** `ErrorCode`, `LimitScope`, `UsageKind` and `HookStage` are newtypes holding their wire string inline, Collie's values as associated constants and Foxhound's as free constants (`goodfetch_foxhound::error_code`, `limit_scope`, `usage_kind`, `hook_stage`); an Error code's details are read with `error.details::<D>()`.
+  - **Hand-written members** are listed in [`manifest.md`](manifest.md) with the entry each serves, or their words and form; ADR 0089's lending helpers are free functions of the client package (`lendToPlaywright`, `lendToPuppeteer`, `lend_to_playwright`, `lend_to_browser_use`).
 - **Checkers follow `STYLE.md`:** TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax` and `erasableSyntaxOnly` (`isolatedDeclarations` only applies when emitting declarations, which a sketch of `.d.ts` files never does); pyright strict and mypy `--strict` on Python 3.11; `cargo check` with warnings denied.
 
 ## Checking
@@ -49,7 +59,7 @@ sdk-api-sketch/
 ./check.sh
 ```
 
-It needs Node 22 or later, uv and a Rust toolchain, and fetches the pinned `tsc`, pyright and mypy versions on first run, with the schema libraries the snippets use: Zod in TypeScript, Pydantic in Python, `schemars` and serde in Rust.
+It needs Node 22 or later, uv and a Rust toolchain, and fetches the pinned `tsc`, pyright and mypy versions on first run, with the libraries the scenarios use: Zod, `@types/node` and Playwright (scenario 09's own program) in TypeScript; Pydantic, FastAPI, pytest and Playwright in Python; `schemars`, serde, Tokio and axum in Rust. It then type-checks the leaders' programs against their real packages (`scenarios/leaders/`), downloading no browser.
 
 ## Review list
 

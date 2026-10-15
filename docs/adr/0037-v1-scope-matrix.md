@@ -154,11 +154,11 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | AI-07 | MCP server | `decided` | ADR 0011, ADR 0017 | 11 Client surfaces | stdio and Streamable HTTP. |
 | AI-08 | Accessibility or DOM snapshot with element refs | `decided` | ADR 0011 | 9 AI and agent | Stable element references and diffs. |
 | AI-09 | WebMCP: list, invoke, cancel, add/remove events | `spec` | ADR 0011, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | Site tools join the catalog as Effects. Cancelling follows ADR 0010's uncertain-Effect rules. |
-| AI-10 | Model providers, own model, per-call override | `decided` | ADR 0012, ADR 0033 | 9 AI and agent | Three formats, gateways, local servers and the Model provider kind. |
+| AI-10 | Model providers, own model, per-call override | `decided` | ADR 0012, ADR 0033, ADR 0101 | 9 AI and agent | Three formats, gateways, local servers and the Model provider kind. A Model reference (`provider/model`) set as `ai.model` or per call; declared capabilities; the program's own provider in every SDK (ADR 0101). |
 | AI-11 | Managed model gateway, no provider keys | `decided` | ADR 0012 | 9 AI and agent | Local models need no key; the user's own gateway by URL. The managed, keyless gateway is a Goodfetch Cloud operation (ADR 0018). |
 | AI-12 | Cache of AI results | `decided` | ADR 0009, ADR 0010, ADR 0026 | 9 AI and agent | Self-hosted equivalent: committed Plans replayed without a model; journaled answers reused on resume. |
 | AI-13 | Self-healing after a failed action | `decided` | ADR 0009 | 9 AI and agent | One bounded Repair after Drift, verified before use. |
-| AI-14 | Token and cost accounting | `decided` | ADR 0012, ADR 0033 | 9 AI and agent | Token, call and currency Limits; Usage. |
+| AI-14 | Token and cost accounting | `decided` | ADR 0012, ADR 0033, ADR 0101 | 9 AI and agent | Token, call and currency Limits; Usage. Priced `ModelUsage` on every AI result and error, `run.usage()` with what remains of each Limit; prices set only in configuration (ADR 0101). |
 | AI-15 | Web search API for agents | `decided` | ADR 0011, ADR 0033 | 9 AI and agent | Interchangeable search providers, including self-hosted SearXNG. |
 | AI-16 | Configure a crawl from a prompt | `decided` | ADR 0011 | 9 AI and agent | Compiles to a configuration reviewed before it runs. |
 | AI-17 | Research synthesis: search, extract, summarize | `decided` | [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | Q30: research synthesis as a cited built-in agent task. Recorded only in the ticket. |

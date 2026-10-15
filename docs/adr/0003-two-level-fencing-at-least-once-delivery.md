@@ -2,6 +2,8 @@
 
 A user handler runs out of process and may keep running after it has timed out, and a migrated run may leave a zombie copy alive on the old machine. So each work item is leased with a monotonic epoch, and the run itself carries an epoch that every resume increments. Handlers are delivered at least once, but their outputs are staged and become visible exactly once, when the current attempt commits under a valid lease and epoch. Decided in [Adopt runtime and state decisions](https://github.com/goodfetch/goodfetch/issues/70).
 
+> Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): a handler's Records, enqueues and Key-value store writes through its context and its attempt-bound `ctx.run` are its staged outputs; a write a handler makes through the program's own Run value is the program's, committed at once and fenced by no lease.
+
 ## Considered Options
 
 - **Expiring locks only**: rejected. Crawlee's locks expire but do not stop a late commit, and Scrapy and spider-rs hold no lease at all. Temporal, Hatchet, Restate and DBOS all reject a stale attempt's commit, and Restate also fences a superseded leader by epoch.

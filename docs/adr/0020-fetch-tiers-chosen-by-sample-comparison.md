@@ -4,6 +4,8 @@ The engine fetches each page through one of four tiers: HTTP; a discovered API, 
 
 > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): its "route" is a Label on one domain (ADR 0004's key), which area 6's spec may split by URL path where a Label's samples disagree. A handler gets Collie's page on every tier: every tier but `browser` serves what it can exactly (the document over `http`, `browser_fetch` and `discovered_api`, which also serves network waits from its replayed calls; scripts without layout over `light_browser`, the Lightpanda tier), and a call it cannot serve, a wait for content a static document lacks, or a failed expected page escalates the request to `browser`.
 
+> Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): a sample comparison compares what each attempt staged, before any "Record before commit" Hook: its Records and its enqueues, weighed as area 5's spec says. The browser's attempt, the reference, is the one that commits, whether the two match or not; where the comparison also runs with Filter-list blocking off (ADR 0047), the browser attempt whose blocking setting the route keeps commits. Every other attempt is discarded.
+
 ## Considered Options
 
 - **Browser only**: rejected as the default. It is exact but the most expensive tier, by two orders of magnitude on static pages and discoverable APIs.

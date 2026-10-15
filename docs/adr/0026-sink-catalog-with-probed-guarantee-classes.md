@@ -53,6 +53,8 @@ Evidence: [sinks, notifications and integrations research](https://github.com/go
 - replace (written apart, then swapped in atomically)
 - history (versions with valid-from and valid-to)
 
+> Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): the user-declared fields are the Sink's own `key`, or else the `key` of each Dataset it receives, which the crawl declares. The run's start refuses with `setting_invalid` a Sink in a keyed mode with no key of its own when any of its Datasets has none, and a Sink key naming a field that a schema of one of its Datasets does not require; a Record of a Dataset with no schema that reaches a keyed Sink without its key fields joins the Sink's dead letters. A Record is identified by its Dataset and its number, so record ranges and the order by record number are per Dataset. Sinks are configured as `sinks.<name>.*` settings on a connection or a crawl's Run, refused on a Label and when set on a Collie Run; a Sink inherited from the connection or from configuration is inactive for a Collie Run. A Collie engine refuses one given to a Run or a connection with `not_in_product` (ADR 0087), and leaves configuration's `sinks.*` to Foxhound.
+
 The last record in a batch wins. "Only new or changed" delivers what change tracking reports against the Baseline. A record missing since the Baseline can be soft-deleted, by a complete run only (ADR 0036). The engine refuses a mode a destination cannot support. On Sheets and Notion, the engine does the lookup itself.
 
 **Schema.** The declared schema comes first; otherwise it is inferred.

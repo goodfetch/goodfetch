@@ -81,6 +81,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
     - Rust: dropping the stream, with no warning, since dropping is how a stream closes.
   - Each iterator has one reader; a second reader calls the method again.
   - While open, an unread lossless sequence slows its Run (ADR 0024), and a telemetry sequence keeps only the latest value. Where each sequence starts is its owning ticket's ([Crawl output in code](https://github.com/goodfetch/goodfetch/issues/479) for Records).
+    > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): Records are read with `run.records(dataset, { after })` on a crawl's Run, from the Dataset's first Record or after a given number, and an unread Records sequence never slows its Run, since the Records it reads are already committed to run state.
     > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an Agent's steps are lossless and start at the task's first step, whenever `steps()` is called; the sequence ends when the task ends, and raises the task's error when it failed.
 
 ### Patterns and predicates

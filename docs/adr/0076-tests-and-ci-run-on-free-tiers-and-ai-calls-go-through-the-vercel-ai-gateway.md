@@ -16,7 +16,7 @@ Facts this rests on, checked on 2026-10-14:
 
 - **No paid resource until the owner declares revenue.** No job, build, account or service that bills is created or switched on. An agent that finds a paid option better states the free option it chose instead, and records the paid one as declined, never as pending.
 - **CI and builds use free tiers:** GitHub-hosted standard runners within the private plan's included minutes (ADR 0064's ceiling), unlimited once the repository is public, and self-hosted runners on the owner's machine where a build needs more than a hosted runner holds. A self-hosted runner never runs a pull request from a fork.
-  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, the owner's machine also runs the manual-dispatch Release suite's macOS cells, reached only by `workflow_dispatch`.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, the owner's machine also runs the manual-dispatch Release suite's macOS cells, on `main` only, behind a committed allowlist and a pre-job hook.
 - **Live AI calls go through the Vercel AI Gateway** with one key, `AI_GATEWAY_API_KEY`, on the free tier only:
   - the provider check, the recorder, the Evaluations and the skill Evaluations of ADR 0065 call models through the gateway's OpenAI-compatible and Anthropic Messages endpoints;
   - no credits are bought, auto top-up stays off and the gateway's billable add-ons stay off, so the key cannot spend money; that replaces ADR 0065's per-job paid caps;

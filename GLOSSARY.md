@@ -84,6 +84,10 @@ _Avoid_: worker, agent, sidecar
 A browser the engine did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
 _Avoid_: external browser, attached browser
 
+**Lent page**:
+A page of a Session that a program hands, for a time, to another automation library such as Playwright or Puppeteer, through a CDP endpoint that shows only that page's Session; the reverse of a Borrowed browser.
+_Avoid_: shared page, exposed page, remote page
+
 **Plugin**:
 A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts a Product inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module
@@ -314,6 +318,10 @@ _Avoid_: screencast, stream, remote desktop
 The recording of what a run's Sessions did, such as their screens, page snapshots and network traffic, kept so a person can replay it.
 _Avoid_: session recording, replay (for the recording), video
 
+**Gesture**:
+A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
+_Avoid_: interaction, command (for a gesture)
+
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
 _Avoid_: contract, validator, assertion
@@ -533,7 +541,7 @@ The Goodfetch Chromium's source tree at the same revision, built with the same a
 _Avoid_: baseline build, vanilla build, reference build
 
 **Size budget**:
-The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
+The largest size each released file of a Product may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
 
 **Compatibility corpus**:

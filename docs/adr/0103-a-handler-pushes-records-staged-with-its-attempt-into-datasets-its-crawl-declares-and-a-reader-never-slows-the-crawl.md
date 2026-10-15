@@ -116,6 +116,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 - **Where it starts.** At the Dataset's first Record, or after `after`, which resumes a reader from the last number it handled (ADR 0008). Starting at the moment of the call would silently miss the Records committed before it (G1); Spider's `subscribe()` does.
 - **When it ends.**
   - It follows the Run live, and ends once the Run has ended and every Record has been read.
+    > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): on a Run with no live writer, which has not ended, a view's `records()` and `rejectedRecords()` end after the last committed Record, as its `progress()` and `outcomes()` do, rather than wait for a program to resume it.
   - On a Run that has already ended, it reads to the last Record.
   - Through a handler's `ctx.run`, `records` and `rejectedRecords` read what has committed when called, then end: the Run cannot end while the handler holds its request. `export` works there as it does on the Run.
   - Through the program's own Run value, captured by a handler, they follow the Run live as anywhere else and wait until the handler's timeout. A handler reads through `ctx.run`.

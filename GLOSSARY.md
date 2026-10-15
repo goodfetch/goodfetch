@@ -160,6 +160,10 @@ _Avoid_: shard
 The folder holding one user's Goodfetch data, caches and configuration on a machine, shared by both Products: the operating system's usual folders unless the user names another.
 _Avoid_: data dir, app folder, install folder
 
+**Run report**:
+What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended.
+_Avoid_: run result, summary, statistics, stats
+
 **Browser cache**:
 The per-user folder, shared by both Products and every major, of pinned browser builds, among them those Plugins declare, the executable copies a Daemon runs from and the engine's other pinned downloads, each checked by digest. Plugin runtimes have their own runtime cache beside it.
 _Avoid_: browser registry, browsers folder

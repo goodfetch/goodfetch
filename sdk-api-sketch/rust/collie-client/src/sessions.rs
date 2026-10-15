@@ -600,10 +600,11 @@ impl Call<Session> {
     /// ADR 0006's scripted login step: called with the page whose call met the login page, inside
     /// that call's future (ADR 0081), which gives up the page's turn meanwhile. The Page check
     /// judges the page it leaves; it counts toward the two recoveries a page gets, and an error it
-    /// returns is chained to `logged_out`. A crawl takes its own the same way.
+    /// returns, any error of the program (ADR 0109), is chained to `logged_out`. A crawl takes its
+    /// own the same way.
     pub fn login<F>(self, login: F) -> Self
     where
-        F: AsyncFn(Page) -> Result<(), Error> + Send + Sync + 'static,
+        F: AsyncFn(Page) -> Result<(), crate::results::BoxError> + Send + Sync + 'static,
     {
         let _ = login;
         unimplemented!()

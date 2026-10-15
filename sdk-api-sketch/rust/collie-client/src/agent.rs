@@ -34,7 +34,7 @@ use crate::data::Schema;
 use crate::lifecycle::Page;
 use crate::models::{ModelReference, ModelUsage};
 use crate::page::Locator;
-use crate::results::{Ended, Error, PartialOutput, Reported, Verdict};
+use crate::results::{BoxError, Ended, Error, PartialOutput, Reported, Verdict};
 use crate::time::CallFuture;
 
 // Steps.
@@ -199,11 +199,6 @@ pub enum ConfirmationCategory {
     Unknown(String),
 }
 
-/// The error an Agent tool or the Success check returns: any error of the program. A
-/// [`crate::Error`] boxed in it keeps its own code; any other ends the task with `agent_tool_failed`
-/// or `success_check_threw`, which keeps it as its `source()`.
-pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
 /// What an Agent tool receives after its input and page.
 #[derive(Debug, Clone)]
 pub struct AgentToolCall {
@@ -237,7 +232,8 @@ impl AgentTool {
     /// page's turn while it runs. The name must be unique within a task and no built-in action's,
     /// or the task fails with `agent_tool_invalid`. It is an Effect unless
     /// [`AgentTool::read_only`]: journaled and never redone (ADR 0010). Its third argument carries
-    /// the call's idempotency key (ADR 0106).
+    /// the call's idempotency key (ADR 0106). Its error is a [`BoxError`] (ADR 0109): the SDK's
+    /// own [`Error`] keeps its code, and any other ends the task with `agent_tool_failed`.
     pub fn new<I, F, Fut>(name: &str, description: &str, run: F) -> Self
     where
         I: JsonSchema + DeserializeOwned + Send + 'static,

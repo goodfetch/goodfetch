@@ -24,9 +24,8 @@ use crate::crawl::{Crawl, CrawlRequest, CrawlRun, FetchTier};
 use crate::data::{Dataset, Label};
 use crate::lifecycle::Page;
 use crate::page::{Headers, Response};
-use crate::results::{BlockCause, Error, ErrorCode};
+use crate::results::{BlockCause, BoxError, Error, ErrorCode};
 use crate::sessions::TextInput;
-use crate::HandlerError;
 use crate::HookStage;
 
 /// A Record of a Dataset declared with no schema: any JSON object (ADR 0082).
@@ -153,7 +152,7 @@ impl<P> BeforeRequestContext<P> {
 
     /// Ends the request `skipped`, with the reason `hook` and this message: return it,
     /// `return Err(ctx.skip("…"))`.
-    pub fn skip(&self, message: &str) -> Error {
+    pub fn skip(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }
@@ -226,13 +225,13 @@ impl<P> AfterResponseContext<P> {
 
     /// Ends the attempt `blocked` with this cause: return it. ADR 0021 escalates by new Session,
     /// and the request ends `blocked` once escalation runs out.
-    pub fn block(&self, cause: BlockCause, message: &str) -> Error {
+    pub fn block(&self, cause: BlockCause, message: &str) -> BoxError {
         let _ = (cause, message);
         unimplemented!()
     }
 
     /// Ends this attempt with `retry_requested`, retried under `crawl::retry::MAX`: return it.
-    pub fn retry(&self, message: &str) -> Error {
+    pub fn retry(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }
@@ -327,14 +326,14 @@ impl<T> RecordCommitContext<T> {
     }
 
     /// Leaves the Record out, counted in the run's report with this reason: return it.
-    pub fn drop_record(&self, reason: &str) -> Error {
+    pub fn drop_record(&self, reason: &str) -> BoxError {
         let _ = reason;
         unimplemented!()
     }
 
     /// Puts the Record in the Dataset's rejection table with this reason, read with
     /// `run.rejected_records` (ADR 0103): return it.
-    pub fn reject(&self, reason: &str) -> Error {
+    pub fn reject(&self, reason: &str) -> BoxError {
         let _ = reason;
         unimplemented!()
     }
@@ -346,7 +345,7 @@ impl<'a> Crawl<'a> {
     /// it may rewrite the URL, set headers or skip.
     pub fn before_request<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(BeforeRequestContext<P>) -> Result<RequestChange, Error> + 'a,
+        F: AsyncFn(BeforeRequestContext<P>) -> Result<RequestChange, BoxError> + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -356,7 +355,7 @@ impl<'a> Crawl<'a> {
     /// ask for a retry.
     pub fn after_response<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(AfterResponseContext<P>) -> Result<ResponseChange, Error> + 'a,
+        F: AsyncFn(AfterResponseContext<P>) -> Result<ResponseChange, BoxError> + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -365,7 +364,7 @@ impl<'a> Crawl<'a> {
     /// Before the browser navigates: set cookies, block resources, add init scripts.
     pub fn before_navigation<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(PageStageContext<P>) -> Result<(), Error> + 'a,
+        F: AsyncFn(PageStageContext<P>) -> Result<(), BoxError> + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -375,7 +374,7 @@ impl<'a> Crawl<'a> {
     /// expected page).
     pub fn after_navigation<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(PageStageContext<P>) -> Result<(), Error> + 'a,
+        F: AsyncFn(PageStageContext<P>) -> Result<(), BoxError> + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -385,7 +384,7 @@ impl<'a> Crawl<'a> {
     /// Crawlee's `router.use`.
     pub fn page_ready<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(PageStageContext<P>) -> Result<(), Error> + 'a,
+        F: AsyncFn(PageStageContext<P>) -> Result<(), BoxError> + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -395,7 +394,7 @@ impl<'a> Crawl<'a> {
     /// rejects it.
     pub fn before_record_commit<T, F>(&mut self, on: impl Into<RecordHookOn<T>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(RecordCommitContext<T>) -> Result<T, Error> + 'a,
+        F: AsyncFn(RecordCommitContext<T>) -> Result<T, BoxError> + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -437,8 +436,9 @@ impl HookCall {
         unimplemented!()
     }
 
-    /// Ends the call with the Hook's answer, or with an error that ends the work.
-    pub async fn finish(self, answer: Result<HookAnswer, Error>) -> Result<(), Error> {
+    /// Ends the call with the Hook's answer, or with an error that ends the work, read as a Hook's
+    /// own (ADR 0109).
+    pub async fn finish(self, answer: Result<HookAnswer, BoxError>) -> Result<(), Error> {
         let _ = answer;
         unimplemented!()
     }
@@ -560,7 +560,7 @@ impl FetchCall {
 
     /// Fails the call: not retried unless `crawl::retry::HANDLER_FAILED` is on, unless a Goodfetch
     /// code says otherwise.
-    pub fn fail(self, error: HandlerError) {
+    pub fn fail(self, error: BoxError) {
         let _ = error;
         unimplemented!()
     }
@@ -601,7 +601,7 @@ impl SinkCall {
     }
 
     /// Fails the delivery, retried on ADR 0008's schedule.
-    pub fn fail(self, error: HandlerError) {
+    pub fn fail(self, error: BoxError) {
         let _ = error;
         unimplemented!()
     }

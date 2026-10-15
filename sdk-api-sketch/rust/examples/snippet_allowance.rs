@@ -48,7 +48,8 @@ async fn scenario_08(categories: &[&str]) -> Result<(), Error> {
         // `model_allowance_reached`: returned, it ends this request `skipped` with the reason
         // `model_allowance`, not `failed`.
         let fields = ctx.page().extract("the book on this page", Schema::<BookFields>::of()).await?.output;
-        ctx.push(&books, &Book { fields, url: ctx.page().url() }).await
+        ctx.push(&books, &Book { fields, url: ctx.page().url() }).await?;
+        Ok(())
     })?;
 
     let foxhound = Foxhound::connect(ConnectOptions::default().settings(Settings::new().set(ai::MODEL, Some("vercel/openai/gpt-5-mini".into())))).await?;
@@ -91,12 +92,13 @@ fn keep_all() -> Result<(), Error> {
     crawl.handle(&book, async |ctx: CrawlContext<()>| {
         let url = ctx.page().url();
         match ctx.page().extract("the book on this page", Schema::<BookFields>::of()).await {
-            Ok(step) => ctx.push(&kept, &KeptBook { url, book: Some(step.output), why: None }).await,
+            Ok(step) => ctx.push(&kept, &KeptBook { url, book: Some(step.output), why: None }).await?,
             Err(error) if error.code() == ErrorCode::MODEL_ALLOWANCE_REACHED => {
-                ctx.push(&kept, &KeptBook { url, book: None, why: Some("the Model allowance was reached".into()) }).await
+                ctx.push(&kept, &KeptBook { url, book: None, why: Some("the Model allowance was reached".into()) }).await?
             }
-            Err(error) => Err(error),
+            Err(error) => return Err(error.into()),
         }
+        Ok(())
     })?;
     drop(crawl); // served as in `scenario_08`
     Ok(())

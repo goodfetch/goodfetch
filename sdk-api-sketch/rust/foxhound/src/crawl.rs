@@ -27,7 +27,7 @@ use crate::Schema;
 use crate::data::{Dataset, Label};
 use crate::lifecycle::{Page, Run};
 use crate::page::{Locator, Response};
-use crate::results::Error;
+use crate::results::{BoxError, Error};
 use crate::time::{CallFuture, Limits};
 
 /// A URL pattern matched in the engine (ADR 0081). No predicate: every link would cross the
@@ -109,10 +109,13 @@ impl<'a> Crawl<'a> {
     }
 
     /// Attaches the Label's one handler. A second handler fails at once with `label_duplicate`; a
-    /// Label left without one makes the Run's start fail with `label_unhandled`.
+    /// Label left without one makes the Run's start fail with `label_unhandled`. The handler returns
+    /// any error of the program as a [`BoxError`] (ADR 0109): `?` on a `ParseIntError` or a
+    /// `serde_json::Error` ends the attempt with `handler_failed`, as an exception does in
+    /// TypeScript and Python, while the SDK's own [`Error`] keeps its code.
     pub fn handle<P, F>(&mut self, label: &Label<P>, handler: F) -> Result<(), Error>
     where
-        F: AsyncFn(CrawlContext<P>) -> Result<(), Error> + 'a,
+        F: AsyncFn(CrawlContext<P>) -> Result<(), BoxError> + 'a,
     {
         let _ = (label, handler);
         unimplemented!()
@@ -122,7 +125,7 @@ impl<'a> Crawl<'a> {
     /// Session's page on the login page; a Label's own, from [`LabelDeclaration::login`], wins.
     pub fn login<F>(&mut self, login: F)
     where
-        F: AsyncFn(Page) -> Result<(), Error> + 'a,
+        F: AsyncFn(Page) -> Result<(), BoxError> + 'a,
     {
         let _ = login;
         unimplemented!()
@@ -132,8 +135,9 @@ impl<'a> Crawl<'a> {
     /// `crawl::handler::CONCURRENCY` requests at once, inside this future, until the Run ends, then
     /// returns its report (ADR 0102): serving is what lets a crawl finish. Dropping it is the
     /// program's own stop: it sends `$/cancel`, and the requests it leased return to pending
-    /// without counting an attempt. A handler's panic is caught and ends its attempt with
-    /// `handler_failed`, as an exception does in TypeScript and Python.
+    /// without counting an attempt. A handler's error that is not the SDK's own ends its attempt with
+    /// `handler_failed` (ADR 0109), and so does a handler's panic, caught here, as an exception does
+    /// in TypeScript and Python; a Hook's or a login step's panic is its own error too.
     pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
@@ -226,7 +230,7 @@ impl<'a, P> LabelDeclaration<'a, P> {
     /// crawl's [`Crawl::login`] and gives the Label a Session pool of its own (ADR 0093).
     pub fn login<F>(self, login: F) -> Self
     where
-        F: AsyncFn(Page) -> Result<(), Error> + 'a,
+        F: AsyncFn(Page) -> Result<(), BoxError> + 'a,
     {
         let _ = login;
         unimplemented!()
@@ -395,15 +399,16 @@ impl<P> CrawlContext<P> {
     }
 
     /// Ends the request `skipped`, with the reason `handler` and this message: return it,
-    /// `return Err(ctx.skip("…"))`. Its code is `attempt_ended`, which the helper consumes.
-    pub fn skip(&self, message: &str) -> Error {
+    /// `return Err(ctx.skip("…"))`. It holds the SDK's [`Error`] with the code `attempt_ended`,
+    /// which the helper consumes, boxed as the handler returns it (ADR 0109).
+    pub fn skip(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }
 
     /// Ends this attempt with `retry_requested`, retried under `crawl::retry::MAX`: return it,
     /// `return Err(ctx.retry("…"))`.
-    pub fn retry(&self, message: &str) -> Error {
+    pub fn retry(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }
@@ -590,8 +595,8 @@ impl CrawlCall {
         unimplemented!()
     }
 
-    /// Ends the attempt with the handler's result.
-    pub async fn finish(self, result: Result<(), Error>) -> Result<(), Error> {
+    /// Ends the attempt with the handler's result, its error read as a handler's (ADR 0109).
+    pub async fn finish(self, result: Result<(), BoxError>) -> Result<(), Error> {
         let _ = result;
         unimplemented!()
     }

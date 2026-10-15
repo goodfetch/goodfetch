@@ -111,9 +111,9 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
             .during(page.reload())
             .await?;
         for n in 2.. {
-            // A body that is not JSON fails with `response_not_json`.
-            let body: QuotesPage = serde_json::from_value(loaded.json().await?)
-                .map_err(|error| ctx.skip(&format!("unexpected JSON: {error}")))?;
+            // A body that is not JSON fails with `response_not_json`; one of another shape fails
+            // with `handler_failed`, naming the deserializer's error (ADR 0109).
+            let body: QuotesPage = serde_json::from_value(loaded.json().await?)?;
             for quote in body.quotes {
                 let record = Quote {
                     text: quote.text,

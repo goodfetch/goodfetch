@@ -3,7 +3,7 @@
 
 pub use goodfetch_collie_client::blocking::*;
 
-use goodfetch_collie_client::{EngineInfo, Error, ExplainedSetting, Identities, SettingKey};
+use goodfetch_collie_client::{BoxError, EngineInfo, Error, ExplainedSetting, Identities, SettingKey};
 
 use crate::connection::ConnectOptions;
 use std::marker::PhantomData;
@@ -112,7 +112,7 @@ impl<P> LabelDeclaration<P> {
     /// The Label's login step, as [`crate::LabelDeclaration::login`].
     pub fn login<F>(self, login: F) -> Self
     where
-        F: Fn(Page) -> Result<(), Error> + Send + Sync + 'static,
+        F: Fn(Page) -> Result<(), BoxError> + Send + Sync + 'static,
     {
         let _ = login;
         unimplemented!()
@@ -153,7 +153,7 @@ impl Crawl {
     /// The crawl's login step, as [`crate::Crawl::login`].
     pub fn login<F>(&mut self, login: F)
     where
-        F: Fn(Page) -> Result<(), Error> + Send + Sync + 'static,
+        F: Fn(Page) -> Result<(), BoxError> + Send + Sync + 'static,
     {
         let _ = login;
         unimplemented!()
@@ -162,7 +162,7 @@ impl Crawl {
     /// Attaches the Label's one handler, as [`crate::Crawl::handle`].
     pub fn handle<P, F>(&mut self, label: &crate::Label<P>, handler: F) -> Result<(), Error>
     where
-        F: Fn(CrawlContext<P>) -> Result<(), Error> + Send + Sync + 'static,
+        F: Fn(CrawlContext<P>) -> Result<(), BoxError> + Send + Sync + 'static,
     {
         let _ = (label, handler);
         unimplemented!()
@@ -172,7 +172,7 @@ impl Crawl {
     /// other five stages mirror the async crawl's in the same form.
     pub fn before_request<P, F>(&mut self, on: impl Into<crate::HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: Fn(crate::BeforeRequestContext<P>) -> Result<crate::RequestChange, Error> + Send + Sync + 'static,
+        F: Fn(crate::BeforeRequestContext<P>) -> Result<crate::RequestChange, BoxError> + Send + Sync + 'static,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -225,13 +225,13 @@ impl<P> CrawlContext<P> {
     }
 
     /// Ends the request `skipped`: `return Err(ctx.skip("…"))`.
-    pub fn skip(&self, message: &str) -> Error {
+    pub fn skip(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }
 
     /// Ends this attempt with `retry_requested`: `return Err(ctx.retry("…"))`.
-    pub fn retry(&self, message: &str) -> Error {
+    pub fn retry(&self, message: &str) -> BoxError {
         let _ = message;
         unimplemented!()
     }

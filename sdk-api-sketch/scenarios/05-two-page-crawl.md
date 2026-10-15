@@ -47,7 +47,7 @@ Crawlee 4.0.0-rc.1, checked in its published `@crawlee/basic`, changes three poi
 | Scrapy (Python) | 36 | 91 | 1 command | 0 / 5 / 3 |
 | Goodfetch TypeScript | 45 | 69 | 1 command | 7 / 1 / 0 |
 | Goodfetch Python | 48 | 96 | 1 command | 7 / 1 / 0 |
-| Goodfetch Rust | 55 | 158 | 1 command | 7 / 1 / 0 |
+| Goodfetch Rust | 55 | 159 | 1 command | 7 / 1 / 0 |
 
 Lines were counted with the brief's `measure_lines.py` (oxfmt 0.73.0, ruff 0.17.0, rustfmt). Every program reports the same things: the counts and why each failed or skipped page did. Each one exports the Dataset when the crawl ends and is written so scenarios 07 and 10 can import its crawl, which runs only as the entry point. The Scrapy program uses the politeness that `scrapy startproject` writes into a project's settings (robots.txt, one request per domain, a 1 s delay), its best documented configuration. Crawlee's CLI template sets none, so the Crawlee program keeps Crawlee's defaults.
 

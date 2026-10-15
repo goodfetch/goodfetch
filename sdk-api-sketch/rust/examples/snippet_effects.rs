@@ -106,9 +106,9 @@ async fn contact_sellers(foxhound: &Foxhound, emails: Vec<String>) -> Result<(),
                 if let Some(uncertain) = error.details::<goodfetch_foxhound::EffectUncertain>() {
                     let _ = (&uncertain.key, &uncertain.why);
                 }
-                Err(error)
+                Err(error.into())
             }
-            Err(error) => Err(error),
+            Err(error) => Err(error.into()),
         }
     })?;
     let seeds: Vec<Seed> = emails

@@ -92,7 +92,8 @@ async fn crawl_with_hooks() -> Result<(), Error> {
             price: main.locator(".price_color").text_content().await?,
             url: ctx.page().url(),
         };
-        ctx.push(&books, &record).await
+        ctx.push(&books, &record).await?;
+        Ok(())
     })?;
 
     let catalog_key: SecretReference = "env:CATALOG_KEY".parse()?;

@@ -2,13 +2,8 @@
 //! connection by name, as ADR 0101 declares a Model provider. The Fetch backend and Sink kinds are
 //! Foxhound's (ADR 0088), in `goodfetch_foxhound::hooks`.
 
-use crate::results::BlockCause;
+use crate::results::{BlockCause, BoxError};
 use crate::sessions::SecretReference;
-
-/// An SDK handler's own error, given to a call's `fail`. A Goodfetch [`Error`] keeps its code; any
-/// other is the kind's `<kind>_handler_failed`, with this error's type and message in its details and
-/// its `Display`, so a Rust handler's failure is as diagnosable as a TypeScript one's (G6).
-pub type HandlerError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 /// What a Proxy provider is asked for: one proxy per Session (ADRs 0021, 0092).
 #[derive(Debug, Clone)]
@@ -65,8 +60,9 @@ impl ProxyCall {
         unimplemented!()
     }
 
-    /// Fails the call: the Session does not open.
-    pub fn fail(self, error: HandlerError) {
+    /// Fails the call: the Session does not open. The SDK's own [`Error`](crate::Error) keeps its
+    /// code; any other error is `proxy_handler_failed`, read as ADR 0109 reads a handler's.
+    pub fn fail(self, error: BoxError) {
         let _ = error;
         unimplemented!()
     }

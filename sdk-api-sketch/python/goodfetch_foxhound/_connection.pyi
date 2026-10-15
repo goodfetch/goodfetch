@@ -76,10 +76,16 @@ class AsyncCrawlRun(AsyncRun):
         labels: Sequence[Label[Any]] | None = None,
         after: Literal["now"] | None = None,
     ) -> AsyncEventIterator[CrawlRequestOutcome]:
-        """The crawl requests' outcomes, read from the Run's committed state in commit order from its first, then following
-        new commits until the Run ends; the filters run in the engine (ADR 0081). A reader of committed state, it never
-        slows the Run. A request `retry_failed` re-admits ends again, and its new outcome supersedes the old: key
-        outcomes by `request.id`."""
+        """Every ending in commit order, a request ending again after `retry_failed`: a log of endings, not current
+        state; `failed_requests()` reads the current failures.
+
+        Read from the Run's committed state from its first, then following new commits until the Run ends; the filters
+        run in the engine (ADR 0081). A reader of committed state, it never slows the Run. A request's new outcome
+        supersedes the old: key outcomes by `request.id`."""
+    def failed_requests(self, *, blocked: bool = False) -> AsyncEventIterator[CrawlRequestOutcome]:
+        """The crawl requests whose latest outcome is `failed` (with `blocked=True`, also those whose latest is
+        `blocked`), each as that outcome, read from committed state at the call and ending after what is committed:
+        exactly what `retry_failed` with the same option would re-admit (ADR 0117). Never slows the Run."""
     async def retry_failed(self, *, blocked: bool = False, timeout: Timeout = ...) -> int:
         """Re-admits, in this same Run, every request that ended `failed`, and with `blocked=True` those that ended
         `blocked`, each keeping its ID, Label, Payload and depth, its attempts counting on with a fresh `crawl.retry.max`.
@@ -139,6 +145,8 @@ class AsyncCrawlRunView(AsyncRunView[CrawlRunReport, CrawlRunProgress]):
         labels: Sequence[Label[Any]] | None = None,
         after: Literal["now"] | None = None,
     ) -> AsyncEventIterator[CrawlRequestOutcome]: ...
+    def failed_requests(self, *, blocked: bool = False) -> AsyncEventIterator[CrawlRequestOutcome]:
+        """As `AsyncCrawlRun.failed_requests`, on a Run this program does not drive."""
     def records(self, dataset: Dataset[_T], *, after: int = 0) -> AsyncEventIterator[DatasetRecord[_T]]: ...
     def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> AsyncEventIterator[RejectedRecord]: ...
     async def export(
@@ -190,19 +198,29 @@ class AsyncFoxhound(AsyncConnection):
         crawl: AsyncCrawl,
         *,
         seeds: Sequence[Seed[Any] | SitemapSeed],
-        id: str | None = None,
+        run_id: str | None = None,
         settings: CrawlRunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
         recording: Recording | None = None,
     ) -> AsyncCrawlRun:
-        """Starts a Run of the crawl from its seeds, which define its scope, and returns once it is started; its handlers
-        run from then on (ADR 0102, Firecrawl's `start_crawl`). An `id` naming an existing Run behaves as
-        `start`'s does, the seeds and the Plan file being inputs that must match. Raises `LabelUnhandledError`
-        when a Label has no handler, and `LabelUnknownError` when a resumed Run has pending requests of a Label no longer
-        declared (ADR 0093)."""
-    async def open_crawl_run(self, id: str, *, timeout: Timeout = ...) -> AsyncCrawlRunView:
+        """Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+
+        Starts a Run of the crawl from its seeds, which define its scope, and returns once it is started; its handlers
+        run from then on (ADR 0102, Firecrawl's `start_crawl`). Raises `LabelUnhandledError` when a Label has no
+        handler, and `LabelUnknownError` when a resumed Run has pending requests of a Label no longer declared (ADR
+        0093). `settings` are the Run's, the place for a crawl-wide value such as `browser.block_resources`, since a
+        `Crawl` takes none.
+
+        `run_id` names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or
+        returns it as it ended (ADR 0102); a new ID starts a new Run. An existing Run behaves as `start`'s does, the
+        seeds and the Plan file being inputs that must match.
+
+        Fails with `model_price_unknown` (`ModelPriceUnknownError`) when a currency Limit or `ai.allowance.price` applies
+        and the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
+        """
+    async def open_crawl_run(self, run_id: str, *, timeout: Timeout = ...) -> AsyncCrawlRunView:
         """Opens a crawl's Run by its ID to read it, as `open_run` does, with its outcomes, Records and
         Exports."""
 
@@ -229,6 +247,7 @@ class CrawlRun(Run):
         labels: Sequence[Label[Any]] | None = None,
         after: Literal["now"] | None = None,
     ) -> EventIterator[CrawlRequestOutcome]: ...
+    def failed_requests(self, *, blocked: bool = False) -> EventIterator[CrawlRequestOutcome]: ...
     def retry_failed(self, *, blocked: bool = False, timeout: Timeout = ...) -> int: ...
     def records(self, dataset: Dataset[_T], *, after: int = 0) -> EventIterator[DatasetRecord[_T]]: ...
     def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> EventIterator[RejectedRecord]: ...
@@ -268,6 +287,7 @@ class CrawlRunView(RunView[CrawlRunReport, CrawlRunProgress]):
         labels: Sequence[Label[Any]] | None = None,
         after: Literal["now"] | None = None,
     ) -> EventIterator[CrawlRequestOutcome]: ...
+    def failed_requests(self, *, blocked: bool = False) -> EventIterator[CrawlRequestOutcome]: ...
     def records(self, dataset: Dataset[_T], *, after: int = 0) -> EventIterator[DatasetRecord[_T]]: ...
     def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> EventIterator[RejectedRecord]: ...
     def export(
@@ -316,7 +336,7 @@ class Foxhound(Connection):
         crawl: Crawl,
         *,
         seeds: Sequence[Seed[Any] | SitemapSeed],
-        id: str | None = None,
+        run_id: str | None = None,
         settings: CrawlRunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
@@ -324,4 +344,4 @@ class Foxhound(Connection):
         recording: Recording | None = None,
     ) -> CrawlRun:
         """`AsyncFoxhound.start_crawl` in the sync API."""
-    def open_crawl_run(self, id: str, *, timeout: Timeout = ...) -> CrawlRunView: ...
+    def open_crawl_run(self, run_id: str, *, timeout: Timeout = ...) -> CrawlRunView: ...

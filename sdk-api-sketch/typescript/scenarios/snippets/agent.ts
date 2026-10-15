@@ -59,8 +59,9 @@ export async function cheapestFiveStarTravelBook(): Promise<Answer | undefined> 
 function report(result: AgentResult<Answer>): Answer | undefined {
   if (result.ended.kind === "stopped") {
     const reason = result.ended.reason;
-    // `max_steps`, `no_progress` and `timeout` name the setting that stopped it; `limit` names the Limit.
-    log.warn("agent stopped", { reason: reason.kind, partial: result.partial, claimed: result.reported?.claim });
+    // `max_steps`, `no_progress` and `timeout` name the setting that stopped it; `limit` names the Limit;
+    // `gave_up` is the model giving up, its message in `reported`. The Grounded partial answer is beside the reason.
+    log.warn("agent stopped", { reason: reason.kind, partial: result.ended.partial, claimed: result.reported?.claim });
     return undefined;
   }
   if (result.verdict !== "verified") {

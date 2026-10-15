@@ -15,7 +15,7 @@ import type {
   Timeout,
   TimeoutSettings as CollieTimeoutSettings,
 } from "@goodfetch/collie-client";
-import type { FetchTier, URLPattern } from "./crawl.js";
+import type { FetchTier, LinkPattern } from "./crawl.js";
 import type { PolitenessSettings, SitePreferencesSettings } from "./politeness.js";
 
 /** `timeout.*`: Collie's phases and a crawl's own. */
@@ -33,9 +33,9 @@ export interface CrawlScopeSettings {
   /** Built-in: `same_hostname`, Crawlee's default. */
   readonly strategy?: CrawlScopeStrategy;
   /** Only URLs matching one of these, which must match as well as the strategy, never replacing it. */
-  readonly include?: readonly URLPattern[];
+  readonly include?: readonly LinkPattern[];
   /** No URL matching any of these. */
-  readonly exclude?: readonly URLPattern[];
+  readonly exclude?: readonly LinkPattern[];
 }
 
 /** `crawl.retry.*` (ADR 0093). */
@@ -87,7 +87,7 @@ export interface FetchSettings {
  */
 export interface KeptResponsesSettings {
   /** The URLs of the responses kept on a request's page from the start of its navigation, matched in the engine. Built-in: none. */
-  readonly urls?: readonly URLPattern[];
+  readonly urls?: readonly LinkPattern[];
   /** Bytes of kept bodies per attempt; a body past it reads as `body_unavailable`. Built-in: 16 MiB. */
   readonly maxSize?: number;
 }

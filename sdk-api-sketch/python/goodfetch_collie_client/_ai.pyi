@@ -29,6 +29,7 @@ from goodfetch_collie_client._results import ModelError, PageError, ProgramError
 from goodfetch_collie_client._time import Count, NotGiven, Timeout
 
 T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)
 L = TypeVar("L")
 
 StepSource: TypeAlias = Literal["plan", "model", "repair", "journal"] | str
@@ -57,10 +58,10 @@ class StepReport:
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class StepResult(Generic[T]):
+class StepResult(Generic[T_co]):
     """What every AI verb returns. A value of `output` is always complete; a failure raises."""
 
-    output: T
+    output: T_co
     step: StepReport
     usage: ModelUsage
     """The model calls this step made and their price (ADR 0101): none for a step replayed from the Plan."""
@@ -111,7 +112,9 @@ class AsyncAIVerbs:
         model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> StepResult[PerformedAction[AsyncLocator]]:
-        """Performs one action described in words; raises `TargetNotFoundError` when nothing on the page fits it.
+        """Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+
+        Performs one action described in words; raises `TargetNotFoundError` when nothing on the page fits it.
 
         `variables` are plain values for `%name%` placeholders; a placeholder no variable fills is a Secret placeholder,
         bound by the setting `secrets.<name>` (ADR 0092). The model, the Plan and the logs see only `%name%`. A
@@ -121,7 +124,9 @@ class AsyncAIVerbs:
     async def observe(
         self, instruction: str, *, model: ModelReference | NotGiven = ..., timeout: Timeout = ...
     ) -> StepResult[list[Observed[AsyncLocator]]]:
-        """Finds the elements an instruction describes, without acting. None is an answer: an empty list."""
+        """Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+
+        Finds the elements an instruction describes, without acting. None is an answer: an empty list."""
 
     @overload
     async def extract(
@@ -132,7 +137,11 @@ class AsyncAIVerbs:
         mode: ExtractMode | NotGiven = ...,
         model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
-    ) -> StepResult[T]: ...
+    ) -> StepResult[T]:
+        """Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+
+        Reads what the instruction describes as a value of `schema`, a type or a JSON Schema, in `extract.mode`
+        (`mode` for this call); a field not on the page raises `ExtractionIncompleteError`, naming it."""
     @overload
     async def extract(
         self,

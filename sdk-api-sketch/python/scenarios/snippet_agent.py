@@ -63,11 +63,13 @@ async def cheapest_five_star_travel_book() -> Answer | None:
 
 
 def report(result: AsyncAgentResult[Answer]) -> Answer | None:
-    """How the work ended, its Verdict and the model's claim are three separate fields (ADR 0079)."""
+    """How the work ended, its Verdict and the model's claim are three separate fields (ADR 0079); the answer sits in
+    how it ended (ADR 0117)."""
     if isinstance(result.ended, Stopped):
-        # `max_steps`, `no_progress` and `timeout` name the setting that stopped it in `source`; `limit` names the Limit.
+        # `max_steps`, `no_progress` and `timeout` name the setting that stopped it in `source`; `limit` names the Limit;
+        # `gave_up` is the model's own stop, its message in `reported`.
         claim = result.reported.claim if result.reported else None
-        log.warning("agent stopped (%s); partial %s; claimed %s", result.ended.reason, result.partial, claim)
+        log.warning("agent stopped (%s); partial %s; claimed %s", result.ended.reason, result.ended.partial, claim)
         return None
     if result.verdict != "verified":
         # `rejected`: the Success check failed after the model said done; `needs-review`: nothing proved it.

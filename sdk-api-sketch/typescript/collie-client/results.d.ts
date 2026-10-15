@@ -350,17 +350,21 @@ export declare class BlockedError extends PageError {
 /** A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`. */
 export type Verdict = "verified" | "rejected" | "needs-review" | (string & {});
 
-/** How AI work ended. A failed ending throws instead. */
-export type Ended =
-  | { readonly kind: "finished" }
-  | { readonly kind: "stopped"; readonly reason: StopReason };
+/**
+ * How AI work ended, holding its answer (ADR 0117). A failed ending throws instead. Narrow on `kind`:
+ * `finished` means the work ended with a complete output, done and accepted or a replay that reached
+ * its end; `stopped` holds why it ended early and what it gathered, typed as partial.
+ */
+export type Ended<T> =
+  | { readonly kind: "finished"; readonly output: T }
+  | { readonly kind: "stopped"; readonly reason: StopReason; readonly partial: PartialOf<T> };
 
 /**
- * Why AI work stopped early (ADRs 0079, 0080, 0100): a Limit by name, after which the Run stops too;
+ * Why AI work stopped early (ADRs 0079, 0080, 0100, 0117): a Limit by name, after which the Run stops too;
  * a timeout, the Agent's own `timeout.agent` or the Run's; the Agent's step cap (`agent.max_steps`) or
  * stall rule (`agent.max_stalled_steps`), which stop only the task; the Run's Model allowance
- * (`ai.allowance.*`, ADR 0107), which stops the task while the Run goes on; or an abort by someone
- * other than the caller. `source` names the setting, its value and its layer (G6).
+ * (`ai.allowance.*`, ADR 0107), which stops the task while the Run goes on; the model giving up; or an
+ * abort by someone other than the caller. `source` names the setting, its value and its layer (G6).
  */
 export type StopReason =
   | { readonly kind: "limit"; readonly limit: string }
@@ -369,6 +373,8 @@ export type StopReason =
   | { readonly kind: "no_progress"; readonly source: LimitSource }
   /** The Run's Model allowance is reached (ADR 0107): the task stops and the Run goes on; `source` names `ai.allowance.<kind>`. */
   | { readonly kind: "model_allowance"; readonly source: LimitSource }
+  /** The model reported that it gave up; `reported` holds its message (ADR 0117). */
+  | { readonly kind: "gave_up" }
   /** Who stopped it: a person in the Console, another Client, the program closing the page or the Run, or the browser closing the page outside every Client (ADR 0113). */
   | { readonly kind: "abort"; readonly by: "person" | "client" | "program" | "browser" | (string & {}) }
   | { readonly kind: "unknown"; readonly raw: string };
@@ -390,21 +396,21 @@ export type PartialOf<T> = T extends readonly (infer Element)[] ? readonly Eleme
  * `AgentResult` (ADR 0100) builds on it.
  */
 export interface AIWorkResult<T> {
-  readonly ended: Ended;
+  /**
+   * How the work ended, with its answer (ADR 0117): `finished` holds the `output`, a complete `T`;
+   * `stopped` holds its `reason` and the `partial` answer, so an early end is read in one place.
+   */
+  readonly ended: Ended<T>;
   readonly verdict: Verdict;
   /** Absent when no model claimed anything: the work stopped before a claim, or was replayed whole. */
   readonly reported: Reported | undefined;
-  /** Present only once the work finished with a complete `T`; a value of `T` is always complete. */
-  readonly output: T | undefined;
-  /** What was gathered before an early end, set only when `output` is not. */
-  readonly partial: PartialOf<T> | undefined;
-  /** Returns the output when the Verdict is `verified`; otherwise throws `NotVerifiedError`. */
+  /** Returns the output when the Verdict is `verified`, so only from `finished`; otherwise throws `NotVerifiedError`. */
   requireVerified(): T;
 }
 
 export interface NotVerifiedDetails {
   readonly verdict: Verdict;
-  readonly ended: Ended;
+  readonly ended: Ended<unknown>;
   readonly reported: Reported | undefined;
   /** Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects. */
   readonly reasons: readonly string[];

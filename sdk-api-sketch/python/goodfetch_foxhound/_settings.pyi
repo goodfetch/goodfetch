@@ -27,7 +27,7 @@ from goodfetch_collie_client import (
     SessionLoginSettings,
 )
 from goodfetch_collie_client._settings import SettingKey as CollieSettingKey
-from goodfetch_foxhound._crawl import FetchTier, URLPattern
+from goodfetch_foxhound._crawl import FetchTier, LinkPattern
 from goodfetch_foxhound._politeness import PolitenessSettings, SitePreferencesSettings
 
 class TimeoutSettings(TypedDict, total=False):
@@ -71,9 +71,9 @@ class CrawlScopeSettings(TypedDict, total=False):
 
     strategy: CrawlScopeStrategy
     """Built-in: `same_hostname`, Crawlee's default."""
-    include: list[URLPattern]
+    include: list[LinkPattern]
     """Only URLs matching one of these, which must match as well as the strategy, never replacing it."""
-    exclude: list[URLPattern]
+    exclude: list[LinkPattern]
     """No URL matching any of these."""
 
 class CrawlRetrySettings(TypedDict, total=False):
@@ -111,7 +111,7 @@ class KeptResponsesSettings(TypedDict, total=False):
     """`fetch.kept_responses.*` (ADR 0110), on a crawl's Run or its Labels. A Label that sets `urls` while forcing `http` or
     `browser_fetch` fails the Run's start with `setting_not_applicable`: those tiers run no script."""
 
-    urls: list[URLPattern]
+    urls: list[LinkPattern]
     """The URLs of the responses kept on a request's page from the start of its navigation, matched in the engine.
     Built-in: none."""
     max_size: int

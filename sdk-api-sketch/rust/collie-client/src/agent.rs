@@ -9,9 +9,10 @@
 //!   [`AgentCall::success_check`]. The engine runs it each time the model reports done; a failure
 //!   goes back to the model, and the Verdict reads its latest evaluation (ADR 0029).
 //! - The call resolves to an [`AgentResult`]: ADR 0079's three separate fields, the steps, their
-//!   [`ModelUsage`] (ADR 0101) and the page the task ended on. A step cap, a stall rule, the task's
-//!   timeout, a Limit and an abort are values: [`Ended::Stopped`] with its reason, and a Grounded
-//!   `partial`.
+//!   [`ModelUsage`] (ADR 0101) and the page the task ended on. The answer sits in how the task
+//!   ended (ADR 0117): [`Ended::Finished`] with a complete `output`; a step cap, a stall rule, the
+//!   task's timeout, a Limit, an abort and the model giving up are values, [`Ended::Stopped`] with
+//!   its reason and a Grounded `partial`.
 //! - [`AgentCall::start`] gives an [`AgentTask`] whose [`AgentTask::steps`] is a lossless
 //!   [`EventStream`] that starts at the task's first step (ADR 0081).
 //! - With the Run's Plan ([`crate::Start::plan`], ADR 0091), the task is one Plan entry, replayed
@@ -34,7 +35,7 @@ use crate::data::Schema;
 use crate::lifecycle::Page;
 use crate::models::{ModelReference, ModelUsage};
 use crate::page::Locator;
-use crate::results::{BoxError, Ended, Error, PartialOutput, Reported, Verdict};
+use crate::results::{BoxError, Ended, Error, Reported, Verdict};
 use crate::time::CallFuture;
 
 // Steps.
@@ -109,24 +110,21 @@ pub struct AgentStep {
 
 // The result and the task.
 
-/// What a task resolves to: ADR 0079's three separate fields, the output and what the task did.
-/// `output` is a valid `T` whose values Grounding found on the pages the task observed or in its
-/// Agent tools' results; a value it could not find leaves the Verdict at needs-review, naming the
-/// field.
+/// What a task resolves to: ADR 0079's three separate fields, the answer inside `ended`, and what
+/// the task did. [`Ended::Finished`]'s `output` is a valid `T` whose values Grounding found on the
+/// pages the task observed or in its Agent tools' results; a value it could not find leaves the
+/// Verdict at needs-review, naming the field.
 #[derive(Debug)]
 #[non_exhaustive]
 #[must_use = "the Verdict says whether the output is proven"]
 pub struct AgentResult<T> {
-    /// How the task ended: finished, or stopped with its reason.
-    pub ended: Ended,
+    /// How the task ended, holding its answer (ADR 0117): [`Ended::Finished`] with the complete
+    /// output, or [`Ended::Stopped`] with its reason and what was recorded before the stop.
+    pub ended: Ended<T>,
     /// Whether the Success check and the other checks prove it.
     pub verdict: Verdict,
     /// What the model claimed; `None` when the task stopped before it claimed anything.
     pub reported: Option<Reported>,
-    /// Present only once the task finished with a complete `T`.
-    pub output: Option<T>,
-    /// What was recorded before an early end, set only when `output` is not.
-    pub partial: Option<PartialOutput>,
     /// Every step, in order.
     pub steps: Vec<AgentStep>,
     /// The whole task's model calls and their price (ADR 0101).
@@ -143,8 +141,8 @@ impl<T> AgentResult<T> {
         unimplemented!()
     }
 
-    /// Returns the output when the Verdict is `Verified`; otherwise the error `not_verified`, with
-    /// every reason.
+    /// Returns the output when the Verdict is `Verified`, so only from [`Ended::Finished`];
+    /// otherwise the error `not_verified`, with every reason.
     pub fn require_verified(self) -> Result<T, Error> {
         unimplemented!()
     }
@@ -367,6 +365,8 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for AgentCall<T> {
 }
 
 impl Page {
+    /// Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+    ///
     /// Runs one task, to its end, with the built-in Agent, starting on this page.
     pub fn agent(&self, task: &str) -> AgentCall<()> {
         let _ = task;

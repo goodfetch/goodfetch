@@ -1,5 +1,9 @@
 """`goodfetch_collie_client` (ADR 0095): the Collie client package, one pure `py3-none-any` wheel with no executable.
 
+Where the main types live (ADR 0095): `goodfetch_collie_client` holds `Page`, `Locator`, `Run`, `Session` and the
+results and errors; `goodfetch_collie` holds `Collie`; `goodfetch_foxhound` holds `Foxhound`, `Crawl`, `Label`,
+`Dataset` and `CrawlContext`, and re-exports `goodfetch_collie_client`. An async class adds `Async`: `AsyncPage`.
+
 It holds the hand-written runtime, the generated layer of Collie's catalog and every value a Collie connection hands out
 (Runs, Sessions, Pages, Locators, results, errors, settings types). Programs import their Product's package,
 `goodfetch_collie` or `goodfetch_foxhound`, which re-exports this one; only a library meant to serve both Products

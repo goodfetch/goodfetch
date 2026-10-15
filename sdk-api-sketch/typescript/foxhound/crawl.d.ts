@@ -54,8 +54,12 @@ import type {
 import type { CrawlRunProgress, CrawlRunReport } from "./run.js";
 import type { CrawlRunSettings, LabelSettings, SettingKey } from "./settings.js";
 
-/** A URL pattern matched in the engine: a glob, or a regular expression in the Rust `regex` syntax (ADR 0081). No predicate: every link would cross the connection. */
-export type URLPattern = string | RegExp;
+/**
+ * A pattern a link or a sitemap entry is matched against in the engine: a glob, or a regular expression
+ * in the Rust `regex` syntax (ADR 0081). No predicate: every link would cross the connection. Not the
+ * web platform's `URLPattern` (ADR 0117).
+ */
+export type LinkPattern = string | RegExp;
 
 /**
  * The fetch tiers of ADR 0020. `auto`, the default, learns the tier per Label on a domain by sample
@@ -158,7 +162,7 @@ export interface Seed {
 /** Builds a seed, typed as `enqueue` is. */
 export declare function seed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, RequestShape>): Seed;
 /** One rule of a sitemap seed: URLs matching the pattern go to the Label, one without a Payload. The first rule that matches wins. */
-export type SitemapRule = readonly [pattern: URLPattern, label: Label<undefined>];
+export type SitemapRule = readonly [pattern: LinkPattern, label: Label<undefined>];
 /**
  * Seeds from a sitemap (ADR 0093; ADR 0037's CO-10): `url` is a sitemap, or a site's robots.txt
  * whose `Sitemap:` lines are read. Nested sitemap indexes are followed; an entry matching no rule
@@ -209,9 +213,9 @@ export interface EnqueueLinksOptions extends CallOptions {
   /** Higher first, within its domain (ADRs 0004, 0005). Default 0. */
   readonly priority?: number;
   /** Only links matching one of these, within the crawl's scope, which they narrow and never widen. */
-  readonly include?: readonly URLPattern[];
+  readonly include?: readonly LinkPattern[];
   /** No link matching any of these. */
-  readonly exclude?: readonly URLPattern[];
+  readonly exclude?: readonly LinkPattern[];
   /** At most this many links added: the first in document order, once `include` and `exclude` have filtered them. */
   readonly limit?: number;
 }
@@ -263,7 +267,12 @@ export interface EnqueuedLinks {
  */
 export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefined>> {
   readonly request: CrawlRequest<L>;
-  /** Collie's page (ADR 0085), with its AI verbs, fenced by the work item's lease and journaled. `page.session()` reaches cookies. */
+  /**
+   * Collie's page (ADR 0085), with its AI verbs, fenced by the work item's lease and journaled.
+   * `page.session()` reaches cookies. The request's navigation has already happened when the handler
+   * runs, so a route set here applies from the next navigation: to block whole resource types use
+   * `browser.block_resources`, and to act before the navigation a before-navigation Hook (ADR 0117).
+   */
   readonly page: Page;
   /** The main document's final response, after redirects; its body is always kept. */
   readonly response: Response;
@@ -313,11 +322,18 @@ export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefine
 }
 
 /**
- * Options of `startCrawl` (ADR 0102). `id`, `settings`, `timeout`, `limits` and `plan` are a Run's,
+ * Options of `startCrawl` (ADR 0102). `runId`, `settings`, `timeout`, `limits` and `plan` are a Run's,
  * with `StartOptions`' rules on a resume (time.d.ts).
  */
 export interface CrawlStartOptions {
-  readonly id?: string;
+  /**
+   * Names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or
+   * returns it as it ended (ADR 0102); a new ID starts a new Run.
+   *
+   * On a resume the seeds and the Plan file are inputs that must match (`RunConflictError`); left out,
+   * the engine generates one. `run.id()` reads it back.
+   */
+  readonly runId?: string;
   /** At least one. They define the crawl's scope, and on a resume they must match the Run's (`RunConflictError`). */
   readonly seeds: readonly Seed[];
   readonly settings?: CrawlRunSettings;
@@ -345,6 +361,12 @@ export interface RetryFailedOptions extends CallOptions {
   readonly blocked?: boolean;
 }
 
+/** Options of `failedRequests`, the same choice as `retryFailed`'s (ADR 0117). */
+export interface FailedRequestsOptions {
+  /** Read the requests whose latest outcome is `blocked` too. Built-in: false. */
+  readonly blocked?: boolean;
+}
+
 /** A crawl's Run (ADR 0102); its Records are ADR 0103's. Its handlers run from its start until it ends. */
 export interface CrawlRun extends Run {
   /** All the Run's settings when `keys` is left out, Foxhound's keys included. */
@@ -354,12 +376,21 @@ export interface CrawlRun extends Run {
   stop(options?: CallOptions): Promise<CrawlRunReport>;
   progress(): EventIterator<CrawlRunProgress>;
   /**
+   * Every ending in commit order, a request ending again after `retryFailed`: a log of endings, not
+   * current state; `failedRequests()` reads the current failures.
+   *
    * The crawl requests' outcomes, read from the Run's committed state in commit order from its first,
    * then following new commits until the Run ends. A reader of committed state, it never slows the
    * Run. A request `retryFailed` re-admits ends again, and its new outcome supersedes the old: key
    * outcomes by `request.id`.
    */
   outcomes(filter?: OutcomesFilter): EventIterator<CrawlRequestOutcome>;
+  /**
+   * The crawl requests whose latest outcome is `failed` (with `blocked: true`, also those whose latest
+   * is `blocked`), each as that outcome, read from committed state at the call and ending after what is
+   * committed: exactly what `retryFailed` with the same option would re-admit (ADR 0117). Never slows the Run.
+   */
+  failedRequests(options?: FailedRequestsOptions): EventIterator<CrawlRequestOutcome>;
   /**
    * Re-admits, in this same Run, every request that ended `failed` (and `blocked`, if asked), each
    * keeping its ID, Label, Payload and depth, its attempts counting on with a fresh `crawl.retry.max`.
@@ -396,7 +427,7 @@ export interface CrawlRun extends Run {
 }
 
 /** A crawl's Run read by a program that does not drive it, opened with `openCrawlRun` (ADR 0102). Its Records are read with the program's own Dataset handles; on a Run with no live writer, `records()` and `rejectedRecords()` end after the last committed Record, as `outcomes()` does. */
-export interface CrawlRunView extends RunView, Pick<CrawlRun, "outcomes" | "records" | "rejectedRecords" | "export"> {
+export interface CrawlRunView extends RunView, Pick<CrawlRun, "outcomes" | "failedRequests" | "records" | "rejectedRecords" | "export"> {
   progress(): EventIterator<CrawlRunProgress>;
   report(options?: CallOptions): Promise<CrawlRunReport>;
 }

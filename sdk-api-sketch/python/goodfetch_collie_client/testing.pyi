@@ -7,7 +7,8 @@ handlers and Hooks are Foxhound's (ADR 0084). It fits any test runner: plain val
 failures raised as `GoodfetchError`s, and assertions left to `assert` or the runner's own. No pytest plugin is needed: a
 fixture that yields a started `AsyncTestEngine` is three lines.
 
-- `ScriptedModel`: ADR 0069's Scripted model, a Model provider the test registers.
+- `ScriptedModel`: ADR 0069's Scripted model, a Model provider the test registers; `scripted_extraction` is a reply
+  that answers an `extract` call in either mode (ADR 0117).
 - `fake_error`: any `GoodfetchError`, for a test of the program's own error handling. Result values are generated
   models (ADRs 0038, 0082), so a test builds them with their constructors.
 """
@@ -27,13 +28,24 @@ class ScriptedModel:
     A retryable error reply is retried as a provider's (ADR 0101), the retry taking the next reply; a call beyond its
     replies raises `ScriptedModelExhaustedError`. Register it in `model_providers`, sync or async."""
 
-    def __init__(self, replies: Sequence[ModelResponse | GoodfetchError]) -> None: ...
+    def __init__(self, replies: Sequence[ModelResponse | ScriptedExtraction | GoodfetchError]) -> None: ...
     def __call__(self, request: ModelRequest) -> ModelResponse: ...
     @property
     def requests(self) -> Sequence[ModelRequest]:
         """Every request it answered, in order, for a test to check what the engine asked."""
     @property
     def remaining(self) -> int: ...
+
+@final
+class ScriptedExtraction:
+    """A Scripted model reply that answers one `extract` call, made by `scripted_extraction`."""
+
+def scripted_extraction(data: object) -> ScriptedExtraction:
+    """Answers one `extract` call in its active mode: under `model` with `data`; under `compiled` with the locators that
+    read `data` from the page, which the kit writes by finding each value on the page. A value not on the page gets no
+    locator, so the step raises `extraction_incomplete` naming the field, as a real compile would (ADRs 0105, 0117).
+
+    `data` is a JSON value or a Pydantic model, dumped in JSON mode."""
 
 def fake_error(error_class: type[E], *, message: str = ..., details: object = ...) -> E:
     """Builds the error a call would raise: its class, group, retryable flag and details, for a test of the program's own

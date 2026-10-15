@@ -12,6 +12,7 @@ from goodfetch_foxhound import (
     AsyncFoxhound,
     AsyncPageStageContext,
     AsyncRecordCommitContext,
+    AsyncRoute,
     ProxyAnswer,
     ProxyRequest,
     RequestChange,
@@ -63,6 +64,22 @@ async def soft_block(ctx: AsyncAfterResponseContext[object]) -> None:
 @crawl.page_ready()
 async def trace(ctx: AsyncPageStageContext[object]) -> None:
     log.debug("handling %s (%s) on %s", ctx.request.url, ctx.request.label.name, ctx.tier)
+
+
+async def drop_images_and_fonts(route: AsyncRoute) -> None:
+    if route.request.resource_type in ("image", "font"):
+        await route.abort("blockedbyclient")
+    else:
+        await route.fallback()
+
+
+# Before navigation, golden scenario 06's former Hook: it runs only where a browser navigates, so unscoped it covers
+# every browser page, a sample comparison of an HTTP Label's page included. Whole resource types are the setting
+# `browser.block_resources` (ADR 0117), as scenario 06 now does; a route set here is for finer blocking, by URL or by
+# anything else the request shows.
+@crawl.before_navigation(name="no-images-or-fonts")
+async def block_images_and_fonts(ctx: AsyncPageStageContext[object]) -> None:
+    ctx.page.route("**/*", drop_images_and_fonts)
 
 
 # Before a Record's commit, scoped by Dataset: it sees and returns the Dataset's Record type.

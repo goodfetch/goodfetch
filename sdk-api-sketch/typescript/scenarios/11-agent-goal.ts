@@ -8,12 +8,8 @@ type Answer = z.infer<typeof Answer>;
 /** How the work ended, with what it found. */
 type Outcome =
   | { readonly ended: "verified"; readonly answer: Answer }
-  | { readonly ended: "reported"; readonly claim: string; readonly answer: Answer | undefined }
-  | {
-      readonly ended: "stopped";
-      readonly reason: StopReason;
-      readonly partial: Partial<Answer> | undefined;
-    };
+  | { readonly ended: "reported"; readonly claim: string; readonly answer: Answer }
+  | { readonly ended: "stopped"; readonly reason: StopReason; readonly partial: Partial<Answer> };
 
 // No telemetry exists to switch off: only the site and the model's provider are reached (ADR 0043).
 await using collie = await Collie.connect(); // Anthropic's key: env:ANTHROPIC_API_KEY, sent only to Anthropic
@@ -42,9 +38,10 @@ const result = await page.agent(
 await run.finish();
 console.log(outcome(result));
 
+// The answer sits in `ended`: `finished` holds the output, `stopped` its reason and the Grounded partial.
 function outcome(result: AgentResult<Answer>): Outcome {
-  if (result.ended.kind === "stopped")
-    return { ended: "stopped", reason: result.ended.reason, partial: result.partial };
+  const ended = result.ended;
+  if (ended.kind === "stopped") return { ended: "stopped", reason: ended.reason, partial: ended.partial };
   if (result.verdict === "verified") return { ended: "verified", answer: result.requireVerified() };
-  return { ended: "reported", claim: result.reported?.claim ?? "none", answer: result.output };
+  return { ended: "reported", claim: result.reported?.claim ?? "none", answer: ended.output };
 }

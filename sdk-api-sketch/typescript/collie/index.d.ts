@@ -1,3 +1,8 @@
+// Where the main types live (ADR 0095): this package, `@goodfetch/collie`, holds `Collie`; the Collie
+// client package it re-exports, `@goodfetch/collie-client`, holds `Page`, `Locator`, `Run`, `Session`
+// and the results and errors; `@goodfetch/foxhound` holds `Foxhound`, `Crawl`, `Label`, `Dataset`
+// and `CrawlContext`.
+//
 // `@goodfetch/collie` (ADRs 0090, 0095): Collie's TypeScript SDK and its `goodfetch-collie` bin. It
 // re-exports the Collie client package, whose values (Run, Session, Page, errors) a Foxhound handler
 // gets too, and adds the connection, which finds Collie's executable through its own platform
@@ -31,8 +36,14 @@ export declare class Collie implements Connection {
   engine(): EngineInfo;
   /** The install's Saved identities (ADR 0092). */
   readonly identities: Identities;
+  /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+   *
+   * Starts a Run and returns once it is started; a `runId` naming an existing Run resumes it or
+   * returns it as it ended (ADR 0102), as `Connection.start` says. Fails with `model_price_unknown` when a currency Limit or `ai.allowance.price` applies and the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
+   */
   start(options?: StartOptions): Promise<Run>;
-  openRun(id: string, options?: CallOptions): Promise<RunView>;
+  openRun(runId: string, options?: CallOptions): Promise<RunView>;
   /** Cancels in-flight calls, closes every Run it opened and ends every borrow; stops an Attached engine, only disconnects from a Daemon. */
   close(options?: CallOptions): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;

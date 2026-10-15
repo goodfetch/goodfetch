@@ -172,6 +172,12 @@ class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRun
     @property
     def id(self) -> str:
         """Chosen by the program at the start, or generated: it names this Run for good."""
+    async def close(self, *, timeout: Timeout = ...) -> None:
+        """Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+
+        Idempotent; leaving `async with` calls it. A Run not yet ended stops at its next safe point, `stopped` and
+        resumable by starting its ID again (ADRs 0078, 0102); one that ended is only released. Its timeout is the close
+        phase's; any later call on the Run fails with the Error code `closed`."""
     async def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @property
@@ -227,19 +233,26 @@ class AsyncConnection(_AsyncCloseable, _AsyncExplainsSettings, AsyncRawCall):
     async def start(
         self,
         *,
-        id: str | None = None,
+        run_id: str | None = None,
         settings: RunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
         recording: Recording | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started (ADR 0102).
+        """Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
 
-        `id` names the Run for good in the Run index; left out, the engine generates one. A start whose `id` names an
-        existing Run with the same inputs resumes it if interrupted (`started_as` is `resumed`) or returns it as it is if
-        it finished (`ended`); it raises `RunInUseError` if the Run is live, `RunConflictError` for other inputs,
-        `LimitReachedError` if a used-up Limit stopped it, and `RunStateUnavailableError` if its state is gone.
+        Starts a Run and returns once it is started (ADR 0102).
+
+        `run_id` names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or
+        returns it as it ended (ADR 0102); a new ID starts a new Run. Left out, the engine generates one. A start whose
+        `run_id` names an existing Run with the same inputs resumes it if interrupted (`started_as` is `resumed`) or
+        returns it as it is if it finished (`ended`); it raises `RunInUseError` if the Run is live, `RunConflictError`
+        for other inputs, `LimitReachedError` if a used-up Limit stopped it, and `RunStateUnavailableError` if its state
+        is gone.
+
+        Fails with `model_price_unknown` (`ModelPriceUnknownError`) when a currency Limit or `ai.allowance.price` applies
+        and the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
         On expiry the Run stops with a Checkpoint, resumable; a resume's clock starts afresh. On a resume, `limits` are
@@ -253,7 +266,7 @@ class AsyncConnection(_AsyncCloseable, _AsyncExplainsSettings, AsyncRawCall):
         `recording` is the Run's Response recording (ADR 0105), an input like `plan`, read and written here: `replay`
         answers every request from it and sends none, `record` writes what the Run received when it ends.
         """
-    async def open_run(self, id: str, *, timeout: Timeout = ...) -> AsyncRunView[RunReport, RunProgress]:
+    async def open_run(self, run_id: str, *, timeout: Timeout = ...) -> AsyncRunView[RunReport, RunProgress]:
         """Opens a Run by its ID to read it, never to drive it: a detached Run, another program's, or one that ended.
         Raises `RunNotFoundError`."""
 
@@ -299,6 +312,10 @@ class Run(_Closeable, _ExplainsSettings, RunEvents, RunControl[RunReport, RunPro
 
     @property
     def id(self) -> str: ...
+    def close(self, *, timeout: Timeout = ...) -> None:
+        """Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+
+        `AsyncRun.close` in the sync API; leaving `with` calls it."""
     def usage(self, *, timeout: Timeout = ...) -> RunUsage:
         """The Run's Usage so far, priced, with what remains of each Limit and the uncapped mark (ADR 0101)."""
     @property
@@ -336,19 +353,26 @@ class Connection(_Closeable, _ExplainsSettings, RawCall):
     def start(
         self,
         *,
-        id: str | None = None,
+        run_id: str | None = None,
         settings: RunSettings = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
         recording: Recording | None = None,
     ) -> Run:
-        """Starts a Run and returns once it is started (ADR 0102).
+        """Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
 
-        `id` names the Run for good in the Run index; left out, the engine generates one. A start whose `id` names an
-        existing Run with the same inputs resumes it if interrupted (`started_as` is `resumed`) or returns it as it is if
-        it finished (`ended`); it raises `RunInUseError` if the Run is live, `RunConflictError` for other inputs,
-        `LimitReachedError` if a used-up Limit stopped it, and `RunStateUnavailableError` if its state is gone.
+        Starts a Run and returns once it is started (ADR 0102).
+
+        `run_id` names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or
+        returns it as it ended (ADR 0102); a new ID starts a new Run. Left out, the engine generates one. A start whose
+        `run_id` names an existing Run with the same inputs resumes it if interrupted (`started_as` is `resumed`) or
+        returns it as it is if it finished (`ended`); it raises `RunInUseError` if the Run is live, `RunConflictError`
+        for other inputs, `LimitReachedError` if a used-up Limit stopped it, and `RunStateUnavailableError` if its state
+        is gone.
+
+        Fails with `model_price_unknown` (`ModelPriceUnknownError`) when a currency Limit or `ai.allowance.price` applies
+        and the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
         On expiry the Run stops with a Checkpoint, resumable; a resume's clock starts afresh. On a resume, `limits` are
@@ -359,7 +383,7 @@ class Connection(_Closeable, _ExplainsSettings, RawCall):
         `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
         written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
-    def open_run(self, id: str, *, timeout: Timeout = ...) -> RunView[RunReport, RunProgress]: ...
+    def open_run(self, run_id: str, *, timeout: Timeout = ...) -> RunView[RunReport, RunProgress]: ...
 
 @final
 class BorrowRequiresCDPError(ProgramError):

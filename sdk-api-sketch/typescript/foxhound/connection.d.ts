@@ -50,19 +50,25 @@ export declare class Foxhound implements Connection {
   engine(): EngineInfo;
   /** The install's Saved identities (ADR 0092). */
   readonly identities: Identities;
-  /** Collie's Run start (ADR 0102), unchanged: a Run with no crawl. */
-  start(options?: StartOptions): Promise<Run>;
-  openRun(id: string, options?: CallOptions): Promise<RunView>;
   /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+   *
+   * Collie's Run start (ADR 0102), unchanged: a Run with no crawl. Fails with `model_price_unknown` when a currency Limit or `ai.allowance.price` applies and the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
+   */
+  start(options?: StartOptions): Promise<Run>;
+  openRun(runId: string, options?: CallOptions): Promise<RunView>;
+  /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+   *
    * Starts a Run of the crawl from its seeds and returns once it is started; its handlers run from
-   * then on (ADR 0102, Firecrawl's `start_crawl`). An `id` naming an existing Run behaves as
+   * then on (ADR 0102, Firecrawl's `start_crawl`). A `runId` naming an existing Run behaves as
    * `start`'s does, the seeds and the Plan file being inputs that must match. Throws
    * `LabelUnhandledError` when a Label has no handler, and `LabelUnknownError` when a resumed Run
-   * has pending requests of a Label no longer declared (ADR 0093).
+   * has pending requests of a Label no longer declared (ADR 0093). Fails with `model_price_unknown` when a currency Limit or `ai.allowance.price` applies and the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
    */
   startCrawl(crawl: Crawl, options: CrawlStartOptions): Promise<CrawlRun>;
-  /** Opens a crawl's Run by its ID to read it, as `openRun` does, with its outcomes, Records and Exports. */
-  openCrawlRun(id: string, options?: CallOptions): Promise<CrawlRunView>;
+  /** Opens a crawl's Run by its Run ID to read it, as `openRun` does, with its outcomes, Records and Exports. */
+  openCrawlRun(runId: string, options?: CallOptions): Promise<CrawlRunView>;
   /** Cancels in-flight calls, closes every Run it opened and ends every borrow; stops an Attached engine, only disconnects from a Daemon. */
   close(options?: CallOptions): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;

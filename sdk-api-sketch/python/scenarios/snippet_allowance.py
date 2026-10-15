@@ -106,7 +106,7 @@ async def on_any_book(ctx: AsyncCrawlContext[None]) -> None:
 
 
 # An Agent's task ends as a value when the allowance is reached, and the Run goes on.
-async def agent_stops(page: AsyncPage) -> Stopped | None:
+async def agent_stops(page: AsyncPage) -> Stopped[None] | None:
     result = await page.agent("add the cheapest poetry book to the basket").result()
     if isinstance(result.ended, Stopped) and result.ended.reason == "model_allowance":
         log.warning("the Model allowance stopped the task: %s", result.ended.source)

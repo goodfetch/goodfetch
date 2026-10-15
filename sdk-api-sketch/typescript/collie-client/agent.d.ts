@@ -8,8 +8,8 @@
 //   it each time the model reports done; a failure goes back to the model, and the Verdict reads its
 //   latest evaluation (ADR 0029). A model's "done" is a signal, never proof (ADR 0013).
 // - The result is ADR 0079's `AIWorkResult` plus the steps, their `ModelUsage` (ADR 0101) and the
-//   page the task ended on. A step cap, a stall rule, the task's timeout, a Limit and an abort are
-//   values: `ended: stopped` with its reason, and a Grounded `partial`.
+//   page the task ended on. A step cap, a stall rule, the task's timeout, a Limit, the model giving
+//   up and an abort are values: `ended: stopped` with its reason and a Grounded `partial` (ADR 0117).
 // - The steps are a lossless sequence that starts at the task's first step (ADR 0081).
 // - With the Run's `plan` (ADR 0091), the task is one Plan entry, replayed whole with no model call
 //   (before each Effect, its target and the targets the recorded run saw before it on open pages are
@@ -81,11 +81,12 @@ export interface AgentStep {
 // The result and the task handle.
 
 /**
- * What a task returns: ADR 0079's three separate fields (`ended`, `verdict`, `reported`), the output,
- * and what the task did. `output` is a valid `T` whose values Grounding found on the pages the task
- * observed or in its Agent tools' results; a value it could not find leaves the Verdict at
- * `needs-review`, naming the field. A task replayed whole ends `finished` once its Success check
- * ran, with no `reported`, since no model claimed anything.
+ * What a task returns: ADR 0079's three separate fields (`ended`, `verdict`, `reported`), the answer
+ * inside `ended` (ADR 0117), and what the task did. `ended.output`, on `finished`, is a valid `T` whose
+ * values Grounding found on the pages the task observed or in its Agent tools' results; a value it
+ * could not find leaves the Verdict at `needs-review`, naming the field. A model that gives up ends
+ * `stopped` with the reason `gave_up` and its `partial`. A task replayed whole ends `finished` once its
+ * Success check ran, with no `reported`, since no model claimed anything.
  */
 export interface AgentResult<T> extends AIWorkResult<T> {
   /** Every step, in order. */
@@ -219,9 +220,17 @@ export interface AgentOptions extends CallOptions {
 
 /** The Agent, on a page. */
 export interface AgentAPI {
-  /** Runs one task with an output in the schema's type. */
+  /**
+   * Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+   *
+   * Runs one task with an output in the schema's type, read from `ended` (ADR 0117).
+   */
   agent<S extends Schema>(task: string, options: AgentOptions & { readonly schema: S }): AgentTask<SchemaOutput<S>>;
-  /** Runs one task whose answer is the page it leaves; the model's message is in `reported`. */
+  /**
+   * Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+   *
+   * Runs one task whose answer is the page it leaves; the model's message is in `reported`.
+   */
   agent(task: string, options?: AgentOptions): AgentTask<undefined>;
 }
 

@@ -1,5 +1,9 @@
 """`goodfetch_collie` (ADRs 0090, 0095): Collie's Python SDK and its `goodfetch-collie` executable.
 
+Where the main types live (ADR 0095): `goodfetch_collie_client` holds `Page`, `Locator`, `Run`, `Session` and the
+results and errors; `goodfetch_collie` holds `Collie`; `goodfetch_foxhound` holds `Foxhound`, `Crawl`, `Label`,
+`Dataset` and `CrawlContext`, and re-exports `goodfetch_collie_client`. An async class adds `Async`: `AsyncPage`.
+
 It re-exports the Collie client package, whose values (Run, Session, Page, errors) a Foxhound handler gets too, and adds
 the connection, which finds Collie's executable in its own wheel and reads only `GOODFETCH_COLLIE_ENGINE_PATH` (ADR
 0090).

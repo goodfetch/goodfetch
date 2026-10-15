@@ -274,7 +274,7 @@ class AsyncRunControl(Generic[_Report, _Progress]):
         If something stops the Run first (a Limit, its timeout, a person, the engine), the report says `stopped`. Its
         wait has no timeout of its own: the Run's own bounds it, and a `timeout` given here, or cancelling the task,
         ends only the wait. A failed write of the Plan file or the Response recording raises `PathNotWritableError` or
-        `FileWriteFailedError` once the Run has ended; `open_run(id).report()` reads its report, which keeps a warning
+        `FileWriteFailedError` once the Run has ended; `open_run(run_id).report()` reads its report, which keeps a warning
         naming the code (ADR 0116).
         """
     async def stop(self, *, timeout: Timeout = ...) -> _Report:

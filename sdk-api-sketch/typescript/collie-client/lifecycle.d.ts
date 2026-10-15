@@ -164,10 +164,19 @@ export interface NewSessionOptions extends CallOptions {
 }
 
 /**
+ * Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+ *
  * A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it
- * with a Checkpoint, resumable by starting its ID again (ADR 0102).
+ * with a Checkpoint, resumable by starting its Run ID again (ADRs 0078, 0102).
  */
 export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage, RunControl, RawCall, DeclaresEffects {
+  /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+   *
+   * Idempotent. An unfinished Run stops `stopped`, resumable by its Run ID. Closes children first; any later call on this Run fails with the Error code `closed`.
+   * Its timeout is the close phase's. `await using` calls it when the scope is left (ADR 0078).
+   */
+  close(options?: CallOptions): Promise<void>;
   /** Chosen by the program at the start, or generated: it names this Run for good. Read without a round trip. */
   id(): string;
   /**

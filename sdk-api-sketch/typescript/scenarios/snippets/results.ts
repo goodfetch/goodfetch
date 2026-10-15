@@ -45,7 +45,8 @@ export async function outcomesAreValues(): Promise<Record<string, number>> {
 }
 
 export function aiWork(): { title: string; price: number } {
-  if (task.ended.kind === "stopped") log.warn("stopped", { reason: task.ended.reason, partial: task.partial });
+  // The answer is inside `ended`: `finished` carries `output`, `stopped` its `reason` and `partial` (ADR 0117).
+  if (task.ended.kind === "stopped") log.warn("stopped", { reason: task.ended.reason, partial: task.ended.partial });
   log.info(task.verdict, { claim: task.reported?.claim }); // the model's claim is a signal, never proof; absent if it made none
   return task.requireVerified(); // the output, or a NotVerifiedError carrying the Verdict
 }

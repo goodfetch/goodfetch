@@ -111,11 +111,23 @@ export interface ExtractOptions extends AICallOptions {
  * Plan sends nothing to a model and is not refused (ADRs 0085, 0091).
  */
 export interface AIVerbs {
-  /** Performs one action described in words. Throws `TargetNotFoundError` when nothing on the page fits it. */
+  /**
+   * Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+   *
+   * Performs one action described in words. Throws `TargetNotFoundError` when nothing on the page fits it.
+   */
   act(instruction: string, options?: ActOptions): Promise<StepResult<PerformedAction>>;
-  /** Finds the elements an instruction describes, without acting. None is an answer: an empty list. */
+  /**
+   * Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+   *
+   * Finds the elements an instruction describes, without acting. None is an answer: an empty list.
+   */
   observe(instruction: string, options?: AICallOptions): Promise<StepResult<Observed[]>>;
-  /** Reads typed data. A required field not on the page throws `ExtractionIncompleteError`. */
+  /**
+   * Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+   *
+   * Reads typed data. A required field not on the page throws `ExtractionIncompleteError`.
+   */
   extract<S extends Schema>(instruction: string, schema: S, options?: ExtractOptions): Promise<StepResult<SchemaOutput<S>>>;
 }
 

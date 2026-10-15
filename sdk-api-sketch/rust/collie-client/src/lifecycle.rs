@@ -148,12 +148,14 @@ pub struct Start {
 }
 
 impl Start {
-    /// The Run's ID, which names it for good in the Run index (ADR 0031); left out, the engine
-    /// generates one. A start that names an existing Run resumes it or returns it ended, so a program
-    /// run again under its ID carries on where it stopped. One the engine refuses fails with
-    /// `run_id_invalid`.
-    pub fn id(self, id: impl Into<String>) -> Self {
-        let _ = id.into();
+    /// Names the Run for good: a start with an existing Run ID resumes the Run if it was
+    /// interrupted, or returns it as it ended (ADR 0102); a new ID starts a new Run.
+    ///
+    /// The Run ID names it in the Run index (ADR 0031); left out, the engine generates one. A
+    /// program run again under its Run ID carries on where it stopped. One the engine refuses fails
+    /// with `run_id_invalid`.
+    pub fn run_id(self, run_id: impl Into<String>) -> Self {
+        let _ = run_id.into();
         unimplemented!()
     }
 
@@ -233,7 +235,10 @@ impl Run {
         unimplemented!()
     }
 
-    /// Stops the Run if unfinished, after closing its children. Idempotent.
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+    ///
+    /// Stops the Run if unfinished, after closing its children, resumable by starting its Run ID
+    /// again (ADRs 0078, 0102). Idempotent.
     pub fn close(&self) -> Call<()> {
         unimplemented!()
     }

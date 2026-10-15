@@ -35,18 +35,19 @@ use crate::page::{Locator, Response};
 use crate::results::{BoxError, Error};
 use crate::time::{Call, CallFuture, Limits, UrlMatcher};
 
-/// A URL pattern matched in the engine (ADR 0081). No predicate: every link would cross the
-/// connection.
+/// A pattern a link or a sitemap entry is matched against in the engine: a glob, or a regular
+/// expression in the Rust `regex` syntax (ADR 0081). No predicate: every link would cross the
+/// connection. Not the web platform's `URLPattern` (ADR 0117).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum UrlPattern {
+pub enum LinkPattern {
     /// A glob, such as `**/catalogue/category/**`.
     Glob(String),
     /// A regular expression in the Rust `regex` syntax.
     Regex(String),
 }
 
-impl From<&str> for UrlPattern {
+impl From<&str> for LinkPattern {
     fn from(glob: &str) -> Self {
         Self::Glob(glob.to_owned())
     }
@@ -285,7 +286,7 @@ impl Seed {
     /// ADR 0037's CO-10). The first rule whose pattern matches picks the Label, one without a
     /// Payload; an entry matching none is not added and is reported as `no_rule`, and nested
     /// sitemap indexes are followed. Its entries are checked against the scope at depth 0.
-    pub fn sitemap(url: &str, rules: impl IntoIterator<Item = (UrlPattern, Label<()>)>) -> Self {
+    pub fn sitemap(url: &str, rules: impl IntoIterator<Item = (LinkPattern, Label<()>)>) -> Self {
         let _ = (url, rules.into_iter());
         unimplemented!()
     }
@@ -378,6 +379,11 @@ impl<P> CrawlContext<P> {
     }
 
     /// Collie's page (ADR 0085), with its AI verbs, fenced by the work item's lease and journaled.
+    ///
+    /// The request's navigation has already happened when the handler runs, so a route set here
+    /// applies from the next navigation: to block whole resource types use the setting
+    /// `browser.block_resources`, and to act before the navigation a before-navigation Hook
+    /// ([`Crawl::before_navigation`]) (ADR 0117).
     pub fn page(&self) -> &Page {
         unimplemented!()
     }
@@ -601,13 +607,13 @@ pub struct EnqueueLinks {
 
 impl EnqueueLinks {
     /// Only links matching one of these, within the crawl's scope, which they narrow and never widen.
-    pub fn include(self, patterns: impl IntoIterator<Item = UrlPattern>) -> Self {
+    pub fn include(self, patterns: impl IntoIterator<Item = LinkPattern>) -> Self {
         let _ = patterns.into_iter();
         unimplemented!()
     }
 
     /// No link matching any of these.
-    pub fn exclude(self, patterns: impl IntoIterator<Item = UrlPattern>) -> Self {
+    pub fn exclude(self, patterns: impl IntoIterator<Item = LinkPattern>) -> Self {
         let _ = patterns.into_iter();
         unimplemented!()
     }
@@ -705,9 +711,12 @@ pub struct StartCrawl {
 }
 
 impl StartCrawl {
-    /// The Run's ID, as [`crate::Start::id`]'s.
-    pub fn id(self, id: impl Into<String>) -> Self {
-        let _ = id.into();
+    /// Names the Run for good: a start with an existing Run ID resumes the Run if it was
+    /// interrupted, or returns it as it ended (ADR 0102); a new ID starts a new Run.
+    ///
+    /// As [`crate::Start::run_id`]'s, the seeds and the Plan file being inputs that must match.
+    pub fn run_id(self, run_id: impl Into<String>) -> Self {
+        let _ = run_id.into();
         unimplemented!()
     }
 

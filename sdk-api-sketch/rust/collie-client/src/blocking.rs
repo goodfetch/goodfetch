@@ -73,9 +73,12 @@ pub struct Start {
 }
 
 impl Start {
-    /// The Run's ID, as [`crate::Start::id`]'s.
-    pub fn id(self, id: impl Into<String>) -> Self {
-        let _ = id.into();
+    /// Names the Run for good: a start with an existing Run ID resumes the Run if it was
+    /// interrupted, or returns it as it ended (ADR 0102); a new ID starts a new Run.
+    ///
+    /// As [`crate::Start::run_id`]'s.
+    pub fn run_id(self, run_id: impl Into<String>) -> Self {
+        let _ = run_id.into();
         unimplemented!()
     }
 
@@ -109,6 +112,8 @@ impl Run {
         unimplemented!()
     }
 
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+    ///
     /// Stops the Run if unfinished. Idempotent.
     pub fn close(&self) -> Call<()> {
         unimplemented!()

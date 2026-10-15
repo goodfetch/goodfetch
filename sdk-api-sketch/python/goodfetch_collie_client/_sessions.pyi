@@ -47,6 +47,8 @@ class ReferenceBinding(TypedDict):
 
     reference: SecretReference
     domains: Sequence[str]
+    """Registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with
+    `setting_invalid`, whose fix names its registrable domain (ADR 0117)."""
     totp: NotRequired[bool]
     """The reference holds a TOTP seed: the engine types the current code. A vault that makes codes itself needs no
     flag."""
@@ -57,6 +59,8 @@ class CodeSourceBinding(TypedDict):
 
     code_source: str
     domains: Sequence[str]
+    """Registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with
+    `setting_invalid`, whose fix names its registrable domain (ADR 0117)."""
 
 SecretBinding: TypeAlias = ReferenceBinding | CodeSourceBinding
 """Set by the program's own code, configuration or an Operator policy, at the connection, a Run or a Session, nearest
@@ -110,6 +114,8 @@ class StateFileSource(TypedDict):
     key: NotRequired[SecretReference]
     """Opens a session export bundle (ADR 0015)."""
     domains: NotRequired[Sequence[str]]
+    """Registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with
+    `setting_invalid`, whose fix names its registrable domain (ADR 0117)."""
 
 class CookieHeaderSource(TypedDict):
     kind: Literal["cookie_header"]
@@ -122,23 +128,31 @@ class ProfileDirectorySource(TypedDict):
     browser: BrowserName
     chromium_profile: NotRequired[str]
     domains: Sequence[str]
+    """Registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with
+    `setting_invalid`, whose fix names its registrable domain (ADR 0117)."""
 
 class InstalledBrowserSource(TypedDict):
     kind: Literal["installed_browser"]
     browser: BrowserName
     chromium_profile: NotRequired[str]
     domains: Sequence[str]
+    """Registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with
+    `setting_invalid`, whose fix names its registrable domain (ADR 0117)."""
 
 class RunningBrowserSource(TypedDict):
     kind: Literal["running_browser"]
     browser: BrowserName
     domains: Sequence[str]
+    """Registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with
+    `setting_invalid`, whose fix names its registrable domain (ADR 0117)."""
 
 class CDPURLSource(TypedDict):
     kind: Literal["cdp_url"]
     url: str
     headers: NotRequired[Mapping[str, SecretReference]]
     domains: NotRequired[Sequence[str]]
+    """Registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with
+    `setting_invalid`, whose fix names its registrable domain (ADR 0117)."""
     exclusive: NotRequired[bool]
     """Nothing else drives this browser, so secrets may be typed into it (ADR 0056). Left out, the program awaits each
     Collie call before its other code acts on the page, and an AI verb whose document a navigation it did not start

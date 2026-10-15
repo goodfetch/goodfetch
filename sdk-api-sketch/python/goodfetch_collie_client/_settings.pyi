@@ -119,6 +119,11 @@ class BrowserSettings(TypedDict, total=False):
     (ADR 0092)."""
     permissions: Sequence[Permission]
     """`browser.permissions`: granted to every page of the Session; none by default, no setter later (ADR 0092)."""
+    block_resources: Sequence[Literal["image", "media", "font", "stylesheet"] | str]
+    """`browser.block_resources`: resource types the engine's interception blocks on every page of the Session, before
+    any navigation, so every browser fetch of a crawl is covered (ADRs 0047, 0117); none by default. Set directly on a
+    Label whose `fetch.tier` runs no browser, it is refused with `setting_not_applicable`. In the `standard` and
+    `stealth` Access modes it warns once, since a site can see the missing loads."""
 
 class NetworkThrottle(TypedDict):
     """Emulated network conditions, which Playwright closed as not planned (#8622)."""
@@ -271,6 +276,7 @@ SettingKey: TypeAlias = Literal[
     "browser.geolocation",
     "browser.headless",
     "browser.permissions",
+    "browser.block_resources",
     "network.throttle",
     "effect.output.max_size",
     "politeness.proxy.concurrency",

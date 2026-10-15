@@ -1,4 +1,4 @@
-//! Golden scenario 07: the crawl of scenario 05 under an ID of the program's choosing. Run it,
+//! Golden scenario 07: the crawl of scenario 05 under a Run ID of the program's choosing. Run it,
 //! kill it, run it again: the start resumes the Run; once crawled, it retries only the failed
 //! requests; a third run finds the Run ended and says so.
 
@@ -70,11 +70,11 @@ async fn crawl_to_end(
 
 async fn resume_and_retry(foxhound: &Foxhound) -> Result<(), Error> {
     let declared = two_page_crawl::books_crawl()?;
-    // The same ID begins the Run, resumes it after a kill, or returns it ended. A changed program
+    // The same Run ID begins the Run, resumes it after a kill, or returns it ended. A changed program
     // (seeds, a Label gone, a Payload schema changed) or a damaged run file fails with its code.
     let run = foxhound
         .start_crawl(&declared.crawl, declared.seeds())
-        .id(RUN_ID)
+        .run_id(RUN_ID)
         .await?;
     println!("run {}: {:?}", run.id(), run.started_as());
 

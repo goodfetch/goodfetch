@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// A Collie program safe to run again after a crash: the Run is named, so a start under the same
 /// ID resumes it, and the order placed before the crash comes back from the Effect journal.
 async fn place_order(foxhound: &Foxhound, sku: &str) -> Result<Option<String>, Error> {
-    let run: Run = foxhound.start().id(format!("order-{sku}")).await?;
+    let run: Run = foxhound.start().run_id(format!("order-{sku}")).await?;
     let page = run.new_page().await?;
     page.goto(&format!("https://shop.example/products/{sku}")).await?;
     page.get_by_role(AriaRole::Button.name("Add to cart")).click().await?; // not declared: adding twice is harmless here
@@ -116,7 +116,7 @@ async fn contact_sellers(foxhound: &Foxhound, emails: Vec<String>) -> Result<(),
         .enumerate()
         .map(|(i, email)| Seed::new(&format!("https://market.example/listings/{i}"), &listing, Seller { email }))
         .collect();
-    let run = foxhound.start_crawl(&crawl, seeds).id("contact-2026-10-15").await?;
+    let run = foxhound.start_crawl(&crawl, seeds).run_id("contact-2026-10-15").await?;
     let report = crawl.serve(&run).await?;
     for uncertain in &report.uncertain_effects {
         let _ = (&uncertain.effect.key, uncertain.request.as_ref().map(|request| &request.url)); // needs a person

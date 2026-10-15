@@ -49,13 +49,15 @@ export interface Connection extends Closeable, ExplainsSettings, RawCall {
   /** The install's Saved identities (ADR 0092): a sub-object reached without I/O. */
   readonly identities: Identities;
   /**
-   * Starts a Run and returns once it is started (ADR 0102). With an `id` that names an existing Run
+   * Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+   *
+   * Starts a Run and returns once it is started (ADR 0102). With a `runId` that names an existing Run
    * with the same inputs: resumes it if interrupted (`startedAs()` is `"resumed"`), returns it as it
    * is if it finished (`"ended"`), or throws `RunInUseError` if it is live, `RunConflictError` for
    * other inputs, `LimitReachedError` if a used-up Limit stopped it, `RunStateUnavailableError` if its
-   * state is gone.
+   * state is gone. Fails with `model_price_unknown` when a currency Limit or `ai.allowance.price` applies and the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
    */
   start(options?: StartOptions): Promise<Run>;
-  /** Opens a Run by its ID to read it, never to drive it: a detached Run, another program's, or one that ended. Throws `RunNotFoundError`. */
-  openRun(id: string, options?: CallOptions): Promise<RunView>;
+  /** Opens a Run by its Run ID to read it, never to drive it: a detached Run, another program's, or one that ended. Throws `RunNotFoundError`. */
+  openRun(runId: string, options?: CallOptions): Promise<RunView>;
 }

@@ -91,11 +91,13 @@ pub trait Connection {
     /// Closes the connection for every clone. Idempotent.
     fn close(&self) -> Call<()>;
 
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+    ///
     /// Starts a Run and returns once it is started (ADR 0102), as each connection's own `start`.
     fn start(&self) -> Start;
 
-    /// Opens a Run by its ID to read it, never to drive it (ADR 0102).
-    fn open_run(&self, id: &str) -> Call<RunView>;
+    /// Opens a Run by its Run ID to read it, never to drive it (ADR 0102).
+    fn open_run(&self, run_id: &str) -> Call<RunView>;
 }
 
 macro_rules! value_call {

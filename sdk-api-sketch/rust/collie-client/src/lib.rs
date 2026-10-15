@@ -1,8 +1,13 @@
-//! `goodfetch-collie-client` (ADR 0095): the Collie client crate, with no engine. It holds the
-//! hand-written runtime, Collie's catalog types and every value a Collie connection hands out: Runs,
-//! Sessions, Pages, Locators, results, errors and settings. Programs depend on their Product's
-//! crate, `goodfetch-collie` or `goodfetch-foxhound`, which re-exports this one; only a library
-//! meant to serve both Products depends on it, with a semver range.
+//! `goodfetch-collie-client` (ADR 0095): the Collie client crate, with no engine.
+//!
+//! Where the main types live (ADR 0095): this crate holds [`Page`], [`Locator`], [`Run`],
+//! [`Session`] and the results and errors; `goodfetch-collie` holds `Collie`; `goodfetch-foxhound`
+//! holds `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`, and re-exports this crate.
+//!
+//! It holds the hand-written runtime, Collie's catalog types and every value a Collie connection
+//! hands out: Runs, Sessions, Pages, Locators, results, errors and settings. Programs depend on
+//! their Product's crate, `goodfetch-collie` or `goodfetch-foxhound`, which re-exports this one;
+//! only a library meant to serve both Products depends on it, with a semver range.
 //!
 //! SDK API sketch: signatures only, no implementation. Function bodies are `unimplemented!()`, the
 //! sketch's one departure from `STYLE.md`. In the SDK, the catalog's types come from

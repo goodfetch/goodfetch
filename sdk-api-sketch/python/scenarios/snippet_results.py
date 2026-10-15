@@ -63,7 +63,7 @@ async def outcomes_are_values(outcomes: AsyncIterable[CrawlRequestOutcome]) -> d
 def ai_work(task: AIWorkResult[Book]) -> Book:
     """The Agent's API is ADR 0100's (`page.agent`)."""
     if isinstance(task.ended, Stopped):
-        log.warning("stopped (%s), partial: %s", task.ended.reason, task.partial)
+        log.warning("stopped (%s), partial: %s", task.ended.reason, task.ended.partial)  # the answer sits in `ended`
     claim = task.reported.claim if task.reported else None  # absent when the model claimed nothing
     log.info("%s; the model claimed %s", task.verdict, claim)  # a signal, never proof
     return task.require_verified()  # the output, or a NotVerifiedError carrying the Verdict

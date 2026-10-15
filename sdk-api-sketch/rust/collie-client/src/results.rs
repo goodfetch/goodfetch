@@ -768,8 +768,8 @@ pub struct Blocked {
 pub struct NotVerified {
     /// The Verdict given.
     pub verdict: Verdict,
-    /// How the work ended.
-    pub ended: Ended,
+    /// How the work ended, its output or partial answer as JSON.
+    pub ended: Ended<serde_json::Value>,
     /// What the model claimed; `None` when it stopped before claiming anything.
     pub reported: Option<Reported>,
     /// Why it is not `Verified`: failed, missing or switched-off checks, uncertain Effects.
@@ -808,14 +808,24 @@ pub enum Verdict {
     Unknown(String),
 }
 
-/// How AI work ended. A failed ending is an [`Error`] instead.
+/// How AI work ended, holding its answer (ADRs 0079, 0117): a complete output only in
+/// `Finished`, and what was gathered in `Stopped`, so a stopped task's partial answer cannot be
+/// skipped. A failed ending is an [`Error`] instead. Exhaustive: a third way to end would be a new
+/// meaning, so a `match` needs no wildcard arm.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
-pub enum Ended {
-    /// Reached its end.
-    Finished,
-    /// Stopped early.
-    Stopped(StopReason),
+pub enum Ended<T> {
+    /// The work ended with a complete output: done and accepted, or a replay that reached its end.
+    Finished {
+        /// A complete `T`, valid against its schema and held to Grounding.
+        output: T,
+    },
+    /// The work stopped early.
+    Stopped {
+        /// Why it stopped.
+        reason: StopReason,
+        /// What was gathered and Grounded before the stop, never typed as complete.
+        partial: PartialOutput,
+    },
 }
 
 /// Why AI work stopped early (ADRs 0079, 0080, 0100). The [`LimitSource`] names the setting that
@@ -838,6 +848,8 @@ pub enum StopReason {
     /// Client (`client`), the program closing the page or the Run (`program`), or the browser
     /// closing the page outside every Client (`browser`, ADR 0113).
     Abort(String),
+    /// The model reported that it gave up; `reported` holds its message.
+    GaveUp,
     /// A reason this SDK does not know, as received.
     Unknown(String),
 }
@@ -864,9 +876,9 @@ pub enum Claim {
     Unknown(String),
 }
 
-/// What AI work gathered before an early end, never typed as complete (ADR 0100): each top-level
-/// field of an object, or each element of a list, valid against its own part of the schema and
-/// Grounded.
+/// What AI work gathered before an early end, in [`Ended::Stopped`], never typed as complete
+/// (ADRs 0100, 0117): each top-level field of an object, or each element of a list, valid against
+/// its own part of the schema and Grounded.
 #[derive(Debug, Clone)]
 pub struct PartialOutput {
     _private: (),
@@ -896,16 +908,13 @@ impl PartialOutput {
 #[non_exhaustive]
 #[must_use = "the Verdict says whether the output is proven"]
 pub struct AiWorkResult<T> {
-    /// How the work ended.
-    pub ended: Ended,
+    /// How the work ended, holding its answer: [`Ended::Finished`] with the complete output, or
+    /// [`Ended::Stopped`] with its reason and what was gathered (ADR 0117).
+    pub ended: Ended<T>,
     /// Whether Success checks prove it.
     pub verdict: Verdict,
     /// What the model claimed; `None` when it stopped before claiming anything.
     pub reported: Option<Reported>,
-    /// Present only once the work finished with a complete `T`.
-    pub output: Option<T>,
-    /// What was gathered before an early end.
-    pub partial: Option<PartialOutput>,
 }
 
 impl<T> AiWorkResult<T> {
@@ -915,7 +924,8 @@ impl<T> AiWorkResult<T> {
         unimplemented!()
     }
 
-    /// Returns the output when the Verdict is `Verified`; otherwise the error `not_verified`.
+    /// Returns the output when the Verdict is `Verified`, so only from [`Ended::Finished`];
+    /// otherwise the error `not_verified`.
     pub fn require_verified(self) -> Result<T, Error> {
         unimplemented!()
     }

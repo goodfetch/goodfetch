@@ -9,8 +9,17 @@ from decimal import Decimal
 
 from goodfetch_foxhound import Recording, ResponseNotRecordedError, seed
 from goodfetch_foxhound import ModelFundsExhaustedError
-from goodfetch_foxhound.testing import AsyncTestEngine, Failed, Returned, SavedResponse, ScriptedModel, Skipped, fake_error
-from scenarios.snippet_crawl import BookPayload, ai_book, ai_crawl, book, books, crawl, home
+from goodfetch_foxhound.testing import (
+    AsyncTestEngine,
+    Failed,
+    Returned,
+    SavedResponse,
+    ScriptedModel,
+    Skipped,
+    fake_error,
+    scripted_extraction,
+)
+from scenarios.snippet_crawl import BookFields, BookPayload, ai_book, ai_books, ai_crawl, book, books, crawl, home
 
 BOOK = "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html"
 RECORDING = Recording(mode="replay", path="tests/books.warc.gz")
@@ -76,6 +85,19 @@ async def test_ai_extraction_replays_its_plan_with_no_model_call() -> None:
         ) as run:
             report = await run.finish()
             assert report.usage.model.calls == 0
+
+
+# Or a Scripted model scripting the data an extraction gives. Under the default `compiled` mode the kit answers the
+# compile request with the locators that read this data from the saved page, so the handler's step runs as in
+# production; a value the page lacks raises ExtractionIncompleteError, naming the field.
+async def test_ai_extraction_reads_the_scripted_fields_from_the_page() -> None:
+    fields = BookFields(title="A Light in the Attic", price=Decimal("51.77"), in_stock=22, rating=3)
+    model = ScriptedModel([scripted_extraction(fields)])
+    async with AsyncTestEngine.start(model_providers={"scripted": model}, settings={"ai": {"model": "scripted/any"}}) as engine:
+        attempt = await engine.run_handler(ai_crawl, ai_book, url=BOOK, response=SavedResponse(path="tests/fixtures/a-light-in-the-attic.html"))
+    assert attempt.ended == Returned()
+    [record] = attempt.records(ai_books)
+    assert (record.title, record.price) == ("A Light in the Attic", Decimal("51.77"))
 
 
 # Or a Scripted model: here, a provider whose funds are spent, an error no retry helps.

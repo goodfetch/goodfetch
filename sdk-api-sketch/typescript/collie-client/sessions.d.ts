@@ -38,8 +38,8 @@ export declare class SecretPlaceholder {
 export declare function secret(name: string): SecretPlaceholder;
 
 /**
- * `secrets.<name>`: what a placeholder stands for and where it may go. `domains` are registrable
- * domains (ADR 0004), `*` only when written, and required; they are checked against the frame holding
+ * `secrets.<name>`: what a placeholder stands for and where it may go. `domains` are
+ * registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with `setting_invalid`, whose fix names its registrable domain (ADR 0117); `*` only when written, and required (ADR 0004). They are checked against the frame holding
  * the target field, or a request's URL. Set by the program's own code, configuration or an Operator
  * policy, at the connection, a Run or a Session, nearest winning; a Recipe declares the names it needs
  * and never binds them, and a Client acting for a model never sets one (`setting_locked`).
@@ -100,6 +100,7 @@ export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" |
 /**
  * `session.source`: exactly one kind (ADR 0056). `client_browser` is `run.borrow()`'s, never written.
  * Only the program's own code, configuration, an Operator policy or a person sets it; a Recipe never.
+ * Each kind's `domains` are registrable domains (`example.com`), not host names: a host such as `www.example.com` is refused with `setting_invalid`, whose fix names its registrable domain (ADR 0117).
  */
 export type SessionSource =
   | { readonly kind: "saved_identity"; readonly name: string }

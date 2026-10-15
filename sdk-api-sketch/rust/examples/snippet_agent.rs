@@ -63,12 +63,13 @@ async fn cheapest_five_star_travel_book() -> Result<Option<Answer>, Error> {
 
 /// How the work ended, its Verdict and the model's claim are three separate fields (ADR 0079).
 fn report(result: AgentResult<Answer>) -> Result<Option<Answer>, Error> {
-    if let Ended::Stopped(reason) = &result.ended {
+    // The answer is inside `ended`: a stop, the model giving up included, carries the Grounded partial answer.
+    if let Ended::Stopped { reason, partial } = &result.ended {
         // `MaxSteps`, `NoProgress` and `Timeout` carry the setting that stopped it; `Limit` names the Limit.
         if let StopReason::MaxSteps(source) | StopReason::NoProgress(source) | StopReason::Timeout(source) = reason {
             tracing_like(&format!("stopped by {}", source.setting));
         }
-        tracing_like(&format!("partial: {:?}", result.partial.as_ref().map(|p| p.json())));
+        tracing_like(&format!("partial: {:?}", partial.json()));
         return Ok(None);
     }
     if result.verdict != Verdict::Verified {

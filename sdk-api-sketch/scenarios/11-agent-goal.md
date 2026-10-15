@@ -38,9 +38,9 @@ P04 false success, P42 budgets and cost, P25 lean observations, P19 model breadt
 | Program | Concepts | Lines | Setup | Failure points: typed / generic / silent |
 |---|---|---|---|---|
 | Browser Use (Python) | 29 | 64 | 3 | 0 / 6 / 1 |
-| Goodfetch TypeScript | 35 | 40 | 2 | 7 / 0 / 0 |
-| Goodfetch Python | 38 | 63 | 2 | 7 / 0 / 0 |
-| Goodfetch Rust | 41 | 74 | 3 | 7 / 0 / 0 |
+| Goodfetch TypeScript | 35 | 37 | 2 | 7 / 0 / 0 |
+| Goodfetch Python | 39 | 64 | 2 | 7 / 0 / 0 |
+| Goodfetch Rust | 43 | 70 | 3 | 7 / 0 / 0 |
 
 Every program returns the title and the price with one of three endings: `stopped` (a step cap or the price cap), `reported` (the model ended the work and nothing proved it) or `verified` (the program's condition held on the page reached). Every program uses the same model, `anthropic/claude-sonnet-4-5`.
 
@@ -48,8 +48,8 @@ Every program returns the title and the price with one of three endings: `stoppe
 
 - Browser Use (29): `ANONYMIZED_TELEMETRY`, `Agent`, `task`, `llm`, `browser`, `output_model_schema`, `calculate_cost`, `ChatAnthropic`, `model`, `Browser`, `allowed_domains`, `keep_alive`, `run()`, `max_steps`, `on_step_end`, `token_cost_service`, `get_usage_summary()`, `total_cost`, `stop()`, `get_current_page()`, `evaluate()`, `save_to_file()`, `is_done()`, `usage`, `errors()`, `structured_output`, `is_successful()`, `kill()`; must kill the kept-alive browser.
 - Goodfetch TypeScript (35): `Collie`, `connect()`, `start()`, `plan`, `limits`, `price`, `amount`, `currency`, `newPage()`, `goto()`, `agent()`, `schema`, `model`, `maxSteps`, `domains`, `successCheck`, `expect`, `locator()`, `toContainText()`, `toHaveClass()`, `finish()`, `AgentResult`, `StopReason`, `ended`, `kind`, `"stopped"`, `reason`, `partial`, `verdict`, `"verified"`, `requireVerified()`, `reported`, `claim`, `output`; must dispose (`await using`).
-- Goodfetch Python (38): `AsyncCollie`, `connect()`, `start()`, `plan=`, `limits=`, `Limits`, `Money`, `amount`, `currency`, `price`, `new_page()`, `goto()`, `agent()`, `schema=`, `model=`, `max_steps=`, `domains=`, `success_check=`, `result()`, `AsyncPage`, `expect`, `locator()`, `to_contain_text()`, `to_have_class()`, `finish()`, `AsyncAgentResult`, `Stopped`, `ended`, `limit`, `reason`, `partial`, `verdict`, `"verified"`, `require_verified()`, `output`, `reported`, `claim`; must close (`async with`).
-- Goodfetch Rust (41): `Collie`, `scope`, `ConnectOptions`, `start()`, `plan()`, `limits()`, `Limits`, `price()`, `Money`, `new_page()`, `goto()`, `agent()`, `schema()`, `Schema::of`, `model()`, `max_steps()`, `domains()`, `success_check()`, `Page`, `BoxError`, `expect`, `locator()`, `to_contain_text()`, `to_have_class()`, `Expected::regex`, `finish()`, `AgentResult`, `ended`, `Ended::Stopped`, `StopReason`, `partial`, `PartialOutput`, `verdict`, `Verdict::Verified`, `require_verified()`, `reported`, `claim`, `Claim`, `output`, `Error`; closed by `scope`.
+- Goodfetch Python (39): `AsyncCollie`, `connect()`, `start()`, `plan=`, `limits=`, `Limits`, `Money`, `amount`, `currency`, `price`, `new_page()`, `goto()`, `agent()`, `schema=`, `model=`, `max_steps=`, `domains=`, `success_check=`, `result()`, `AsyncPage`, `expect`, `locator()`, `to_contain_text()`, `to_have_class()`, `finish()`, `AsyncAgentResult`, `Stopped`, `Finished`, `ended`, `limit`, `reason`, `partial`, `verdict`, `"verified"`, `require_verified()`, `output`, `reported`, `claim`; must close (`async with`).
+- Goodfetch Rust (43): `Collie`, `scope`, `ConnectOptions`, `start()`, `plan()`, `limits()`, `Limits`, `price()`, `Money`, `new_page()`, `goto()`, `agent()`, `schema()`, `Schema::of`, `model()`, `max_steps()`, `domains()`, `success_check()`, `Page`, `BoxError`, `expect`, `locator()`, `to_contain_text()`, `to_have_class()`, `Expected::regex`, `finish()`, `AgentResult`, `ended`, `Ended::Finished`, `output`, `Ended::Stopped`, `reason`, `partial`, `StopReason`, `PartialOutput`, `verdict`, `Verdict::Verified`, `require_verified()`, `reported`, `claim`, `Claim`, `Error`; closed by `scope`.
 
 ### Failure points, scored
 
@@ -67,7 +67,7 @@ A failure point that the library rules out by design counts as typed.
 
 **Verdict.**
 
-- Concepts: Goodfetch names more than Browser Use, in every language. They are the three fields ADR 0079 keeps apart (`ended`, `verdict`, `reported`) with the Grounded `partial`, and the Success check stated with `expect` (G1). Browser Use has none of these, so its program writes a price hook, a JavaScript check and string matching on the last error instead.
+- Concepts: Goodfetch names more than Browser Use, in every language. They are the three fields ADR 0079 keeps apart (`ended`, `verdict`, `reported`) with the Grounded `partial`, and the Success check stated with `expect` (G1). The answer sits in `ended` ([ADR 0117](https://github.com/goodfetch/goodfetch/blob/main/docs/adr/0117-what-coding-agents-misread-is-reshaped-an-ai-result-holds-its-answer-in-how-it-ended-resource-types-are-blocked-by-a-setting-and-a-start-names-its-run-id.md)): `finished` holds the output and `stopped` its reason and `partial`, so the program cannot read an answer without meeting the stopped case, which five programs of the Agent-writability check missed. Browser Use has none of these, so its program writes a price hook, a JavaScript check and string matching on the last error instead.
 - Lines: TypeScript is far shorter, as the cap, the condition and the domains are options of one call. Python is as long as Browser Use's because of the `Outcome` type and the Success check function. Rust is longest, from rustfmt's line breaks and its typed `Outcome` enum.
 - Setup: one command fewer in TypeScript and Python, since the browser comes on first use and there is no telemetry to switch off.
 - Replay: Goodfetch's Plan replays the task with no model call (ADR 0100). Browser Use's saved history replays through `load_and_rerun()`, which still calls a model to extract and summarize.

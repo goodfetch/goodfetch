@@ -32,9 +32,10 @@ T = TypeVar("T")
 Q = TypeVar("Q")
 L = TypeVar("L")
 
-URLPattern: TypeAlias = str | re.Pattern[str]
-"""A URL pattern matched in the engine: a glob, or a compiled pattern in the Rust `regex` syntax (ADR 0081). No predicate:
-every link would cross the connection."""
+LinkPattern: TypeAlias = str | re.Pattern[str]
+"""A pattern a link or a sitemap entry is matched against in the engine: a glob, or a regular expression in the Rust
+`regex` syntax (ADR 0081). No predicate: every link would cross the connection. Not the web platform's `URLPattern`
+(ADR 0117)."""
 
 FetchTier: TypeAlias = Literal["http", "discovered_api", "browser_fetch", "light_browser", "browser"]
 """The fetch tiers of ADR 0020. `fetch.tier` takes these or `auto`, the default, learned per Label on a domain."""
@@ -103,9 +104,9 @@ class SitemapSeed:
     own host, like any seed, and its entries are checked against the scope as enqueues are, at depth 0."""
 
     url: str
-    rules: Sequence[tuple[URLPattern, Label[None]]]
+    rules: Sequence[tuple[LinkPattern, Label[None]]]
 
-def sitemap(url: str, rules: Sequence[tuple[URLPattern, Label[None]]]) -> SitemapSeed:
+def sitemap(url: str, rules: Sequence[tuple[LinkPattern, Label[None]]]) -> SitemapSeed:
     """Seeds from a sitemap, or a site's robots.txt whose `Sitemap:` lines are read. The first rule whose URL pattern
     matches picks the Label."""
 
@@ -160,7 +161,11 @@ class AsyncCrawlContext(_ContextBase[P]):
 
     @property
     def page(self) -> AsyncPage:
-        """Collie's page (ADR 0085), with its AI verbs, fenced by the work item's lease and journaled."""
+        """Collie's page (ADR 0085), with its AI verbs, fenced by the work item's lease and journaled.
+
+        The request's navigation has already happened when the handler runs, so a route set here applies from the next
+        navigation. To block whole resource types, set `browser.block_resources`; to act before the navigation, use a
+        before-navigation Hook (ADR 0117)."""
     @property
     def response(self) -> AsyncResponse:
         """The main document's final response, after redirects; its body is always kept."""
@@ -199,8 +204,8 @@ class AsyncCrawlContext(_ContextBase[P]):
         links: AsyncLocator,
         label: Label[None],
         *,
-        include: Sequence[URLPattern] = (),
-        exclude: Sequence[URLPattern] = (),
+        include: Sequence[LinkPattern] = (),
+        exclude: Sequence[LinkPattern] = (),
         limit: int | None = None,
         priority: int = 0,
         timeout: Timeout = ...,
@@ -212,8 +217,8 @@ class AsyncCrawlContext(_ContextBase[P]):
         label: Label[Q],
         payload: Q | Callable[[LinkInfo], Q | None],
         *,
-        include: Sequence[URLPattern] = (),
-        exclude: Sequence[URLPattern] = (),
+        include: Sequence[LinkPattern] = (),
+        exclude: Sequence[LinkPattern] = (),
         limit: int | None = None,
         priority: int = 0,
         timeout: Timeout = ...,
@@ -248,8 +253,8 @@ class CrawlContext(_ContextBase[P]):
         links: Locator,
         label: Label[None],
         *,
-        include: Sequence[URLPattern] = (),
-        exclude: Sequence[URLPattern] = (),
+        include: Sequence[LinkPattern] = (),
+        exclude: Sequence[LinkPattern] = (),
         limit: int | None = None,
         priority: int = 0,
         timeout: Timeout = ...,
@@ -261,8 +266,8 @@ class CrawlContext(_ContextBase[P]):
         label: Label[Q],
         payload: Q | Callable[[LinkInfo], Q | None],
         *,
-        include: Sequence[URLPattern] = (),
-        exclude: Sequence[URLPattern] = (),
+        include: Sequence[LinkPattern] = (),
+        exclude: Sequence[LinkPattern] = (),
         limit: int | None = None,
         priority: int = 0,
         timeout: Timeout = ...,

@@ -143,6 +143,24 @@ async fn ai_extraction_replays_its_plan() -> Result<(), Error> {
     engine.close().await
 }
 
+/// Or a Scripted model that answers the extraction in its active mode, here the default compiled
+/// one: the kit writes the locators that read these values from the saved page, and the step reads
+/// the page with them as in production.
+async fn ai_extraction_compiles_from_scripted_data() -> Result<(), Error> {
+    let (crawl, book) = ai_crawl()?;
+    let data = serde_json::json!({ "title": "A Light in the Attic", "price": "£51.77" });
+    let model = ScriptedModel::new([ScriptedReply::Extraction(data)]);
+    let settings = Settings::new().set(ai::MODEL, ModelReference::from("scripted/any"));
+    let engine = TestEngine::start(TestOptions::default().model_provider("scripted", model.clone()).settings(settings)).await?;
+    let attempt = engine
+        .run_handler(&crawl, &book, HandlerInput::new(BOOK, ()).response(SavedResponse::path("tests/fixtures/a-light-in-the-attic.html")))
+        .await?;
+    // A value not on the page would fail the step with `extraction_incomplete`, naming the field.
+    assert!(matches!(attempt.ended, AttemptEnd::Returned));
+    assert_eq!(model.requests().len(), 1);
+    engine.close().await
+}
+
 /// Or a Scripted model: a provider whose funds are spent, an error no retry helps.
 async fn funds_spent() -> Result<(), Error> {
     let (crawl, book) = ai_crawl()?;
@@ -159,6 +177,6 @@ async fn funds_spent() -> Result<(), Error> {
 
 fn main() {
     let _ = (book_page_gives_its_book, crawl_collects_every_book_from_the_recording, page_the_recording_lacks_fails);
-    let _ = (ai_extraction_replays_its_plan, funds_spent);
+    let _ = (ai_extraction_replays_its_plan, ai_extraction_compiles_from_scripted_data, funds_spent);
     let _ = schemars::schema_for!(Book);
 }

@@ -34,20 +34,6 @@ const scroll = crawl.label("scroll", {
   settings: { fetch: { tier: "browser", keptResponses: { urls: [/\/api\/quotes\?page=\d+$/] } } },
 });
 
-// Runs only where a browser navigates, so unscoped it covers every browser page, a sample comparison
-// of an HTTP Label's page included.
-crawl.beforeNavigation(
-  ({ page }) => {
-    page.route("**/*", (route) => {
-      const type = route.request().resourceType();
-      return type === "image" || type === "font"
-        ? route.abort("blockedbyclient")
-        : route.fallback();
-    });
-  },
-  { name: "no-images-or-fonts" },
-);
-
 const readQuotes: Handler<Label> = async ({ page, request, push, enqueueLinks }) => {
   // What the page must hold: over HTTP, /js/'s document has no quote, so this wait escalates the
   // request to the browser; it never ends as an empty success.
@@ -98,6 +84,9 @@ export async function collectQuotes(): Promise<Quote[]> {
       seed("https://quotes.toscrape.com/js/", js),
       seed("https://quotes.toscrape.com/scroll", scroll),
     ],
+    // Blocked by the engine on every browser page before it navigates, a sample comparison of an HTTP
+    // Label's page included; the HTTP tiers fetch no images or fonts anyway (ADRs 0047, 0117).
+    settings: { browser: { blockResources: ["image", "font"] } },
   });
   const report = await run.finish();
   const { succeeded, failed, byErrorCode } = report.requests;

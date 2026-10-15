@@ -87,7 +87,18 @@ export interface BrowserSettings {
   readonly headless?: boolean;
   /** `browser.permissions`: granted to every page of the Session; none by default, no setter later (ADR 0092). */
   readonly permissions?: readonly Permission[];
+  /**
+   * `browser.block_resources`: resource types the engine's interception blocks on every page of the
+   * Session, before any navigation, so every browser fetch of a crawl is covered (ADRs 0047, 0117).
+   * Empty by default. Set directly on a Label whose `fetch.tier` runs no browser, it is refused with
+   * `setting_not_applicable`. In the `standard` and `stealth` Access modes it warns once, since a site
+   * can see the missing loads. Finer blocking, by URL or by page, is a before-navigation Hook's route.
+   */
+  readonly blockResources?: readonly BlockedResourceType[];
 }
+
+/** A resource type `browser.block_resources` takes; a newer engine's is kept as received (G3). */
+export type BlockedResourceType = "image" | "media" | "font" | "stylesheet" | (string & {});
 
 /** Emulated network conditions, which Playwright closed as not planned (#8622). */
 export interface NetworkThrottle {
@@ -225,6 +236,7 @@ export type SettingKey =
   | "browser.geolocation"
   | "browser.headless"
   | "browser.permissions"
+  | "browser.block_resources"
   | "network.throttle"
   | "effect.output.max_size"
   | "politeness.proxy.concurrency"

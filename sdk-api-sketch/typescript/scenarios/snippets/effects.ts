@@ -9,7 +9,7 @@ declare const log: Logger;
 // resumes it, and the order placed before the crash comes back from the Effect journal.
 export async function placeOrder(sku: string): Promise<string | null> {
   await using foxhound = await Foxhound.connect({ logger: log });
-  await using run = await foxhound.start({ id: `order-${sku}` });
+  await using run = await foxhound.start({ runId: `order-${sku}` });
   const page = await run.newPage();
   await page.goto(`https://shop.example/products/${sku}`);
   await page.getByRole("button", { name: "Add to cart" }).click(); // not declared: adding twice is harmless here
@@ -69,7 +69,7 @@ crawl.handle(listing, async ({ page, request, run }) => {
 
 export async function contactSellers(foxhound: Foxhound, emails: readonly string[]): Promise<void> {
   await using run = await foxhound.startCrawl(crawl, {
-    id: "contact-2026-10-15",
+    runId: "contact-2026-10-15",
     seeds: emails.map((email, i) => seed(`https://market.example/listings/${i}`, listing, { email })),
   });
   const report = await run.finish();

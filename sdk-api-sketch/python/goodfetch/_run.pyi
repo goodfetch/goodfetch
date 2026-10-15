@@ -55,6 +55,12 @@ class RunStopReason:
     kind: Literal["limit", "timeout", "abort", "engine_lost", "resources"] | str
     limit: str | None
     """The Limit by name, for `limit`."""
+    limit_scope: str | None
+    """For `limit`: its scope (a `LimitScope` value)."""
+    limit_scope_id: str | None
+    """For `limit`: the scope's ID."""
+    resets_at: datetime | None
+    """For `limit`: when its period resets; `None` when it has none."""
     by: Literal["program", "person", "schedule"] | str | None
     """Who aborted it, for `abort`: its program's own `stop()` or `close()`, a person in the Console, or ADR 0036's
     scheduler."""
@@ -91,6 +97,10 @@ class RunProgress:
     lifecycle: Lifecycle
     writer: Literal["live", "none"] | str
     """`none` when nothing works the Run, as after a crash, until a start with its ID resumes it."""
+    epoch: int
+    """The run epoch (ADR 0003), which a resume or a migration to another machine advances."""
+    checkpoint_at: datetime | None
+    """When the last Checkpoint was written."""
     pauses: Sequence[WaitingPause]
     message: str | None
     """The program's own line, set with `set_progress_message` (ADR 0037's RT-15)."""
@@ -474,7 +484,9 @@ class AsyncRunControl(Generic[_Report, _Progress]):
         """
     async def stop(self, *, timeout: Timeout = ...) -> _Report:
         """Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program,
-        and returns its report. Resumable by its ID."""
+        and returns its report. Resumable by its ID. Its wait is bounded by `timeout.close`, as `close()`'s is, or by
+        `timeout`; past it, it raises `DeadlineExceededError` naming the setting, and the Run still stops at its next safe
+        point."""
     def progress(self) -> AsyncEventIterator[_Progress]:
         """The Run's progress: its first value at once, then the latest after each change, until the Run ends. Leave the
         loop to read one."""

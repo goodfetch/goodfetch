@@ -276,7 +276,21 @@ class ListenerFailedError(ProgramError):
     def details(self) -> ListenerFailedDetails: ...
 
 @final
-class LimitReachedError(RefusedError): ...
+@dataclass(frozen=True, kw_only=True)
+class LimitReachedDetails:
+    """The Limit, its scope and the scope's ID (ADR 0041), and when its period resets, `None` for a Limit with no period
+    (ADR 0102)."""
+
+    limit: str
+    scope: str
+    """A `LimitScope` value."""
+    scope_id: str
+    resets_at: datetime | None
+
+@final
+class LimitReachedError(RefusedError):
+    @property
+    def details(self) -> LimitReachedDetails: ...
 
 @final
 class PageCheckFailedError(PageError): ...

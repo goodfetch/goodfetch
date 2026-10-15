@@ -17,7 +17,7 @@
 //!   model calls carries its usage too ([`crate::Error::usage`]).
 
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::concurrency::EventStream;
 use crate::hooks::HandlerError;
@@ -577,12 +577,44 @@ pub enum LimitSetBy {
     Unknown(String),
 }
 
+/// A Limit's period, for one that counts per day, week or month (ADR 0041).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct LimitPeriod {
+    /// `day`, `week` or `month`.
+    pub unit: String,
+    /// An IANA time zone, such as `Europe/Paris`.
+    pub time_zone: String,
+    /// When the current period ends and the Limit's Usage starts again (ADR 0102).
+    pub resets_at: SystemTime,
+}
+
+/// Details of `limit_reached`: the Limit, its scope and the scope's ID (ADR 0041), and when its
+/// period resets (ADR 0102).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct LimitReached {
+    /// The Limit, by name.
+    pub limit: String,
+    /// Where it attaches.
+    pub scope: LimitScope,
+    /// The scope's ID.
+    pub scope_id: String,
+    /// `None` for a Limit with no period.
+    pub resets_at: Option<SystemTime>,
+}
+
 /// A Limit that applies to the Run, and what remains of it.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct AppliedLimit {
     /// Where it attaches.
     pub scope: LimitScope,
+    /// The scope's ID (ADR 0102): the Run's ID, the Schedule's, the named token's name, the person,
+    /// the Daemon or the install.
+    pub scope_id: String,
+    /// `None` for a Limit with no period.
+    pub period: Option<LimitPeriod>,
     /// What it caps.
     pub amount: LimitAmount,
     /// Who set it.

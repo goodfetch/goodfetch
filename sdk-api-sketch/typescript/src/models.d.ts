@@ -228,9 +228,22 @@ export type LimitKind =
   | "price"
   | (string & {});
 
+/** A Limit's period, for one that counts per day, week or month (ADR 0041). */
+export interface LimitPeriod {
+  readonly unit: "day" | "week" | "month" | (string & {});
+  /** An IANA time zone, such as `Europe/Paris`. */
+  readonly timeZone: string;
+  /** When the current period ends and the Limit's Usage starts again (ADR 0102). */
+  readonly resetsAt: Date;
+}
+
 /** A Limit that applies to the Run, and what remains of it. */
 export interface AppliedLimit {
   readonly scope: LimitScope;
+  /** The scope's ID (ADR 0102): the Run's ID, the Schedule's, the named token's name, the person, the Daemon or the install. */
+  readonly scopeId: string;
+  /** `null` for a Limit with no period. */
+  readonly period: LimitPeriod | null;
   readonly kind: LimitKind;
   /** A count, milliseconds for `browser_time`, or `Money` for `price`. */
   readonly value: number | Money;

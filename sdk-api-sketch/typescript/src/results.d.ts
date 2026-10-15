@@ -244,6 +244,13 @@ export declare class ListenerFailedError extends ProgramError {
 
 export declare class LimitReachedError extends RefusedError {
   readonly code: "limit_reached";
+  /** The Limit, its scope and the scope's ID (ADR 0041), and when its period resets, `null` for a Limit with no period (ADR 0102). */
+  readonly details: {
+    readonly limit: string;
+    readonly scope: import("./models.js").LimitScope;
+    readonly scopeId: string;
+    readonly resetsAt: Date | null;
+  };
 }
 
 export declare class PageCheckFailedError extends PageError {

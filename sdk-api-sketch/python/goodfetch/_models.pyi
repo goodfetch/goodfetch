@@ -14,7 +14,7 @@
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal, TypeAlias, TypedDict, final
 
 from goodfetch._data import JsonSchema
@@ -223,10 +223,26 @@ LimitKind: TypeAlias = (
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class LimitPeriod:
+    """A Limit's period, for one that counts per day, week or month (ADR 0041)."""
+
+    unit: Literal["day", "week", "month"] | str
+    time_zone: str
+    """An IANA time zone, such as `Europe/Paris`."""
+    resets_at: datetime
+    """When the current period ends and the Limit's Usage starts again (ADR 0102)."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class AppliedLimit:
     """A Limit that applies to the Run, and what remains of it."""
 
     scope: LimitScope
+    scope_id: str
+    """The scope's ID (ADR 0102): the Run's ID, the Schedule's, the named token's name, the person, the Daemon or the
+    install."""
+    period: LimitPeriod | None
+    """`None` for a Limit with no period."""
     kind: LimitKind
     value: int | timedelta | Money
     """A count, a `timedelta` for `browser_time`, or `Money` for `price`."""

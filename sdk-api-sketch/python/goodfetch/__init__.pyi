@@ -211,6 +211,7 @@ from goodfetch._models import AppliedLimit as AppliedLimit
 from goodfetch._models import AsyncModelProviderHandler as AsyncModelProviderHandler
 from goodfetch._models import BuiltinModelProvider as BuiltinModelProvider
 from goodfetch._models import LimitKind as LimitKind
+from goodfetch._models import LimitPeriod as LimitPeriod
 from goodfetch._models import LimitScope as LimitScope
 from goodfetch._models import ModelCapabilityMissingDetails as ModelCapabilityMissingDetails
 from goodfetch._models import ModelCapabilityMissingError as ModelCapabilityMissingError
@@ -365,6 +366,7 @@ from goodfetch._results import HandlerFailedDetails as HandlerFailedDetails
 from goodfetch._results import HandlerFailedError as HandlerFailedError
 from goodfetch._results import InternalError as InternalError
 from goodfetch._results import KnownErrorCode as KnownErrorCode
+from goodfetch._results import LimitReachedDetails as LimitReachedDetails
 from goodfetch._results import LimitReachedError as LimitReachedError
 from goodfetch._results import ListenerFailedDetails as ListenerFailedDetails
 from goodfetch._results import ListenerFailedError as ListenerFailedError

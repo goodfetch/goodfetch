@@ -477,6 +477,8 @@ pub enum ErrorDetails {
     Blocked(Blocked),
     /// Of `not_verified`.
     NotVerified(NotVerified),
+    /// Of `limit_reached` (ADRs 0041, 0102).
+    LimitReached(crate::models::LimitReached),
     /// Of `deadline_exceeded`, every timeout but a still-ambiguous target's, whatever the phase (ADR 0080).
     DeadlineExceeded(DeadlineExceeded),
     /// Of `payload_invalid`.

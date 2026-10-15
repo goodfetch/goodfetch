@@ -77,8 +77,17 @@ pub enum Completeness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RunStopReason {
-    /// A Limit, by name.
-    Limit(String),
+    /// A Limit, with its scope and the scope's ID, and when its period resets.
+    Limit {
+        /// The Limit, by name.
+        name: String,
+        /// Where it attaches.
+        scope: crate::models::LimitScope,
+        /// The scope's ID.
+        scope_id: String,
+        /// `None` for a Limit with no period.
+        resets_at: Option<SystemTime>,
+    },
     /// The Run's own timeout.
     Timeout,
     /// An abort, and by whom.
@@ -152,6 +161,10 @@ pub struct RunProgress {
     pub lifecycle: Lifecycle,
     /// False when nothing works the Run, as after a crash, until a start with its ID resumes it.
     pub has_writer: bool,
+    /// The run epoch (ADR 0003), which a resume or a migration to another machine advances.
+    pub epoch: u64,
+    /// When the last Checkpoint was written.
+    pub checkpoint_at: Option<SystemTime>,
     /// The Human pauses waiting.
     pub pauses: Vec<WaitingPause>,
     /// The program's own line, set with [`Run::set_progress_message`] (ADR 0037's RT-15).
@@ -530,7 +543,9 @@ impl Run {
     }
 
     /// Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an
-    /// abort by its program, and returns its report. Resumable by its ID.
+    /// abort by its program, and returns its report. Resumable by its ID. Its wait is bounded by
+    /// `timeout.close`, as `close()`'s is, or by `.timeout(..)`; past it, it fails with
+    /// `deadline_exceeded` naming the setting, and the Run still stops at its next safe point.
     pub fn stop(&self) -> Call<RunReport> {
         unimplemented!()
     }

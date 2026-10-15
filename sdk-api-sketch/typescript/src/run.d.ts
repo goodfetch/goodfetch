@@ -13,7 +13,7 @@ import type { UncertainEffect } from "./effects.js";
 import type { Closeable } from "./lifecycle.js";
 import type { KeyValueStore, RecordCounts } from "./output.js";
 import type { PlanReport } from "./ai.js";
-import type { RunUsage } from "./models.js";
+import type { LimitScope, RunUsage } from "./models.js";
 import type { ExplainedSetting } from "./settings.js";
 import type { BlockCause, CrawlRequestRef, LimitSource, ProgramError, RefusedError, SkipReason, UnavailableError, Verdict } from "./results.js";
 import type { CallOptions } from "./time.js";
@@ -33,7 +33,8 @@ export type Completeness = "complete" | "incomplete" | "unverified" | (string & 
 
 /** Why a Run stopped: ADR 0029's causes, and its own timeout (ADR 0080). */
 export type RunStopReason =
-  | { readonly kind: "limit"; readonly limit: string }
+  /** A Limit, with its scope and the scope's ID, and when its period resets (`null`: it has none). */
+  | { readonly kind: "limit"; readonly limit: string; readonly scope: LimitScope; readonly scopeId: string; readonly resetsAt: Date | null }
   | { readonly kind: "timeout" }
   /** `program`: its own `stop()` or `close()`; `person`: from the Console; `schedule`: ADR 0036's scheduler. */
   | { readonly kind: "abort"; readonly by: "program" | "person" | "schedule" | (string & {}) }
@@ -69,6 +70,10 @@ export interface RunProgress {
   readonly lifecycle: Lifecycle;
   /** `none` when nothing works the Run, as after a crash, until a start with its ID resumes it. */
   readonly writer: "live" | "none" | (string & {});
+  /** The run epoch (ADR 0003), which a resume or a migration to another machine advances. */
+  readonly epoch: number;
+  /** When the last Checkpoint was written. */
+  readonly checkpointAt: Date | null;
   readonly pauses: readonly WaitingPause[];
   /** The program's own line, set with `setProgressMessage` (ADR 0037's RT-15). */
   readonly message: string | null;
@@ -362,7 +367,12 @@ export interface RunControl {
    * of its own: the Run's own bounds it, and a `timeout` or `signal` given here ends only the wait.
    */
   finish(options?: CallOptions): Promise<RunReport>;
-  /** Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, and returns its report. Resumable by its ID. */
+  /**
+   * Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by
+   * its program, and returns its report. Resumable by its ID. Its wait is bounded by `timeout.close`,
+   * as `close()`'s is, or by `timeout`; past it, it throws `DeadlineExceededError` naming the setting,
+   * and the Run still stops at its next safe point.
+   */
   stop(options?: CallOptions): Promise<RunReport>;
   /** The Run's progress: its first value at once, then the latest after each change, until the Run ends. Leave the loop to read one. */
   progress(): EventIterator<RunProgress>;

@@ -136,7 +136,7 @@ export class CdpPage implements BrowserPage {
     if (!node.frameId) throw new Error(`no frame for ${selector}`);
     // An in-process frame gets an isolated world; an out-of-process frame is its own target, reached by auto-attach.
     let frame: CdpFrame;
-    try { const { executionContextId } = await this.send('Page.createIsolatedWorld', { frameId: node.frameId, worldName: 'automan' }) as { executionContextId: number }; frame = new CdpFrame(this, this.sessionId, executionContextId, offset); }
+    try { const { executionContextId } = await this.send('Page.createIsolatedWorld', { frameId: node.frameId, worldName: 'goodfetch' }) as { executionContextId: number }; frame = new CdpFrame(this, this.sessionId, executionContextId, offset); }
     catch {
       const attached = this.connection.waitForEvent(message => message.method === 'Target.attachedToTarget' && (message.params?.targetInfo as { targetId?: string })?.targetId === node.frameId, 'frame attach', this.timeoutMs);
       try { await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }); frame = new CdpFrame(this, (await attached.promise).params!.sessionId as string, null, offset); } catch (error) { attached.cancel(); throw error; }
@@ -149,7 +149,7 @@ export class CdpPage implements BrowserPage {
     await this.send('DOM.setFileInputFiles', { files: [path], nodeId });
   }
   async download(selector: string) {
-    const directory = await mkdtemp(join(tmpdir(), 'automan-download-'));
+    const directory = await mkdtemp(join(tmpdir(), 'goodfetch-download-'));
     await this.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: directory, eventsEnabled: true }, null);
     const completed = this.connection.waitForEvent(message => message.method === 'Browser.downloadProgress' && message.params?.state === 'completed', 'download', this.timeoutMs);
     let guid: string;

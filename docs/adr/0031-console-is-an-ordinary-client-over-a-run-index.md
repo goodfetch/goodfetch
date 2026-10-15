@@ -8,7 +8,7 @@ The Console reads and acts through the same JSON-RPC protocol and Operation cata
 - **"Needs you".** The Console's single list of everything waiting for a person (Human pauses, confirmations, uncertain Effects, Plan diffs, runs stopped by a Limit, results to review) covers every run in the index.
 - **An Attached engine can start the Daemon.** When a Human pause or a Notification needs a link and no Console is running, it starts the Daemon on demand. A script's own Console (ADR 0024) remains for people who want no Daemon.
 
-Decided in [Console data access](https://github.com/Jbmanllr/automan/issues/104).
+Decided in [Console data access](https://github.com/goodfetch/goodfetch/issues/104).
 
 Evidence from the competitor survey made for that ticket:
 - Temporal, Prefect and Hatchet serve their UI from the same API as their SDKs. Dagster's GraphQL is "primarily for internal use by the Dagster webserver", and n8n keeps an internal API beside its public one.
@@ -59,6 +59,7 @@ Evidence from the competitor survey made for that ticket:
   - **Phones:** touch input and a pop-up keyboard field.
 - **One holder at a time.**
   - **Watching and control.** Any number of people can watch. "Take control" locks the Session for one person, and automation, already waiting in its Human pause, resumes only after "Hand back" and a passing Page check, or when the pause is resolved.
+    > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a pause a program raised with `page.pause()` ends on a person's "Hand back" as on "Done": when its `until` condition holds, or at once when it has none; otherwise control returns to *waiting*.
   - **Idle holder.** After 2 minutes without input the holder is warned. After 3, control returns to *waiting*, never to automation.
   - **Taking over.** Another person may ask for control, which is granted after 30 s without an answer. An operator can force it.
   - **Timings** are settings.
@@ -67,6 +68,7 @@ Evidence from the competitor survey made for that ticket:
 - **Embeddable in users' own products**, as Browserbase, Steel, Hyperbrowser and Kernel allow.
   - **The grant.** `liveView.grant(session, mode, ttl, origins)` returns a token scoped to one Session. It is short-lived, single-use for opening the connection, tied to its origins through `frame-ancestors`, and revoked when the Session ends or by `liveView.revoke`.
   - **What a grant allows.** A control grant lets its holder act in the page, for example to complete a login, MFA or CAPTCHA, and the pause then resolves through its Page check. A grant never confirms or reconciles an Effect, for the same reason chat-app buttons cannot: its holder is not a Goodfetch person.
+    > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a grant holder ends a Human pause a program raised with `page.pause()` only through its `until` condition; "Done" and "Decline" are a person's.
   - **View-only is enforced by the engine,** which drops the viewer's input. Browser Use's and Anchor's view-only modes are only drawn in the embedding page.
   - **Limits, audit and Usage.** The number of viewers is a setting, grants are audited, and live-view minutes count as Usage.
   - **Packages.** A `<goodfetch-live-view>` web component and a React wrapper ship with connection, control and Session events.

@@ -4,9 +4,9 @@ Messages about a run or a Schedule (Notifications; ADR 0036) are kept apart from
 
 Workflow tools force one change to ADR 0024. n8n's verification rules forbid runtime dependencies and environment or file access, so a verified node cannot start the engine and, we infer, can only reach it over HTTP; Zapier, Make and Pipedream call from their own clouds. So the Daemon gains an **HTTP JSON-RPC listener**: the same protocol with the same `hello` version check. It is off until a setting enables it, then binds to loopback with a token, and needs TLS plus a token for remote use (ADR 0017). In a Daemon group, the Lead Daemon holds that token, so an Integration may call any Group member (ADR 0055).
 
-Apify, Firecrawl, Bright Data and ScrapingBee all ship verified n8n nodes, Make apps and Zapier apps. Users' most frequent complaint is a run that looks green but delivered nothing, which is what Notifications and per-page events address. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+Apify, Firecrawl, Bright Data and ScrapingBee all ship verified n8n nodes, Make apps and Zapier apps. Users' most frequent complaint is a run that looks green but delivered nothing, which is what Notifications and per-page events address. Decided in [Export connectors and integrations catalog](https://github.com/goodfetch/goodfetch/issues/88).
 
-Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/b1-integrations.md) and [notification channels](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/a3-notify-vendors.md).
+Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/b1-integrations.md) and [notification channels](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/a3-notify-vendors.md).
 
 ## Considered Options
 
@@ -45,6 +45,8 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 - Dataset loaders for LangChain and LlamaIndex in TypeScript and Python, published as Goodfetch's own packages. LlamaIndex's shared web-readers package is now GPL-3.0.
 
   > Amended by [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md): the LangChain Dataset loader ships in TypeScript and Python inside the LangChain package that carries the Framework adapter; LlamaIndex gets a Python reader only, since LlamaIndex.TS is archived.
+
+  > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): each workflow tool gets one Integration per Product. Collie's start runs and Recipes and return their results, with Notifications as triggers; Foxhound's add crawls, Records and the record-range triggers. The Airbyte source and the Dataset loaders read Datasets, so they are Foxhound's only.
 
 **What each Integration can reach**: the docs for each Integration state whether it works with a local Daemon, an exposed Daemon, a tunnel or Goodfetch Cloud. Zapier rejects localhost; Make reaches local services only through its Enterprise on-premise agent; Power Automate's on-premises data gateway supports neither API-key authentication nor custom code.
 

@@ -102,7 +102,7 @@ async function renderPages(renderer: Exclude<Renderer, 'none'>, pages: Truth[], 
 // One cell: one extractor over every page of one type in the split, through a single adapter process.
 export async function runExtractionCell(config: ExtractionConfig, cell: ExtractionCell, block: number, directory: string): Promise<Record<string, unknown>> {
   const pages = await cellPages(config, cell);
-  const scratch = await mkdtemp(join(tmpdir(), 'automan-render-'));
+  const scratch = await mkdtemp(join(tmpdir(), 'goodfetch-render-'));
   const render = cell.renderer === 'none' ? null : await renderPages(cell.renderer, pages, config, scratch);
   const worker = new WorkerClient(commandFor(cell.extractor, 60_000)); const predictions: Record<string, string> = {};
   const scores: { f1: number; precision: number; recall: number; withRate: number; leak: number; ms: number }[] = []; let errors = 0;

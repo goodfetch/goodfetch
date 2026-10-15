@@ -6,7 +6,7 @@
    "primary": "links"
   },
   "case": "query-entities",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "Search [page two](https://example.test/s?q=rust&page=2) or [write to us](mailto:team@example.test).\n",

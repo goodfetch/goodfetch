@@ -6,7 +6,7 @@
    "primary": "links"
   },
   "case": "absolute-relative",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "Read the [first page](https://example.test/a), then [the second](/b) and [the third](c.html).\n",

@@ -38,7 +38,7 @@ test('an out-of-tolerance network makes timing metrics unavailable but keeps con
 test('the engine applies a browser-origin latency profile and records its calibration', async () => {
   const quiet: HostSnapshot = { os: process.platform, arch: process.arch, cpu: 'test', logicalCpus: 8, memoryBytes: 1e9, loadAverage1m: 0, memoryFreePercent: 80, thermalWarning: false, onAC: true, lowPowerMode: false, foreignCpuPercent: 0, foreignTop: [], cpuGovernor: 'performance', virtualized: false };
   const campaign: BenchCampaign = { schemaVersion: 2, id: 'net-contract', lane: 'bench', decisionIds: [], hostClass: { requested: 'local-dev', allowDowngrade: false }, seed: 5, blocks: 1, warmup: 0, iterations: 3, concurrency: 1, mode: 'closed', timeoutMs: 10_000, maxDurationMs: 60_000, maxRestarts: 1, backends: ['node-http'], scenarios: ['http-catalog'], fixtures: { pages: 2, actions: 1 }, network: { link: 'browser-origin', rttMs: 30 } };
-  const { run, attempts } = await runEngine(campaign, { outputRoot: await mkdtemp(join(tmpdir(), 'automan-net-')), skipProvenance: true, hostSnapshot: quiet, command: backend => commandFor(backend as never, 10_000) });
+  const { run, attempts } = await runEngine(campaign, { outputRoot: await mkdtemp(join(tmpdir(), 'goodfetch-net-')), skipProvenance: true, hostSnapshot: quiet, command: backend => commandFor(backend as never, 10_000) });
   // Whether the calibration is within tolerance depends on host load; an out-of-tolerance one only withdraws timing metrics.
   assert.equal(run.network!.calibration.rttMs, 30);
   assert.ok(run.network!.calibration.medianMs >= 30, `shaped median ${run.network!.calibration.medianMs}`);

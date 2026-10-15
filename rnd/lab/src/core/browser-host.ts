@@ -12,7 +12,7 @@ export const browserFlags = ['--headless', '--remote-debugging-port=0', '--no-fi
 export type HostedBrowser = { pid: number; wsEndpoint: string; port: number; close(): Promise<void> };
 
 export async function launchBrowser(executablePath: string, timeoutMs = 30_000, extraFlags: string[] = []): Promise<HostedBrowser> {
-  const profile = await mkdtemp(join(tmpdir(), 'automan-chrome-'));
+  const profile = await mkdtemp(join(tmpdir(), 'goodfetch-chrome-'));
   const child = spawn(executablePath, [...browserFlags, ...extraFlags, `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
   const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
   const close = async () => { if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); const timer = setTimeout(() => child.kill('SIGKILL'), 5000); await exited; clearTimeout(timer); } await rm(profile, { recursive: true, force: true }); };

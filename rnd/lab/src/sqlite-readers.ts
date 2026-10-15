@@ -10,7 +10,7 @@ import {sampleRuntimeResources} from './runtime-resources.ts';
 import {quantiles} from './statistics.ts';
 export type ReaderConfig={engine:Extract<StorageEngine,'node-shared'|'rust-sync'|'go-sync'>;writers:number;readerMode:'none'|'short'|'held';batchRows:number;batches:number;payloadBytes:number;seed:number;directory?:string};
 export async function runReaderExperiment(config:ReaderConfig){
-  const directory=config.directory??await mkdtemp(join(tmpdir(),'automan-readers-'));await mkdir(directory,{recursive:true});const path=join(directory,'records.sqlite');
+  const directory=config.directory??await mkdtemp(join(tmpdir(),'goodfetch-readers-'));await mkdir(directory,{recursive:true});const path=join(directory,'records.sqlite');
   const build=await sharedBuildMetadata();const started=performance.now();const workers=Array.from({length:config.writers},()=>new WorkerClient(storageCommand(config.engine,30000)));let control:SharedDatabase|undefined;let reader:SharedDatabase|undefined;
   const batches:StorageBatch[]=Array.from({length:config.batches},(_,i)=>({batchId:`batch-${i}`,seed:config.seed+i*10007,rows:config.batchRows,payloadBytes:config.payloadBytes}));let reading:Promise<void>|undefined;let stopped=false;let readerTimer:NodeJS.Timeout|undefined;const reads:{elapsedMs:number;rows:number}[]=[];const acks:{batchId:string;elapsedMs:number;rpcMs:number;metrics:unknown}[]=[];
   const sampler=sampleRuntimeResources(process.pid,100,{existingRoot:true});await sampler.ready();

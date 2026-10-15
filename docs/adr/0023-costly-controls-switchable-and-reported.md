@@ -1,10 +1,10 @@
 # Every costly safety or reliability control can be switched off, and the results say so
 
-ADR 0016 made the costly security controls switchable. At the owner's request the same rule now covers reliability: a control that costs speed or resources is on by default and can be switched off per run, or per call where that makes sense. Each switch-off is recorded in the Audit log, and the results it touches say what was skipped, so the engine never claims a guarantee it did not apply. Controls with no run-time cost stay locked, as in ADR 0016: secrets never reach the model, endpoints require a token, releases are signed. Decided in [Adopt site-access decisions](https://github.com/Jbmanllr/automan/issues/76).
+ADR 0016 made the costly security controls switchable. At the owner's request the same rule now covers reliability: a control that costs speed or resources is on by default and can be switched off per run, or per call where that makes sense. Each switch-off is recorded in the Audit log, and the results it touches say what was skipped, so the engine never claims a guarantee it did not apply. Controls with no run-time cost stay locked, as in ADR 0016: secrets never reach the model, endpoints require a token, releases are signed. Decided in [Adopt site-access decisions](https://github.com/goodfetch/goodfetch/issues/76).
 
 ## Considered Options
 
-- **Fixed guarantees**: rejected. Users trade checks for speed on pages they trust: Playwright skips its checks with `force: true`, and Stagehand v4 checks nothing before acting; in the lab, native Stagehand ran a 50-click task in 945 ms against 2,715 ms for native Playwright ([qualification](https://github.com/Jbmanllr/automan/blob/main/rnd/lab/reports/qualification-2026-10-07.md)).
+- **Fixed guarantees**: rejected. Users trade checks for speed on pages they trust: Playwright skips its checks with `force: true`, and Stagehand v4 checks nothing before acting; in the lab, native Stagehand ran a 50-click task in 945 ms against 2,715 ms for native Playwright ([qualification](https://github.com/goodfetch/goodfetch/blob/main/rnd/lab/reports/qualification-2026-10-07.md)).
 - **Switches without marks in the results**: rejected. A fast run and a checked run would look the same, which is the false success ADR 0013 exists to prevent.
 
 ## Consequences
@@ -20,6 +20,8 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 | Success checks (ADR 0013) | results are `needs-review`, never a success |
 
 > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the backoff row also covers 502, 504 and connections refused or timed out, and switching the backoff off, or shortening its waits, is recorded in the Audit log and the run's result.
+
+> Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the sample comparison row's switch is the setting `fetch.tier`, which forces a tier at any scope down to a crawl's Label, besides per run.
 
 - ADR 0028 lets an Operator policy or a Recipe cap or lock these switches; where nothing locks them, a run can still switch them.
 - The V1 benchmark publishes what each control costs, as it does for the security controls of ADR 0016.

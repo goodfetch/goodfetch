@@ -1,8 +1,10 @@
 # The frontier learns which URLs are the same page, and every run reports its completeness
 
-The frontier applies the fixed URL rules competitors use, then learns three more from what it fetches: query parameters that do not change the page (by page signature), trap paths to close, and cursor pagination preferred over offset. Every run reports a completeness of complete, incomplete or unverified, and a run stopped by a Limit is never complete. In the lab, the naive frontier ran out of budget on a trap site where the learned one finished in 75 requests, and offset pagination over a table modified during the crawl lost rows while reporting success 15 times out of 15. Decided in [Adopt collection decisions](https://github.com/Jbmanllr/automan/issues/71).
+The frontier applies the fixed URL rules competitors use, then learns three more from what it fetches: query parameters that do not change the page (by page signature), trap paths to close, and cursor pagination preferred over offset. Every run reports a completeness of complete, incomplete or unverified, and a run stopped by a Limit is never complete. In the lab, the naive frontier ran out of budget on a trap site where the learned one finished in 75 requests, and offset pagination over a table modified during the crawl lost rows while reporting success 15 times out of 15. Decided in [Adopt collection decisions](https://github.com/goodfetch/goodfetch/issues/71).
 
-Competitor evidence: [frontier and sessions research](https://github.com/Jbmanllr/automan/blob/research/frontier-sessions-competitors/rnd/research/2026-10-10-frontier-sessions-competitors.md).
+> Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): a crawl request's identity in the Frontier is its method, its URL after these rules and a hash of its body, as Crawlee's `useExtendedUniqueKey`, so a POST to one URL with two bodies is two requests; a declared `key` still wins.
+
+Competitor evidence: [frontier and sessions research](https://github.com/goodfetch/goodfetch/blob/research/frontier-sessions-competitors/rnd/research/2026-10-10-frontier-sessions-competitors.md).
 
 ## Considered Options
 

@@ -5,7 +5,7 @@ Goodfetch is the organization behind two open-source Products: Collie, for brows
 ## Products and the engine
 
 **Goodfetch**:
-The organization and umbrella brand behind Collie, Foxhound and Goodfetch Cloud; not the name of anything installed.
+The organization and umbrella brand behind Collie, Foxhound and Goodfetch Cloud; not the name of a Product or of anything a person installs to get one.
 _Avoid_: framework, library, platform, Automan (its former working name)
 
 **Product**:
@@ -17,8 +17,12 @@ The Product that drives one browser page at a time: the CDP driver and its guard
 _Avoid_: browser module, agent
 
 **Foxhound**:
-The Product that discovers and collects many pages: the Frontier, crawl scope, Politeness, fetch tiers, Datasets and Sinks. It contains Collie, which it uses to render pages and act on them.
+The Product that discovers and collects many pages: the Frontier, crawl scope, Politeness toward sites, the HTTP fetch tiers, Datasets and Sinks. It contains Collie, which it uses to render pages and act on them.
 _Avoid_: spider, scraper
+
+**Product version**:
+The one version that Collie, Foxhound and the packages people install carry, released together; a product major is its major.
+_Avoid_: lockstep version, release train
 
 **Engine**:
 The runtime inside each Product that executes every run, whichever surface starts it; Foxhound's engine includes Collie's.
@@ -77,7 +81,7 @@ A closed component kept outside the open-source Products, used by Goodfetch Clou
 _Avoid_: enterprise edition, premium module, closed core
 
 **Browser host**:
-The Goodfetch process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
+The process, started from either Product's executable, that sits beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
 **Borrowed browser**:
@@ -98,7 +102,7 @@ _Avoid_: extension point, hook (a Hook is one kind), slot
 
 **Hook**:
 The Plugin kind whose implementations run at a fixed stage of a request, a navigation, a page, a Record or a run's lifecycle, and may change, skip, retry or fail the work at that stage, or only observe it.
-_Avoid_: middleware (for a Hook scoped by a Label), callback, interceptor
+_Avoid_: middleware (for a Hook scoped by a Label), pipeline (for a Hook before a Record's commit), callback, interceptor
 
 **Script Hook**:
 A Hook written as a short script that the engine runs in the Script sandbox, so it can travel inside a Recipe or settings without an SDK or a process Plugin.
@@ -107,6 +111,10 @@ _Avoid_: inline hook, user script
 **Script sandbox**:
 The confined place where the engine runs Code mode programs and Script Hooks, with only the catalog calls it allows and with time and memory limits.
 _Avoid_: code-mode sandbox, VM, isolate, JS runtime
+
+**SDK handler**:
+An implementation of a Plugin kind written in a program's own code and given to its SDK, which the engine calls over the program's connection; it runs with the program's rights and is never confined.
+_Avoid_: injectable component, provider (for the form), callback
 
 **Plugin index**:
 The signed list of community Plugins that people search to find one, with each Plugin's conformance results.
@@ -226,6 +234,10 @@ _Avoid_: route (for a Label), page type (for a Label), callback (for the name)
 The data a program attaches to a request for its handler, owned by the program and kept apart from the engine's own fields.
 _Avoid_: userData, user_data, meta, cb_kwargs, context
 
+**Crawl request**:
+One request a crawl's Frontier admitted (its method, URL and body), with its Label and Payload: the work item one handler processes, which ends in exactly one outcome.
+_Avoid_: `Request` (the type or identifier is a page's network request), item, task, job
+
 **Politeness**:
 The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.
 _Avoid_: rate limiting, throttling
@@ -267,7 +279,7 @@ What completes a Challenge on a Session's behalf, whether Goodfetch's own logic,
 _Avoid_: unblocker, bypass, captcha solver (for every kind)
 
 **Session pool**:
-The sessions a run keeps, scoring, rotating and retiring them as they fail.
+The Sessions a crawl keeps, scoring, rotating and retiring them as they fail; a Session a program or an Agent opens itself is never in it.
 _Avoid_: session manager, account pool
 
 **Saved identity**:
@@ -331,11 +343,11 @@ A declaration by a run's code of what an expected page and a login page look lik
 _Avoid_: contract, validator, assertion
 
 **Dataset**:
-The append-only collection of a run's Records.
+The append-only collection of a run's Records, named by the crawl that fills it, which may give it a schema and the fields that identify one Record.
 _Avoid_: results table, output, items
 
 **Record**:
-One unit of structured data in a Dataset.
+One unit of structured data in a Dataset, committed once with the work that produced it.
 _Avoid_: row, document, item (an item is a unit of work)
 
 **Key-value store**:
@@ -389,7 +401,7 @@ The record of the Effects and model calls of a run, consulted so that a retried,
 _Avoid_: action log, history
 
 **Operation catalog**:
-The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
+The single list of engine operations, each classed read, idempotent write or Effect and marked with the smallest Product that carries it; every surface of a Product exposes that Product's operations to people and agents.
 _Avoid_: tool list, API surface
 
 **Code mode**:
@@ -397,7 +409,7 @@ Driving the engine through a short program written by a model that calls only th
 _Avoid_: scripting, eval
 
 **Framework adapter**:
-A package that offers Goodfetch's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
+A package that offers a Product's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
 _Avoid_: wrapper, toolkit, Integration
 
 **MCP host**:
@@ -412,6 +424,10 @@ _Avoid_: check (alone), assertion, judge, validator
 A model-driven loop over the Operation catalog toward an objective, whether Goodfetch's built-in one or an outside one; a single AI extraction is not an Agent.
 _Avoid_: bot, assistant
 
+**Agent tool**:
+A function of the user's program that Collie's built-in Agent may call as an action during a task, such as a lookup in the program's own data.
+_Avoid_: function tool, custom action, skill, Plugin
+
 **Model provider**:
 Whatever answers a run's model calls: a model company reached directly, a gateway, a local model server, or a model run inside the engine.
 _Avoid_: LLM vendor, backend
@@ -425,11 +441,15 @@ A Model provider whose model picks one option from a fixed list with a confidenc
 _Avoid_: classifier, router
 
 **Grounding**:
-The requirement that every extracted value appears in its page or follows from a declared transform.
+The requirement that every extracted value appears in the page it was read from (for an Agent's task, any page the task observed), or in the program's own data that an Agent tool returned, or follows from a declared transform.
 _Avoid_: verification, fact-check
 
+**Element reference**:
+A short name the engine gives an element in an AI accessibility snapshot of a page, such as `e12`, by which a model or a program acts on that element for as long as it stays in the page.
+_Avoid_: handle, element ID, node ID
+
 **Human pause**:
-The state of a Session's work items while they wait for a person to complete a login, MFA, a CAPTCHA, a confirmation or a review.
+The state of a Session's work while it waits for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.
 _Avoid_: manual step, HITL
 
 ## Security and compliance
@@ -438,12 +458,16 @@ _Avoid_: manual step, HITL
 The name by which a run points to a credential, such as a password, a TOTP seed or an API key, without ever holding its value.
 _Avoid_: secret (for the reference), credential ID, variable
 
+**Secret placeholder**:
+The name, such as `%password%`, by which a Plan, a prompt or a program asks for a secret to be typed or sent, and which a run binds to a Secret reference and to the domains allowed to receive it.
+_Avoid_: variable, alias
+
 **Secret provider**:
 Whatever turns a Secret reference into its value at the moment of use: the environment, the OS keychain, an encrypted local file, the caller, or an external vault.
 _Avoid_: vault (for every provider), secret store, credential manager
 
 **Provenance**:
-The record of how a Record was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
+The record of how a Record, or any other result of a run, was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
 _Avoid_: lineage, metadata, source (alone)
 
 **Purpose**:
@@ -517,7 +541,7 @@ One thing the Proving ground asks a tool to do on one page family, with its star
 _Avoid_: fixture, test case
 
 **Journey**:
-A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
+A goal a person reaches through a Product's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
 _Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
 
 **Golden scenario**:

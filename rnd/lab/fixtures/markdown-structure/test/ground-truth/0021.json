@@ -6,7 +6,7 @@
    "primary": "code"
   },
   "case": "fenced-language",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "Example:\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://automan.local/lab/schemas/metric-catalog.schema.json",
-  "title": "Automan lab metric catalog",
+  "$id": "https://goodfetch.local/lab/schemas/metric-catalog.schema.json",
+  "title": "Goodfetch lab metric catalog",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "metrics"],

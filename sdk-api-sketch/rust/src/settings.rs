@@ -147,6 +147,25 @@ pub mod ai {
     pub const MODEL: Setting<Option<ModelReference>> = Setting::new("ai.model");
     /// `ai.structured_output`: [`StructuredOutput::Auto`] by default.
     pub const STRUCTURED_OUTPUT: Setting<StructuredOutput> = Setting::new("ai.structured_output");
+
+    /// `ai.allowance.*`: the Run's Model allowance (ADR 0107), none by default, `None` for none.
+    /// Set where a Run opens or above, never on a Label, a Session or a page
+    /// (`setting_not_applicable`). Not a Limit: each call reserves its worst case against it, and
+    /// once a call does not fit, every later model call of the Run is refused with
+    /// `model_allowance_reached` while the Run goes on. When several are set, the first reached
+    /// holds.
+    pub mod allowance {
+        use crate::settings::Setting;
+        use crate::time::Money;
+
+        /// `ai.allowance.price`: priced through the price table; an unpriced model is refused with
+        /// `model_price_unknown`.
+        pub const PRICE: Setting<Option<Money>> = Setting::new("ai.allowance.price");
+        /// `ai.allowance.tokens`: input plus output.
+        pub const TOKENS: Setting<Option<u64>> = Setting::new("ai.allowance.tokens");
+        /// `ai.allowance.calls`.
+        pub const CALLS: Setting<Option<u64>> = Setting::new("ai.allowance.calls");
+    }
 }
 
 /// A browser window's size in CSS pixels.

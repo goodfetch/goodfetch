@@ -234,6 +234,11 @@ from goodfetch._models import ModelOutputInvalidDetails as ModelOutputInvalidDet
 from goodfetch._models import ModelOutputInvalidError as ModelOutputInvalidError
 from goodfetch._models import ModelPriceUnknownDetails as ModelPriceUnknownDetails
 from goodfetch._models import ModelPriceUnknownError as ModelPriceUnknownError
+from goodfetch._models import ModelAllowanceReachedDetails as ModelAllowanceReachedDetails
+from goodfetch._models import ModelAllowanceReachedError as ModelAllowanceReachedError
+from goodfetch._models import ModelAllowanceSettings as ModelAllowanceSettings
+from goodfetch._models import AppliedModelAllowance as AppliedModelAllowance
+from goodfetch._models import RunAiSettings as RunAiSettings
 from goodfetch._models import ModelProviderHandler as ModelProviderHandler
 from goodfetch._models import ModelProviderSettings as ModelProviderSettings
 from goodfetch._models import ModelFundsExhaustedError as ModelFundsExhaustedError

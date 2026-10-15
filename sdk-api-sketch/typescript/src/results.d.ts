@@ -92,6 +92,7 @@ export type KnownErrorCode =
   | "model_unauthorized"
   | "model_funds_exhausted"
   | "model_price_unknown"
+  | "model_allowance_reached"
   | "model_unavailable"
   | "model_declined"
   | "model_context_exceeded"
@@ -340,7 +341,9 @@ export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef
  * - `crawl_delay`: a Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086), also for an escaped refusal of a handler's navigation;
  * - `use_signals`: an AI-use signal that refuses the run's Purpose while `site_preferences.respect_use_signals` is on (ADR 0086), also for an escaped refusal of a handler's navigation;
  * - `hook`: a before-request Hook (ADR 0033);
- * - `handler`: the handler called `ctx.skip()`.
+ * - `handler`: the handler called `ctx.skip()`;
+ * - `model_allowance`: a `ModelAllowanceReachedError` escaped the handler once the Run's Model allowance
+ *   was reached (ADR 0107); the Run then ends `incomplete` though it finishes.
  */
 export type SkipReason =
   | "out_of_scope"
@@ -351,6 +354,7 @@ export type SkipReason =
   | "use_signals"
   | "hook"
   | "handler"
+  | "model_allowance"
   | (string & {});
 
 /** A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`. */
@@ -364,14 +368,17 @@ export type Ended =
 /**
  * Why AI work stopped early (ADRs 0079, 0080, 0100): a Limit by name, after which the Run stops too;
  * a timeout, the Agent's own `timeout.agent` or the Run's; the Agent's step cap (`agent.max_steps`) or
- * stall rule (`agent.max_stalled_steps`), which stop only the task; or an abort by someone other than
- * the caller. `source` names the setting, its value and its layer (G6).
+ * stall rule (`agent.max_stalled_steps`), which stop only the task; the Run's Model allowance
+ * (`ai.allowance.*`, ADR 0107), which stops the task while the Run goes on; or an abort by someone
+ * other than the caller. `source` names the setting, its value and its layer (G6).
  */
 export type StopReason =
   | { readonly kind: "limit"; readonly limit: string }
   | { readonly kind: "timeout"; readonly source: LimitSource }
   | { readonly kind: "max_steps"; readonly source: LimitSource }
   | { readonly kind: "no_progress"; readonly source: LimitSource }
+  /** The Run's Model allowance is reached (ADR 0107): the task stops and the Run goes on; `source` names `ai.allowance.<kind>`. */
+  | { readonly kind: "model_allowance"; readonly source: LimitSource }
   /** Who stopped it: a person in the Console, another Client, or the program closing the page or the Run. */
   | { readonly kind: "abort"; readonly by: "person" | "client" | "program" | (string & {}) }
   | { readonly kind: "unknown"; readonly raw: string };

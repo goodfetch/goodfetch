@@ -21,7 +21,7 @@ from goodfetch._politeness import (
 )
 from goodfetch._sessions import Permission, ProxySettings, SecretsSettings, SessionLoginSettings, SessionScopeLoginSettings
 from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
-from goodfetch._models import AiSettings, PageAiSettings
+from goodfetch._models import AiSettings, PageAiSettings, RunAiSettings
 
 class LocatorSettings(TypedDict, total=False):
     test_id_attribute: str
@@ -252,7 +252,7 @@ class Settings(TypedDict, total=False):
     plan: PlanSettings
     extract: ExtractSettings
     observation: ObservationSettings
-    ai: AiSettings
+    ai: RunAiSettings
     """`ai.*`: the model, Model providers and structured output (ADR 0101)."""
     agent: AgentSettings
     """`agent.*`: the Agent's step cap, stall rule, domains and Human pause (ADR 0100)."""
@@ -285,7 +285,7 @@ class CrawlRunSettings(TypedDict, total=False):
     fetch: FetchSettings
     politeness: PolitenessSettings
     site_preferences: SitePreferencesSettings
-    ai: AiSettings
+    ai: RunAiSettings
     plan: PlanSettings
     extract: ExtractSettings
     observation: ObservationSettings
@@ -339,7 +339,7 @@ class RunSettings(TypedDict, total=False):
     plan: PlanSettings
     extract: ExtractSettings
     observation: ObservationSettings
-    ai: AiSettings
+    ai: RunAiSettings
     agent: AgentSettings
     site_preferences: CollieSitePreferencesSettings
     session: SessionLoginSettings
@@ -392,6 +392,9 @@ SettingKey: TypeAlias = Literal[
     "agent.human_pause",
     "ai.model",
     "ai.structured_output",
+    "ai.allowance.price",
+    "ai.allowance.tokens",
+    "ai.allowance.calls",
     "plan.frozen",
     "extract.mode",
     "observation.max_size",

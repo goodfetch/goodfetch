@@ -276,8 +276,10 @@ export interface RunSettings {
  * `source` argument, one spelling (S2). Set where a Borrowed browser's Session opens, any `browser.*`
  * value is refused with `setting_not_applicable`.
  */
-export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session" | "plan" | "checkpoint" | "effect"> {
+export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session" | "plan" | "checkpoint" | "effect" | "ai"> {
   readonly session?: Omit<SessionLoginSettings, "source">;
+  /** A Run's Model allowance is counted per Run, so a Session takes none (ADR 0107). */
+  readonly ai?: Omit<AiSettings, "allowance">;
 }
 
 /** `locator.*` (ADR 0085), settable at any scope. */
@@ -326,6 +328,9 @@ export type SettingKey =
   | "observation.max_size"
   | "ai.model"
   | "ai.structured_output"
+  | "ai.allowance.price"
+  | "ai.allowance.tokens"
+  | "ai.allowance.calls"
   | `ai.providers.${string}`
   | "browser.viewport"
   | "browser.device_scale_factor"

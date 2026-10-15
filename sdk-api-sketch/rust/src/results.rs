@@ -227,6 +227,9 @@ pub enum ErrorCode {
     /// `model_price_unknown`, a refusal: a currency Limit applies and the model's price cannot be
     /// stated in its currency (no price, or no fixed rate).
     ModelPriceUnknown,
+    /// `model_allowance_reached`, a refusal: the Run's Model allowance is reached, so its model calls
+    /// are refused while the Run goes on (ADR 0107). Not retryable within the Run.
+    ModelAllowanceReached,
     /// `model_unavailable`: unreachable, a 5xx, or rate limited after the engine's retries. Retryable.
     ModelUnavailable,
     /// `model_declined`, a model error: the model declined to answer.
@@ -553,6 +556,8 @@ pub enum ErrorDetails {
     ModelRequestRejected(crate::models::ModelRequestRejected),
     /// Of `model_price_unknown`.
     ModelPriceUnknown(crate::models::ModelPriceUnknown),
+    /// Of `model_allowance_reached`.
+    ModelAllowanceReached(crate::models::ModelAllowanceReached),
     /// Of `model_capability_missing`.
     ModelCapabilityMissing(crate::models::ModelCapabilityMissing),
     /// Of `model_handler_failed`.
@@ -716,6 +721,9 @@ pub enum SkipReason {
     Hook,
     /// The handler returned `ctx.skip(…)`.
     Handler,
+    /// The handler returned a `model_allowance_reached` error once the Run's Model allowance was
+    /// reached (ADR 0107); the Run then ends `incomplete` though it finishes.
+    ModelAllowance,
     /// A reason this SDK does not know, as received.
     Unknown(String),
 }
@@ -814,6 +822,9 @@ pub enum StopReason {
     MaxSteps(LimitSource),
     /// The Agent's stall rule, `agent.max_stalled_steps`; only the task stops.
     NoProgress(LimitSource),
+    /// The Run's Model allowance, `ai.allowance.<kind>` (ADR 0107): the task stops and the Run goes
+    /// on.
+    ModelAllowance(LimitSource),
     /// Someone other than the caller stopped it: a person in the Console (`person`), another
     /// Client (`client`), or the program closing the page or the Run (`program`).
     Abort(String),

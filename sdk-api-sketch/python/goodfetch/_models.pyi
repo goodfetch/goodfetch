@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import Literal, TypeAlias, TypedDict, final
 
 from goodfetch._data import JsonSchema
-from goodfetch._results import ModelError, ProgramError, RefusedError, UnavailableError
+from goodfetch._results import LimitSource, ModelError, ProgramError, RefusedError, UnavailableError
 from goodfetch._sessions import SecretReference
 from goodfetch._time import Money
 
@@ -83,6 +83,27 @@ class AiSettings(TypedDict, total=False):
     """`auto` (the default) starts at the best strategy the model declares, or `native` for one it does not know, and
     steps down when the provider rejects a strategy or a schema feature; an answer that fails validation is retried,
     never stepped down. Every answer is validated against the program's own schema and validators (ADR 0082)."""
+
+class ModelAllowanceSettings(TypedDict, total=False):
+    """`ai.allowance.*`: the most model Usage one Run may spend (ADR 0107), none by default, `None` for none.
+
+    Not a Limit: each call reserves its worst case against it, so it is never passed; the first call that does not fit
+    is refused with `ModelAllowanceReachedError`, and so is every later model call of the Run, a smaller one included,
+    while the Run goes on. When several are set, the first reached holds. Any layer may set it, a Recipe and a Client
+    acting for a model included; the Limits still stop the Run, and only they clear the uncapped mark."""
+
+    price: Money | None
+    """`ai.allowance.price`: priced through the price table; an unpriced model is refused with `model_price_unknown`."""
+    tokens: int | None
+    """`ai.allowance.tokens`: input plus output, as `ModelUsage.tokens`."""
+    calls: int | None
+    """`ai.allowance.calls`: as `ModelUsage.calls`."""
+
+class RunAiSettings(AiSettings, total=False):
+    """`ai.*` where a Run opens or above: a Label, a Session or a page takes no Model allowance
+    (`setting_not_applicable`)."""
+
+    allowance: ModelAllowanceSettings
 
 class PageAiSettings(TypedDict, total=False):
     """The model and the strategy for a page's AI calls; Model providers are declared above a page."""
@@ -252,6 +273,20 @@ class AppliedLimit:
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class AppliedModelAllowance:
+    """One kind of the Run's Model allowance, and what remains of it (ADR 0107). A newer engine's kind is kept (G3)."""
+
+    kind: Literal["price", "tokens", "calls"] | str
+    value: int | Money
+    remaining: int | Money
+    """The value less what the Run spent and has reserved for calls in flight."""
+    reached_at: datetime | None
+    """When a call was first refused for it; `None` until then."""
+    source: LimitSource
+    """`ai.allowance.<kind>`, its value and the layer that set it."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class RunUsage:
     """A Run's Usage so far: the figures the Usage ledger charges. Its Run report carries the final one (ADR 0102)."""
 
@@ -264,6 +299,10 @@ class RunUsage:
     """The price of the Usage third parties charge for: model calls, metered proxies, paid solves and Paid fetches;
     `None` as `TokenCounts.price` when any of it has no price or rate. Browser time and an unmetered proxy carry none."""
     limits: Sequence[AppliedLimit]
+    """The Limits that apply to the Run: what stops it."""
+    model_allowance: Sequence[AppliedModelAllowance]
+    """The Run's Model allowance, one entry per kind set, empty when none is (ADR 0107): not a Limit, so not in
+    `limits`."""
     uncapped: bool
     """ADR 0041's mark: the Run can spend money with nothing capping it."""
 
@@ -393,6 +432,25 @@ class ModelPriceUnknownError(RefusedError):
 
     @property
     def details(self) -> ModelPriceUnknownDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ModelAllowanceReachedDetails:
+    kind: Literal["price", "tokens", "calls"] | str
+    value: int | Money
+    spent: int | Money
+    """What the Run had spent of that kind when the allowance was reached."""
+    reached_at: datetime
+
+@final
+class ModelAllowanceReachedError(RefusedError):
+    """The Run's Model allowance is reached (ADR 0107): every later model call of the Run is refused while the Run goes
+    on. A step with no Plan entry, a compile or a Repair raises it; a step replayed from the Plan does not. Escaping a
+    crawl handler, it ends the request `skipped` with the reason `model_allowance`. `limit` names `ai.allowance.<kind>`,
+    its value and its layer; `usage` carries the call's model Usage. Not retryable within the Run."""
+
+    @property
+    def details(self) -> ModelAllowanceReachedDetails: ...
 
 @final
 class ModelUnavailableError(UnavailableError):

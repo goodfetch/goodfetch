@@ -13,7 +13,7 @@
 //   carries its `usage` too.
 
 import type { JsonSchema } from "./data.js";
-import type { ModelError, ProgramError, RefusedError, UnavailableError } from "./results.js";
+import type { LimitSource, ModelError, ProgramError, RefusedError, UnavailableError } from "./results.js";
 import type { SecretReference } from "./sessions.js";
 import type { CallOptions, Money } from "./time.js";
 
@@ -95,6 +95,28 @@ export interface AiSettings {
    * against the program's own schema and validators (ADR 0082).
    */
   readonly structuredOutput?: "auto" | StructuredOutputStrategy;
+  /**
+   * `ai.allowance.*`: the Run's Model allowance (ADR 0107), set where a Run opens or above, never on a
+   * Label, a Session or a page (`setting_not_applicable`). Not a Limit: once reached, every later model
+   * call of the Run raises `ModelAllowanceReachedError` while the Run goes on.
+   */
+  readonly allowance?: ModelAllowanceSettings;
+}
+
+/**
+ * `ai.allowance.*`: the most model Usage one Run may spend (ADR 0107), none by default, `null` for none.
+ * Each call reserves its worst case against it, so it is never passed; the first call that does not fit
+ * is refused, and so is every later model call of the Run, a smaller one included. When several are
+ * set, the first reached holds. Any layer may set it, a Recipe and a Client acting for a model
+ * included; the Limits still stop the Run, and only they clear the uncapped mark.
+ */
+export interface ModelAllowanceSettings {
+  /** `ai.allowance.price`: priced through the price table; an unpriced model is refused with `model_price_unknown`. */
+  readonly price?: Money | null;
+  /** `ai.allowance.tokens`: input plus output, as `ModelUsage.tokens`. */
+  readonly tokens?: number | null;
+  /** `ai.allowance.calls`: as `ModelUsage.calls`. */
+  readonly calls?: number | null;
 }
 
 // The SDK handler: ADR 0033's SDK-handler form of the Model provider kind.
@@ -252,6 +274,39 @@ export interface AppliedLimit {
   readonly setBy: "person" | "policy" | "client" | (string & {});
 }
 
+/** One kind of the Run's Model allowance, and what remains of it (ADR 0107). A newer engine's kind is kept as received (G3). */
+export interface AppliedModelAllowance {
+  readonly kind: "price" | "tokens" | "calls" | (string & {});
+  readonly value: number | Money;
+  /** The value less what the Run spent and has reserved for calls in flight. */
+  readonly remaining: number | Money;
+  /** When a call was first refused for it; `null` until then. */
+  readonly reachedAt: Date | null;
+  /** `ai.allowance.<kind>`, its value and the layer that set it. */
+  readonly source: LimitSource;
+}
+
+/**
+ * Every model call of the Run is refused once its Model allowance is reached (ADR 0107), while the Run
+ * goes on: a step with no Plan entry, a compile or a Repair raises this, and a step replayed from the
+ * Plan does not. Escaping a crawl handler, it ends the request `skipped` with the reason
+ * `model_allowance`. `limit` names `ai.allowance.<kind>`, its value and its layer; `usage` carries the
+ * call's model Usage. Not retryable within the Run; `fix` names the setting.
+ */
+export declare class ModelAllowanceReachedError extends RefusedError {
+  readonly code: "model_allowance_reached";
+  readonly retryable: false;
+  readonly details: ModelAllowanceReachedDetails;
+}
+
+export interface ModelAllowanceReachedDetails {
+  readonly kind: "price" | "tokens" | "calls" | (string & {});
+  readonly value: number | Money;
+  /** What the Run had spent of that kind when the allowance was reached. */
+  readonly spent: number | Money;
+  readonly reachedAt: Date;
+}
+
 /** A Run's Usage so far: the figures the Usage ledger charges. */
 export interface RunUsage {
   readonly model: ModelUsage;
@@ -266,7 +321,10 @@ export interface RunUsage {
    * an unmetered proxy carry none.
    */
   readonly price: Money | null;
+  /** The Limits that apply to the Run: what stops it. */
   readonly limits: readonly AppliedLimit[];
+  /** The Run's Model allowance, one entry per kind set, empty when none is (ADR 0107): not a Limit, so not in `limits`. */
+  readonly modelAllowance: readonly AppliedModelAllowance[];
   /** ADR 0041's mark: the Run can spend money with nothing capping it. */
   readonly uncapped: boolean;
 }

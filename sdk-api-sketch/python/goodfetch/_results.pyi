@@ -74,6 +74,7 @@ KnownErrorCode: TypeAlias = Literal[
     "model_unauthorized",
     "model_funds_exhausted",
     "model_price_unknown",
+    "model_allowance_reached",
     "model_unavailable",
     "model_declined",
     "model_context_exceeded",
@@ -337,6 +338,7 @@ SkipReason: TypeAlias = (
         "use_signals",
         "hook",
         "handler",
+        "model_allowance",
     ]
     | str
 )
@@ -353,7 +355,9 @@ SkipReason: TypeAlias = (
 - `use_signals`: an AI-use signal that refuses the run's Purpose while `site_preferences.respect_use_signals` is on,
   also for an escaped refusal of a handler's navigation;
 - `hook`: a before-request Hook (ADR 0033);
-- `handler`: the handler called `ctx.skip()`.
+- `handler`: the handler called `ctx.skip()`;
+- `model_allowance`: a `ModelAllowanceReachedError` escaped the handler once the Run's Model allowance was reached
+  (ADR 0107); the Run then ends `incomplete` though it finishes.
 """
 
 @final
@@ -448,14 +452,15 @@ class Stopped:
 
     `limit`: a Limit, after which the Run stops too. `timeout`: the Agent's own `timeout.agent` or the Run's. `max_steps`: the
     Agent's step cap, `agent.max_steps`. `no_progress`: its stall rule, `agent.max_stalled_steps`. These two stop only the
-    task. `abort`: someone other than the caller stopped it (ADRs 0079, 0080, 0100)."""
+    task. `model_allowance`: the Run's Model allowance (`ai.allowance.*`, ADR 0107), which stops the task while the Run
+    goes on. `abort`: someone other than the caller stopped it (ADRs 0079, 0080, 0100)."""
 
-    reason: Literal["limit", "timeout", "max_steps", "no_progress", "abort"] | str
+    reason: Literal["limit", "timeout", "max_steps", "no_progress", "model_allowance", "abort"] | str
     limit: str | None
     """The Limit by name, when `reason` is `limit`."""
     source: LimitSource | None
-    """The setting that stopped it, its value and its layer, when `reason` is `timeout`, `max_steps` or `no_progress`
-    (G6)."""
+    """The setting that stopped it, its value and its layer, when `reason` is `timeout`, `max_steps`, `no_progress` or
+    `model_allowance` (G6)."""
     by: Literal["person", "client", "program"] | str | None
     """Who stopped it, when `reason` is `abort`: a person in the Console, another Client, or the program closing the page
     or the Run."""

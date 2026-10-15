@@ -621,6 +621,65 @@ pub struct AppliedLimit {
     pub set_by: LimitSetBy,
 }
 
+/// A kind of Model allowance (ADR 0107): `ai.allowance.price`, `ai.allowance.tokens` or
+/// `ai.allowance.calls`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ModelAllowanceKind {
+    /// A price, through the price table.
+    Price,
+    /// Input plus output tokens, as [`ModelUsage`] counts them.
+    Tokens,
+    /// Model calls.
+    Calls,
+    /// A kind this SDK does not know, as received.
+    Unknown(String),
+}
+
+/// An amount of a Model allowance: a price for [`ModelAllowanceKind::Price`], a count otherwise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AllowanceAmount {
+    /// A count of tokens or calls.
+    Count(u64),
+    /// A price.
+    Price(Money),
+}
+
+/// One kind of the Run's Model allowance, and what remains of it (ADR 0107).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct AppliedModelAllowance {
+    /// Its kind.
+    pub kind: ModelAllowanceKind,
+    /// The allowance.
+    pub value: AllowanceAmount,
+    /// The value less what the Run spent and has reserved for calls in flight.
+    pub remaining: AllowanceAmount,
+    /// When a call was first refused for it; `None` until then.
+    pub reached_at: Option<SystemTime>,
+    /// `ai.allowance.<kind>`, its value and the layer that set it.
+    pub source: crate::results::LimitSource,
+}
+
+/// Details of `model_allowance_reached` (ADR 0107): every later model call of the Run is refused
+/// while the Run goes on. A step with no Plan entry, a compile or a Repair fails with it; a step
+/// replayed from the Plan does not. Returned from a crawl handler, it ends the request `skipped`
+/// with [`crate::results::SkipReason::ModelAllowance`]. The error's `limit` names
+/// `ai.allowance.<kind>`, its value and its layer; not retryable within the Run.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ModelAllowanceReached {
+    /// Its kind.
+    pub kind: ModelAllowanceKind,
+    /// The allowance.
+    pub value: AllowanceAmount,
+    /// What the Run had spent of that kind when the allowance was reached.
+    pub spent: AllowanceAmount,
+    /// When it was reached.
+    pub reached_at: SystemTime,
+}
+
 /// A Run's Usage so far: the figures the Usage ledger charges. Its Run report carries the final
 /// one (ADR 0102).
 #[derive(Debug, Clone)]
@@ -640,8 +699,11 @@ pub struct RunUsage {
     /// Paid fetches; `None` as [`ModelUsage::price`] when any of it has no price or rate. Browser
     /// time and an unmetered proxy carry none.
     pub price: Option<Money>,
-    /// Each Limit that applies to the Run.
+    /// Each Limit that applies to the Run: what stops it.
     pub limits: Vec<AppliedLimit>,
+    /// The Run's Model allowance, one entry per kind set, empty when none is (ADR 0107): not a
+    /// Limit, so not in `limits`.
+    pub model_allowance: Vec<AppliedModelAllowance>,
     /// ADR 0041's mark: the Run can spend money with nothing capping it.
     pub uncapped: bool,
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseRobots, groupsFor, pathAllowed, SitePolicy, classifyResponse, StopError } from '../src/identity/policy.ts';
 
 const robots = `# comment
-User-agent: AutomanLab
+User-agent: GoodfetchLab
 User-agent: OtherBot
 Disallow: /
 Allow: /public/
@@ -20,7 +20,7 @@ Content-Signal: search=yes, ai-train=no
 
 test('robots.txt: a named group replaces the * group, longest match wins, allow wins a tie, * and $ are patterns (RFC 9309)', () => {
   const groups = parseRobots(robots);
-  const named = groupsFor(groups, 'automanlab'), any = groupsFor(groups, null);
+  const named = groupsFor(groups, 'goodfetchlab'), any = groupsFor(groups, null);
   assert.equal(pathAllowed(named.rules, '/catalog'), false);
   assert.equal(pathAllowed(named.rules, '/public/a'), true);
   assert.equal(pathAllowed(any.rules, '/example/page/disallowed.gif'), false);
@@ -34,9 +34,9 @@ test('robots.txt: a named group replaces the * group, longest match wins, allow 
 const site = (files: Record<string, { status: number; body: string }>) => async (url: string) => files[new URL(url).pathname] ?? { status: 404, body: '' };
 
 test('an unreachable robots.txt disallows everything, a missing one allows everything', async () => {
-  const down = await SitePolicy.load('https://a.test', site({ '/robots.txt': { status: 503, body: '' } }), 'AutomanLab');
+  const down = await SitePolicy.load('https://a.test', site({ '/robots.txt': { status: 503, body: '' } }), 'GoodfetchLab');
   assert.throws(() => down.check('https://a.test/x', 'search'), (e: StopError) => e.code === 'E_POLICY_ROBOTS');
-  const missing = await SitePolicy.load('https://a.test', site({}), 'AutomanLab');
+  const missing = await SitePolicy.load('https://a.test', site({}), 'GoodfetchLab');
   assert.doesNotThrow(() => missing.check('https://a.test/x', 'ai-train'));
 });
 

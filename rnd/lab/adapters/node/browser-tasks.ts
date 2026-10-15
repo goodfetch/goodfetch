@@ -27,10 +27,10 @@ export interface BrowserPage {
 }
 // The drivers' own copy of the unicode variant text (the fixture keeps the oracle's copy).
 export const unicodeText = 'Ünïcødé — 漢字 😀';
-export const uploadText = 'automan-upload\n';
+export const uploadText = 'goodfetch-upload\n';
 const primitiveNegatives = ['retarget'];
 export { waitScript } from '../browser-scripts/scripts.ts';
-// The Automan guard: bounded strictness, visibility, enabled, stability and hit-test checks, shadow DOM included.
+// The Collie guard: bounded strictness, visibility, enabled, stability and hit-test checks, shadow DOM included.
 export const actionReadinessScript = (timeoutMs: number, selector = '#target') => guardScript(selector, timeoutMs);
 export async function runBrowserTask(page: BrowserPage, task: Task, alreadyNavigated = false): Promise<AdapterOutput> {
   const start = performance.now(); let operations = 0; const metrics: Record<string, number> = {};
@@ -73,7 +73,7 @@ export async function runBrowserTask(page: BrowserPage, task: Task, alreadyNavig
       drag: () => gesture('#source', gestureEvents.drag, () => drag.call(page, '#source', '#dropzone')),
       wheel: () => gesture('#scroller', gestureEvents.wheel, () => wheel.call(page, '#scroller', 600)),
       keyboard: async () => { await guarded('#field'); await press.call(page, '#field', 'Enter'); },
-      contenteditable: async () => { await guarded('#editor'); await page.fill('#editor', 'Automan'); },
+      contenteditable: async () => { await guarded('#editor'); await page.fill('#editor', 'Goodfetch'); },
       unicode: async () => { await guarded('#field'); await page.fill('#field', unicodeText); },
       moved: () => gesture('#target', gestureEvents.click, () => page.click('#target')),
       retarget: () => gesture('#target', gestureEvents.click, () => page.click('#target'))
@@ -102,7 +102,7 @@ export async function runBrowserTask(page: BrowserPage, task: Task, alreadyNavig
     // A cross-origin frame first commits in-process and then swaps to its own process: resolve it once loaded.
     else if (task.variant === 'frame' || task.variant === 'cross-frame') { await page.evaluate(waitScript(condition('frame-loaded'), task.timeoutMs)); await page.withFrame!('#frame', confirm); }
     else if (task.variant === 'upload') {
-      const path = join(await mkdtemp(join(tmpdir(), 'automan-upload-')), 'upload.txt'); await writeFile(path, uploadText);
+      const path = join(await mkdtemp(join(tmpdir(), 'goodfetch-upload-')), 'upload.txt'); await writeFile(path, uploadText);
       await guarded('#file'); await page.upload!('#file', path); await page.evaluate(waitScript(condition('done'), task.timeoutMs));
     } else if (task.variant === 'download') { await guarded('#file'); file = await page.download!('#file'); }
     else throw new Error(`unknown navigation variant ${task.variant}`);
@@ -135,7 +135,7 @@ export async function runBrowserTask(page: BrowserPage, task: Task, alreadyNavig
     const root = shadow ? 'document.querySelector("#shadow-host").shadowRoot' : 'document';
     // Each backend resolves fresh. Explicit common readiness is timed, not a forced click.
     await page.evaluate(waitScript(condition('submit-enabled', { ROOT: root }), task.timeoutMs)); operations++;
-    await guarded('#name'); await page.fill('#name', 'Automan'); await guarded('#region'); await page.select('#region', 'eu');
+    await guarded('#name'); await page.fill('#name', 'Goodfetch'); await guarded('#region'); await page.select('#region', 'eu');
     await gesture('#consent', gestureEvents.click, () => page.click('#consent')); await gesture('#submit', gestureEvents.click, () => page.click('#submit')); operations += 4;
     await page.evaluate(waitScript(condition('saved'), task.timeoutMs)); operations++;
   }

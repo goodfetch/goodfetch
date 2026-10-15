@@ -6,7 +6,7 @@
    "primary": "headings"
   },
   "case": "inline-markup",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "# Install *quickly* with `cargo`\n\nBody.\n\n## See the [guide](https://example.test/guide) & notes\n\nMore.\n",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://automan.local/lab/schemas/decision.schema.json",
-  "title": "Automan lab decision record",
+  "$id": "https://goodfetch.local/lab/schemas/decision.schema.json",
+  "title": "Goodfetch lab decision record",
   "type": "object",
   "additionalProperties": false,
   "required": [

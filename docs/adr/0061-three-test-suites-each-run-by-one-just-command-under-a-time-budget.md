@@ -4,13 +4,13 @@ Goodfetch's tests run in three suites, each a superset of the one before: the **
 
 The owner asked for "tiered suites by speed: quick (every change), pre-merge, and release (full matrix), each run by one local command, each with a time budget". ADR 0032 runs the full matrix in the merge queue, so read literally the two conflict: the owner's words put the full matrix in "release", and ADR 0032 runs it before every merge. That is conflict 4 on the test strategy map. The evidence says to keep the matrix before the merge, and to call it the Release suite:
 
-- **Peers that ship on many platforms gate merges on them.** Rust's pull-request builds are five Linux jobs of about 40 minutes, and its merge builds run "tens of CI jobs ... across operating systems and targets", taking about 2 hours ([rustc-dev-guide](https://rustc-dev-guide.rust-lang.org/tests/ci.html)). Cargo's merge queue runs macOS arm64 and Windows x64 and arm64 test jobs of 14 to 21 minutes ([findings](https://github.com/Jbmanllr/automan/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md), §12.3).
+- **Peers that ship on many platforms gate merges on them.** Rust's pull-request builds are five Linux jobs of about 40 minutes, and its merge builds run "tens of CI jobs ... across operating systems and targets", taking about 2 hours ([rustc-dev-guide](https://rustc-dev-guide.rust-lang.org/tests/ci.html)). Cargo's merge queue runs macOS arm64 and Windows x64 and arm64 test jobs of 14 to 21 minutes ([findings](https://github.com/goodfetch/goodfetch/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md), §12.3).
 - **A failure found after the merge costs more.** It lands on `main`, which carries the nightly channel and from which release branches are cut (ADR 0032), and someone must bisect it.
 - **Other decisions need the matrix before the merge.** ADR 0057's increase check compares each target's build with `main`'s, and ADR 0032 lets a pull request run only the Sinks it changes because the merge queue then runs them all.
 - **The merge queue doesn't hold the author up.** Once queued, the pull request merges or comes back without anyone waiting on it. The free plan's 20 concurrent jobs, 5 of them macOS, are why the matrix runs there and not on every pull request ([GitHub Actions limits](https://docs.github.com/en/actions/reference/limits)).
 - **Moving the matrix to release time only** would put macOS, Windows, arm64 and every runtime past the merge. Their failures would surface at the nightly or the release candidate, after other changes had built on them.
 
-Decided in [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276), with the agent answering on the owner's delegation. It rests on [Rust test tooling in 2026](https://github.com/Jbmanllr/automan/issues/263), [Performance regression testing in CI](https://github.com/Jbmanllr/automan/issues/272), [Flaky tests without retries](https://github.com/Jbmanllr/automan/issues/270) and [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/271). The rules every test follows are in `TESTING.md`.
+Decided in [Test suites, local commands and time budgets](https://github.com/goodfetch/goodfetch/issues/276), with the agent answering on the owner's delegation. It rests on [Rust test tooling in 2026](https://github.com/goodfetch/goodfetch/issues/263), [Performance regression testing in CI](https://github.com/goodfetch/goodfetch/issues/272), [Flaky tests without retries](https://github.com/goodfetch/goodfetch/issues/270) and [Upgrade and version-mismatch testing](https://github.com/goodfetch/goodfetch/issues/271). The rules every test follows are in `TESTING.md`.
 
 ## Decision
 
@@ -20,8 +20,8 @@ Each suite runs everything the suite before it runs.
 
 - **Quick suite**: formatting and lint checks, and the in-process tests, of what a change touches.
   - Rust: unit tests in `src/` (nextest's `kind(lib)`, `kind(bin)` and `kind(proc-macro)`), never `tests/it`.
-  - TypeScript and Python: each runner's in-process selection, which [Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277) names.
-  - The committed format fixtures, one per format version (the upgrade research's fit; [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287) decides their shape).
+  - TypeScript and Python: each runner's in-process selection, which [Test layout, naming, shared helpers and the test-first process](https://github.com/goodfetch/goodfetch/issues/277) names.
+  - The committed format fixtures, one per format version (the upgrade research's fit; [Upgrade and version-mismatch testing](https://github.com/goodfetch/goodfetch/issues/287) decides their shape).
   - `xtask codegen --check` and `xtask affected`'s own tests.
   - Nothing that starts a process, a browser or a container, or binds a socket.
 - **Pre-merge suite**: what ADR 0032's pull-request tier runs, on one platform. That is the Quick suite plus:
@@ -40,10 +40,10 @@ Each suite runs everything the suite before it runs.
   - browser conformance on every OS;
   - every Sink's suite;
   - the deployment-target smoke runs that CI hosts (ADR 0049);
-  - the tests that need released binaries, such as version skew and rolling upgrades (decided by [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287)).
+  - the tests that need released binaries, such as version skew and rolling upgrades (decided by [Upgrade and version-mismatch testing](https://github.com/goodfetch/goodfetch/issues/287)).
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each suite covers both Products. A test that runs an executable runs Collie's when Collie carries everything it needs and Foxhound's otherwise, `xtask affected` reaches only Foxhound's tests from a change confined to Foxhound's side, and each target's job builds both executables.
 
-Checks that are non-deterministic by nature are not in any suite: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, and the benchmark. They keep the tiers ADRs 0026, 0032 and 0043 give them. How they report, and when they block, is decided by [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280).
+Checks that are non-deterministic by nature are not in any suite: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, and the benchmark. They keep the tiers ADRs 0026, 0032 and 0043 give them. How they report, and when they block, is decided by [Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280).
 > Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate's pinned tests are in no suite too, since they need the build's source tree.
 
 ### Tiers run suites
@@ -64,7 +64,7 @@ Checks that are non-deterministic by nature are not in any suite: real SaaS Sink
 
 ### One `just` command per suite
 
-These are the recipes that [Workspace skeleton and the "all green" pull-request check](https://github.com/Jbmanllr/automan/issues/132) creates. CI calls the same recipes.
+These are the recipes that [Workspace skeleton and the "all green" pull-request check](https://github.com/goodfetch/goodfetch/issues/132) creates. CI calls the same recipes.
 
 | Recipe | What it does |
 |---|---|
@@ -80,7 +80,7 @@ These are the recipes that [Workspace skeleton and the "all green" pull-request 
 | `just test <suite> [packages]` | Runs one suite's tests alone, without lints, for Rust, TypeScript or Python packages. CI jobs call this for their part. |
 | `just hooks` | Opt-in: points `core.hooksPath` at the committed `.githooks/`. Its pre-commit hook checks formatting, and its pre-push hook runs `just quick`. |
 
-- **Until `xtask affected` exists** ([`xtask affected`: change detection for the pull-request tier](https://github.com/Jbmanllr/automan/issues/134), which comes after the skeleton), `just quick` and `just pre-merge` run over the whole workspace, as their `all` forms do.
+- **Until `xtask affected` exists** ([`xtask affected`: change detection for the pull-request tier](https://github.com/goodfetch/goodfetch/issues/134), which comes after the skeleton), `just quick` and `just pre-merge` run over the whole workspace, as their `all` forms do.
 - **`xtask affected` is the one source of what changed**, in CI and locally. Locally it diffs the working tree against the merge base. It gives nextest an `rdeps(…)` filterset, so crates that depend on a changed crate are tested too, and gives Vitest and pytest their packages.
 - **A local suite that can't run a part on this host says so.** For example, the sink containers on a machine without a container engine, or another OS's cell. The recipe lists every part it skipped, with the reason, after its results. Its exit code covers what ran. CI is the verdict.
 - **The reference host is never reached from a recipe.** `just release-ci` runs on GitHub-hosted runners only. The benchmark keeps ADR 0025's own command and ADR 0032's trigger rule: tags and manual dispatch by the owner.
@@ -102,13 +102,13 @@ A budget is the median (p50) of a job's last 20 runs in its own tier, on GitHub-
   - nextest's `quick` profile marks a test slow after 1 s and kills it at 10 s. Its `ci` profile marks a test slow after 30 s and kills it at 5 min.
   - Vitest, Playwright and pytest (`pytest-timeout`) get the same two levels: 10 s in the Quick suite, 5 min above it.
 - **No run fails for being slow within its cap.** Benchmark suites on shared runners vary by about 2.7% from run to run (CodSpeed's own measurement, in the performance-testing findings), and whole jobs vary more with cache hits and queueing. A timing gate on one run would be flaky; a gate on the trend is not.
-- **A breach opens an issue.** A budget check, run nightly and at the end of every manual-dispatch Release run (so it runs while the repository is private), reads the durations from the results store ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) decides it; until it exists, the check reads the GitHub Actions API). When a budget is breached, it opens or updates one issue per suite or job, labelled `needs-triage`. The fix comes within two weeks:
+- **A breach opens an issue.** A budget check, run nightly and at the end of every manual-dispatch Release run (so it runs while the repository is private), reads the durations from the results store ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280) decides it; until it exists, the check reads the GitHub Actions API). When a budget is breached, it opens or updates one issue per suite or job, labelled `needs-triage`. The fix comes within two weeks:
   - shard the job;
   - speed up the tests;
   - or move a test to a later suite, with the reason in its pull request.
 
-  If the pull-request tier runs a stress run of new and changed tests ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) decides it), that run counts against the Pre-merge budget. It is sharded to fit, and its run count is never lowered to meet a budget.
-- **Performance budgets of the product** (instruction counts, allocations, startup, overhead) are not these budgets. [Performance regression testing](https://github.com/Jbmanllr/automan/issues/284) decides them.
+  If the pull-request tier runs a stress run of new and changed tests ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280) decides it), that run counts against the Pre-merge budget. It is sharded to fit, and its run count is never lowered to meet a budget.
+- **Performance budgets of the product** (instruction counts, allocations, startup, overhead) are not these budgets. [Performance regression testing](https://github.com/goodfetch/goodfetch/issues/284) decides them.
 
 ### Sharding and caching
 
@@ -125,7 +125,7 @@ A budget is the median (p50) of a job's last 20 runs in its own tier, on GitHub-
 - **Every runner writes JUnit XML in every run, local or CI:** nextest's `junit` output in each profile, Vitest's and Playwright's `junit` reporters, and pytest's `--junitxml`.
 - **Every CI job uploads its JUnit files as an artifact, pass or fail.** The artifact is named `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`.
 - **Each failing job writes a summary** of its failed tests to the job's page.
-- **Where results are kept over time and shown** is decided by [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280), which reads these files. The budget check reads its durations from there.
+- **Where results are kept over time and shown** is decided by [Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280), which reads these files. The budget check reads its durations from there.
 
 ## Considered Options
 
@@ -135,7 +135,7 @@ A budget is the median (p50) of a job's last 20 runs in its own tier, on GitHub-
 - **Mandatory pre-commit hooks** (pre-commit or prek installed for everyone): rejected. CI is the gate, a hook can be skipped with `--no-verify`, and a slow hook teaches people to skip it. Git's own `core.hooksPath` needs no extra tool.
 - **A time limit that fails a single run** (a suite over budget by one second fails): rejected. Wall time on shared runners is noisy, and this gate would be flaky. The p50 trend with an issue holds the budget without that.
 - **Timing-based sharding** (splitting by recorded durations): rejected. Which tests share a shard would change from run to run, so an order-dependent failure would come and go.
-- **Codecov Test Analytics or Trunk for results:** not chosen here. The results store belongs to [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280). Both keep results on a vendor's servers, and Codecov keeps them for 60 days ([docs](https://docs.codecov.com/docs/test-analytics)).
+- **Codecov Test Analytics or Trunk for results:** not chosen here. The results store belongs to [Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280). Both keep results on a vendor's servers, and Codecov keeps them for 60 days ([docs](https://docs.codecov.com/docs/test-analytics)).
 
 ## Consequences
 
@@ -147,19 +147,19 @@ A budget is the median (p50) of a job's last 20 runs in its own tier, on GitHub-
   - the merge queue's settings, the budgets, sharding by hash, the `ci-test` profile and JUnit artifacts.
 - **Adds to ADR 0057:** its increase checks and the pull request's estimate read `main`'s per-target sizes from the report the merging merge-queue run saved (or a manual-dispatch run on `main` while the repository is private), since `main` builds nothing per target after a merge.
 - **Adds to ADR 0037:** area 1 (Repository, CI and release) builds this decision, so its row lists ADR 0061.
-- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)):
+- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)):
   - its CI tiers name the suites they run;
   - `just` gets the recipes above;
   - `xtask affected` also serves local runs, diffing the working tree, and emits nextest filtersets;
   - "Cargo's `dev` and `test` profiles stay as they are" holds, with a `ci-test` profile added beside them;
   - the cache-warming job on pushes to `main`;
   - `main`'s size figures come from the size report of the merge-queue run whose tree became `main`'s head, as its `xtask size` section already says of "its own merge-queue tier build".
-- **[`xtask affected`: change detection for the pull-request tier](https://github.com/Jbmanllr/automan/issues/134)** gains scope: a local mode that diffs the working tree, uncommitted changes included, against the merge base with `origin/main`; nextest `rdeps(…)` filtersets; and the package lists Vitest and pytest run. Once it lands, `just quick` and `just pre-merge` switch from the whole workspace to what changed.
-- **[Workspace skeleton and the "all green" pull-request check](https://github.com/Jbmanllr/automan/issues/132)** creates `just fmt`, `lint`, `build`, `test`, `quick`, `pre-merge`, `release`, `release-ci` and `hooks`, plus nextest's `quick` and `ci` profiles with their caps and JUnit output. These recipes meet its criterion "`just` recipes cover build, test, lint and format …, and CI calls the same recipes". Its criterion "`rust-cache` restores on pull requests and saves only from `main`" is met by the cache-warming job.
+- **[`xtask affected`: change detection for the pull-request tier](https://github.com/goodfetch/goodfetch/issues/134)** gains scope: a local mode that diffs the working tree, uncommitted changes included, against the merge base with `origin/main`; nextest `rdeps(…)` filtersets; and the package lists Vitest and pytest run. Once it lands, `just quick` and `just pre-merge` switch from the whole workspace to what changed.
+- **[Workspace skeleton and the "all green" pull-request check](https://github.com/goodfetch/goodfetch/issues/132)** creates `just fmt`, `lint`, `build`, `test`, `quick`, `pre-merge`, `release`, `release-ci` and `hooks`, plus nextest's `quick` and `ci` profiles with their caps and JUnit output. These recipes meet its criterion "`just` recipes cover build, test, lint and format …, and CI calls the same recipes". Its criterion "`rust-cache` restores on pull requests and saves only from `main`" is met by the cache-warming job.
 - **The "Test infrastructure" spec** builds:
   - the budget check and its issue;
   - the job summaries;
   - the workflows' artifact naming;
   - the local skip list of each recipe;
   - mold for Linux test links and a Dev Drive on Windows, which the Rust tooling findings suggest;
-  - each runner's quick selection, once [Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277) names it.
+  - each runner's quick selection, once [Test layout, naming, shared helpers and the test-first process](https://github.com/goodfetch/goodfetch/issues/277) names it.

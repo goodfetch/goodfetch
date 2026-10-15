@@ -1,6 +1,6 @@
 # Limits across runs are kept in a per-user Usage ledger, and only a person raises a Limit
 
-Before this ADR, Limits applied to one run (ADR 0012) or to a Schedule's runs over a period (ADR 0036). An agent that starts fifty runs through MCP, or a script that loops over `runs.start`, had no total cap. That is pain #5 (`cost-unpredictable-runaway`): a Cloud Run scraper with a $7 budget that only sent alerts ran up about $72,000 in two hours ([The Register](https://www.theregister.com/2020/12/10/google_cloud_over_run/)). Limits can now also attach to the install or Daemon, to a person, to a named token and to a Client connection. Every engine on the machine enforces them through one per-user Usage ledger. Decided in [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115).
+Before this ADR, Limits applied to one run (ADR 0012) or to a Schedule's runs over a period (ADR 0036). An agent that starts fifty runs through MCP, or a script that loops over `runs.start`, had no total cap. That is pain #5 (`cost-unpredictable-runaway`): a Cloud Run scraper with a $7 budget that only sent alerts ran up about $72,000 in two hours ([The Register](https://www.theregister.com/2020/12/10/google_cloud_over_run/)). Limits can now also attach to the install or Daemon, to a person, to a named token and to a Client connection. Every engine on the machine enforces them through one per-user Usage ledger. Decided in [Engine resource governance](https://github.com/goodfetch/goodfetch/issues/115).
 
 Comparable services cap spend in different ways:
 

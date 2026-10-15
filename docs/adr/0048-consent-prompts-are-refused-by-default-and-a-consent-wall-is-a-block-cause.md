@@ -4,7 +4,7 @@ Every live browser Session answers each Consent prompt by refusing. A prompt tha
 
 DuckDuckGo's autoconsent recognises the prompts, driven through Goodfetch's own driver in an isolated world, with trusted input, in every frame. Its rules that read or call a consent vendor's own JavaScript run fixed snippets in the page's main world, the engine's only action there by default; every other snippet runs in the isolated world. A prompt no rule recognises goes to the Decision provider when the run has one.
 
-A consent answer is Session state, not an Effect. Decided in [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119) (parity row SA-28). Ads, trackers and the Clean-up rules that carry autoconsent's rules are ADR 0047's.
+A consent answer is Session state, not an Effect. Decided in [Built-in page clean-up](https://github.com/goodfetch/goodfetch/issues/119) (parity row SA-28). Ads, trackers and the Clean-up rules that carry autoconsent's rules are ADR 0047's.
 
 **Why handle prompts at all.** A prompt left alone is sometimes the only text returned ([firecrawl#78](https://github.com/firecrawl/firecrawl/issues/78), [jina-ai/reader#56](https://github.com/jina-ai/reader/issues/56)). It covers screenshots ([firecrawl#647](https://github.com/firecrawl/firecrawl/issues/647)) and click targets, which the guard of ADR 0019 refuses to click through.
 

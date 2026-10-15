@@ -53,7 +53,7 @@ The correction message lists the actions already received by the page. An integr
 
 Journaled code mode requires 3 to 5 times fewer turns than MCP. On the booking tasks, the rule calls for 93 to 99 blocks, because GPT-5.6 Luna adds a correction there in some blocks and not in others, which disperses the ratios. The gap is not in question: the interval stays between 0.16 and 0.26.
 
-## What this says for Automan's interface
+## What this says for Collie's interface
 
 1. **Code mode is offered, and its effects are journaled by default.** It is the same rule as the AI layer's compiled replay: a correction executes against a known state and never resends an effect already received by the site.
 2. The journal is positional and refuses to reconcile a click. This is deliberately strict: a non-idempotent action already sent calls for a review (`effect_unknown`), not a guess.

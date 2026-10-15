@@ -1,6 +1,6 @@
 # Payment Required is a Block cause, and Paid fetches are opt-in, capped and journaled
 
-A site that asks a crawler to pay, with HTTP 402 or a paywall redirect, gets the Block cause `payment_required`. Goodfetch never escalates, rotates or retries past it, because changing identity to avoid a payment gate is the masking the legal research rates medium to high risk. A run can instead pay, from the user's own Cloudflare account or wallet, through Cloudflare's pay-per-crawl headers or x402. It pays only domains the user approved outside the run, under a price cap and a currency Limit reserved before sending, through the Effect journal, so that a resume never pays twice. Goodfetch itself never charges anyone or holds money. This answers pain #6 (`compliance-site-owner-politeness`): site owners who want to be paid rather than merely block. Decided in [Network defaults](https://github.com/Jbmanllr/automan/issues/118).
+A site that asks a crawler to pay, with HTTP 402 or a paywall redirect, gets the Block cause `payment_required`. Goodfetch never escalates, rotates or retries past it, because changing identity to avoid a payment gate is the masking the legal research rates medium to high risk. A run can instead pay, from the user's own Cloudflare account or wallet, through Cloudflare's pay-per-crawl headers or x402. It pays only domains the user approved outside the run, under a price cap and a currency Limit reserved before sending, through the Effect journal, so that a resume never pays twice. Goodfetch itself never charges anyone or holds money. This answers pain #6 (`compliance-site-owner-politeness`): site owners who want to be paid rather than merely block. Decided in [Network defaults](https://github.com/goodfetch/goodfetch/issues/118).
 
 > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): Paid fetches are Foxhound's. A Collie run meets a demand for payment as the Block cause `payment_required` and never pays, and `pay_domains` given to a Run on a Collie engine is refused like any other setting Collie does not carry, with `not_in_product` ([ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md)).
 
@@ -8,7 +8,7 @@ Cloudflare Pay per crawl, in private beta since July 2025 ([blog](https://blog.c
 
 ## Considered Options
 
-- **Treating a 402 like a 401, 403 or 429** (ADR 0021's escalation, Firecrawl's `auto`): rejected. It changes identity to avoid a payment the site asked for, which is what the *Reddit* case rests on ([legal exposure](https://github.com/Jbmanllr/automan/issues/65)).
+- **Treating a 402 like a 401, 403 or 429** (ADR 0021's escalation, Firecrawl's `auto`): rejected. It changes identity to avoid a payment the site asked for, which is what the *Reddit* case rests on ([legal exposure](https://github.com/goodfetch/goodfetch/issues/65)).
 - **Never paying, so a 402 stays a block**: rejected. Pain #6 would get half an answer, and sites that sell access to crawlers would stay closed.
 - **Cloudflare's headers only**: rejected. x402 is the open standard that Cloudflare's own newer products use.
 - **Paying any domain the crawl reaches, within the currency Limit**: rejected. A broad crawl could spread its currency Limit over sites the user never chose to buy from.

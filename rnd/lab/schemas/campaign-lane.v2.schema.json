@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://automan.local/lab/schemas/campaign-lane.v2.schema.json",
-  "title": "Automan lab lane campaign (storage, workflow, runtime, actionability, sqlite-readers), schema version 2",
+  "$id": "https://goodfetch.local/lab/schemas/campaign-lane.v2.schema.json",
+  "title": "Goodfetch lab lane campaign (storage, workflow, runtime, actionability, sqlite-readers), schema version 2",
   "type": "object",
   "additionalProperties": false,
   "required": [

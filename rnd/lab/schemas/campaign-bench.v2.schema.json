@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://automan.local/lab/schemas/campaign-bench.v2.schema.json",
-  "title": "Automan lab bench campaign, schema version 2",
+  "$id": "https://goodfetch.local/lab/schemas/campaign-bench.v2.schema.json",
+  "title": "Goodfetch lab bench campaign, schema version 2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "lane", "decisionIds", "hostClass", "seed", "blocks", "warmup", "iterations", "concurrency", "mode", "timeoutMs", "maxDurationMs", "maxRestarts", "backends", "scenarios", "fixtures"],

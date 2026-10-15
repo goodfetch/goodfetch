@@ -1,6 +1,6 @@
 // The interface arena (D-agent-interface): one task, one model, four ways to reach the same page operations.
 // sdk: the operations are function tools of the model API. mcp: the same tools listed and called through an MCP server
-// in its own process. cli: a single shell tool and an `automan` command to discover. code-mode: the model writes one
+// in its own process. cli: a single shell tool and a `goodfetch-collie` command to discover. code-mode: the model writes one
 // program against a typed page object, run once in a sandbox, with one repair on error. code-mode-journal is the same program
 // with its effects journaled: a repaired program is replayed against the journal, so an action already applied at the same
 // position is skipped instead of being sent again, and a program that diverges after a click already sent is stopped.
@@ -63,13 +63,13 @@ class McpClient {
   close() { this.child.stdin.end(); this.child.kill(); }
 }
 
-const help = `automan: control the current web page.
-  automan observe                 list interactive elements as JSON (ref, tag, type, label, text, plan)
-  automan fill <ref> <value>      type a value into a text field
-  automan select <ref> <value>    choose an option value in a select
-  automan click <ref>             click a button or checkbox
-  automan read <ref>              print the text of an element
-  automan done [value]            finish the task (give the value for a reading task)`;
+const help = `goodfetch-collie: control the current web page.
+  goodfetch-collie observe                   list interactive elements as JSON (ref, tag, type, label, text, plan)
+  goodfetch-collie fill <ref> <value>        type a value into a text field
+  goodfetch-collie select <ref> <value>      choose an option value in a select
+  goodfetch-collie click <ref>               click a button or checkbox
+  goodfetch-collie read <ref>                print the text of an element
+  goodfetch-collie done [value]              finish the task (give the value for a reading task)`;
 // Shell words with single or double quotes, enough for the commands above.
 const words = (command: string) => [...command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map(m => m[1] ?? m[2] ?? m[3]!);
 
@@ -82,7 +82,7 @@ export async function runInterface(kind: Interface, page: CdpPage, browser: { ws
       result.finished = tools.finished; result.value = tools.value;
     } else if (kind === 'mcp') {
       mcp = new McpClient(browser.wsEndpoint, browser.targetId);
-      await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'automan-lab', version: '0.1.0' } }); mcp.notify('notifications/initialized');
+      await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'goodfetch-lab', version: '0.1.0' } }); mcp.notify('notifications/initialized');
       const { tools: listed } = await mcp.request<{ tools: { name: string; description: string; inputSchema: unknown }[] }>('tools/list');
       await toolLoop(endpoint, `You operate a web page for a user through the tools of an MCP server. Observe the page first, then act. ${rules} Call done when the task is complete.`, task, listed.map(t => ({ name: t.name, description: t.description, parameters: t.inputSchema })), async (name, args) => {
         const called = await mcp!.request<{ content: { text: string }[]; isError: boolean; structuredContent?: { finished: boolean; value: string | null } }>('tools/call', { name, arguments: args });
@@ -96,15 +96,15 @@ export async function runInterface(kind: Interface, page: CdpPage, browser: { ws
       const runOne = async (command: string): Promise<string> => {
         const [program, sub, ...rest] = words(command);
         if (program === 'echo') return [sub, ...rest].filter(Boolean).join(' ');
-        if (program !== 'automan') return `${program ?? ''}: command not found`;
+        if (program !== 'goodfetch-collie') return `${program ?? ''}: command not found`;
         if (!sub || sub === '--help' || sub === 'help') return help;
         if (sub === 'observe') return tools.call('observe', {});
         if (sub === 'fill' || sub === 'select') return tools.call(sub, { ref: Number(rest[0]), value: rest.slice(1).join(' ') });
         if (sub === 'click' || sub === 'read') return tools.call(sub, { ref: Number(rest[0]) });
         if (sub === 'done') return tools.call('done', rest.length ? { value: rest.join(' ') } : {});
-        return `automan: unknown command ${sub}\n${help}`;
+        return `goodfetch-collie: unknown command ${sub}\n${help}`;
       };
-      await toolLoop(endpoint, `You operate a web page for a user with a command-line tool named automan, through the shell tool. Run "automan --help" to learn its commands. ${rules} Run "automan done" when the task is complete.`, task, shell, async (_name, args) => {
+      await toolLoop(endpoint, `You operate a web page for a user with a command-line tool named goodfetch-collie, through the shell tool. Run "goodfetch-collie --help" to learn its commands. ${rules} Run "goodfetch-collie done" when the task is complete.`, task, shell, async (_name, args) => {
         const outputs: string[] = [];
         for (const command of String(args.command ?? '').split(/\n|;|&&/).map(c => c.trim()).filter(Boolean)) { try { outputs.push(await runOne(command)); } catch (error) { outputs.push(`error: ${error instanceof Error ? error.message : String(error)}`); break; } }
         return outputs.join('\n');

@@ -10,7 +10,7 @@ const task = { scenario:'http-catalog',url:'http://127.0.0.1/catalog',seed:42,pa
 function worker(){return new WorkerClient({command:process.execPath,args:[join(labRoot,'adapters/workflow-node/worker.ts')],cwd:labRoot,timeoutMs:10000})}
 type Claim={jobId:string;token:string};
 test('committing a validated job makes its exact records retrievable and replay keeps one receipt', async()=>{
-  const path=join(await mkdtemp(join(tmpdir(),'automan-workflow-')),'state.sqlite');const w=worker();
+  const path=join(await mkdtemp(join(tmpdir(),'goodfetch-workflow-')),'state.sqlite');const w=worker();
   try{await w.call('prepare',{path,leaseMs:10000});await w.call('run',{op:'submit',jobs:[{jobId:'job-1',task}]});
     const claim=await w.call('run',{op:'claim'}) as Claim;
     const entry={...claim,records:[{id:'P-001',price:1201},{id:'P-002',price:1238}]};
@@ -22,7 +22,7 @@ test('committing a validated job makes its exact records retrievable and replay 
 });
 
 for(const fault of ['before-commit','after-commit'] as const)test(`${fault} crash preserves atomic state and a lost response can be reconciled`,async()=>{
-  const path=join(await mkdtemp(join(tmpdir(),'automan-workflow-crash-')),'state.sqlite');const first=worker();let claim:Claim;
+  const path=join(await mkdtemp(join(tmpdir(),'goodfetch-workflow-crash-')),'state.sqlite');const first=worker();let claim:Claim;
   const entryRecords=[{id:'P-001',price:1201},{id:'P-002',price:1238}];
   try{await first.call('prepare',{path,leaseMs:10000});await first.call('run',{op:'submit',jobs:[{jobId:'job-1',task}]});claim=await first.call('run',{op:'claim'}) as Claim;
     await assert.rejects(first.call('run',{op:'commit',entries:[{...claim,records:entryRecords}],fault}),/exited|closed/);
@@ -34,7 +34,7 @@ for(const fault of ['before-commit','after-commit'] as const)test(`${fault} cras
 });
 
 test('an expired lease cannot commit after another claimant receives a new token',async()=>{
-  const path=join(await mkdtemp(join(tmpdir(),'automan-fencing-')),'state.sqlite');const w=worker();try{
+  const path=join(await mkdtemp(join(tmpdir(),'goodfetch-fencing-')),'state.sqlite');const w=worker();try{
     await w.call('prepare',{path,leaseMs:1000});await w.call('run',{op:'submit',jobs:[{jobId:'job-1',task}]});const stale=await w.call('run',{op:'claim'}) as Claim&{expires:number};
     while(Date.now()<=stale.expires)await new Promise(resolve=>setTimeout(resolve,20));
     const current=await w.call('run',{op:'claim'}) as Claim;assert.notEqual(current.token,stale.token);const records=[{id:'P-001',price:1201}];

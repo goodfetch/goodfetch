@@ -1,8 +1,8 @@
-# Automan — final R&D report
+# Goodfetch — final R&D report
 
 **Date:** October 10, 2026. **Status:** post-test report. **Final decision:** project owner.
 
-This folder gathers everything that was used to **choose** Automan's architecture and stack: the proposals written before testing, the R&D plan, the proposed ADRs, the sourced research and the lab that measured each choice.
+This folder gathers everything that was used to **choose** Goodfetch's architecture and stack: the proposals written before testing, the R&D plan, the proposed ADRs, the sourced research and the lab that measured each choice.
 
 Nothing in this report is a hand-written figure: each result points to a run in the [ledger](lab/ledger/results-ledger.json), to a computed verdict ([`lab/verdicts/`](lab/verdicts/)) or to a dated report ([`lab/reports/`](lab/reports/)).
 
@@ -23,7 +23,7 @@ The core choices are **confirmed by measurement**:
 - reqwest as the default HTTP transport;
 - compiled replay for AI: 0.17 to 0.34 times the model cost.
 
-One point **changes in nature**: the default browser driver is a **direct CDP client with the Automan actionability guard**, and Playwright is no longer the behavioral reference. The guard is exact on all engines. Native Playwright lets clicks on moving targets through and exceeds its timeouts when remote.
+One point **changes in nature**: the default browser driver is a **direct CDP client with the Collie actionability guard**, and Playwright is no longer the behavioral reference. The guard is exact on all engines. Native Playwright lets clicks on moving targets through and exceeds its timeouts when remote.
 
 What **remains open** mostly comes down to three things:
 - **hardware**: a Linux reference host to publish figures, and KVM for Firecracker;
@@ -63,8 +63,8 @@ All durations come from a Mac M3 Max (macOS 27). None is publishable as is.
 | # | Area | Before testing | Recommended now | Verdict | Strength |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Core language | Rust/Tokio "candidate, not a demonstrated winner"; Node and Go credible | **Rust/Tokio** | `better` (CPU 0.51×), eligible | 🟢 |
-| 2 | Browser driver | Native CDP (Chromey/Chromiumoxide to be qualified) + Playwright worker for compatibility and as reference | **Direct CDP + Automan guard** by default; Playwright only for Firefox and WebKit, with the same guard | blocked (Playwright reference timed out); clear out-of-contract estimate | 🟡 |
-| 3 | Actionability contract | Playwright as behavioral reference | **Automan guard**, engine-independent | contract 390/390 | 🟢 |
+| 2 | Browser driver | Native CDP (Chromey/Chromiumoxide to be qualified) + Playwright worker for compatibility and as reference | **Direct CDP + Collie guard** by default; Playwright only for Firefox and WebKit, with the same guard | blocked (Playwright reference timed out); clear out-of-contract estimate | 🟡 |
+| 3 | Actionability contract | Playwright as behavioral reference | **Collie guard**, engine-independent | contract 390/390 | 🟢 |
 | 4 | HTTP transport | reqwest as the base; Impit and wreq as options | **reqwest** by default, wreq as a variant; options set by the engine and covered by a gate | `non-inferior`, eligible | 🟢 |
 | 5 | Identity and access | 3 mutually exclusive profiles per session, `identified` by default, opt-in `stealth` catalog | Unchanged; **browser-executed HTTP tier** as soon as an identity must cross the escalation; site policy in the engine, not in the transport | contract; duration not eligible | 🟢 / ⚪ stealth |
 | 6 | HTTP or browser routing | "Result-based adaptive HTTP", per-route learning | Unchanged in principle, **plus a discovered-API tier**; sample-based comparison, declared total as invalidation | `better`, eligible | 🟢 |
@@ -113,7 +113,7 @@ All durations come from a Mac M3 Max (macOS 27). None is publishable as is.
 - **Why change.**
   - A hosted browser is always remote from the driver. From 20 ms on, direct CDP with guard is 16 to 32% faster.
   - Native Playwright is not an exact reference: it lets a click on a still-moving target through ([cross-engine](lab/reports/cross-engine-2026-10-09.md)), and it exceeded its timeout twice at 100 ms.
-  - The Automan guard, for its part, is exact everywhere.
+  - The Collie guard, for its part, is exact everywhere.
 - **Why the verdict remains blocked.** The accuracy gate also reads the reference's cells, and the reference, Playwright, failed. The durations above are an out-of-contract estimate, with very narrow intervals (width < 0.1).
 - **For the owner to decide.** Replace the decision's reference with a driver that is exact at all latencies. I did not do it after the fact, so as not to bias the verdict.
 - **Plausible alternatives.**
@@ -124,8 +124,8 @@ All durations come from a Mac M3 Max (macOS 27). None is publishable as is.
 ### 4.3 Actionability contract 🟢
 
 - **Before.** Playwright actionability served as the reference.
-- **Measured.** The Automan guard, made of page scripts on the DOM (uniqueness, visibility, stability, target test, event interception), passes **390 cells out of 390** on Chromium, WebKit and Firefox, under Linux and macOS. It had already passed 162 cells out of 162 on the Chromium actionability matrix. Two guard defects were found and fixed along the way ([driver contracts](lab/reports/browser-driver-contracts-2026-10-08.md)).
-- **Why change.** The contract belongs to Automan and no longer depends on the engine or the driver.
+- **Measured.** The Collie guard, made of page scripts on the DOM (uniqueness, visibility, stability, target test, event interception), passes **390 cells out of 390** on Chromium, WebKit and Firefox, under Linux and macOS. It had already passed 162 cells out of 162 on the Chromium actionability matrix. Two guard defects were found and fixed along the way ([driver contracts](lab/reports/browser-driver-contracts-2026-10-08.md)).
+- **Why change.** The contract belongs to Collie and no longer depends on the engine or the driver.
 - **Limitation.** Playwright's Firefox build does not start under macOS 27; it is verified under Linux.
 
 ### 4.4 HTTP transport (D-http-transport) 🟢

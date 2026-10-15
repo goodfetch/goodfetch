@@ -4,15 +4,15 @@ fn main() {
         .canonicalize()
         .expect("run the shared SQLite build first");
     println!("cargo:rustc-link-search=native={}", native.display());
-    println!("cargo:rustc-link-lib=dylib=automan_sqlite");
+    println!("cargo:rustc-link-lib=dylib=goodfetch_sqlite");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", native.display());
     println!(
         "cargo:rerun-if-changed={}/{}",
         native.display(),
-        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") { "libautoman_sqlite.dylib" } else { "libautoman_sqlite.so" }
+        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") { "libgoodfetch_sqlite.dylib" } else { "libgoodfetch_sqlite.so" }
     );
     println!(
-        "cargo:rerun-if-changed={}/libautoman_sqlite.so",
+        "cargo:rerun-if-changed={}/libgoodfetch_sqlite.so",
         native.display()
     );
 }

@@ -580,8 +580,8 @@ impl Identities {
 
 /// A Session's cookies and keeping its identity, beside its page members (ADR 0085).
 impl Session {
-    /// Playwright's `context.cookies()`, for `urls` or every URL when empty. Never offered to a
-    /// Client acting for a model (ADR 0014).
+    /// Playwright's `context.cookies()`, for `urls` or every URL when empty. Offered in the SDKs
+    /// only, never on the CLI, MCP or Code mode (ADRs 0011, 0014).
     pub fn cookies(&self, urls: &[&str]) -> Call<Vec<Cookie>> {
         let _ = urls;
         unimplemented!()

@@ -59,7 +59,10 @@ export type SecretBinding =
 /** `secrets.*`, keyed by placeholder name. */
 export type SecretsSettings = Readonly<Record<string, SecretBinding>>;
 
-/** Header values a request or a route sends: a placeholder is resolved by the engine, checked against the request's URL. */
+/**
+ * Header values a request or a route sends: a placeholder is resolved by the engine, checked against the
+ * request's URL, and added at the engine's own interception, where no page script or Service Worker reads it.
+ */
 export type HeadersInput = Readonly<Record<string, string | SecretPlaceholder>>;
 
 /** A JSON body a request sends, whose strings may be placeholders. */
@@ -188,7 +191,7 @@ export type Permission =
 
 // Cookies and Saved identities.
 
-/** A cookie, with Playwright's fields. `expires` is a `Date`, or `null` for a session cookie. */
+/** A cookie, with Playwright's fields. `expires` is a `Date`, the SDK's point-in-time type, or `null` for a session cookie. */
 export interface Cookie {
   readonly name: string;
   readonly value: string;
@@ -248,7 +251,7 @@ export interface Identities {
 
 /** A Session's cookies and keeping its identity, beside its page members (ADR 0085). */
 export interface SessionStateApi {
-  /** Playwright's `context.cookies()`. Never offered to a Client acting for a model (ADR 0014). */
+  /** Playwright's `context.cookies()`. Offered in the SDKs only, never on the CLI, MCP or Code mode (ADRs 0011, 0014). */
   cookies(urls?: string | readonly string[], options?: CallOptions): Promise<Cookie[]>;
   /** Kept as session state, encrypted in run state and never logged (ADR 0015). Outside the source's `domains`, refused. */
   addCookies(cookies: readonly CookieInput[], options?: CallOptions): Promise<void>;

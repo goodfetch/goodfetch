@@ -68,7 +68,7 @@ SecretsSettings: TypeAlias = Mapping[str, SecretBinding]
 
 HeadersInput: TypeAlias = Mapping[str, str | SecretPlaceholder]
 """Header values a request or a route sends: a placeholder is resolved by the engine, checked against the request's
-URL."""
+URL, and added at the engine's own interception, where no page script or Service Worker reads it."""
 
 JsonValueWithSecrets: TypeAlias = (
     None | bool | int | float | str | SecretPlaceholder | Sequence["JsonValueWithSecrets"] | Mapping[str, "JsonValueWithSecrets"]
@@ -219,7 +219,8 @@ SameSite: TypeAlias = Literal["Strict", "Lax", "None"]
 @final
 @dataclass(frozen=True, kw_only=True)
 class Cookie:
-    """A cookie, with Playwright's fields. `expires` is `None` for a session cookie."""
+    """A cookie, with Playwright's fields. `expires` is a time-zone-aware `datetime` in UTC, the SDK's point-in-time
+    type, or `None` for a session cookie."""
 
     name: str
     value: str
@@ -302,7 +303,8 @@ class AsyncSessionStateApi:
     """A Session's cookies and keeping its identity, beside its page members (ADR 0085)."""
 
     async def cookies(self, urls: str | Sequence[str] | None = None, *, timeout: Timeout = ...) -> list[Cookie]:
-        """Playwright's `context.cookies()`. Never offered to a Client acting for a model (ADR 0014)."""
+        """Playwright's `context.cookies()`. Offered in the SDKs only, never on the CLI, MCP or Code mode (ADRs 0011,
+        0014)."""
     async def add_cookies(self, cookies: Sequence[CookieInput], *, timeout: Timeout = ...) -> None:
         """Kept as session state, encrypted in run state and never logged (ADR 0015). Outside the source's `domains`,
         refused."""

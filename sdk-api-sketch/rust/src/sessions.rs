@@ -4,8 +4,8 @@
 //!   `run.new_page()` opens pages in the Run's default Session, reached as `page.session()`.
 //! - A login is kept as a Saved identity ([`Session::save_identity`]), never as a clear-text file;
 //!   a lost one is found by the Session's Page check and recovered by ADR 0006's ladder, or fails
-//!   with `logged_out`. The ladder's scripted login step is the program's answer to
-//!   [`Session::logins`], a stream as ADR 0081 shapes requests that need an answer in Rust.
+//!   with `logged_out`. The ladder's scripted login step is a closure given where the Session
+//!   opens, as a crawl takes its own.
 //! - [`Page::pause`] is the Human pause: no clock runs while a person acts, in the real window or
 //!   the Live view, and it ends when its condition holds or the person says so.
 //! - A program names a secret by a [`SecretPlaceholder`], [`secret`] or `%name%` in an AI
@@ -533,7 +533,8 @@ pub struct SavedIdentity {
     /// The earliest cookie expiry per registrable domain: cookies expire then, which says nothing
     /// of the site's own session (ADR 0056).
     pub cookies_expire: Vec<(String, SystemTime)>,
-    /// An import on direct egress: usable only on this machine (ADR 0056).
+    /// An import on direct egress, or a login saved from a Session that came from one: usable only
+    /// on this machine (ADR 0056).
     pub bound_to_machine: bool,
 }
 
@@ -571,7 +572,8 @@ impl Identities {
         unimplemented!()
     }
 
-    /// Writes ADR 0015's encrypted bundle, for another machine.
+    /// Writes ADR 0015's encrypted bundle, for another machine; one bound to its machine fails
+    /// with `session_bound_to_machine`.
     pub fn export(&self, name: &str, path: impl Into<PathBuf>, key: ExportKey) -> Call<()> {
         let _ = (name, path.into(), key);
         unimplemented!()
@@ -607,32 +609,6 @@ impl Session {
         let _ = name;
         unimplemented!()
     }
-
-    /// ADR 0006's scripted login step, subscribed when called: when recovery reaches it, the engine
-    /// yields a request with a page of this Session on its login page and waits for it to be
-    /// dropped, then the Page check judges the page. It counts toward the two recoveries a page
-    /// gets; with no stream open, the step is skipped.
-    pub fn logins(&self) -> EventStream<LoginRequest> {
-        unimplemented!()
-    }
-}
-
-/// A request to log the Session in again. Dropping it hands the page back to the Page check.
-#[derive(Debug)]
-pub struct LoginRequest {
-    _private: (),
-}
-
-impl LoginRequest {
-    /// The page on the login page.
-    pub fn page(&self) -> &Page {
-        unimplemented!()
-    }
-}
-
-impl Drop for LoginRequest {
-    /// Lets recovery go on, without blocking.
-    fn drop(&mut self) {}
 }
 
 impl Call<Session> {
@@ -641,6 +617,18 @@ impl Call<Session> {
     /// (S2).
     pub fn source(self, source: SessionSource) -> Self {
         let _ = source;
+        unimplemented!()
+    }
+
+    /// ADR 0006's scripted login step: called with the page whose call met the login page, inside
+    /// that call's future (ADR 0081), which gives up the page's turn meanwhile. The Page check
+    /// judges the page it leaves; it counts toward the two recoveries a page gets, and an error it
+    /// returns is chained to `logged_out`. A crawl takes its own the same way.
+    pub fn login<F>(self, login: F) -> Self
+    where
+        F: AsyncFn(Page) -> Result<(), Error> + Send + Sync + 'static,
+    {
+        let _ = login;
         unimplemented!()
     }
 }
@@ -757,6 +745,8 @@ pub struct SecretUnavailable {
     pub reference: String,
     /// The provider asked, such as `env`, `keychain` or `caller`.
     pub provider: String,
+    /// `missing`, `locked`, `unreachable` or `resolver_failed`; the code is not retryable.
+    pub cause: String,
 }
 
 /// Details of `secret_domain_not_allowed`, a refusal: the field's frame or the request is outside

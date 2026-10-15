@@ -8,7 +8,7 @@
   when its condition holds or the person says so.
 - A program names a secret by a Secret placeholder, `secret("name")` or `%name%` in an AI instruction, which
   `secrets.<name>` binds to a Secret reference and the domains allowed to receive it. The engine types or sends the
-  value; the program never holds it (ADRs 0014, 0015).
+  value; the program never receives it, except what it answers for a `caller:` reference (ADRs 0014, 0015).
 """
 
 import builtins
@@ -270,7 +270,8 @@ class SavedIdentity:
     """The earliest cookie expiry per registrable domain: cookies expire then, which says nothing of the site's own
     session (ADR 0056)."""
     bound_to_machine: bool
-    """An import on direct egress: usable only on this machine (ADR 0056)."""
+    """An import on direct egress, or a login saved from a Session that came from one: usable only on this machine
+    (ADR 0056)."""
 
 @final
 class AsyncIdentities:
@@ -390,6 +391,8 @@ class SecretUnavailableDetails:
     reference: str
     provider: str
     """The provider asked, such as `env`, `keychain` or `caller`."""
+    cause: Literal["missing", "locked", "unreachable", "resolver_failed"] | str
+    """Which failure: the code is not retryable."""
 
 @final
 class SecretUnavailableError(UnavailableError):

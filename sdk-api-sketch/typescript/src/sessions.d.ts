@@ -7,7 +7,8 @@
 //   Live view, and it ends when its condition holds or the person says so.
 // - A program names a secret by a Secret placeholder, `secret("name")` or `%name%` in an AI
 //   instruction, which `secrets.<name>` binds to a Secret reference and the domains allowed to receive
-//   it. The engine types or sends the value; the program never holds it (ADRs 0014, 0015).
+//   it. The engine types or sends the value; the program never receives it, except what it answers for
+//   a `caller:` reference (ADRs 0014, 0015).
 
 import type { Locator } from "./page.js";
 import type { PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
@@ -230,7 +231,7 @@ export interface SavedIdentity {
   readonly savedAt: Date;
   /** The earliest cookie expiry per registrable domain: cookies expire then, which says nothing of the site's own session (ADR 0056). */
   readonly cookiesExpire: Readonly<Record<string, Date>>;
-  /** An import on direct egress: usable only on this machine (ADR 0056). */
+  /** An import on direct egress, or a login saved from a Session that came from one: usable only on this machine (ADR 0056). */
   readonly boundToMachine: boolean;
 }
 
@@ -246,6 +247,7 @@ export interface Identities {
   /** Imports a login into a Saved identity, as `goodfetch identity import` does. */
   import(name: string, source: SessionSource, options?: CallOptions): Promise<SavedIdentity>;
   delete(name: string, options?: CallOptions): Promise<void>;
+  /** One bound to its machine throws `session_bound_to_machine` (ADR 0056). */
   export(name: string, options: ExportIdentityOptions): Promise<void>;
 }
 
@@ -317,6 +319,8 @@ export interface SecretUnavailableDetails {
   readonly reference: string;
   /** The provider asked, such as `env`, `keychain` or `caller`. */
   readonly provider: string;
+  /** Which failure: the code is not retryable. */
+  readonly cause: "missing" | "locked" | "unreachable" | "resolver_failed" | (string & {});
 }
 /** The provider gave no value: a missing variable, a locked keychain, an unreachable vault, or `resolveSecret` missing or throwing. */
 export declare class SecretUnavailableError extends UnavailableError {

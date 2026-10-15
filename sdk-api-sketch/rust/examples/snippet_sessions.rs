@@ -2,8 +2,9 @@
 
 use goodfetch_sdk_sketch::settings::{browser, proxy, session};
 use goodfetch_sdk_sketch::{
-    AriaRole, ConnectOptions, CookieInput, Error, ErrorCode, ErrorDetails, Goodfetch, PageCheck,
-    PageMatch, SecretBinding, SecretReference, SessionSource, Settings, secret,
+    AriaRole, ConnectOptions, CookieInput, Error, ErrorCode, ErrorDetails, Goodfetch, Page,
+    PageCheck, PageMatch, Run, SecretBinding, SecretReference, Session, SessionSource, Settings,
+    secret,
 };
 
 /// First run: a person at the keyboard logs in once, and the login is kept under a name.
@@ -72,29 +73,21 @@ async fn reuse_login() -> Result<bool, Error> {
     }
 }
 
-/// The scripted login step: the program logs the Session back in when recovery asks.
-async fn answer_logins(session: goodfetch_sdk_sketch::Session) -> Result<(), Error> {
-    let mut logins = session.logins();
-    while let Some(request) = logins.next().await {
-        let request = request?;
-        request
-            .page()
-            .get_by_label("Username")
-            .fill("alice")
-            .await?;
-        request
-            .page()
-            .get_by_label("Password")
-            .fill(secret("password"))
-            .await?;
-        request
-            .page()
-            .get_by_role(AriaRole::Button.name("Login"))
-            .click()
-            .await?;
-        // Dropping the request hands the page to the Page check.
-    }
-    Ok(())
+/// The scripted login step: the program logs the Session back in when recovery asks, inside the
+/// call that met the login page.
+async fn session_with_login(run: &Run) -> Result<Session, Error> {
+    run.new_session()
+        .source(SessionSource::saved_identity("quotes"))
+        .login(async |page: Page| {
+            page.get_by_label("Username").fill("alice").await?;
+            page.get_by_label("Password")
+                .fill(secret("password"))
+                .await?;
+            page.get_by_role(AriaRole::Button.name("Login"))
+                .click()
+                .await
+        })
+        .await
 }
 
 /// `caller:` references, answered from the program's own store at the moment of use.
@@ -157,7 +150,7 @@ fn main() {
     let _ = (
         log_in_once,
         reuse_login,
-        answer_logins,
+        session_with_login,
         answer_secrets,
         cookies_and_proxy,
     );

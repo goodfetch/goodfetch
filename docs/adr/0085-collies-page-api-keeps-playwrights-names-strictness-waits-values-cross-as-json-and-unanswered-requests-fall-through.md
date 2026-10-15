@@ -133,6 +133,7 @@ ADR 0081 fixed their shapes; under Playwright's names (S3):
 ### The raw CDP way down
 
 - **`page.newCdpSession()` returns a `CdpSession`:** `send(method, params?)` returning `JsonValue`, events through `on` (an `EventStream` in Rust), and `close()` (G8). Puppeteer's `createCDPSession()` and Playwright's `context.newCDPSession(page)` are the leaders' forms. browser-use left Playwright because its way down was too narrow (browser drivers P12).
+  > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): by ADR 0099's initialism rule, it is spelled `page.newCDPSession()` returning a `CDPSession` in TypeScript, `page.new_cdp_session()` returning a `CDPSession` in Python, and `page.new_cdp_session()` returning a `CdpSession` in Rust.
 - **It travels over the program's own connection,** so no port or token is opened. It is a raw CDP attach under ADR 0017: the Session's traffic goes through the egress proxy (on a Borrowed browser, ADR 0056's interception instead), no Secret is typed, results are marked unguarded, the attach is in the Audit log, and an attach from a handler is bound to its work item's lease (ADR 0003) and ends with ADR 0087's `attach_ended` when the lease ends.
   > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): no secret is typed or sent once it is attached, and what it reads from the page, a field typed earlier included, is beyond masking.
 - **It reaches only its page's target.** The engine refuses with `cdp_command_refused` (a `RefusedError`) commands that close or attach other targets, and on a Borrowed browser anything that would close the browser (G4).
@@ -170,6 +171,10 @@ Each code has one class under ADR 0079's naming rule, and none shadows a built-i
 ### Forms per language
 
 TypeScript and Python keep Playwright's spellings, including Python's properties (`response.ok`, `locator.first`, `frame_locator.owner`), `continue_` and `abort(error_code=)`. Rust's calls are builders implementing `IntoFuture` (ADR 0080), a question that never waits returns a `Query` with no timeout, the selector-less frame locator is `any_frame()`, an init script returns a `Registration` removed on drop, and answering a route or a dialog takes it, so dropping one unanswered gives its default.
+
+> Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's route answer is `r#continue()`, by ADR 0099's rule for reserved words.
+
+> Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's selector-less frame locator is `frame_locator(None)`: one `frame_locator` takes `impl Into<Option<&str>>`, as TypeScript's `frameLocator(selector?)` is one member, and there is no `any_frame()`.
 
 ## Considered Options
 

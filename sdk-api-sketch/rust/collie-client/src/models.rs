@@ -19,7 +19,7 @@
 use std::fmt;
 use std::time::{Duration, SystemTime};
 
-use crate::plugins::HandlerError;
+use crate::results::BoxError;
 use crate::lifecycle::{ConnectOptions, Run};
 use crate::sessions::SecretReference;
 use crate::settings::Settings;
@@ -400,7 +400,7 @@ impl ModelCall {
     /// Fails the call: a Goodfetch [`Error`](crate::Error) keeps its code, such as `model_unavailable`, which the
     /// engine retries as a provider's; any other error is `model_handler_failed`, with its type and
     /// message.
-    pub fn fail(self, error: HandlerError) {
+    pub fn fail(self, error: BoxError) {
         let _ = error;
         unimplemented!()
     }

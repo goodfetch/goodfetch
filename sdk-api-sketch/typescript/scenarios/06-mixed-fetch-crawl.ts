@@ -27,8 +27,12 @@ const quotes = crawl.dataset("quotes", { schema: Quote });
 // may need another tier is its own Label; the two share one handler.
 const html = crawl.label("html");
 const js = crawl.label("js");
-// Scrolling and reading the JSON the page loads need a browser: this Label forces it.
-const scroll = crawl.label("scroll", { settings: { fetch: { tier: "browser" } } });
+// Scrolling and reading the JSON the page loads need a browser: this Label forces it, and keeps the
+// API's responses from the start of its navigation, so page 1, loaded before the handler runs, is read
+// without a reload.
+const scroll = crawl.label("scroll", {
+  settings: { fetch: { tier: "browser", keptResponses: { urls: [/\/api\/quotes\?page=\d+$/] } } },
+});
 
 // Runs only where a browser navigates, so unscoped it covers every browser page, a sample comparison
 // of an HTTP Label's page included.
@@ -65,9 +69,9 @@ crawl.handle(js, readQuotes);
 /** The JSON page `n` the scrolling version loads. */
 const apiPage = (n: number) => new RegExp(`/api/quotes\\?page=${n}$`);
 
-crawl.handle(scroll, async ({ page, push }) => {
-  // Page 1 loaded while the engine navigated, before any handler could wait for it: reload with the waiter armed.
-  let [loaded] = await Promise.all([page.waitForResponse(apiPage(1)), page.reload()]);
+crawl.handle(scroll, async ({ page, push, keptResponse }) => {
+  // Page 1 loaded while the engine navigated: the Label kept it.
+  let loaded = await keptResponse(apiPage(1));
   for (let n = 2; ; n++) {
     const body = QuotesPage.parse(await loaded.json()); // a body that is not JSON throws ResponseNotJSONError
     for (const quote of body.quotes) {

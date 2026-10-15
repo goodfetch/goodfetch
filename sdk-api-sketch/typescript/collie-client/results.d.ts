@@ -45,15 +45,25 @@ export type KnownErrorCode =
   | "page_handler_failed"
   | "route_already_handled"
   | "navigation_interrupted"
+  | "page_navigated_during_call"
   | "response_not_json"
   | "navigation_failed"
   | "page_crashed"
   | "body_unavailable"
   | "download_failed"
+  | "path_not_writable"
+  | "file_write_failed"
   | "cdp_command_refused"
   | "session_reserved"
   | "borrow_requires_cdp"
   | "browser_borrowed"
+  | "cdp_url_unreachable"
+  | "cdp_url_not_browser"
+  | "cdp_url_unauthorized"
+  | "cdp_url_not_allowed"
+  | "browser_not_installed"
+  | "artifact_unavailable_offline"
+  | "artifact_download_failed"
   | "attach_ended"
   | "secret_unbound"
   | "secret_unavailable"
@@ -188,14 +198,80 @@ export declare class ClosedError extends ProgramError {
   readonly code: "closed";
 }
 
+/** Who stopped a call in flight and what closed or stopped under it (ADRs 0080, 0113). */
+export interface CallCancelledDetails {
+  /**
+   * A person in the Console, another Client, the program closing a parent value from another task,
+   * or the browser outside every Client: the page's window or tab closed on the desktop, its own
+   * `window.close()`, the browser quitting.
+   */
+  readonly by: "person" | "client" | "program" | "browser" | (string & {});
+  /** What closed or stopped under the call; `browser` ends every Session in it. */
+  readonly closed: "page" | "session" | "browser" | "run" | "connection" | (string & {});
+  /** Whom the stopping Client acts for, when known. */
+  readonly person: string | null;
+}
 /**
- * Someone else stopped the call in flight: a person, another Client, or the program closing a
- * parent value. Not retryable; `observed` says who, and `fix` names resuming the Run, or the close
- * that stopped the call. The caller's own abort rejects with `signal.reason` instead and never
- * raises this (ADR 0080).
+ * Someone else stopped the call in flight: a person, another Client, the program closing a parent
+ * value, or the browser closing the page, such as its window closed during a Human pause (ADR 0113).
+ * Not retryable; `details` says who and what closed, `observed` renders it, and `fix` names resuming
+ * the Run, the close that stopped the call, or for a closed page opening another and pausing again.
+ * The caller's own abort rejects with `signal.reason` instead and never raises this (ADR 0080).
  */
 export declare class CallCancelledError extends UnavailableError {
   readonly code: "call_cancelled";
+  readonly details: CallCancelledDetails;
+}
+
+// A file saved to the program's path, or written by the engine for the program to save: an Export,
+// a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0116). Two codes, split
+// by remedy, neither retryable. A save goes to a hidden temporary file beside the path, renamed over
+// it once whole, so the path holds the whole file or what it held before, never a partial one.
+
+/** Why a write failed: Rust's `io::ErrorKind` names in snake_case; one this SDK does not know is kept. */
+export type FileWriteReason =
+  | "permission_denied"
+  | "read_only_filesystem"
+  | "is_a_directory"
+  | "not_a_directory"
+  | "invalid_filename"
+  | "file_too_large"
+  | "not_found"
+  | "storage_full"
+  | "quota_exceeded"
+  | "other"
+  | (string & {});
+
+/**
+ * The path given to `saveAs` (or a `path` option) cannot be written for a reason the path causes.
+ * `fix` names the path argument and what to change. When the SDK wrote the path itself, Node's system
+ * error is the cause; when a local engine copied the file there, `reason` and `osCode` carry what the OS said.
+ */
+export declare class PathNotWritableError extends ProgramError {
+  readonly code: "path_not_writable";
+  readonly details: {
+    readonly path: string;
+    readonly reason: FileWriteReason;
+    /** The OS's own name, such as `EACCES` or `ERROR_ACCESS_DENIED`. */
+    readonly osCode: string | null;
+  };
+}
+/**
+ * The bytes could not be written: no space or quota left, or an I/O error, on the program's machine
+ * (`side: "program"`: the same call can be made again once space is freed, `saveAs` since the engine still
+ * holds the file, or `screenshot()` or `pdf()` for a file written through their `path` option), or any failure
+ * where the engine keeps its files (`side: "engine"`, from `export`, `checkpoint` or `trace`, which then
+ * return no value). `fix` names what to free and the call to make again.
+ */
+export declare class FileWriteFailedError extends UnavailableError {
+  readonly code: "file_write_failed";
+  readonly details: {
+    readonly side: "engine" | "program";
+    /** The program's path; on the engine's side, the folder where the engine keeps the Run, or null (Goodfetch Cloud). */
+    readonly path: string | null;
+    readonly reason: FileWriteReason;
+    readonly osCode: string | null;
+  };
 }
 
 /** Details of `handler_failed`: the user's own exception, as text, since the outcome outlives the process. */
@@ -293,8 +369,8 @@ export type StopReason =
   | { readonly kind: "no_progress"; readonly source: LimitSource }
   /** The Run's Model allowance is reached (ADR 0107): the task stops and the Run goes on; `source` names `ai.allowance.<kind>`. */
   | { readonly kind: "model_allowance"; readonly source: LimitSource }
-  /** Who stopped it: a person in the Console, another Client, or the program closing the page or the Run. */
-  | { readonly kind: "abort"; readonly by: "person" | "client" | "program" | (string & {}) }
+  /** Who stopped it: a person in the Console, another Client, the program closing the page or the Run, or the browser closing the page outside every Client (ADR 0113). */
+  | { readonly kind: "abort"; readonly by: "person" | "client" | "program" | "browser" | (string & {}) }
   | { readonly kind: "unknown"; readonly raw: string };
 
 /** What the model said about its own work: a signal, never proof (ADR 0013). */

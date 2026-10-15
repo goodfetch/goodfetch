@@ -182,7 +182,13 @@ export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage,
   newPage(options?: NewPageOptions): Promise<Page>;
   /** Opens a Session of its own. */
   newSession(options?: NewSessionOptions): Promise<Session>;
-  /** Borrows the user's own page (ADR 0056's `client_browser`). Ending the borrow never closes it. */
+  /**
+   * Borrows the user's own page (ADR 0056's `client_browser`). Ending the borrow never closes it.
+   * The program's own driver keeps the page too, outside the engine's order of Gestures: await each
+   * Collie call before that driver acts on the page again. An AI verb whose document a navigation it
+   * did not start replaces throws `PageNavigatedDuringCallError` (ADR 0114); the driver's input
+   * within one document is beyond what the engine sees.
+   */
   borrow(page: BorrowablePage): Promise<Page>;
   /** Borrows the user's own browser, in its default context. Ending the borrow never closes it. */
   borrow(browser: BorrowableBrowser): Promise<Session>;

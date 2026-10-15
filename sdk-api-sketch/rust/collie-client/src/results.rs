@@ -6,6 +6,7 @@
 //! structs [`ErrorDetails`] holds.
 
 use std::fmt;
+use std::path::PathBuf;
 
 /// A group of Error codes sharing one remedy, carried on the wire as the JSON-RPC numeric class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -104,8 +105,9 @@ impl ErrorCode {
     /// `deadline_exceeded`: every timeout, whatever the phase (ADR 0080), except a target still
     /// ambiguous at its deadline, which is `target_not_unique` (ADR 0085).
     pub const DEADLINE_EXCEEDED: ErrorCode = ErrorCode::new("deadline_exceeded");
-    /// `call_cancelled`: someone else stopped the call in flight; a dropped future of the caller's
-    /// own never sees it (ADR 0080).
+    /// `call_cancelled`: someone else stopped the call in flight, with a [`CallCancelled`] saying
+    /// who and what closed, such as a page closed in the browser during a Human pause (ADR 0113);
+    /// a dropped future of the caller's own never sees it (ADR 0080).
     pub const CALL_CANCELLED: ErrorCode = ErrorCode::new("call_cancelled");
     /// `plugin_crashed` (ADR 0033).
     pub const PLUGIN_CRASHED: ErrorCode = ErrorCode::new("plugin_crashed");
@@ -136,6 +138,12 @@ impl ErrorCode {
     pub const ROUTE_ALREADY_HANDLED: ErrorCode = ErrorCode::new("route_already_handled");
     /// `navigation_interrupted`: another navigation superseded this one (ADR 0085).
     pub const NAVIGATION_INTERRUPTED: ErrorCode = ErrorCode::new("navigation_interrupted");
+    /// `page_navigated_during_call` (ADR 0114): on a page other code also drives (a shared
+    /// `cdp_url`, a Lent page while a library is attached, a page with an open CDP session), an AI
+    /// verb's page committed a navigation to a new document that the verb did not start, between its
+    /// first read of the page and its return. Nothing was written to the Plan, and an `act` sent no
+    /// input. Retryable; its details carry `url` and `navigated_to`.
+    pub const PAGE_NAVIGATED_DURING_CALL: ErrorCode = ErrorCode::new("page_navigated_during_call");
     /// `response_not_json` (ADR 0085).
     pub const RESPONSE_NOT_JSON: ErrorCode = ErrorCode::new("response_not_json");
     /// `navigation_failed`: the site could not be reached (ADR 0085).
@@ -146,6 +154,12 @@ impl ErrorCode {
     pub const BODY_UNAVAILABLE: ErrorCode = ErrorCode::new("body_unavailable");
     /// `download_failed` (ADR 0085).
     pub const DOWNLOAD_FAILED: ErrorCode = ErrorCode::new("download_failed");
+    /// `path_not_writable`, a program error: the path given to `save_as` (or a `path` option)
+    /// cannot be written for a reason the path causes (ADR 0116).
+    pub const PATH_NOT_WRITABLE: ErrorCode = ErrorCode::new("path_not_writable");
+    /// `file_write_failed`: full or failing storage, on the program's machine or where the engine
+    /// keeps its files (ADR 0116).
+    pub const FILE_WRITE_FAILED: ErrorCode = ErrorCode::new("file_write_failed");
     /// `cdp_command_refused`, a refusal (ADR 0085).
     pub const CDP_COMMAND_REFUSED: ErrorCode = ErrorCode::new("cdp_command_refused");
     /// `session_reserved`: a second `page.lend()` on a Session while one attach is open, or a lend
@@ -156,6 +170,22 @@ impl ErrorCode {
     pub const BORROW_REQUIRES_CDP: ErrorCode = ErrorCode::new("borrow_requires_cdp");
     /// `browser_borrowed`, a refusal: another Run already borrows this browser (ADR 0056).
     pub const BROWSER_BORROWED: ErrorCode = ErrorCode::new("browser_borrowed");
+    /// `cdp_url_unreachable`: nothing at a `cdp_url` answered; retryable (ADR 0115).
+    pub const CDP_URL_UNREACHABLE: ErrorCode = ErrorCode::new("cdp_url_unreachable");
+    /// `cdp_url_not_browser`: what answered at a `cdp_url` is not a browser speaking CDP (ADR 0115).
+    pub const CDP_URL_NOT_BROWSER: ErrorCode = ErrorCode::new("cdp_url_not_browser");
+    /// `cdp_url_unauthorized`, a refusal: a `cdp_url` answered 401 or 403 (ADR 0115).
+    pub const CDP_URL_UNAUTHORIZED: ErrorCode = ErrorCode::new("cdp_url_unauthorized");
+    /// `cdp_url_not_allowed`, a refusal: ADR 0056's address rules refused a `cdp_url` (ADR 0115).
+    pub const CDP_URL_NOT_ALLOWED: ErrorCode = ErrorCode::new("cdp_url_not_allowed");
+    /// `browser_not_installed`: a build the engine cannot fetch, or a browser named by channel or
+    /// path that is absent; not retryable (ADRs 0098, 0115).
+    pub const BROWSER_NOT_INSTALLED: ErrorCode = ErrorCode::new("browser_not_installed");
+    /// `artifact_unavailable_offline`, a refusal: `offline` refused a pinned download (ADRs 0043,
+    /// 0115).
+    pub const ARTIFACT_UNAVAILABLE_OFFLINE: ErrorCode = ErrorCode::new("artifact_unavailable_offline");
+    /// `artifact_download_failed`: a pinned download failed; retryable (ADR 0115).
+    pub const ARTIFACT_DOWNLOAD_FAILED: ErrorCode = ErrorCode::new("artifact_download_failed");
     /// `attach_ended`: a Lent page's attach was cut (ADRs 0003, 0089).
     pub const ATTACH_ENDED: ErrorCode = ErrorCode::new("attach_ended");
     /// `value_invalid`: a Key-value store value that is not JSON, fails its schema or holds bytes
@@ -471,6 +501,23 @@ impl std::error::Error for Error {
     }
 }
 
+/// The error the program's own code returns to the SDK (ADR 0109): a crawl handler, a crawl Hook, a
+/// login step, an Agent tool, the Agent's Success check, an SDK handler's `fail`, and the
+/// `finish` of a call answered by the way down. It is std's boxed error, tower's and
+/// `lambda_runtime`'s `BoxError`, so `?` converts every `std::error::Error + Send + Sync + 'static`,
+/// a `&str` or `String`, a `Box<dyn Error + Send + Sync>` and an `anyhow::Error` or
+/// `eyre::Report` into it, and the SDK's own [`Error`] too.
+///
+/// The SDK reads it as TypeScript and Python read an exception (S1). A box that holds the SDK's
+/// own [`Error`] keeps its code and retryable flag (`ctx.skip()`'s and `ctx.retry()`'s included).
+/// Any other error, one that wraps a Goodfetch error in its `source()` chain included, is the
+/// program's own: `handler_failed`, `hook_failed` with no wrapped code, `agent_tool_failed`,
+/// `success_check_threw`, the kind's `<kind>_handler_failed`, or the cause of `logged_out`. Its
+/// details' message is its `Display` followed by each `source()`, joined by `": "`; its type, which
+/// the box erases, reads `BoxError`; it carries no stack; and in the process it is the
+/// failure's `source()`.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 /// The typed details of an Error code, read with [`Error::details`] (ADR 0099): each code's details
 /// type implements it, Foxhound's in Foxhound's crate, so no enum lists every code's details.
 pub trait ErrorDetails: Clone + 'static {}
@@ -481,6 +528,7 @@ impl ErrorDetails for Blocked {}
 impl ErrorDetails for NotVerified {}
 impl ErrorDetails for crate::models::LimitReached {}
 impl ErrorDetails for DeadlineExceeded {}
+impl ErrorDetails for CallCancelled {}
 impl ErrorDetails for crate::settings::SettingUnknown {}
 impl ErrorDetails for crate::settings::SettingInvalid {}
 impl ErrorDetails for crate::settings::SettingNotApplicable {}
@@ -493,6 +541,13 @@ impl ErrorDetails for crate::sessions::SecretInputRefused {}
 impl ErrorDetails for crate::sessions::LoggedOut {}
 impl ErrorDetails for crate::sessions::HumanPauseDeclined {}
 impl ErrorDetails for crate::sessions::SessionNotSavable {}
+impl ErrorDetails for crate::sessions::CdpUrlUnreachable {}
+impl ErrorDetails for crate::sessions::CdpUrlNotBrowser {}
+impl ErrorDetails for crate::sessions::CdpUrlUnauthorized {}
+impl ErrorDetails for crate::sessions::CdpUrlNotAllowed {}
+impl ErrorDetails for crate::sessions::BrowserNotInstalled {}
+impl ErrorDetails for crate::sessions::ArtifactUnavailableOffline {}
+impl ErrorDetails for crate::sessions::ArtifactDownloadFailed {}
 impl ErrorDetails for crate::ai::TargetNotFound {}
 impl ErrorDetails for crate::ai::PlanDrift {}
 impl ErrorDetails for crate::ai::ExtractionIncomplete {}
@@ -526,6 +581,81 @@ impl ErrorDetails for crate::agent::SuccessCheckThrew {}
 impl ErrorDetails for crate::recording::ResponseNotRecorded {}
 impl ErrorDetails for crate::recording::RecordingInvalid {}
 impl ErrorDetails for ScriptedModelDetails {}
+impl ErrorDetails for PathNotWritable {}
+impl ErrorDetails for FileWriteFailed {}
+
+// A file saved to the program's path, or written by the engine for the program to save: an Export,
+// a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0116). Two codes,
+// split by remedy, neither retryable. A save goes to a hidden temporary file beside the path,
+// renamed over it once whole, so the path holds the whole file or what it held before.
+
+/// Why a write failed: `std::io::ErrorKind`'s names (ADR 0116).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FileWriteReason {
+    /// The user may not write there (`path_not_writable`).
+    PermissionDenied,
+    /// A read-only filesystem (`path_not_writable`).
+    ReadOnlyFilesystem,
+    /// A folder at the path (`path_not_writable`).
+    IsADirectory,
+    /// A file where a parent folder should be (`path_not_writable`).
+    NotADirectory,
+    /// A name the filesystem refuses (`path_not_writable`).
+    InvalidFilename,
+    /// A file too large for that filesystem (`path_not_writable`).
+    FileTooLarge,
+    /// A path not found once its parents are made (`path_not_writable`).
+    NotFound,
+    /// No space left (`file_write_failed`).
+    StorageFull,
+    /// A quota reached (`file_write_failed`).
+    QuotaExceeded,
+    /// Another I/O error (`file_write_failed`).
+    Other,
+    /// A reason this SDK does not know, as received.
+    Unknown(String),
+}
+
+/// Where a write failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FileWriteSide {
+    /// Where the engine keeps its files: `export`, `checkpoint` or `trace` returned no value.
+    Engine,
+    /// The program's own machine: the same call can be made again once space is freed, `save_as`
+    /// since the engine still holds the file, or `screenshot()` for a file written through its `path`.
+    Program,
+}
+
+/// Details of `path_not_writable`; `fix` names the path argument and what to change. When the SDK
+/// wrote the path itself, the `std::io::Error` is the error's `source()`; when a local engine copied
+/// the file there, `reason` and `os_code` carry what the OS said.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PathNotWritable {
+    /// The path as given.
+    pub path: PathBuf,
+    /// Why it failed.
+    pub reason: FileWriteReason,
+    /// The OS's own name, such as `EACCES` or `ERROR_ACCESS_DENIED`.
+    pub os_code: Option<String>,
+}
+
+/// Details of `file_write_failed`; `fix` names what to free and the call to make again.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct FileWriteFailed {
+    /// Where it failed.
+    pub side: FileWriteSide,
+    /// The program's path; on the engine's side, the folder where the engine keeps the Run, or
+    /// `None` (Goodfetch Cloud).
+    pub path: Option<PathBuf>,
+    /// Why it failed.
+    pub reason: FileWriteReason,
+    /// The OS's own name, such as `ENOSPC` or `ERROR_DISK_FULL`.
+    pub os_code: Option<String>,
+}
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
 /// call's own timeout is that setting at the `run` layer (ADR 0028).
@@ -540,6 +670,54 @@ pub struct DeadlineExceeded {
     pub waited_for: String,
     /// The enclosing call whose timeout ended this one, when it was not the call's own.
     pub ended_by: Option<EndedBy>,
+}
+
+/// Details of `call_cancelled` (ADRs 0080, 0113): who stopped the call in flight and what closed
+/// or stopped under it, so a program branches on a closed page without reading the message (G6).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CallCancelled {
+    /// Who stopped it.
+    pub by: CancelledBy,
+    /// What closed or stopped under the call.
+    pub closed: ClosedValue,
+    /// Whom the stopping Client acts for (ADR 0031), when known.
+    pub person: Option<String>,
+}
+
+/// Who stopped a call in flight, the vocabulary of an Agent's `abort` (ADR 0100).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CancelledBy {
+    /// A person, in the Console.
+    Person,
+    /// Another Client.
+    Client,
+    /// The program closing a parent value from another task.
+    Program,
+    /// The browser, outside every Client: the page's window or tab closed on the desktop, the
+    /// page's own `window.close()`, or the browser quitting (ADR 0113).
+    Browser,
+    /// A value this SDK does not know, as received.
+    Unknown(String),
+}
+
+/// The value that closed or stopped under a call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClosedValue {
+    /// The call's page.
+    Page,
+    /// Its Session.
+    Session,
+    /// The browser the Session ran in, ending every Session in it.
+    Browser,
+    /// Its Run.
+    Run,
+    /// The connection.
+    Connection,
+    /// A value this SDK does not know, as received.
+    Unknown(String),
 }
 
 /// The enclosing call whose timeout ended a call.
@@ -657,7 +835,8 @@ pub enum StopReason {
     /// on.
     ModelAllowance(LimitSource),
     /// Someone other than the caller stopped it: a person in the Console (`person`), another
-    /// Client (`client`), or the program closing the page or the Run (`program`).
+    /// Client (`client`), the program closing the page or the Run (`program`), or the browser
+    /// closing the page outside every Client (`browser`, ADR 0113).
     Abort(String),
     /// A reason this SDK does not know, as received.
     Unknown(String),

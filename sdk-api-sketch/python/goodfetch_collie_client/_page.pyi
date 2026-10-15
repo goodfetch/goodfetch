@@ -186,6 +186,13 @@ class RouteAlreadyHandledError(ProgramError):
 class NavigationInterruptedError(PageError):
     """`navigation_interrupted`: superseded by another navigation before it committed."""
 
+class PageNavigatedDuringCallError(PageError):
+    """`page_navigated_during_call` (ADR 0114): on a page other code also drives (a page borrowed with `run.borrow()`, a
+    Lent page while a library is attached, a page with an open CDP session), an AI verb's page committed a navigation to
+    a new document that the verb did not start, between its first read of the page and its return. Nothing was written
+    to the Plan, and an `act` sent no input. Retryable: await each Collie call before the program's own driver acts on
+    the page; the page may also have navigated by itself. `details` carries `url` and `navigated_to`."""
+
 class ResponseNotJSONError(PageError):
     """`response_not_json`: `json()` on a body that is not JSON."""
 
@@ -542,7 +549,10 @@ class AsyncDownload:
         """Waits for the download to end: the reason it failed, or `None`. An answer, not a failure."""
 
     async def save_as(self, path: str | Path, *, timeout: Timeout = ...) -> None:
-        """Streams the file to this path on the program's machine; a failed download raises `DownloadFailedError`."""
+        """Streams the file to this path on the program's machine; a failed download raises `DownloadFailedError`.
+
+        A failed write raises `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0116).
+        """
 
     async def cancel(self, *, timeout: Timeout = ...) -> None: ...
 
@@ -708,7 +718,11 @@ class AsyncPageAPI(_AsyncLocates):
         path: str | Path | None = None,
         timeout: Timeout = ...,
     ) -> bytes:
-        """Secrets are masked by the engine (ADR 0014); `path` also writes it on the program's machine."""
+        """Secrets are masked by the engine (ADR 0014); `path` also writes it on the program's machine.
+
+        That file is written whole or not at all; a failed write raises `PathNotWritableError` or
+        `FileWriteFailedError` and returns no bytes (ADR 0116).
+        """
 
     async def pdf(self, *, format: str | None = None, path: str | Path | None = None, timeout: Timeout = ...) -> bytes:
         """Chromium only."""

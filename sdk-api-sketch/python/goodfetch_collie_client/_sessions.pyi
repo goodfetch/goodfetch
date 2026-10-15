@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from typing import Literal, NotRequired, TypeAlias, TypedDict, final, overload
 
 from goodfetch_collie_client._page import AsyncLocator, Locator
-from goodfetch_collie_client._results import PageError, ProgramError, RefusedError, UnavailableError
+from goodfetch_collie_client._results import PageError, ProgramError, RefusedError, SettingsLayer, UnavailableError
 from goodfetch_collie_client._time import Timeout, URLMatcher
 
 # Secrets.
@@ -140,7 +140,9 @@ class CDPURLSource(TypedDict):
     headers: NotRequired[Mapping[str, SecretReference]]
     domains: NotRequired[Sequence[str]]
     exclusive: NotRequired[bool]
-    """Nothing else drives this browser, so secrets may be typed into it (ADR 0056)."""
+    """Nothing else drives this browser, so secrets may be typed into it (ADR 0056). Left out, the program awaits each
+    Collie call before its other code acts on the page, and an AI verb whose document a navigation it did not start
+    replaces raises `PageNavigatedDuringCallError` (ADR 0114)."""
 
 SessionSource: TypeAlias = (
     SavedIdentitySource
@@ -406,7 +408,9 @@ class AsyncPausesForHuman:
         ends the pause by itself when it holds (a locator visible, or a URL matched as `wait_for_url` matches it); a
         person's "Done" is accepted only while it holds. `timeout` is `timeout.human_pause`, 24 hours by default; `None`
         waits without limit. A paused page takes no Gesture: its later Gestures wait; reads and waits run. No enclosing
-        timeout counts its time; Usage still counts toward Limits. Cancelling the task ends it.
+        timeout counts its time; Usage still counts toward Limits. Cancelling the task ends it. A page closed in the
+        browser raises `CallCancelledError` with `by="browser"` and `closed="page"` (`"browser"` when the browser
+        quits); a lost Live view ends nothing (ADR 0113).
         """
 
 class PausesForHuman:
@@ -525,3 +529,152 @@ class SessionNotSavableError(ProgramError):
 
     @property
     def details(self) -> SessionNotSavableDetails: ...
+
+# Opening a Session on a `cdp_url`, and the browser build a Session launches (ADR 0115, decided in #534): one code per
+# remedy, raised by the call that opens the Session or launches the browser (`new_session`, the default Session's first
+# `new_page`, a crawl request's escalation), never by `connect()`. An address that never answers is `deadline_exceeded`;
+# a `headers` reference that resolves to nothing is `secret_unavailable`.
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class CDPURLUnreachableDetails:
+    url: str
+    """The address, without its query string or any credentials in it."""
+    layer: SettingsLayer
+    """The settings layer that gave the address (ADR 0083)."""
+    failure: Literal["name_not_resolved", "connection_refused", "connection_reset", "tls_failed"] | str
+
+@final
+class CDPURLUnreachableError(UnavailableError):
+    """Nothing at the address answered; `fix` says to start the browser with remote debugging on that port, or correct
+    the address. Retryable."""
+
+    @property
+    def details(self) -> CDPURLUnreachableDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class CDPURLAnswer:
+    """What answered at a `cdp_url` that is not a browser, also in `observed`."""
+
+    kind: Literal["http", "websocket_refused", "cdp_target"] | str
+    status: int | None
+    content_type: str | None
+    target_type: str | None
+    """For `cdp_target`: `page`, `node`, `worker`, or `browser` for a product the engine does not drive."""
+    product: str | None
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class CDPURLNotBrowserDetails:
+    url: str
+    layer: SettingsLayer
+    answered: CDPURLAnswer
+    browser_endpoint: str | None
+    """The browser endpoint the same host's `/json/version` lists, which `fix` names; `None` when none."""
+
+@final
+class CDPURLNotBrowserError(ProgramError):
+    """Something answered, but no browser speaks CDP there."""
+
+    @property
+    def details(self) -> CDPURLNotBrowserDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class CDPURLUnauthorizedDetails:
+    url: str
+    layer: SettingsLayer
+    status: Literal[401, 403]
+    headers: Mapping[str, SecretReference]
+    """Each header sent, by name, with its Secret reference; never a value."""
+
+@final
+class CDPURLUnauthorizedError(RefusedError):
+    """The address answered 401 or 403; `fix` points to the Secret references in `headers`."""
+
+    @property
+    def details(self) -> CDPURLUnauthorizedDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class CDPURLNotAllowedDetails:
+    url: str
+    layer: SettingsLayer
+    rule: Literal["private_range", "loopback"] | str
+    """ADR 0056's rule: a private range, or loopback where it is not allowed."""
+
+@final
+class CDPURLNotAllowedError(RefusedError):
+    """ADR 0056's address rules refused the address before any connection; `fix` names Operator policy or user or
+    project configuration."""
+
+    @property
+    def details(self) -> CDPURLNotAllowedDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class PinnedBy:
+    product: Literal["collie", "foxhound"] | str
+    version: str
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class PinnedArtifact:
+    """A pinned download of the Browser cache: a browser build, Lightpanda, Playwright's driver, the Clean-up rules, an
+    engine executable."""
+
+    name: str
+    """Such as `chromium`, `camoufox` or `lightpanda`."""
+    version: str
+    """The build ID or version pinned."""
+    pinned_by: PinnedBy
+    """The Product and Product version that pin it (ADR 0098)."""
+    cache_path: str
+    """The Browser cache's path."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class BrowserNotInstalledDetails:
+    build: PinnedArtifact | None
+    """The pinned build, or `None` for a browser named by channel or path."""
+    channel: str | None
+    path: str | None
+    """The channel or path looked for, when a setting named one (ADR 0024)."""
+
+@final
+class BrowserNotInstalledError(UnavailableError):
+    """The build a Session needs is not in a Browser cache the engine cannot write, or a browser named by channel or
+    path is absent; `fix` is the Product's install command for that build. Not retryable."""
+
+    @property
+    def details(self) -> BrowserNotInstalledDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ArtifactUnavailableOfflineDetails:
+    artifact: PinnedArtifact
+
+@final
+class ArtifactUnavailableOfflineError(RefusedError):
+    """The `offline` setting refused a pinned download (ADR 0043); `limit` names `offline` and its layer."""
+
+    @property
+    def details(self) -> ArtifactUnavailableOfflineDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ArtifactDownloadFailedDetails:
+    artifact: PinnedArtifact
+    host: str
+    """The host it came from, never a full URL."""
+    failure: Literal["network", "http_status", "digest_mismatch"] | str
+    status: int | None
+    """For `http_status`."""
+
+@final
+class ArtifactDownloadFailedError(UnavailableError):
+    """A pinned download on first use failed after the engine's own attempts. Retryable."""
+
+    @property
+    def details(self) -> ArtifactDownloadFailedDetails: ...

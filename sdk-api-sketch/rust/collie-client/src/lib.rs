@@ -31,7 +31,7 @@ pub mod time;
 
 pub use agent::{
     AgentAction, AgentActionOutcome, AgentCall, AgentResult, AgentStep, AgentStepOrigin, AgentTask,
-    AgentTaskProgress, AgentTool, AgentToolCall, AgentToolFailed, AgentToolInvalid, BoxError,
+    AgentTaskProgress, AgentTool, AgentToolCall, AgentToolFailed, AgentToolInvalid,
     ConfirmationCategory, SuccessCheckThrew,
 };
 pub use ai::{
@@ -74,15 +74,16 @@ pub use page::{
     ResourceType, Response, Route, Screenshot, SelectOption, TextMatch, Touchscreen,
     WaitForFunction, WebError, WebSocket, WebSocketPayload, World,
 };
-pub use plugins::{HandlerError, ProxyAnswer, ProxyCall, ProxyRequest, SdkHandlerFailed};
+pub use plugins::{ProxyAnswer, ProxyCall, ProxyRequest, SdkHandlerFailed};
 pub use recording::{
     Recording, RecordingInvalid, RecordingMiss, RecordingMode, RecordingReport,
     ResponseNotRecorded,
 };
 pub use results::{
-    AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error,
-    ErrorDetails, ErrorGroup, ErrorTarget, LimitSource, NotVerified, PartialOutput, Reported,
-    RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
+    AiWorkResult, BlockCause, Blocked, BoxError, CallCancelled, CancelledBy, Claim, ClosedValue,
+    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed,
+    FileWriteReason, FileWriteSide, LimitSource, NotVerified, PartialOutput, PathNotWritable,
+    Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
     TargetDescription, TargetNotUnique, Verdict,
 };
 pub use run::{
@@ -91,12 +92,14 @@ pub use run::{
     RunStopReason, RunTrace, RunView, RunWarning, StartedAs, VerdictReason, WaitingPause,
 };
 pub use sessions::{
-    BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined,
+    ArtifactDownloadFailed, ArtifactUnavailableOffline, BrowserName, BrowserNotInstalled,
+    CdpUrlAnswer, CdpUrlNotAllowed, CdpUrlNotBrowser, CdpUrlUnauthorized, CdpUrlUnreachable,
+    ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined,
     HumanPauseResult, Identities, LoggedOut, PageCheck, PageMatch, Pause, PauseUntil, Permission,
-    RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding, SecretDomainNotAllowed,
-    SecretInputRefused, SecretPlaceholder, SecretReference, SecretRequest, SecretUnavailable,
-    SecretUnbound, SessionNotSavable, SessionSource, StateFileFormat, TextInput, WebStorage,
-    secret,
+    PinnedArtifact, PinnedBy, RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding,
+    SecretDomainNotAllowed, SecretInputRefused, SecretPlaceholder, SecretReference, SecretRequest,
+    SecretUnavailable, SecretUnbound, SessionNotSavable, SessionSource, StateFileFormat, TextInput,
+    WebStorage, secret,
 };
 pub use time::{Call, CallFuture, Count, ElementState, Limits, LoadState, Money, UrlMatcher, Waiter};
 pub use concurrency::events;

@@ -76,6 +76,20 @@ export interface FetchSettings {
   readonly tier?: "auto" | FetchTier;
   /** `fetch.tier_race`, ADR 0040's `tier_race`. Built-in: false. */
   readonly tierRace?: boolean;
+  /** `fetch.kept_responses.*`: the responses a handler reads with `keptResponse` and `keptResponses` (ADR 0110). */
+  readonly keptResponses?: KeptResponsesSettings;
+}
+
+/**
+ * `fetch.kept_responses.*` (ADR 0110), on a crawl's Run or its Labels. A Label that sets `urls` while
+ * forcing `http` or `browser_fetch` fails the Run's start with `setting_not_applicable`: those tiers
+ * run no script.
+ */
+export interface KeptResponsesSettings {
+  /** The URLs of the responses kept on a request's page from the start of its navigation, matched in the engine. Built-in: none. */
+  readonly urls?: readonly URLPattern[];
+  /** Bytes of kept bodies per attempt; a body past it reads as `body_unavailable`. Built-in: 16 MiB. */
+  readonly maxSize?: number;
 }
 
 /**
@@ -146,7 +160,9 @@ export type SettingKey =
   | "crawl.handle_statuses"
   | "crawl.handler.concurrency"
   | "fetch.tier"
-  | "fetch.tier_race";
+  | "fetch.tier_race"
+  | "fetch.kept_responses.urls"
+  | "fetch.kept_responses.max_size";
 
 /** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */
 export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: Omit<TimeoutSettings, "run"> };
@@ -162,7 +178,7 @@ export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: 
  */
 export interface LabelSettings extends Omit<PageSettings, "timeout"> {
   readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler" | "hook">;
-  readonly fetch?: Pick<FetchSettings, "tier">;
+  readonly fetch?: Pick<FetchSettings, "tier" | "keptResponses">;
   readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
   readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;

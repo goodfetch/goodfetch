@@ -15,7 +15,10 @@
 //! that need an answer alike (a route here; a crawl handler, a dialog or a Hook in code
 //! elsewhere), arrives as an [`EventStream`], subscribed when the method that returns it is
 //! called. The program drives it where it likes, so handlers run inside the future the program
-//! awaits, may borrow local state, and need neither `Send` nor `'static`. Dropping a stream
+//! awaits, may borrow local state, and need not be `'static`. A closure the SDK itself runs inside
+//! a future it returns (a crawl's handler or Hook, a login step, an Effect's body) is `Send`, and
+//! so is the future it returns, so every future the SDK returns is `Send` (ADR 0112); a stream
+//! the program reads itself takes no closure and asks nothing. Dropping a stream
 //! unsubscribes without blocking. [`crate::blocking`] is the same API without `async`.
 //!
 //! The page's events, routes, dialogs and the data they carry are ADR 0085's, in `page`. A crawl's

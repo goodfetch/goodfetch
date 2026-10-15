@@ -21,7 +21,7 @@ from goodfetch_collie_client._data import JSONObject, JSONSchema, JSONValue
 from goodfetch_collie_client._lifecycle import AsyncPage, Page
 from goodfetch_collie_client._page import AsyncLocator, AsyncResponse, Locator, Response
 from goodfetch_collie_client._results import PageError, ProgramError, RefusedError, UnavailableError
-from goodfetch_collie_client._time import Timeout
+from goodfetch_collie_client._time import Timeout, URLMatcher
 from goodfetch_foxhound._connection import AsyncCrawlRun, CrawlRun
 from goodfetch_foxhound._data import Dataset, Label
 from goodfetch_foxhound._hooks import AsyncHooks, SyncHooks
@@ -164,6 +164,17 @@ class AsyncCrawlContext(_ContextBase[P]):
     @property
     def response(self) -> AsyncResponse:
         """The main document's final response, after redirects; its body is always kept."""
+    async def kept_response(self, url: URLMatcher, *, timeout: Timeout = ...) -> AsyncResponse:
+        """The first response kept for this attempt whose URL matches (ADR 0110): kept because its Label's
+        `fetch.kept_responses.urls` names it, on the request's page and its frames, from the start of its navigation,
+        so one the page loaded before the handler ran is found. Waits for one under `timeout.wait`, as a waiter armed
+        when the navigation started, and returns once its body has arrived, so the body never fails unless past
+        `fetch.kept_responses.max_size` (`BodyUnavailableError`). Past the timeout, `DeadlineExceededError` naming the
+        matcher; on a Label that keeps nothing, `ResponsesNotKeptError` at once. On `http` and `browser_fetch` it
+        escalates (`BrowserRequiredError` under a forced tier); `discovered_api` answers from its replayed calls."""
+    async def kept_responses(self, url: URLMatcher | None = None) -> list[AsyncResponse]:
+        """The responses kept for this attempt so far, in arrival order, without waiting; `url` filters them. Same rules
+        as `kept_response`."""
     @property
     def run(self) -> AsyncCrawlRun:
         """The crawl's Run, bound to this attempt (ADR 0093): `add_seed` and its Key-value store's writes through it are
@@ -218,6 +229,8 @@ class CrawlContext(_ContextBase[P]):
     def page(self) -> Page: ...
     @property
     def response(self) -> Response: ...
+    def kept_response(self, url: URLMatcher, *, timeout: Timeout = ...) -> Response: ...
+    def kept_responses(self, url: URLMatcher | None = None) -> list[Response]: ...
     @property
     def run(self) -> CrawlRun: ...
     def push(self, dataset: Dataset[T], record: T, *, timeout: Timeout = ...) -> None: ...
@@ -335,6 +348,11 @@ class AttemptEndedError(BaseException):
 class BrowserRequiredError(ProgramError):
     """A call only a browser can serve while `fetch.tier` forces a tier without one; `limit` names that setting and its
     Label."""
+
+@final
+class ResponsesNotKeptError(ProgramError):
+    """`kept_response` or `kept_responses` on a request whose Label keeps nothing; the fix names
+    `fetch.kept_responses.urls` (ADR 0110). Not retryable."""
 
 @final
 class RetryRequestedError(PageError):

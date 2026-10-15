@@ -780,7 +780,8 @@ impl Screenshot {
         unimplemented!()
     }
 
-    /// Also writes it to this path on the program's machine.
+    /// Also writes it to this path on the program's machine, whole or not at all; a failed write
+    /// fails the call with `path_not_writable` or `file_write_failed` (ADR 0116).
     pub fn path(self, path: impl Into<PathBuf>) -> Self {
         let _ = path.into();
         unimplemented!()
@@ -1655,7 +1656,8 @@ impl Download {
     }
 
     /// Streams the file to this path on the program's machine; a failed download fails with
-    /// `download_failed`.
+    /// `download_failed`, and a failed write with `path_not_writable` or `file_write_failed`,
+    /// leaving the path as it was (ADR 0116).
     pub fn save_as(&self, path: impl Into<PathBuf>) -> Call<()> {
         let _ = path.into();
         unimplemented!()
@@ -1778,6 +1780,14 @@ impl LocatorHandlerOptions {
 #[derive(Debug)]
 pub struct Registration {
     _private: (),
+}
+
+impl Registration {
+    /// Keeps the init script until its page or Session closes, as TypeScript's stays until
+    /// disposed: a crawl's Hook adds one this way for the rest of its attempt (ADR 0111).
+    pub fn keep(self) {
+        unimplemented!()
+    }
 }
 
 impl Drop for Registration {

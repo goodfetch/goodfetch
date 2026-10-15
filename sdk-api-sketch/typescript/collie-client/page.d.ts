@@ -209,7 +209,11 @@ export interface ScreenshotOptions extends CallOptions {
   /** Covered with a box; Secrets are masked by the engine anyway (ADR 0014). */
   readonly mask?: readonly Locator[];
   readonly maskColor?: string;
-  /** Also written to this path on the program's machine. */
+  /**
+   * Also written to this path on the program's machine, whole or not at all (ADR 0116): a path it
+   * cannot write throws `PathNotWritableError`, full or failing storage `FileWriteFailedError`, and
+   * the call then returns no bytes.
+   */
   readonly path?: string;
 }
 
@@ -498,7 +502,11 @@ export interface Download {
   suggestedFilename(): string;
   /** Waits for the download to end: the reason it failed, or `null`. An answer, not a failure. */
   failure(options?: CallOptions): Promise<string | null>;
-  /** Streams the file to this path on the program's machine. A failed download throws `DownloadFailedError`. */
+  /**
+   * Streams the file to this path on the program's machine. A failed download throws
+   * `DownloadFailedError`; a failed write `PathNotWritableError` or `FileWriteFailedError`, leaving
+   * the path as it was (ADR 0116).
+   */
   saveAs(path: string, options?: CallOptions): Promise<void>;
   cancel(options?: CallOptions): Promise<void>;
 }
@@ -625,7 +633,11 @@ export interface PDFOptions extends CallOptions {
   readonly printBackground?: boolean;
   readonly scale?: number;
   readonly pageRanges?: string;
-  /** Also written to this path on the program's machine. */
+  /**
+   * Also written to this path on the program's machine, whole or not at all (ADR 0116): a path it
+   * cannot write throws `PathNotWritableError`, full or failing storage `FileWriteFailedError`, and
+   * the call then returns no bytes.
+   */
   readonly path?: string;
 }
 
@@ -738,6 +750,18 @@ export declare class RouteAlreadyHandledError extends ProgramError {
 export declare class NavigationInterruptedError extends PageError {
   readonly code: "navigation_interrupted";
   readonly details: { readonly by: string };
+}
+
+/**
+ * On a page other code also drives (a page borrowed with `run.borrow()`, a Lent page while a library is
+ * attached, a page with an open CDP session), an AI verb's page committed a navigation to a new
+ * document that the verb did not start, between its first read of the page and its return (ADR 0114).
+ * Nothing was written to the Plan, and an `act` sent no input. Retryable: await each Collie call
+ * before the program's own driver acts on the page; the page may also have navigated by itself.
+ */
+export declare class PageNavigatedDuringCallError extends PageError {
+  readonly code: "page_navigated_during_call";
+  readonly details: { readonly url: string; readonly navigatedTo: string };
 }
 
 export declare class ResponseNotJSONError extends PageError {

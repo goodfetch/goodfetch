@@ -49,6 +49,8 @@ KnownErrorCode: TypeAlias = Literal[
     "run_in_use",
     "limit_raise_refused",
     "run_state_unavailable",
+    "path_not_writable",
+    "file_write_failed",
     "model_not_found",
     "model_capability_missing",
     "model_handler_failed",
@@ -71,6 +73,13 @@ KnownErrorCode: TypeAlias = Literal[
     "session_reserved",
     "borrow_requires_cdp",
     "browser_borrowed",
+    "cdp_url_unreachable",
+    "cdp_url_not_browser",
+    "cdp_url_unauthorized",
+    "cdp_url_not_allowed",
+    "browser_not_installed",
+    "artifact_unavailable_offline",
+    "artifact_download_failed",
     "attach_ended",
     "internal",
 ]
@@ -218,12 +227,94 @@ class InternalError(GoodfetchError):
 class ClosedError(ProgramError): ...
 
 @final
-class CallCancelledError(UnavailableError):
-    """Someone else stopped the call in flight: a person, another Client, or the program closing a parent value.
+@dataclass(frozen=True, kw_only=True)
+class CallCancelledDetails:
+    """Who stopped the call in flight and what closed or stopped under it (ADRs 0080, 0113)."""
 
-    Not retryable; `observed` says who, and `fix` names resuming the Run, or the close that stopped the call. The
-    caller's own cancellation propagates `asyncio.CancelledError` instead and never raises this (ADR 0080).
+    by: Literal["person", "client", "program", "browser"] | str
+    """A person in the Console, another Client, the program closing a parent value from another task, or the browser
+    outside every Client: the page's window or tab closed on the desktop, its own `window.close()`, the browser
+    quitting."""
+    closed: Literal["page", "session", "browser", "run", "connection"] | str
+    """What closed or stopped under the call; `browser` ends every Session in it."""
+    person: str | None
+    """Whom the stopping Client acts for, when known."""
+
+@final
+class CallCancelledError(UnavailableError):
+    """Someone else stopped the call in flight: a person, another Client, the program closing a parent value, or the
+    browser closing the page, such as its window closed during a Human pause (ADR 0113).
+
+    Not retryable; `details` says who and what closed, `observed` renders it, and `fix` names resuming the Run, the
+    close that stopped the call, or for a closed page opening another and pausing again. The caller's own cancellation
+    propagates `asyncio.CancelledError` instead and never raises this (ADR 0080).
     """
+
+    @property
+    def details(self) -> CallCancelledDetails: ...
+
+# A file saved to the program's path, or written by the engine for the program to save: an Export, a Download, a
+# Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0116). Two codes, split by remedy, neither
+# retryable. A save goes to a hidden temporary file beside the path, renamed over it once whole, so the path holds
+# the whole file or what it held before, never a partial one.
+
+FileWriteReason: TypeAlias = (
+    Literal[
+        "permission_denied",
+        "read_only_filesystem",
+        "is_a_directory",
+        "not_a_directory",
+        "invalid_filename",
+        "file_too_large",
+        "not_found",
+        "storage_full",
+        "quota_exceeded",
+        "other",
+    ]
+    | str
+)
+"""Why a write failed: Rust's `io::ErrorKind` names in snake_case; one this SDK does not know is kept."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class PathNotWritableDetails:
+    path: str
+    reason: FileWriteReason
+    os_code: str | None
+    """The OS's own name, such as `EACCES` or `ERROR_ACCESS_DENIED`."""
+
+@final
+class PathNotWritableError(ProgramError):
+    """The path given to `save_as` (or a `path` option) cannot be written for a reason the path causes.
+
+    `fix` names the path argument and what to change. When the SDK wrote the path itself, the `OSError` is its
+    `__cause__`; when a local engine copied the file there, `reason` and `os_code` carry what the OS said.
+    """
+
+    @property
+    def details(self) -> PathNotWritableDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class FileWriteFailedDetails:
+    side: Literal["engine", "program"]
+    path: str | None
+    """The program's path; on the engine's side, the folder where the engine keeps the Run, or `None` (Goodfetch Cloud)."""
+    reason: FileWriteReason
+    os_code: str | None
+
+@final
+class FileWriteFailedError(UnavailableError):
+    """The bytes could not be written: no space or quota left, or an I/O error.
+
+    On the program's machine (`side="program"`) the same call can be made again once space is freed: `save_as`, since
+    the engine still holds the file, or `screenshot()` or `pdf()` for a file written through their `path` option;
+    anywhere the engine keeps its files (`side="engine"`, from `export`, `checkpoint` or `trace`) the call returns
+    no value. `fix` names what to free and the call to make again.
+    """
+
+    @property
+    def details(self) -> FileWriteFailedDetails: ...
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -349,9 +440,9 @@ class Stopped:
     source: LimitSource | None
     """The setting that stopped it, its value and its layer, when `reason` is `timeout`, `max_steps`, `no_progress` or
     `model_allowance` (G6)."""
-    by: Literal["person", "client", "program"] | str | None
-    """Who stopped it, when `reason` is `abort`: a person in the Console, another Client, or the program closing the page
-    or the Run."""
+    by: Literal["person", "client", "program", "browser"] | str | None
+    """Who stopped it, when `reason` is `abort`: a person in the Console, another Client, the program closing the page
+    or the Run, or the browser closing the page outside every Client (ADR 0113)."""
 
 Ended: TypeAlias = Finished | Stopped
 

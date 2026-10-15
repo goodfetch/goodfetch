@@ -46,7 +46,8 @@ async fn log_in_once(username: &str) -> Result<bool, Error> {
         // is found by its id.
         page.locator("#password").fill(secret("password")).await?;
         // The Human pause: no time limit and no other clock runs; it ends once the Logout link
-        // shows, and a person's "Decline" fails with `human_pause_declined`.
+        // shows, and a person's "Decline" fails with `human_pause_declined`. Closing the window
+        // fails with `call_cancelled`, whose `CallCancelled` details say `closed: Page` (ADR 0113).
         let logout = page.get_by_role(AriaRole::Link.name("Logout"));
         let pause = page
             .pause()

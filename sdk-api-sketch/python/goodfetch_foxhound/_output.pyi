@@ -70,7 +70,13 @@ class AsyncExport(_ExportInfo):
     """A file the engine wrote from a Dataset's Records, wherever the engine runs (ADR 0001). Playwright's names."""
 
     async def save_as(self, path: str | Path, *, timeout: Timeout = ...) -> None:
-        """Copies it to a path on the program's machine."""
+        """Copies it to a path on the program's machine, whole or not at all (ADR 0116).
+
+        It writes a hidden temporary file beside the path and renames it over the path once whole, creates missing
+        parent folders and replaces an existing file, as Playwright's `save_as` does. A path it cannot write raises
+        `PathNotWritableError`; full or failing storage raises `FileWriteFailedError` with `side="program"`, and
+        calling it again after freeing space works, since the engine still holds the Export.
+        """
     def stream(self) -> AsyncIterator[bytes]:
         """Its bytes, read once: an async iterator, not the Node `Readable` of Playwright's `createReadStream()`."""
 

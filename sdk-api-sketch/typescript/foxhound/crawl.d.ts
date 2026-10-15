@@ -26,6 +26,7 @@ import type {
   SchemaOutput,
   Timeout,
   UnavailableError,
+  URLMatcher,
   ExplainedSetting,
 } from "@goodfetch/collie-client";
 import type { Dataset, Label, PayloadInput, PayloadOutput } from "./data.js";
@@ -291,6 +292,20 @@ export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefine
     label: L,
     ...args: LinkPayloadArgs<L, EnqueueLinksOptions>
   ): Promise<EnqueuedLinks>;
+  /**
+   * The first response kept for this attempt whose URL matches (ADR 0110): kept because its Label's
+   * `fetch.kept_responses.urls` names it, on the request's page and its frames, from the start of its
+   * navigation, so one the page loaded before the handler ran is found. Waits for one under
+   * `timeout.wait`, as a waiter armed when the navigation started, and resolves once its body has
+   * arrived, so the body never fails unless past `fetch.kept_responses.max_size`
+   * (`BodyUnavailableError`). Past the timeout, `DeadlineExceededError` naming the matcher; on a
+   * Label that keeps nothing, `ResponsesNotKeptError` at once. On `http` and `browser_fetch` it
+   * escalates (`BrowserRequiredError` under a forced tier); `discovered_api` answers from its
+   * replayed calls.
+   */
+  keptResponse(url: URLMatcher, options?: CallOptions): Promise<Response>;
+  /** The responses kept for this attempt so far, in arrival order, without waiting; `url` filters them. Same rules as `keptResponse`. */
+  keptResponses(url?: URLMatcher, options?: Omit<CallOptions, "timeout">): Promise<readonly Response[]>;
   /** Ends the request `skipped`, with the reason `handler` and this message. Throws to unwind the handler. */
   skip(message: string): never;
   /** Ends this attempt with `retry_requested`, retried under `crawl.retry.max`. Throws to unwind the handler. */
@@ -362,7 +377,11 @@ export interface CrawlRun extends Run {
   records<O>(dataset: Dataset<unknown, O>, options?: RecordsOptions): EventIterator<DatasetRecord<O>>;
   /** The Dataset's rejection table, each entry numbered in commit order, following the Run as `records` does. */
   rejectedRecords(dataset: Dataset<unknown, unknown>, options?: RecordsOptions): EventIterator<RejectedRecord>;
-  /** Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs. */
+  /**
+   * Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine
+   * runs. Resolves only once its file is whole; a write the engine cannot make throws
+   * `FileWriteFailedError` with `side: "engine"` and leaves no unfinished file (ADR 0116).
+   */
   export(dataset: Dataset<unknown, unknown>, options: ExportOptions): Promise<Export>;
   /** Each seed's answer, given once at the start: added with its ID, or not added with its reason. On a resume, the answers given when the Run began. */
   seeds(): readonly Enqueued[];
@@ -414,6 +433,11 @@ export declare class AttemptEndedError extends ProgramError {
 export declare class BrowserRequiredError extends ProgramError {
   readonly code: "browser_required";
   readonly details: { readonly tier: ReportedFetchTier; readonly label: string };
+}
+/** `keptResponse` or `keptResponses` on a request whose Label keeps nothing; the fix names `fetch.kept_responses.urls` (ADR 0110). Not retryable. */
+export declare class ResponsesNotKeptError extends ProgramError {
+  readonly code: "responses_not_kept";
+  readonly details: { readonly label: string };
 }
 /** An attempt the handler ended with `ctx.retry()`; the request's error once retries run out. */
 export declare class RetryRequestedError extends PageError {

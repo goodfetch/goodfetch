@@ -20,7 +20,12 @@ export interface CDPEndpoint extends Closeable {
 
 /** Lending belongs to the page, so Collie carries it and Foxhound's handlers inherit it. */
 export interface LendsPage {
-  /** Throws `SessionReservedError` while another attach on the page's Session is open. */
+  /**
+   * Throws `SessionReservedError` while another attach on the page's Session is open. While the
+   * library is attached, await each of the program's own Collie calls on the page before the library
+   * acts: an AI verb whose document a navigation it did not start replaces throws
+   * `PageNavigatedDuringCallError` (ADR 0114).
+   */
   lend(options?: CallOptions): Promise<CDPEndpoint>;
 }
 

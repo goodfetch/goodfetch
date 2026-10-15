@@ -179,6 +179,9 @@ from goodfetch_collie_client import ExtractMode as ExtractMode
 from goodfetch_collie_client import ExtractSettings as ExtractSettings
 from goodfetch_collie_client import FileChooser as FileChooser
 from goodfetch_collie_client import FilePayload as FilePayload
+from goodfetch_collie_client import FileWriteFailedDetails as FileWriteFailedDetails
+from goodfetch_collie_client import FileWriteFailedError as FileWriteFailedError
+from goodfetch_collie_client import FileWriteReason as FileWriteReason
 from goodfetch_collie_client import Finished as Finished
 from goodfetch_collie_client import FrameLocator as FrameLocator
 from goodfetch_collie_client import Geolocation as Geolocation
@@ -269,6 +272,7 @@ from goodfetch_collie_client import Mouse as Mouse
 from goodfetch_collie_client import MouseButton as MouseButton
 from goodfetch_collie_client import NavigationFailedError as NavigationFailedError
 from goodfetch_collie_client import NavigationInterruptedError as NavigationInterruptedError
+from goodfetch_collie_client import PageNavigatedDuringCallError as PageNavigatedDuringCallError
 from goodfetch_collie_client import NetworkSettings as NetworkSettings
 from goodfetch_collie_client import NetworkThrottle as NetworkThrottle
 from goodfetch_collie_client import NotGiven as NotGiven
@@ -295,6 +299,8 @@ from goodfetch_collie_client import PageStorage as PageStorage
 from goodfetch_collie_client import PageTimeoutSettings as PageTimeoutSettings
 from goodfetch_collie_client import PageValueInvalidError as PageValueInvalidError
 from goodfetch_collie_client import PageWaits as PageWaits
+from goodfetch_collie_client import PathNotWritableDetails as PathNotWritableDetails
+from goodfetch_collie_client import PathNotWritableError as PathNotWritableError
 from goodfetch_collie_client import PausesForHuman as PausesForHuman
 from goodfetch_collie_client import PerformedAction as PerformedAction
 from goodfetch_collie_client import Permission as Permission
@@ -394,6 +400,23 @@ from goodfetch_collie_client import Session as Session
 from goodfetch_collie_client import SessionLoginSettings as SessionLoginSettings
 from goodfetch_collie_client import SessionNotSavableDetails as SessionNotSavableDetails
 from goodfetch_collie_client import SessionNotSavableError as SessionNotSavableError
+from goodfetch_collie_client import CDPURLUnreachableDetails as CDPURLUnreachableDetails
+from goodfetch_collie_client import CDPURLUnreachableError as CDPURLUnreachableError
+from goodfetch_collie_client import CDPURLAnswer as CDPURLAnswer
+from goodfetch_collie_client import CDPURLNotBrowserDetails as CDPURLNotBrowserDetails
+from goodfetch_collie_client import CDPURLNotBrowserError as CDPURLNotBrowserError
+from goodfetch_collie_client import CDPURLUnauthorizedDetails as CDPURLUnauthorizedDetails
+from goodfetch_collie_client import CDPURLUnauthorizedError as CDPURLUnauthorizedError
+from goodfetch_collie_client import CDPURLNotAllowedDetails as CDPURLNotAllowedDetails
+from goodfetch_collie_client import CDPURLNotAllowedError as CDPURLNotAllowedError
+from goodfetch_collie_client import PinnedArtifact as PinnedArtifact
+from goodfetch_collie_client import PinnedBy as PinnedBy
+from goodfetch_collie_client import BrowserNotInstalledDetails as BrowserNotInstalledDetails
+from goodfetch_collie_client import BrowserNotInstalledError as BrowserNotInstalledError
+from goodfetch_collie_client import ArtifactUnavailableOfflineDetails as ArtifactUnavailableOfflineDetails
+from goodfetch_collie_client import ArtifactUnavailableOfflineError as ArtifactUnavailableOfflineError
+from goodfetch_collie_client import ArtifactDownloadFailedDetails as ArtifactDownloadFailedDetails
+from goodfetch_collie_client import ArtifactDownloadFailedError as ArtifactDownloadFailedError
 from goodfetch_collie_client import SessionRecoverySettings as SessionRecoverySettings
 from goodfetch_collie_client import SessionReservedError as SessionReservedError
 from goodfetch_collie_client import SessionScopeLoginSettings as SessionScopeLoginSettings
@@ -466,6 +489,7 @@ from goodfetch_foxhound._crawl import AsyncHandler as AsyncHandler
 from goodfetch_foxhound._crawl import AttemptEndedError as AttemptEndedError
 from goodfetch_foxhound._crawl import AttemptEndReason as AttemptEndReason
 from goodfetch_foxhound._crawl import BrowserRequiredError as BrowserRequiredError
+from goodfetch_foxhound._crawl import ResponsesNotKeptError as ResponsesNotKeptError
 from goodfetch_foxhound._crawl import Crawl as Crawl
 from goodfetch_foxhound._crawl import CrawlContext as CrawlContext
 from goodfetch_foxhound._crawl import CrawlRequest as CrawlRequest
@@ -590,6 +614,7 @@ from goodfetch_foxhound._settings import CrawlScopeSettings as CrawlScopeSetting
 from goodfetch_foxhound._settings import CrawlScopeStrategy as CrawlScopeStrategy
 from goodfetch_foxhound._settings import CrawlSettings as CrawlSettings
 from goodfetch_foxhound._settings import FetchSettings as FetchSettings
+from goodfetch_foxhound._settings import KeptResponsesSettings as KeptResponsesSettings
 from goodfetch_foxhound._settings import LabelCrawlSettings as LabelCrawlSettings
 from goodfetch_foxhound._settings import LabelFetchSettings as LabelFetchSettings
 from goodfetch_foxhound._settings import LabelSettings as LabelSettings

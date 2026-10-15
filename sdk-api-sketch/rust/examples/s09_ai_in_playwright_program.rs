@@ -57,7 +57,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Anthropic's key: env:ANTHROPIC_API_KEY, sent only to Anthropic.
     let driven = Collie::scope(ConnectOptions::default(), async |collie| {
         let run = collie.start().await?;
-        // A Borrowed browser: closing the Session, the Run or the connection never closes it.
+        // A Borrowed browser: closing the Session, the Run or the connection never closes it. A
+        // closed port fails here with `cdp_url_unreachable`, and an address that is not a browser
+        // with `cdp_url_not_browser`, each naming the address and its fix (ADR 0115).
         let session = run
             .new_session()
             .source(SessionSource::CdpUrl {

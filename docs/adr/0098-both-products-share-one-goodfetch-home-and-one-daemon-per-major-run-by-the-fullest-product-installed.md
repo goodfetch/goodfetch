@@ -36,16 +36,17 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
   - A Foxhound engine serves Collie's Clients too (ADR 0095), so the pick serves every installed Client of its version or older.
   - The pick depends only on what is installed and on the lowest minors the shared stores record, both read from Goodfetch home, so two Clients always agree on it, and two Products never restart each other's Daemon as two Bazel versions restart its server.
   - Product comes before version. A Foxhound older than the installed Collie still runs the Daemon, so Foxhound's Clients and Schedules keep one, and the newer Collie's Clients run as described below.
+  - **When no executable can be the pick,** as when only a program that links the engine has raised a store's lowest minor past every installed executable, no Daemon runs. Starting one fails with the version refusal naming the version to install, `auto` Clients run attached, and Schedules fire nothing until a Daemon runs, as when none runs (ADR 0036).
 - **Whatever starts the Daemon starts the pick:** a Client, `daemon start`, the per-user service, or an Attached engine that needs a Console link (ADR 0031). It runs from the versioned copy ADR 0024 already runs the Daemon from, so a Collie Client can start Foxhound's Daemon.
 - **A Daemon that is not its major's pick hands over to the pick** once it hosts no live run and no Client other than a Console, which reconnects (ADR 0066). The pick changes only when an install, an upgrade, a removal or a raised lowest minor does. A Daemon that finds a shared store's lowest minor raised past itself takes no new run and hands over once its live runs end; the next Daemon rebuilds their Run index rows from their own state (ADR 0031).
 - **One service per major** (ADR 0030): `daemon install`, from either executable, registers a service that starts the pick.
 - **A Client the Daemon refuses**, by Product (`not_in_product`, ADR 0095) or by protocol version (ADR 0024), while the Daemon cannot hand over (it is busy, or it is already the pick):
   - with `engine: auto`, it runs the engine it would run with no Daemon, an Attached engine or, in Rust, the linked one, and logs a warning naming the cause and the fix (ADR 0077's G6). The run still appears in the Run index, and the Daemon forwards live actions to it (ADR 0031);
   - with `engine: daemon`, or the CLI's `--daemon`, it fails at connect with the refusal, whose `fix` adds to ADR 0095's:
-    - for a refusal by Product, the `daemon restart` command of the executable the Client would run attached, given by its path, such as `node_modules/.bin/goodfetch-foxhound daemon restart`. That command records its executable as it runs, so a Foxhound installed but never run becomes the pick, or it says which version the shared stores need;
-    - for a refusal by version, Foxhound at the Client's version or newer.
+    - the `daemon restart` command of the executable the Client would run attached, given by its path, such as `node_modules/.bin/goodfetch-foxhound daemon restart`. That command records its executable as it runs, so one installed but never run is counted, and restarts the Daemon on the pick, or says which version the shared stores need;
+    - when that executable would still not be the pick, as for a Collie Client while an older Foxhound counts as installed, Foxhound at the Client's version or newer, to install and run.
 
-  Every release publishes both Products at one version (ADR 0090), so every refusal ends once a Foxhound at the Client's version or newer has run: it becomes the pick and takes over when the Daemon is next idle.
+  Every release publishes both Products at one version (ADR 0090), so every refusal can end: once the Client's own executable is the pick, or else once a Foxhound at the Client's version or newer has run, which always is.
 - **Unchanged:** an Exposed Daemon started by `daemon run` (ADR 0049) runs the Product its operator chose and has no pick, and every Group member of a Daemon group runs one Product (ADR 0095).
 
 ### One Console per user and major
@@ -74,7 +75,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 - **When it runs:** at most once a day after a download into the cache, and on `browsers clean`, whose `--dry-run` lists what it would delete.
   - `browser_cache.max_unused_age` is set in user configuration or an Operator policy only, and set anywhere else it is refused with `setting_not_applicable` ([ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md)). `null` turns the automatic run off; `browsers clean` and the count of installed executables then use the default of 30 days.
   - A cache the engine cannot write, such as one an image mounts read-only through `GOODFETCH_BROWSERS_PATH`, is never cleaned.
-- **The rule covers everything the cache holds,** among them browser builds, Playwright's driver, the executable copies a Daemon runs from, each pinned by its executable's entry, Plugin runtimes (ADR 0033) and the recorded mouse movements of ADR 0035.
+- **The rule covers everything the cache holds,** among them browser builds, Playwright's driver, the executable copies a Daemon runs from, each pinned by its executable's entry, Plugin runtimes (ADR 0033), each pinned by the installed Plugins that use it, and the recorded mouse movements of ADR 0035.
 - **Each Product asks for exactly the builds its version pins.** A missing build's error names the build, the Product and version that pin it, and the install command of that Product's executable (ADR 0077's G6). `@playwright/mcp`'s error once hid which build it expected ([playwright#41871](https://github.com/microsoft/playwright/issues/41871)).
 
 ### Versions side by side

@@ -10,7 +10,7 @@ ADR 0028 makes every parameter a setting and resolves it through five layers; th
 - **Among explicit values, the nearest scope wins**, and a call's argument is nearer than any scope's `settings`. This decides no order between a program's values and a CLI flag or a form: a run takes its explicit values from one surface.
 - **A plain program's values are the run layer.** ADR 0028's layer 4, "a Recipe or the developer's code", means a Recipe's code, whose declared settings are locked for the Recipe's users unless exposed. A program that is not a Recipe has no separate users, so its values sit in the run layer, above configuration.
 - **The layer is named.** An error's `limit` (ADR 0079) and `explainSettings()` name the layer, and for the run layer its origin: a call's argument, `settings`, a flag or a form.
-  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a program's only SDK handler of a kind that one setting chooses, registered on `connect()`, sets that setting's connection value, with the origin `argument`.
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a program's only SDK handler of a kind that one setting chooses, registered on `connect()`, stands in for that setting's built-in default on its connection, so any explicit value at any layer or scope replaces it; `explainSettings()` shows it in the default's place, marked `registered`.
 
 ### The environment
 

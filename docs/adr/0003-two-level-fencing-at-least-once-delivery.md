@@ -8,6 +8,7 @@ A user handler runs out of process and may keep running after it has timed out, 
 
 - **Expiring locks only**: rejected. Crawlee's locks expire but do not stop a late commit, and Scrapy and spider-rs hold no lease at all. Temporal, Hatchet, Restate and DBOS all reject a stale attempt's commit, and Restate also fences a superseded leader by epoch.
 - **Checking each raw CDP message against the lease**: rejected. It parses every message and stops nothing more than cutting the attach does.
+  > Amended by [ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md): the endpoint of a Lent page does parse each message, to keep the attach inside the lent page's Session; that is scoping, which cutting the attach cannot do, and the lease is still enforced by the cut alone.
 
 ## Consequences
 

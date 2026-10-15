@@ -219,8 +219,8 @@ The data a program attaches to a request for its handler, owned by the program a
 _Avoid_: userData, user_data, meta, cb_kwargs, context
 
 **Crawl request**:
-One URL a crawl's Frontier admitted, with its Label and Payload, which one handler processes and which ends in exactly one outcome.
-_Avoid_: request (alone, which is a page's network request), item, task, job
+One URL a crawl's Frontier admitted, with its Label and Payload: the work item one handler processes, which ends in exactly one outcome.
+_Avoid_: `Request` (the type or identifier is a page's network request), item, task, job
 
 **Politeness**:
 The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.

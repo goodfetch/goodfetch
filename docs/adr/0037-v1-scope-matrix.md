@@ -6,8 +6,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 109 | 4 | 24 |
-| `spec` | 32 | 1 | 0 |
+| `decided` | 110 | 4 | 24 |
+| `spec` | 31 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
 | `open → #N` | 0 | 0 | 0 |
 | Total | 142 | 5 | 24 |
@@ -116,7 +116,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-05 | Link discovery: scope, include/exclude, selector, transform, limit | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0033, ADR 0093 | 6 Collection | URL rules and Hook rewrite decided. A crawl-wide `crawl.scope.strategy` (`same_hostname` by default) with `include` and `exclude` that must match too, checked on every enqueue and redirect; `enqueueLinks(locator, label)` with its own `include`, `exclude` and `limit`; a transform is a Hook's (ADR 0093). |
 | CO-06 | Enqueue by clicking JS-driven elements | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | Clicks to discover links are not Effects; the spec decides how a discovery click is kept from causing one (ADR 0010, ADR 0014). |
 | CO-07 | Crawl-depth limit | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0028, ADR 0093 | 6 Collection | A depth cutoff reports the run `incomplete` (ADR 0005). `crawl.max_depth`, seeds at 0, refuses deeper enqueues with `max_depth` (ADR 0093). |
-| CO-08 | Page budgets, global and per path | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), [#69](https://github.com/Jbmanllr/automan/issues/69) item 7 | 6 Collection | Global request Limits decided. Per-path budgets are spec. |
+| CO-08 | Page budgets, global and per path | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), [#69](https://github.com/Jbmanllr/automan/issues/69) item 7, ADR 0093 | 6 Collection | Global request Limits decided; `crawl.max_requests` bounds the requests a crawl admits, Crawlee's `maxRequestsPerCrawl` (ADR 0093). Per-path budgets are spec. |
 | CO-09 | Per-domain politeness incl. latency throttle and token bucket | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0021, ADR 0053, ADR 0086 | 6 Collection | Defaults decided: 1 request in flight and at least 1 s between starts per domain, shared across runs, with backoff on 429, 502, 503, 504 and refused or timed-out connections, under the `politeness.*` settings; pressing harder is recorded (ADR 0086). Latency throttle and token bucket are opt-in and spec. |
 | CO-10 | Sitemap discovery and loading | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0016 | 6 Collection | robots.txt is already read on every run. Scope filtering is SC-02. |
 | CO-11 | Callback for skipped or blocked links | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0033, ADR 0093 | 6 Collection | Learned rules are reported and the `skip` stage exists. An enqueue answers why a link was not added, and a skipped or blocked request is an outcome with its reason (ADR 0093); the event is how [#478](https://github.com/goodfetch/automan/issues/478) reads outcomes. |
@@ -124,7 +124,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-13 | Authenticated crawling: log in once, reuse | `decided` | ADR 0006, ADR 0009, ADR 0015, ADR 0035, ADR 0056 | 5 Site access | Recovery chain, scripted login Plans, MFA, saved identities, and logins the user already has (ADR 0056). |
 | CO-14 | Built-in HTML parsers | `decided` | ADR 0007 | 6 Collection | html5ever and scraper for fields; lol-html for streaming. |
 | CO-15 | Per-page choice between HTTP and browser | `decided` | ADR 0020, ADR 0093 | 6 Collection | Four fetch tiers chosen per Label on a domain by sample comparison, or forced per Label with `fetch.tier`; one handler reads Collie's page on every tier, and a call only a browser serves escalates (ADR 0093). |
-| CO-16 | Parallel backends raced with a quality score | `decided` | ADR 0040, ADR 0020, ADR 0086, ADR 0093 | 6 Collection | Opt-in `fetch.tier_race` (ADR 0093) within one Session: browser-fetch first, a full navigation after a delay, the first result passing the Page check and the route's comparison wins; sample comparison stays the default. A crawl's Run that switches `tier_race` on at a per-domain concurrency of 1 is refused (ADR 0086). |
+| CO-16 | Parallel backends raced with a quality score | `decided` | ADR 0040, ADR 0020, ADR 0086, ADR 0093 | 6 Collection | Opt-in `fetch.tier_race` (ADR 0093) within one Session: browser-fetch first, a full navigation after a delay, the first result passing the Page check and the comparison of its Label on that domain wins; sample comparison stays the default. A crawl's Run that switches `fetch.tier_race` on at a per-domain concurrency of 1 is refused (ADR 0086). |
 | CO-17 | Infinite-scroll helper | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0020, ADR 0033 | 6 Collection | Discovered API first; the scroll op and human-like scrolling are decided. |
 | CO-18 | HTML to Markdown or text | `decided` | ADR 0007 | 6 Collection | dom-smoothie then htmd; the self-hosted equivalent of Stagehand's cloud fetch. |
 | CO-19 | Contact, social and metadata extraction | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | Formats: Open Graph, JSON-LD, microdata, contact and social. Recorded only in the ticket. |
@@ -170,7 +170,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
 | SC-01 | robots.txt obeyed, with a custom user agent | `decided` | ADR 0016, ADR 0021, ADR 0086 | 4 Security and egress; 5 Site access; 6 Collection | Crawl requests obey robots.txt (RFC 9309) by default, its groups for `Foxhound` and for the operator's own token (`site_preferences.robots_txt_user_agent`) merged before `*`, and its Crawl-delay up to `site_preferences.max_crawl_delay`. Turning it off, or setting the token, is recorded in the Audit log and the run's result. A program's own navigation is not gated. The product user agent comes with `identified`; `standard` stays the default (ADR 0086). |
-| SC-02 | Same-hostname scope by default; host re-checked after redirects | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0017, ADR 0014 | 4 Security and egress | Re-checks decided. The default is same-hostname; filtering sitemap and robots URLs is a conformance case. |
+| SC-02 | Same-hostname scope by default; host re-checked after redirects | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0017, ADR 0014, ADR 0093 | 4 Security and egress | Re-checks decided. `crawl.scope.strategy` is `same_hostname` by default, measured against every seed, and checked on every enqueue and redirect: a redirect leaving it ends the request `skipped` with `out_of_scope` (ADR 0093). Filtering sitemap and robots URLs is a conformance case. |
 | SC-03 | Only `http` and `https` schemes | `spec` | ADR 0014, ADR 0017 | 4 Security and egress | A fixed Frontier rule under the fail-closed policy. |
 | SC-04 | Domain allow/deny on browser traffic | `decided` | ADR 0014, ADR 0017 | 4 Security and egress | Every request type, fail closed. |
 | SC-05 | Guards against resource exhaustion | `spec` | ADR 0005, ADR 0020, ADR 0028, ADR 0025 | 4 Security and egress | Trap rules, Limits and redirects decided. Max page size and decompression-bomb caps are spec values. |
@@ -205,7 +205,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| V3-01 | `act`, `extract`, `observe` on the crawler's page mid-crawl | `spec` | ADR 0011, ADR 0013, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | AI operations run on any Session page; per-page model extraction is an explicit mode. The handler-page method shape is spec. |
+| V3-01 | `act`, `extract`, `observe` on the crawler's page mid-crawl | `spec` | ADR 0011, ADR 0013, ADR 0093, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | AI operations run on any Session page; per-page model extraction is an explicit mode. A crawl handler's page is a Collie Page with its AI verbs, bound to the lease, journaled and counted in the crawl's Run; a reading verb runs on the document over HTTP and an acting one escalates to the browser (ADR 0093). The verbs' shape is spec. |
 | V3-02 | Local cache of AI results (v3 `cacheDir`) | `decided` | ADR 0009, ADR 0010 | 9 AI and agent | Plans are local, versioned files replayed without a model; a service-held cache was rejected (ADR 0009). |
 | V3-03 | Custom model client (v3 `llmClient`) | `decided` | ADR 0012, ADR 0033 | 9 AI and agent | The SDK model callback, the SDK-handler form of the Model provider kind, still journaled, counted and capped. |
 | V3-04 | Built-in agent loop (v3 `agent().execute()`) | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent; dropping it, as Stagehand v4 did, was rejected. |

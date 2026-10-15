@@ -43,6 +43,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 | Session | Reserved for the attach (ADR 0003); out of the Session pool afterwards unless saved explicitly (ADR 0017); its state re-applied when the attach ends. |
 | Stealth | The Fingerprint method stays. Playwright, Puppeteer, chromiumoxide and chromium-bidi enable `Runtime` and add named utility worlds on the pages they wrap (DI §3.3), and human-like input applies only to the engine's own actions. Records taken during the attach say so in Provenance, and a Saved identity saved from a lent Session records that it was lent. |
 | Egress | On a browser the engine launched, ADR 0017's egress proxy stays the Session's only way out: refusing new contexts and extensions closes both bypasses the research measured. On a Borrowed browser's page, egress stays interception only, which the library can switch off, with the rebinding gap recorded (ADRs 0014 and 0056). |
+| Politeness | In a crawl handler, the library's navigation is the crawl's, as the handler's own is (ADR 0086). Each top-level document request of the pages it sees waits at the engine's interception until Politeness admits it, the wait counting against the lease, and robots.txt refuses a disallowed one there. Where interception no longer sees the library's requests (ADR 0047's case), they go ungated, and the Run trace says so. In a Collie program, outside any crawl handler, the library's navigation is outside Politeness, as the program's own is. |
 | Ad blocking, consent | As ADRs 0047 and 0048 rule for any raw CDP client. |
 | Effect journal, Plans | The library's actions are not journaled and never become Plans. |
 | Usage, Limits | The library's own model calls, such as Browser Use's, are outside Usage and Limits (ADR 0041); the docs send AI work that must be counted to Collie's own verbs. |
@@ -99,6 +100,8 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **A dedicated browser process for each lend:** rejected. It costs a browser launch and its memory per lend, and `Browser.close` and the proxy bypass still need the same handling.
 - **Passing every command and only recording it:** rejected. Puppeteer's `close()` would end the browser, and a new browser context or an extension would bypass the egress proxy, before any record is read (DI §6, P7–P9).
 - **The bare endpoint for every library, with no helpers:** rejected. Each user would have to find the safe options alone (`noDefaults`, `defaultViewport: null`, an empty `permissions` list), which every library gets wrong by default (DI §2.8).
+- **Leaving a Lent page's navigation outside Politeness:** rejected. Eight handlers lending their pages to Playwright would press a site eight times over its limit, the case ADR 0086 rejected for a handler's own navigation.
+- **Gating only `Page.navigate` at the endpoint:** rejected. A click or a script navigates without it; the engine's interception sees every document request.
 - **Refusing every browser-level command:** rejected. Playwright's own connect sends several (`Browser.getVersion`, `Target.setAutoAttach`, `Browser.setDownloadBehavior`), so it could not connect.
 - **CDP carried over the SDK's own connection,** through the transport Playwright's Node `connectOverCDP` accepts since 1.61: rejected.
   - It is a second path to test, and the overload is typed only in `overrides.d.ts`, not in the API docs, and was once removed ([PR #40972](https://github.com/microsoft/playwright/pull/40972) restored it after #40195).
@@ -122,6 +125,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **Amends ADR 0017.** A Lent page's endpoint refuses new browser contexts, extensions and the commands above, keeps downloads the Run's, and the engine re-applies the Session's state when the attach ends. A note sits under its raw CDP consequence.
 - **Amends ADR 0019.** The endpoint lends one page, shows only its Session, and stays a WebSocket by choice: Playwright's Node `connectOverCDP` can now take a transport, but Python and remote engines need an address. A note sits under its consequence on Playwright and Puppeteer code.
 - **Amends ADR 0056.** Through `run.borrow()`, each browser context a borrowed page belongs to is one Session of the run. A note sits under its Borrowed browsers section's opening.
+- **Amends ADR 0086.** It left to this ticket whether a lent page's navigation stays counted: in a crawl handler it does, gated at interception. A note sits under its "Left to other tickets" item.
 - **Amends ADR 0040.** A Borrowed browser still serves one run, but through `run.borrow()` it can serve several of its Sessions, one per borrowed browser context. A note sits under its "Never across runs" item.
 - **Amends ADR 0070.** Its Quick check over generated surfaces also refuses `page.lend` on every MCP profile, Framework adapter, Integration and skill. A note sits under that item.
 - **Adds to ADR 0064:** two Live checks owned by area 11, each blocking nothing directly: `lend-libraries-newest`, each supported library's newest release on a Lent page, and `crawler-examples-newest`, the crawler guides' examples on each crawler's newest release. Both run nightly, or before each release candidate while the nightly tier is off. `TESTING.md`'s list of Live checks names them.
@@ -130,7 +134,8 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **`TESTING.md`** gains the lending conformance cases, the crawler guides' examples, the two Live checks and the Lent page's layer of the SSRF table.
 - **Areas.**
   - **Area 4** builds the refusals that keep files, contexts and extensions on the engine's side, and the Lent page's layer of the SSRF table, whose client also tries a browser context with its own proxy and an extension (ADR 0067).
-  - **Area 5** builds the endpoint's scoping, its command table, the attach's end and the state re-applied.
+  - **Area 5** builds the endpoint's scoping, its command table, the attach's end, the state re-applied and the hold at interception that admits a Lent page's navigation.
+  - **Area 6** counts a Lent page's navigation with the handler's, through ADR 0086's note.
   - **Area 11** builds `page.lend()`, the helpers, their conformance cases, the guides and the crawler examples.
 - **Other tickets.**
   - [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) lists lending as part of the page, and settles V3-01, AI verbs on a crawler's page.

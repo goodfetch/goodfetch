@@ -217,7 +217,7 @@ A cap on the Usage of one run, or of every run counted against a scope (a Schedu
 _Avoid_: budget, quota, spending cap
 
 **Model allowance**:
-The most model Usage one run may spend, past which its model calls are refused while the run goes on; part of the run's own task, not a Limit.
+The most model Usage one run, or one Partitioned crawl, may spend, past which its model calls are refused while it goes on; part of its own task, not a Limit.
 _Avoid_: model budget, model Limit, AI quota
 
 **Price table**:

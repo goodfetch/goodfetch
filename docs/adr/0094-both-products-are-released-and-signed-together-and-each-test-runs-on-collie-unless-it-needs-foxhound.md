@@ -106,7 +106,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
   - A test whose setup or steps need Foxhound anywhere, such as ADR 0066's rolling upgrade, whose load includes a Partitioned crawl, runs on Foxhound's.
   - A test that measures an executable itself runs on each: its size (ADR 0087), its startup and its idle memory.
 - **Each package is tested against its own Product's executable:** each executable crate's `tests/it` (its CLI, its MCP server, its exit codes and its `--help` tree), and each Product's SDK packages, Console build, image and chart.
-- **One test build per target serves both Products.** CI's test builds are workspace invocations (ADR 0061), so the in-process tests and the executables the tests run share one resolution of features: Collie's executable in a test links the same shared code as Foxhound's.
+- **One test build per target serves both Products.** CI builds a target's tests once (ADR 0061), in one workspace invocation, so the in-process tests and the executables the tests run share one resolution of features: Collie's executable in a test links the same shared code as Foxhound's.
   - A test build per Product would compile again every crate whose features differ and every crate above it, and Cargo has no stable setting to avoid that.
   - What each Product ships, its own `cargo build -p` (ADR 0087), is checked on its own bytes by the release: the conformance suites and the correctness oracle (ADR 0032) and the run of every file before publish (above).
 - **Foxhound proves that it contains Collie at each seam where its executable is composed,** not by running Collie's tests again, as Codex's CLI tests its `app-server` command and not the app server:

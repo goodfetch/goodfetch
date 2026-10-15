@@ -63,7 +63,7 @@ A test's level is the seam it crosses, not its speed:
 Decided in [ADR 0094](docs/adr/0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md).
 
 - **A test that runs an executable runs Collie's when Collie carries everything it needs, and Foxhound's otherwise:** once, never once per Product. A test that needs Foxhound anywhere in its setup or steps, such as a rolling upgrade under a Partitioned crawl, runs on Foxhound's.
-  _Why:_ Foxhound's executable links Collie's crates, so a test of Collie's covers what users of either Product run; a second run on Foxhound's would find nothing the containment checks below miss.
+  _Why:_ Foxhound's executable links Collie's crates, so a test of Collie's covers the code users of either Product run, and the containment checks below cover what Foxhound adds around it.
 - **A test that measures an executable itself runs on each Product's:** its size (ADR 0087), its startup benchmarks and its idle memory.
 - **Each package is tested against its own Product's executable:** each executable crate's `tests/it` (its CLI, MCP server, exit codes and `--help` tree), and each Product's SDK packages, Console build, image and Helm chart.
 - **One test build per target serves both Products:** the in-process tests and both executables come from the same workspace invocation. Never add a test build per Product.

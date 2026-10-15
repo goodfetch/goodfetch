@@ -19,7 +19,7 @@ One Operation catalog generates every surface (ADRs 0011, 0038), and this decide
 
 These were checked against pinned sources on 2026-10-15 in the [catalog mapping research](https://github.com/goodfetch/automan/blob/research/sdk-catalog-mapping/rnd/research/2026-10-15-sdk-catalog-mapping.md) (CM below), beside the [SDK design guidelines research](https://github.com/goodfetch/automan/blob/research/sdk-design-guidelines/rnd/research/2026-10-14-sdk-design-guidelines.md) (lessons 13 and 30 to 35).
 
-Decided in [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), by the agent on the owner's delegation of 2026-10-14 ([rounds 1 to 3](https://github.com/goodfetch/automan/issues/471#issuecomment-6181920227), [grilling record](https://github.com/goodfetch/automan/issues/471#issuecomment-6181926808), revised by the [first](https://github.com/goodfetch/automan/issues/471#issuecomment-6187903685), [second](https://github.com/goodfetch/automan/issues/471#issuecomment-6188281434), [third](https://github.com/goodfetch/automan/issues/471#issuecomment-6188876602) and [fourth](https://github.com/goodfetch/automan/issues/471#issuecomment-6189048777) addenda). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md).
+Decided in [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), by the agent on the owner's delegation of 2026-10-14 ([rounds 1 to 3](https://github.com/goodfetch/automan/issues/471#issuecomment-6181920227), [grilling record](https://github.com/goodfetch/automan/issues/471#issuecomment-6181926808), revised by the [first](https://github.com/goodfetch/automan/issues/471#issuecomment-6187903685), [second](https://github.com/goodfetch/automan/issues/471#issuecomment-6188281434), [third](https://github.com/goodfetch/automan/issues/471#issuecomment-6188876602), [fourth](https://github.com/goodfetch/automan/issues/471#issuecomment-6189048777) and [fifth](https://github.com/goodfetch/automan/issues/471#issuecomment-6189184662) addenda). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md).
 
 ## Decision
 
@@ -105,7 +105,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **Plain data** (results, error fields, event data that is not a page-API class):
   - TypeScript: `readonly` properties;
   - Python: attributes;
-  - Rust: public fields of `#[non_exhaustive]` structs, with `goodfetch::Error` staying opaque (ADR 0079).
+  - Rust: public fields of `#[non_exhaustive]` structs, with the error type staying opaque (ADR 0079).
   - A field only Foxhound fills belongs to a Foxhound type, never to a type both Products share (as `CrawlRun` beside `Run`), since a Rust struct cannot hide a field from one crate.
 - **Parameters.**
   - Required parameters are positional, in the catalog's order, and a boolean is never positional.
@@ -130,8 +130,10 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - the generic shapes the kinds produce: `Subscription`, iterators, `EventStream`, `Waiter`, Python's `expect_` blocks, Rust's `Call<T>`, `Label<P>`;
   - conversions at the boundary: durations, matchers and their regex syntax, schema adapters, JSON value checks;
   - the error base classes and the runtime's own error messages;
-  - the testing kits and the raw call.
+  - the testing kits and the raw call;
+  - ADR 0089's lending helpers, one per supported library.
 - **Every public hand-written member is listed** in its SDK's manifest, with the catalog entry it serves, or "no entry" and a reason.
+- **A hand-written member with no entry declares its canonical words in its manifest line,** and each language spells them by its own rule, as it spells a catalog name (S1). ADR 0089's helpers are free functions of the Collie client package, which each Product's package re-exports (ADR 0095), taking the page and then the program's own library object: `lend_to_playwright` and `lend_to_puppeteer` in TypeScript as `lendToPlaywright(page, chromium)` and `lendToPuppeteer(page, puppeteer)`, and `lend_to_playwright` and `lend_to_browser_use` in Python as `lend_to_playwright(page, chromium)` and `lend_to_browser_use(page, BrowserSession)`. A free function keeps each library's name off the page, which has one `lend()` (S2).
 - **The Quick suite fails:**
   - an entry of the Product's catalog that reaches no public member in some SDK;
   - a listed member that lacks its entry's doc text or markers;
@@ -218,14 +220,14 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - TypeScript: `interface Connection`, which `Collie` and `Foxhound` implement.
   - Python: base classes `Connection` and `AsyncConnection`, which `Collie`, `Foxhound` and their async twins extend.
   - Rust: `trait Connection` and `blocking::Connection`.
-  - Its members are what both Connections share: `engine`, `identities` (the Saved identities of [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)), `call`, `close`, `explainSettings` and Collie's Run start.
+  - Its members are what both Connections share: `engine`, `identities` (the Saved identities of [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)), `call`, `close`, `explain_settings` and Collie's Run start, in canonical words.
   - Every Product's package re-exports it.
 - **Rust keeps inherent methods.** `Collie` and `Foxhound` keep their own generated methods of the same names, so a program never imports the trait to call them. The trait serves code written for both Products, which avoids sqlx's "trait not in scope" (CM B7).
 - **Why the name.** psycopg's `Connection` and `AsyncConnection`, and sqlx's and diesel's `Connection` traits, use it for the same thing (CM B6, B7).
 - **Error classes per Product.**
   - In TypeScript and Python, Collie's code classes live in the client package, and Foxhound's own in Foxhound's package, all extending the client package's group classes. A Collie program that meets a Foxhound code gets its group's class with the code kept (ADR 0079).
 - **How `goodfetch-protocol` lays out its types for the Rust crates,** which ADR 0095 hands to this decision so that each SDK crate shows only its own Product's entries:
-  - `goodfetch-protocol` keeps every contract type of both Products, as ADR 0038 and ADR 0095 have it, on Collie's side of the crate graph, so one crate still emits the one bundle and catalog file (ADR 0038). Foxhound's own entries sit in its `foxhound` module, so the module is the mark in Rust, and `xtask codegen` emits ADR 0095's mark from it, so the two cannot disagree;
+  - `goodfetch-protocol` keeps every contract type of both Products, as ADR 0038 and ADR 0095 have it, on Collie's side of the crate graph, so one crate still emits the one bundle and catalog file (ADR 0038). Foxhound's own entries sit in its `foxhound` module, so the module is the mark in Rust, and `xtask codegen` emits ADR 0095's mark from where each item is defined, skipping deprecated constants and re-exports, so the two cannot disagree;
   - the client crate re-exports every item outside that module, and Foxhound's SDK crate re-exports the module's items, so Collie's SDK crates show none of Foxhound's entries in their public API, which ADR 0095's check of each crate's public items against its Product's catalog enforces;
   - outside `crates/foxhound/`, only `goodfetch-protocol`, which defines the module, and `xtask` name it. The module holds data, no behaviour, and a check beside ADR 0087's boundary checks fails when another crate outside `crates/foxhound/` names it (amending ADR 0087). Collie's crates meet Foxhound's codes and values only as values of the shared types, and Collie's Size budget (ADR 0087) catches any of the module's code that reaches its executable;
   - a type both Products share whose values Foxhound extends (Error codes, Usage kinds, Limit scopes, Notification events) is an open value type: a newtype holding its wire string inline. Each Collie value is an associated constant of the type (`ErrorCode::TARGET_NOT_UNIQUE`), which every re-export of the type carries. Each Foxhound value is a free constant of the same type in the `foxhound` module, re-exported by Foxhound's crate (`goodfetch_foxhound::error_code::PAYLOAD_INVALID`);
@@ -287,7 +289,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
 - **Amends ADR 0069.** Its completeness tests also check the hand-written manifest, its markers and its unused lines.
 - **Reading rules for earlier ADRs and specs:**
   - an operation namespace written in the plural reads singular: `runs.<x>` is `run.<x>` (ADRs 0031, 0036, 0038, 0041, 0054, 0055, 0068, 0072 and area 3's spec) and `schedules.<x>` is `schedule.<x>` (ADRs 0036, 0041 and ADR 0037's area order); setting keys keep their areas (ADR 0083);
-  - a CLI command group written in the plural reads singular: `goodfetch runs reindex` is `run reindex`, `plugins add` is `plugin add`, `certs accept` is `cert accept`, `browsers install` is `browser install`, `schedules apply` is `schedule apply`, `skills install` is `skill install`, `sinks list` is `sink list`; `rules update` keeps the Clean-up rules' own word;
+  - a CLI command group written in the plural reads singular: `runs reindex` is `run reindex`, `plugins add` is `plugin add`, `certs accept` is `cert accept`, `browsers install` is `browser install`, `schedules apply` is `schedule apply`, `skills install` is `skill install`, `sinks list` is `sink list`; `rules update` keeps the Clean-up rules' own word;
   - a name written in one language's spelling (`JsonValue`, `CdpSession`, `AiWorkResult`, `newCdpSession()`, a TypeScript read written as a property) is spelled in each SDK by this ADR's rule.
 - **`GLOSSARY.md`** gains **Connection**, and its Limit and Usage ledger entries say "a Connection".
 - **`STYLE.md`'s** Names section points to this ADR, and its SDK section adds the manifest.
@@ -298,9 +300,9 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - Area 11 (Client surfaces) builds the generators, the manifests and their checks, `call`, the markers, `Connection`, and the CLI's and MCP's names.
   - Area 12 (Console) shows each call in its Client's form.
 - **Other tickets.**
-  - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) applies the remaining renames: initialisms (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes), TypeScript reads on handles as methods (`run.id()`, `run.startedAs()`), Rust's open `ErrorCode` and `details::<D>()`, and `call` on every handle.
+  - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) applies the remaining renames: initialisms (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes), TypeScript reads on handles as methods (`run.id()`, `run.startedAs()`), Rust's open `ErrorCode` and `details::<D>()`, `call` on every handle, ADR 0089's lending helpers by the names above, and ADR 0090's package and import names in place of the sketch's placeholder `goodfetch`.
   - [The Run in code](https://github.com/goodfetch/automan/issues/478) spells its TypeScript reads as methods (`run.id()`, `run.startedAs()`).
   - [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476) gets `identities` as a sub-object in every language, and its cookie operations kept off agent surfaces.
   - [Agent-writability check](https://github.com/goodfetch/automan/issues/484) runs pyright strict, mypy with `--enable-error-code deprecated` and oxlint's `no-deprecated`.
   - [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499) shows each reference page's canonical name and per-language spellings.
-- **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `catalog` files for each language ([`b9eaed1`](https://github.com/goodfetch/automan/commit/b9eaed1), [`251bda0`](https://github.com/goodfetch/automan/commit/251bda0), [`042feed`](https://github.com/goodfetch/automan/commit/042feed)). The pain coverage matrix closes P07, P33, P43 and K06 as API.
+- **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `catalog` files for each language ([`b9eaed1`](https://github.com/goodfetch/automan/commit/b9eaed1), [`251bda0`](https://github.com/goodfetch/automan/commit/251bda0), [`042feed`](https://github.com/goodfetch/automan/commit/042feed), [`98b3482`](https://github.com/goodfetch/automan/commit/98b3482)). The pain coverage matrix closes P07, P33, P43 and K06 as API.

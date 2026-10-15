@@ -156,7 +156,9 @@ class CrawlRunProgress(RunProgress):
 class LearnedRule:
     """A URL rule the Frontier learned, with its evidence (ADR 0005)."""
 
-    kind: Literal["no_effect_parameter", "trap_path", "cursor_pagination"] | str
+    kind: Literal["no_effect_parameter", "equivalent_form", "trap_path", "cursor_pagination"] | str
+    """`equivalent_form`: `www.` and the bare host, `http` and `https`, a trailing slash or an index file shown to be one
+    resource by a redirect, page signatures or `rel=canonical` (ADR 0120)."""
     domain: str
     rule: str
     evidence: str

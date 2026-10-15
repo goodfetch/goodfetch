@@ -42,12 +42,14 @@ FetchTier: TypeAlias = Literal["http", "discovered_api", "browser_fetch", "light
 
 NotAddedReason: TypeAlias = (
     Literal[
-        "duplicate", "out_of_scope", "domain_policy", "max_depth", "max_requests", "unsupported_scheme", "no_link", "no_rule",
-        "skipped_by_payload",
+        "duplicate", "out_of_scope", "domain_policy", "max_depth", "max_requests", "unsupported_scheme", "invalid_url",
+        "max_url_length", "max_path_segments", "max_segment_repeats", "no_link", "no_rule", "skipped_by_payload",
     ]
     | str
 )
-"""Why a URL was not added. A newer engine's reason is kept as received (G3)."""
+"""Why a URL was not added. A newer engine's reason is kept as received (G3). `invalid_url`: the WHATWG parser refused
+it, or a seed was relative; `max_url_length`, `max_path_segments`, `max_segment_repeats`: the caps on a URL's shape,
+named by their settings (ADR 0120)."""
 
 @final
 @dataclass(frozen=True, kw_only=True)

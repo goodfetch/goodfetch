@@ -25,7 +25,7 @@ export interface TimeoutSettings extends CollieTimeoutSettings {
   readonly sinkWrite?: Timeout;
 }
 
-/** `crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed after the Frontier's URL rules, so `www.` is no other host (ADR 0005). */
+/** `crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed, hosts compared as the WHATWG parser leaves them and one leading `www.` label ignored (ADR 0120). */
 export type CrawlScopeStrategy = "same_hostname" | "same_domain" | "same_origin" | "all";
 
 /** `crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093). */
@@ -56,6 +56,19 @@ export interface CrawlSettings {
   readonly maxDepth?: number | null;
   /** `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests` and ends the Run `incomplete`. Built-in: none. */
   readonly maxRequests?: number | null;
+  /** `crawl.max_url_length`: characters of a URL as parsed; a longer one is not added with `max_url_length`, and the finished Run is `unverified`. Built-in: 2,083, Scrapy's; `null` for none (ADR 0120). */
+  readonly maxUrlLength?: number | null;
+  /** `crawl.max_path_segments`: a URL with a longer path is not added with `max_path_segments`, and the finished Run is `unverified`. Built-in: 20, Heritrix's; `null` for none (ADR 0120). */
+  readonly maxPathSegments?: number | null;
+  /** `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may follow itself (`/a/a/a`, `/a/b/a/b/a/b`); past it a URL is not added with `max_segment_repeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `null` for none (ADR 0120). */
+  readonly maxSegmentRepeats?: number | null;
+  /**
+   * `crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests are
+   * hash routes, Crawlee's `keepUrlFragment`. Such a Label is served only on `light_browser` or `browser`:
+   * forcing another tier fails the Run's start with `setting_not_applicable`, and a resume may not change
+   * it. Built-in: false (ADR 0120).
+   */
+  readonly keepUrlFragment?: boolean;
   readonly retry?: CrawlRetrySettings;
   /** `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with `response_not_ok`. Built-in: none. */
   readonly handleStatuses?: readonly number[];
@@ -155,6 +168,10 @@ export type SettingKey =
   | "crawl.scope.exclude"
   | "crawl.max_depth"
   | "crawl.max_requests"
+  | "crawl.max_url_length"
+  | "crawl.max_path_segments"
+  | "crawl.max_segment_repeats"
+  | "crawl.keep_url_fragment"
   | "crawl.retry.max"
   | "crawl.retry.handler_failed"
   | "crawl.handle_statuses"
@@ -179,7 +196,7 @@ export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: 
 export interface LabelSettings extends Omit<PageSettings, "timeout"> {
   readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler" | "hook">;
   readonly fetch?: Pick<FetchSettings, "tier" | "keptResponses">;
-  readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
+  readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler" | "keepUrlFragment">;
   readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;
 }

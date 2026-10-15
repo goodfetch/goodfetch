@@ -136,8 +136,8 @@ class NetworkThrottle(TypedDict):
 class NetworkSettings(TypedDict, total=False):
     throttle: NetworkThrottle | None
 
-"""`crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed after the Frontier's URL rules, so
-`www.` is no other host (ADR 0005)."""
+"""`crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed, hosts compared as the WHATWG
+parser leaves them and one leading `www.` label ignored (ADR 0120)."""
 
 class CheckpointSettings(TypedDict, total=False):
     """`checkpoint.*` (ADRs 0002, 0102)."""

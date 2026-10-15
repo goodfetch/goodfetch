@@ -496,6 +496,14 @@ pub enum NotAddedReason {
     MaxRequests,
     /// Not `http` or `https`.
     UnsupportedScheme,
+    /// A URL the WHATWG parser refused, or a relative seed (ADR 0120).
+    InvalidUrl,
+    /// Longer than `crawl::MAX_URL_LENGTH` (ADR 0120).
+    MaxUrlLength,
+    /// A path longer than `crawl::MAX_PATH_SEGMENTS` (ADR 0120).
+    MaxPathSegments,
+    /// A segment, or a run of segments, repeated past `crawl::MAX_SEGMENT_REPEATS` (ADR 0120).
+    MaxSegmentRepeats,
     /// A matched element with no link.
     NoLink,
     /// A sitemap entry matching no rule of its sitemap seed.
@@ -514,7 +522,8 @@ pub enum Enqueued {
     Added {
         /// The new request's ID.
         id: String,
-        /// Its URL, after the Frontier's rules.
+        /// Its URL as parsed, the one fetched; its key, which drops the fragment, tracking
+        /// parameters and parameter order, stays the engine's (ADR 0120).
         url: String,
     },
     /// Not added.

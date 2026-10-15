@@ -106,7 +106,8 @@ class AsyncPageEvents:
     def on(self, event: Literal["load", "domcontentloaded", "close", "crash"], listener: AsyncListener[None]) -> Subscription: ...
     @overload
     def on(self, event: Literal["dialog"], handler: AsyncDialogHandler) -> Subscription:
-        """Answers dialogs, registered when called: with none, or none that answers, a dialog is dismissed."""
+        """Answers dialogs, registered when called: with none, or none that answers, a dialog gets Playwright's default,
+        dismissed, or accepted for `beforeunload`."""
     @overload
     def expect_event(
         self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
@@ -216,7 +217,8 @@ class PageEvents:
     def on(self, event: Literal["load", "domcontentloaded", "close", "crash"], listener: Listener[None]) -> Subscription: ...
     @overload
     def on(self, event: Literal["dialog"], handler: DialogHandler) -> Subscription:
-        """Answers dialogs, registered when called: with none, or none that answers, a dialog is dismissed."""
+        """Answers dialogs, registered when called: with none, or none that answers, a dialog gets Playwright's default,
+        dismissed, or accepted for `beforeunload`."""
     @overload
     def expect_event(
         self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...

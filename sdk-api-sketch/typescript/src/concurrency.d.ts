@@ -54,7 +54,10 @@ export interface EventIterator<T> extends AsyncIterableIterator<T>, Disposable {
 export interface PageEvents {
   /** Observes an event, subscribed when called. */
   on<K extends keyof PageEventMap>(event: K, listener: Listener<PageEventMap[K]>): Subscription;
-  /** Answers dialogs, registered when called: with none, or none that answers, a dialog is dismissed (ADR 0085). */
+  /**
+   * Answers dialogs, registered when called: with none, or none that answers, a dialog gets
+   * Playwright's default, dismissed, or accepted for `beforeunload` (ADR 0085).
+   */
   on(event: "dialog", handler: DialogHandler): Subscription;
   /** Waits for one event, armed when called (ADR 0080). Its predicate runs here and may use the program's variables. */
   waitForEvent<K extends keyof PageEventMap>(

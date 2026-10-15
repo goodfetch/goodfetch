@@ -303,7 +303,7 @@ export interface Locator extends Locates, AiVerbs, AriaSnapshots {
   waitForFunction<R extends PageResult = JsonValue, Arg extends JsonValue = JsonValue>(
     pageFunction: ElementFunction<Arg, R>,
     arg?: Arg,
-    options?: CallOptions & { readonly polling?: "raf" | number },
+    options?: CallOptions,
   ): Promise<R>;
   /** Playwright's `waitFor`: one element in the given state. */
   waitFor(options?: CallOptions & { readonly state?: "attached" | "detached" | "visible" | "hidden" }): Promise<void>;
@@ -696,7 +696,7 @@ export interface PageApi extends Locates {
 
 // The page API's own Error codes (ADR 0079's naming rule).
 
-/** A selector that does not parse, or uses a Playwright-only engine or `>>`; `fix` names the replacing method. */
+/** A selector that does not parse, or uses a Playwright-only engine, `>>` or a Playwright CSS extension (`:has-text()`, `:visible`, …); `fix` names the replacing method. */
 export declare class SelectorInvalidError extends ProgramError {
   readonly code: "selector_invalid";
   readonly details: { readonly selector: string; readonly construct: string };
@@ -758,6 +758,12 @@ export declare class BodyUnavailableError extends UnavailableError {
 export declare class DownloadFailedError extends UnavailableError {
   readonly code: "download_failed";
   readonly details: { readonly reason: string };
+}
+
+/** A document whose AI-use signal refuses the Run's Purpose while `site_preferences.respect_use_signals` is on; `limit` names that setting. */
+export declare class UseSignalRefusedError extends RefusedError {
+  readonly code: "use_signal_refused";
+  readonly details: { readonly signal: string; readonly value: string; readonly purpose: string };
 }
 
 export declare class CdpCommandRefusedError extends RefusedError {

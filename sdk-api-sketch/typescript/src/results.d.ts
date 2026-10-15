@@ -51,6 +51,7 @@ export type KnownErrorCode =
   | "page_crashed"
   | "body_unavailable"
   | "download_failed"
+  | "use_signal_refused"
   | "cdp_command_refused"
   | "secret_unbound"
   | "secret_unavailable"

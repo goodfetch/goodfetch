@@ -84,7 +84,7 @@ async fn last_scrolling_page(page: &Page) -> Result<Option<Value>, Error> {
             {
                 dialog.accept().await?;
             }
-            Ok(()) // dropped otherwise: dismissed, the default (ADR 0014)
+            Ok(()) // dropped otherwise: the default, a confirm dismissed (ADR 0014)
         });
         futures_util::try_join!(media, dialogs).map(|_| ())
     };

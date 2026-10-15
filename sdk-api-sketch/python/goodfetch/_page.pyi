@@ -163,8 +163,8 @@ class WebSocketFrame:
 # The page API's own Error codes (ADR 0079's naming rule).
 
 class SelectorInvalidError(ProgramError):
-    """`selector_invalid`: a selector that does not parse, or a Playwright-only engine or `>>`; `fix` names the
-    replacing method."""
+    """`selector_invalid`: a selector that does not parse, or a Playwright-only engine, `>>` or a Playwright CSS
+    extension (`:has-text()`, `:visible`, …); `fix` names the replacing method."""
 
 class TargetUnsupportedError(PageError):
     """`target_unsupported`: the target is of the wrong kind for the action, raised at once."""
@@ -198,6 +198,10 @@ class BodyUnavailableError(UnavailableError):
 
 class DownloadFailedError(UnavailableError):
     """`download_failed`."""
+
+class UseSignalRefusedError(RefusedError):
+    """`use_signal_refused`: a document whose AI-use signal refuses the Run's Purpose while
+    `site_preferences.respect_use_signals` is on; `limit` names that setting."""
 
 class CdpCommandRefusedError(RefusedError):
     """`cdp_command_refused`: a command beyond the session's page, or one that would close a Borrowed browser."""
@@ -394,14 +398,7 @@ class AsyncLocator(_AsyncLocates, AsyncAiVerbs):
     ) -> JsonValue: ...
 
     # Waits (ADR 0080).
-    async def wait_for_function(
-        self,
-        expression: str,
-        arg: JsonValue | NotGiven = ...,
-        *,
-        polling: Literal["raf"] | timedelta = "raf",
-        timeout: Timeout = ...,
-    ) -> JsonValue:
+    async def wait_for_function(self, expression: str, arg: JsonValue | NotGiven = ..., *, timeout: Timeout = ...) -> JsonValue:
         """Waits until the page function, given the element first, returns a truthy value; resolved again at each check."""
 
     async def wait_for(self, *, state: ElementState = "visible", timeout: Timeout = ...) -> None:
@@ -878,14 +875,7 @@ class Locator(_Locates, AiVerbs):
     def evaluate_all(
         self, expression: str, arg: JsonValue | NotGiven = ..., *, world: World = "main", timeout: Timeout = ...
     ) -> JsonValue: ...
-    def wait_for_function(
-        self,
-        expression: str,
-        arg: JsonValue | NotGiven = ...,
-        *,
-        polling: Literal["raf"] | timedelta = "raf",
-        timeout: Timeout = ...,
-    ) -> JsonValue: ...
+    def wait_for_function(self, expression: str, arg: JsonValue | NotGiven = ..., *, timeout: Timeout = ...) -> JsonValue: ...
     def wait_for(self, *, state: ElementState = "visible", timeout: Timeout = ...) -> None: ...
     def wait_for_count(self, count: int | Count, *, timeout: Timeout = ...) -> int: ...
 

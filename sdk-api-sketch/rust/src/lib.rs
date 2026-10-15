@@ -30,7 +30,7 @@ pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Session, Start};
 pub use page::{
     Abort, AbortReason, Action, ApiRequest, AriaRole, BoundingBox, ByRole, CdpSession, ConsoleLocation, ConsoleMessage, Dialog,
-    DialogKind, Download, Evaluate, FileChooser, FilePayload, Filter, Forward, FrameLocator, Fulfill, Headers, InputFiles, Keyboard,
+    DialogKind, Download, ElementWait, Evaluate, FileChooser, FilePayload, Filter, Forward, FrameLocator, Fulfill, Headers, InputFiles, Keyboard,
     Locator, LocatorHandlerCall, LocatorHandlerOptions, Modifier, Mouse, MouseButton, Navigation, PageClose, PageRequest, Polling,
     Position, Query, Registration, Request, ResourceType, Response, Route, Screenshot, SelectOption, TextMatch, Touchscreen,
     WaitForFunction, WebError, WebSocket, WebSocketPayload, World, action,

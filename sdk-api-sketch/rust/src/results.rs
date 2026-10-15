@@ -74,8 +74,8 @@ pub enum ErrorCode {
     SettingLocked,
     /// `capability_unavailable`: the platform cannot provide a capability (ADR 0083).
     CapabilityUnavailable,
-    /// `selector_invalid`: a selector that does not parse, or a Playwright-only engine or `>>`
-    /// (ADR 0085).
+    /// `selector_invalid`: a selector that does not parse, or a Playwright-only engine, `>>` or a
+    /// Playwright CSS extension such as `:has-text()` (ADR 0085).
     SelectorInvalid,
     /// `target_unsupported`: the target is of the wrong kind for the action (ADR 0085).
     TargetUnsupported,
@@ -101,6 +101,9 @@ pub enum ErrorCode {
     BodyUnavailable,
     /// `download_failed` (ADR 0085).
     DownloadFailed,
+    /// `use_signal_refused`, a refusal: a document whose AI-use signal refuses the Run's Purpose
+    /// while `site_preferences.respect_use_signals` is on (ADR 0085).
+    UseSignalRefused,
     /// `cdp_command_refused`, a refusal (ADR 0085).
     CdpCommandRefused,
     /// `secret_unbound`: no scope binds the Secret placeholder (ADR 0092).

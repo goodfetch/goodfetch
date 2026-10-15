@@ -708,6 +708,42 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for WaitForFunction<T> {
     }
 }
 
+/// Waits until a page function, given a locator's element first, returns a truthy value, and
+/// returns it; the locator is resolved again at each check (ADR 0080).
+#[must_use = "a wait does nothing until it is awaited"]
+pub struct ElementWait<T> {
+    _output: PhantomData<fn() -> T>,
+}
+
+impl<T> fmt::Debug for ElementWait<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ElementWait(..)")
+    }
+}
+
+impl<T: DeserializeOwned + Send + 'static> ElementWait<T> {
+    /// The one argument the page function receives after the element.
+    pub fn arg(self, arg: impl Serialize) -> Self {
+        let _ = serde_json::to_value(arg);
+        unimplemented!()
+    }
+
+    /// At most this long, within what remains of any enclosing timeout.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        let _ = timeout;
+        unimplemented!()
+    }
+}
+
+impl<T: DeserializeOwned + Send + 'static> IntoFuture for ElementWait<T> {
+    type Output = Result<T, Error>;
+    type IntoFuture = CallFuture<T>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        unimplemented!()
+    }
+}
+
 /// A screenshot, as image bytes. Secrets are masked by the engine (ADR 0014).
 #[must_use = "a screenshot does nothing until it is awaited"]
 pub struct Screenshot {
@@ -1021,7 +1057,7 @@ impl Locator {
     pub fn wait_for_function<T: DeserializeOwned + Send + 'static>(
         &self,
         source: &str,
-    ) -> WaitForFunction<T> {
+    ) -> ElementWait<T> {
         let _ = source;
         unimplemented!()
     }

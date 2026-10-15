@@ -70,7 +70,7 @@ async def read_scrolling_quotes(page: AsyncPage) -> list[JsonValue]:
     async def confirm(dialog: AsyncDialog) -> None:
         if dialog.type == "confirm" and dialog.message.startswith("Are you sure"):
             await dialog.accept()
-        # Otherwise the dialog is dismissed, the default (ADR 0014).
+        # Otherwise the dialog gets its default: a confirm is dismissed (ADR 0014).
 
     pages: list[JsonValue] = []
 

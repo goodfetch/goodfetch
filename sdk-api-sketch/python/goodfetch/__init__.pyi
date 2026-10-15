@@ -169,6 +169,7 @@ from goodfetch._page import RouteHandler as RouteHandler
 from goodfetch._page import SelectorInvalidError as SelectorInvalidError
 from goodfetch._page import TargetUnsupportedError as TargetUnsupportedError
 from goodfetch._page import TextMatch as TextMatch
+from goodfetch._page import UseSignalRefusedError as UseSignalRefusedError
 from goodfetch._page import Touchscreen as Touchscreen
 from goodfetch._page import WebError as WebError
 from goodfetch._page import WebSocket as WebSocket

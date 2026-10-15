@@ -66,7 +66,7 @@ export async function readScrollingQuotes(page: Page): Promise<JsonValue[]> {
     if (type === "image" || type === "font") return route.abort("blockedbyclient");
     return route.fallback();
   });
-  // With no handler a dialog is dismissed anyway; this one accepts only an "Are you sure" confirm.
+  // With no handler a confirm is dismissed anyway (a `beforeunload` accepted); this one accepts only an "Are you sure" confirm.
   using _dialogs = page.on("dialog", async (dialog) => {
     if (dialog.type() === "confirm" && dialog.message().startsWith("Are you sure")) await dialog.accept();
   });

@@ -59,7 +59,7 @@ Evidence from the competitor survey made for that ticket:
   - **Phones:** touch input and a pop-up keyboard field.
 - **One holder at a time.**
   - **Watching and control.** Any number of people can watch. "Take control" locks the Session for one person, and automation, already waiting in its Human pause, resumes only after "Hand back" and a passing Page check, or when the pause is resolved.
-    > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a pause a program raised with `page.pause()` ends on "Hand back" as on "Done": when its `until` condition holds, or at once when it has none; otherwise control returns to *waiting*.
+    > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a pause a program raised with `page.pause()` ends on a person's "Hand back" as on "Done": when its `until` condition holds, or at once when it has none; otherwise control returns to *waiting*.
   - **Idle holder.** After 2 minutes without input the holder is warned. After 3, control returns to *waiting*, never to automation.
   - **Taking over.** Another person may ask for control, which is granted after 30 s without an answer. An operator can force it.
   - **Timings** are settings.

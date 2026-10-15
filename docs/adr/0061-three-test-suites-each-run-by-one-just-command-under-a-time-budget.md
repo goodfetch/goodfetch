@@ -24,6 +24,7 @@ Each suite runs everything the suite before it runs.
   - The committed format fixtures, one per format version (the upgrade research's fit; [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287) decides their shape).
   - `xtask codegen --check` and `xtask affected`'s own tests.
   - Nothing that starts a process, a browser or a container, or binds a socket.
+  > Amended by [ADR 0097](0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md): the Quick suite also runs `xtask wording`, which fails on a term of ADR 0035's wording list in published prose.
 - **Pre-merge suite**: what ADR 0032's pull-request tier runs, on one platform. That is the Quick suite plus:
   - the `tests/it` binary of every touched crate and of the crates that depend on it (`rdeps`);
   - the conformance suites against the local Proving ground with the Goodfetch Chromium;

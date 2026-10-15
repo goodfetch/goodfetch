@@ -11,6 +11,7 @@ ADRs 0016 and 0021 chose parity with Crawlee and Spider. A crawl read robots.txt
 - **A program's own navigation is outside Politeness**: outside a crawl handler, a `page.goto` or a fetch the program calls, an AI verb acting on its page, an Agent working in its own Session. That is Collie's work, directed by the program as a browser's is by its user, and ADR 0084 places Politeness in Foxhound.
   - robots.txt is still read for it and recorded in Provenance. Nothing of Politeness gates it, counts it or learns from it.
   - Whether Collie carries ADR 0053's per-proxy limits is [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455)'s. Whether a Collie page's 429 should slow a Foxhound crawl on the same machine is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486)'s.
+    > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): Collie carries them, with the ceilings learned per proxy and per cloud-browser provider. They protect the user's own accounts with the vendors rather than the sites, so they hold a program's own navigation through that proxy or provider.
   - RFC 9309 addresses crawlers, which it calls automatic clients. Google's [user-triggered fetchers](https://developers.google.com/crawling/docs/crawlers-fetchers/google-user-triggered-fetchers) generally ignore robots.txt because a person asked for the fetch. Playwright and Stagehand, the leaders for one page, have no politeness at all (S3).
   - One page at a time is not a burden; a program that opens many pages at once on one site wrote that parallelism itself.
   - An Agent that puts work into a Frontier is crawling, and that crawl is governed.
@@ -101,6 +102,7 @@ The keys follow ADR 0083's naming rule: two families, so `goodfetch config expla
 
 - **Scopes.** These keys are set on a connection or a Run, never on a Session or a page, since ADR 0053 keeps Politeness settings per run. `politeness.degraded_max` is the engine's own, set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.
 - **Collie Runs.** Politeness is Foxhound's (ADR 0084), so of these keys a Collie Run takes only `site_preferences.respect_use_signals`; any other fails with `setting_not_applicable` (ADR 0083). In TypeScript and Python the types leave them out of a Collie Run's settings, so the type checker catches the mistake first (G3). In Rust, whose `Settings` takes any key (ADR 0083), the Run refuses it when it opens. Whether Collie carries ADR 0053's per-proxy limits is [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455)'s.
+  > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): a Collie Run also takes `politeness.proxy.concurrency`, `politeness.proxy.rate` and `politeness.sharing`, since Collie carries the per-proxy limits and their sharing.
 - **Durations** take each language's duration type (ADR 0080).
 
 ### Skip reasons

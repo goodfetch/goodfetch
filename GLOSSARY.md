@@ -259,7 +259,7 @@ What completes a Challenge on a Session's behalf, whether Goodfetch's own logic,
 _Avoid_: unblocker, bypass, captcha solver (for every kind)
 
 **Session pool**:
-The Sessions a crawl keeps, scoring, rotating and retiring them as they fail; a Session a program opens itself is never in it.
+The Sessions a crawl keeps, scoring, rotating and retiring them as they fail; a Session a program or an Agent opens itself is never in it.
 _Avoid_: session manager, account pool
 
 **Saved identity**:

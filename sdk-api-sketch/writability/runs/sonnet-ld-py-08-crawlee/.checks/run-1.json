@@ -1,0 +1,11 @@
+{
+  "lang": "py",
+  "kind": "leader",
+  "errors": 1,
+  "output": "/private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/sonnet-ld-py-08-crawlee/s08_ai_in_crawl_handler_crawlee.py\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/sonnet-ld-py-08-crawlee/s08_ai_in_crawl_handler_crawlee.py:197:33 - error: Argument of type \"dict[str, object]\" cannot be assigned to parameter \"data\" of type \"Sequence[Mapping[str, JsonSerializable]] | Mapping[str, JsonSerializable]\" in function \"__call__\"\n  \u00a0\u00a0Type \"dict[str, object]\" is not assignable to type \"Sequence[Mapping[str, JsonSerializable]] | Mapping[str, JsonSerializable]\"\n  \u00a0\u00a0\u00a0\u00a0\"dict[str, object]\" is not assignable to \"Sequence[Mapping[str, JsonSerializable]]\"\n  \u00a0\u00a0\u00a0\u00a0\"dict[str, object]\" is not assignable to \"Mapping[str, JsonSerializable]\"\n  \u00a0\u00a0\u00a0\u00a0\u00a0\u00a0Type parameter \"_VT_co@Mapping\" is covariant, but \"object\" is not a subtype of \"JsonSerializable\"\n  \u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0Type \"object\" is not assignable to type \"JsonSerializable\"\n  \u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\"object\" is not assignable to \"Mapping[str, JsonSerializable]\"\n  \u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\"object\" is not assignable to \"Sequence[JsonSerializable]\"\n  \u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\"object\" is not assignable to \"str\"\n    ... (reportArgumentType)\n1 error, 0 warnings, 0 informations\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T21:45:03",
+  "by": "agent"
+}

@@ -1,6 +1,6 @@
-# Stagehand, Crawlee, Spider-rs: in-depth comparison for Automan
+# Stagehand, Crawlee, Spider-rs: in-depth comparison for Goodfetch
 
-Research of **October 7, 2026**, extending the market dossier. The goal remains an ambitious open source framework and services around it; the former assumption of a small team over 3–6 months was withdrawn by the user. This report distinguishes published capabilities, inspected code, testimonials and proposals for Automan. No comparative benchmark of the engines was run.
+Research of **October 7, 2026**, extending the market dossier. The goal remains an ambitious open source framework and services around it; the former assumption of a small team over 3–6 months was withdrawn by the user. This report distinguishes published capabilities, inspected code, testimonials and proposals for Goodfetch. No comparative benchmark of the engines was run.
 
 ## Conclusion that governs the comparison
 
@@ -8,7 +8,7 @@ Research of **October 7, 2026**, extending the market dossier. The goal remains 
 
 The provided text describes a real tension — semantic discovery versus known execution — but several of its oppositions are too absolute. Stagehand retains deterministic operations and selectors; Crawlee can incorporate Stagehand and adapt HTTP/browser rendering; Spider has optional browser and AI functions. Maintenance does not disappear with any of these mechanisms.
 
-**For Automan, the proposed direction is a common runtime that chooses the sufficient executor, produces reusable plans and verifies the requested result.** Mass collection and application actions must share transports and perception, while keeping distinct scheduling and recovery rules. This proposal does not constitute proof of a commercial lead: several competitors already have cache, replay, repair and partial validation.
+**For Goodfetch, the proposed direction is a common runtime that chooses the sufficient executor, produces reusable plans and verifies the requested result.** Mass collection and application actions must share transports and perception, while keeping distinct scheduling and recovery rules. This proposal does not constitute proof of a commercial lead: several competitors already have cache, replay, repair and partial validation.
 
 ## 1. Precisely correcting the provided text
 
@@ -65,7 +65,7 @@ The three cache families examined do not store the same object: `observe` can re
 
 A divergence exists between the v4 documentation presenting the cache as enabled by default and the default values of the inspected 4.1.0 package. A comparative experiment must **configure the cache explicitly and check the metadata**, then publish cache HIT/MISS and freshness. We did not exercise the cloud service; no assumption about its hidden implementation is converted into fact here.
 
-For Automan, separating perception cache, plan cache and data cache becomes a contract requirement: their invalidation rules cannot be interchangeable.
+For Goodfetch, separating perception cache, plan cache and data cache becomes a contract requirement: their invalidation rules cannot be interchangeable.
 
 ## 4. StagehandCrawler: a real composition, with two distinct contracts
 
@@ -89,11 +89,11 @@ The inspection confirms a shared context and limits regarding new contexts/proxi
 
 The important architectural competitor is `AdaptivePlaywrightCrawler`. In the TS 3.18.2 release, a predictor learns from the host, the path and the request label. Detection runs compare what the handler produces in the browser and over HTTP; `resultChecker` and `resultComparator` callbacks make it possible to decide whether the output is sufficient. [Implementation](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts), [predictor](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/utils/rendering-type-prediction.ts).
 
-This is closer to Automan than a rule "if there is JavaScript, launch Chrome". The right question is: **does the cheaper means produce the requested result?** The default comparator examines only the `datasetItems`, their number and their equality by index; it does not define, on the user's behalf, product identity, data period or business completeness. A handler that only emits links can produce two empty item lists judged equal even though the discovered links differ. A `resultComparator` suited to the collection contract must therefore be chosen. [Published comparator](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts#L341).
+This is closer to Goodfetch than a rule "if there is JavaScript, launch Chrome". The right question is: **does the cheaper means produce the requested result?** The default comparator examines only the `datasetItems`, their number and their equality by index; it does not define, on the user's behalf, product identity, data period or business completeness. A handler that only emits links can produce two empty item lists judged equal even though the discovered links differ. A `resultComparator` suited to the collection contract must therefore be chosen. [Published comparator](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts#L341).
 
-This detection can run the handler several times and manages its result writes. Their commit groups storage operations, without constituting a general transaction over all these operations. It suits acquisition with the intended contract; it does not make it safe to repeat a purchase, a submission or a creation on a site. Likewise, a request retry does not ensure a single execution of its external effects. Automan must journal attempts and verify the resulting state before replaying a step that has effects.
+This detection can run the handler several times and manages its result writes. Their commit groups storage operations, without constituting a general transaction over all these operations. It suits acquisition with the intended contract; it does not make it safe to repeat a purchase, a submission or a creation on a site. Likewise, a request retry does not ensure a single execution of its external effects. Goodfetch must journal attempts and verify the resulting state before replaying a step that has effects.
 
-The [Impit](https://crawlee.dev/js/docs/guides/impit-http-client) client also shows that a TS API can already use a native Rust transport. The SDK's language is not enough to infer the cost of the critical path. The choice of a Rust runtime for Automan is justified by the unity of the engine, its distribution and resource control, and must then be validated by measurement.
+The [Impit](https://crawlee.dev/js/docs/guides/impit-http-client) client also shows that a TS API can already use a native Rust transport. The SDK's language is not enough to infer the cost of the critical path. The choice of a Rust runtime for Goodfetch is justified by the unity of the engine, its distribution and resource control, and must then be validated by measurement.
 
 ## 6. Spider-rs: a serious engine reference, not a shortcut to a universal agent
 
@@ -111,7 +111,7 @@ One caveat, however, prevents turning the configuration list into a list of guar
 
 Chromey is a CDP driver candidate and has network/cache/fingerprint extensions. An `Element::click()` method does not, however, establish equivalence with all of Playwright's actionability: resolution at action time, visibility, stability, frames, hit testing and armed waiting must be qualified. Some vendor commands, such as Markdown/WebMCP domains, require a compatible remote engine and are not guaranteed commands of stock Chrome.
 
-**Recommendation:** adapt Spider for collection and compare Chromey/Chromiumoxide for the driver; keep Automan the owner of its result, plan and recovery contracts. Do not fork the whole of Spider before identifying what a narrow adapter does not allow. The protocol, the behavior and the validation must remain Automan's.
+**Recommendation:** adapt Spider for collection and compare Chromey/Chromiumoxide for the driver; keep Goodfetch the owner of its result, plan and recovery contracts. Do not fork the whole of Spider before identifying what a narrow adapter does not allow. The protocol, the behavior and the validation must remain Goodfetch's.
 
 The speed multipliers in the Spider benchmark do not rank this trio: Node there is the `crawler` package, not Crawlee, and the current code has asymmetries and stubs to fix. The [reproducible source audit](2026-10-07-benchmark-audit-followup.md) pins the commits and explains the limits precisely, without accusing the old results of having used these same defects.
 
@@ -119,7 +119,7 @@ The speed multipliers in the Spider benchmark do not rank this trio: Node there 
 
 ### Close to Stagehand or complementary
 
-| Project | Why it matters | Useful comparison for Automan |
+| Project | Why it matters | Useful comparison for Goodfetch |
 | --- | --- | --- |
 | [Browser Use](https://github.com/browser-use/browser-use) | Agent loop and browser tools; evolving toward native Rust components | Autonomous tasks, retained context, sessions and decision budget; separate SDK, native beta and cloud |
 | [Skyvern](https://github.com/Skyvern-AI/skyvern) | Workflows, visual perception and script generation/reuse | Block repair, recovery and amortized cost of a known workflow |
@@ -162,7 +162,7 @@ Three useful observations:
 
 The testimonials point toward authenticated sessions, observability, inference cost and false successes. They do not decide the runtime language or a universal winner. The so-called Rust benchmark discovered on Reddit concerns **Crawlyx, not Spider-rs**, and comes from its author.
 
-## 9. Concrete direction for Automan
+## 9. Concrete direction for Goodfetch
 
 Keep the [autonomous Rust runtime + shared protocol + SDK](2026-10-07-direction-automan.md) target, but specify what this comparison imposes on the product:
 
@@ -181,10 +181,10 @@ The differentiation to demonstrate is therefore: **the same workflow runs locall
 
 The [benchmark audit](2026-10-07-benchmark-audit-followup.md) explains why the current tables are not enough. The next comparison must isolate:
 
-- HTTP with equivalent outputs: Spider, Crawlee HTTP, Scrapy/Colly async and Automan.
-- JS rendering: Spider Chrome, Crawlee Playwright, Crawl4AI and Automan CDP.
-- Known actions: Playwright, Stagehand primitives, agent-browser CLI and Automan plans.
-- Semantic discovery: Stagehand 4, Browser Use, Skyvern, `spider_agent` and Automan, same models/budgets when possible.
+- HTTP with equivalent outputs: Spider, Crawlee HTTP, Scrapy/Colly async and Foxhound.
+- JS rendering: Spider Chrome, Crawlee Playwright, Crawl4AI and Foxhound CDP.
+- Known actions: Playwright, Stagehand primitives, agent-browser CLI and Collie plans.
+- Semantic discovery: Stagehand 4, Browser Use, Skyvern, `spider_agent` and Collie, same models/budgets when possible.
 - Repetitions and drift: 1/10/100/1,000 runs, controlled DOM mutations, changed data, expired session, interruption between action and validation.
 
 Speed must be reported with coverage, false-success rate, total memory, p50/p95, warm/cold start, costs of all attempts and recovery results. The business cases of authenticated export, paginated catalog and differential collection proposed earlier provide a first corpus; they do not limit the general APIs.

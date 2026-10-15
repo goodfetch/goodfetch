@@ -13,6 +13,6 @@ test('DuckDB and Parquet parts keep every acknowledged batch after the writer is
   assert.equal((await cell('duckdb-table', 2)).status, 'unsupported', 'a DuckDB file has one writing process');
 });
 
-test('PostgreSQL COPY keeps every acknowledged batch after the writer is killed', { skip: process.env.AUTOMAN_PG_URL ? false : 'AUTOMAN_PG_URL is not set' }, async () => {
+test('PostgreSQL COPY keeps every acknowledged batch after the writer is killed', { skip: process.env.LAB_PG_URL ? false : 'LAB_PG_URL is not set' }, async () => {
   const result = await cell('postgres-copy', 2); assert.equal(result.status, 'verified', result.verdict?.reasons.join('; ') ?? '');
 });

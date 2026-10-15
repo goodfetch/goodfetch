@@ -6,7 +6,7 @@
    "primary": "headings"
   },
   "case": "levels",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "# Title one\n\nIntro.\n\n## Second level\n\nText.\n\n### Third level\n\n#### Fourth level\n\n##### Fifth level\n\n###### Sixth level\n",

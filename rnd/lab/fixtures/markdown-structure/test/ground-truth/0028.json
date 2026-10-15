@@ -6,7 +6,7 @@
    "primary": "mixed"
   },
   "case": "list-with-code",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "1. Create the file:\n\n   ```\n   touch a.txt\n   ```\n\n2. Check it.\n",

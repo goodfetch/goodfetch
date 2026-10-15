@@ -8,7 +8,7 @@ import { commandFor, labRoot } from '../../src/registry.ts';
 import { browserPath } from '../../src/environment.ts';
 
 const variants = ['hover', 'dblclick', 'contextmenu', 'drag', 'wheel', 'keyboard', 'contenteditable', 'unicode', 'moved', 'retarget'];
-const rustBuilt = existsSync(join(labRoot, 'adapters/cdp-rust/target/release/automan-lab-cdp'));
+const rustBuilt = existsSync(join(labRoot, 'adapters/cdp-rust/target/release/goodfetch-lab-cdp'));
 
 async function primitives(backend: 'node-cdp' | 'rust-cdp' | 'playwright', actionPolicy: 'native' | 'guarded') {
   const fixtures = await startFixtures(); const worker = new WorkerClient(commandFor(backend, 20_000, browserPath()));

@@ -6,7 +6,7 @@
    "primary": "tables"
   },
   "case": "pipe-in-cell",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "| Operator | Meaning |\n| --- | --- |\n| a \\| b | either |\n| a && b | both |\n",

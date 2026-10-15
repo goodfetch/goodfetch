@@ -6,7 +6,7 @@
    "primary": "tables"
   },
   "case": "inline-and-entities",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "| Item | Note |\n| --- | --- |\n| **Fish** & chips | Served *hot* |\n| A<B | `x > 1` |\n",

@@ -10,7 +10,7 @@ The owner required every external dependency (time, network, storage, system ser
 
 Tokio's paused clock covers monotonic time and timers in one current-thread runtime, but "the `Instant` in std continues to work as normal", and nothing reaches wall time in another process. libfaketime "cannot work with statically linked binaries", so it can't reach the static musl binary (ADR 0024), and the hardened runtime of ADR 0039 ignores `DYLD_` variables.
 
-Decided in [Injection and determinism: time, randomness, storage, network and OS services](https://github.com/Jbmanllr/automan/issues/274), on the facts of [Deterministic time, randomness, storage and OS services in a multi-process Tokio system](https://github.com/Jbmanllr/automan/issues/264) ([findings](https://github.com/Jbmanllr/automan/blob/research/deterministic-testing/rnd/research/2026-10-13-deterministic-testing.md)). The rules every test follows are in `TESTING.md`.
+Decided in [Injection and determinism: time, randomness, storage, network and OS services](https://github.com/goodfetch/goodfetch/issues/274), on the facts of [Deterministic time, randomness, storage and OS services in a multi-process Tokio system](https://github.com/goodfetch/goodfetch/issues/264) ([findings](https://github.com/goodfetch/goodfetch/blob/research/deterministic-testing/rnd/research/2026-10-13-deterministic-testing.md)). The rules every test follows are in `TESTING.md`.
 
 ## Decision
 
@@ -100,7 +100,7 @@ Any test can run beside any other:
   - The binary builds one fixed set of features (ADR 0038), so a test-only control means a second binary that ships nowhere.
   - A shipped binary must never expose clock skew. Everything it would reach is tested in-process instead.
 - **libfaketime:** rejected. It cannot reach the static musl binary or a notarized macOS binary.
-- **A deterministic simulator for the whole system** (turmoil or madsim) as the injection mechanism: rejected here. Both run a single process, and neither carries Chromium, sink processes or Script sandbox workers. Where they fit is decided by [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275).
+- **A deterministic simulator for the whole system** (turmoil or madsim) as the injection mechanism: rejected here. Both run a single process, and neither carries Chromium, sink processes or Script sandbox workers. Where they fit is decided by [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/goodfetch/goodfetch/issues/275).
 - **`StdRng` for seeded randomness:** rejected. Its output changes across rand versions.
 - **Fakes for OS services** (`keyring-core`'s mock store, a fake service manager): rejected. Every one runs for real on GitHub-hosted runners, and the real one is what users hit.
 - **A per-test `HOME` alone, without `GOODFETCH_HOME`:** rejected. Windows Known Folders most likely ignore it, and a named root works the same on every OS.
@@ -108,7 +108,7 @@ Any test can run beside any other:
 ## Consequences
 
 - **Amends `STYLE.md`.** "Concrete types first; a trait only where two adapters exist" now names `Clock` and `Entropy` as handles whose test version is the second adapter. Everything else is injected as a value with a real stand-in. The clock rule, the environment rule and `iter_over_hash_type` join its lint list.
-- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)). "Time-dependent cases set short durations through settings rather than mocking clocks" becomes "In-process tests drive time through the injected `Clock`; tests of the binary set short durations through settings".
+- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/goodfetch/goodfetch/issues/213)). "Time-dependent cases set short durations through settings rather than mocking clocks" becomes "In-process tests drive time through the injected `Clock`; tests of the binary set short durations through settings".
   - Leases (ADR 0003), the Daemon's idle stop, the governor's samples and checkpoints read the `Clock`.
   - Lease expiry is a pure function of the monotonic reading.
   - "A real Valkey container" holds on Linux runners. macOS installs Valkey with Homebrew, and Windows has no supported Valkey.
@@ -117,6 +117,6 @@ Any test can run beside any other:
 - **Adds to ADR 0038.** The `Clock` and `Entropy` handles, the clock rule and the value-injection rule apply to every crate. ADR 0037's amendment rule therefore carries them to every area's spec.
 - **Adds to ADR 0053:** the store's Lua script reads the Valkey server's `TIME`.
 - **ADRs 0003, 0036 and 0051 are unchanged in behaviour.** Their time rules become pure functions over a reading, and their live clocks stay where they are decided.
-- **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/Jbmanllr/automan/issues/214)** starts its engine with a per-test `GOODFETCH_HOME` and a cleared environment. The `Clock` and `Entropy` arrive with the first code that reads time or chooses at random.
+- **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/goodfetch/goodfetch/issues/214)** starts its engine with a per-test `GOODFETCH_HOME` and a cleared environment. The `Clock` and `Entropy` arrive with the first code that reads time or chooses at random.
 - **The "Test infrastructure" spec** builds the shared helpers: the test `Clock`, the seeded `Entropy`, the per-test home and environment, the port report, and the CI setup of `gnome-keyring` and `lo0` aliases.
   > Amended by [ADR 0062](0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md): the test `Clock` and seeded `Entropy` are the handles' named constructors, not test-support helpers.

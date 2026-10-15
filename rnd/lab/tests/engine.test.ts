@@ -18,7 +18,7 @@ const base = (overrides: Partial<BenchCampaign> = {}): BenchCampaign => ({
   backends: ['node-http'], scenarios: ['http-catalog'], fixtures: { pages: 1, actions: 1 }, ...overrides
 });
 const engine = async (campaign: BenchCampaign, options: Parameters<typeof runEngine>[1] = {}) =>
-  runEngine(campaign, { outputRoot: await mkdtemp(join(tmpdir(), 'automan-engine-')), skipProvenance: true, hostSnapshot: quiet, ...options });
+  runEngine(campaign, { outputRoot: await mkdtemp(join(tmpdir(), 'goodfetch-engine-')), skipProvenance: true, hostSnapshot: quiet, ...options });
 
 // Fake catalog adapter: answers with the fixture's records (it knows their seeded formula), after a delay.
 // When `hangFlag` is given, the second run call of the first process hangs, then a flag file prevents hanging again.
@@ -43,14 +43,14 @@ test('a failed conformance gate blocks measurement and the plan stays visible as
 
 test('the engine reproduces the verified and failed counts of the legacy runner for the same seed', async () => {
   const legacy: Campaign = { name: 'parity', backends: ['node-http'], scenarios: ['http-catalog'], seed: 7, blocks: 2, iterations: 4, warmup: 1, concurrency: 2, mode: 'closed', timeoutMs: 5000, maxDurationMs: 20_000, pages: 2, actions: 1 };
-  const v1 = await runCampaign(legacy, { outputRoot: await mkdtemp(join(tmpdir(), 'automan-v1-')), skipEnvironment: true, command: backend => commandFor(backend, 5000) });
+  const v1 = await runCampaign(legacy, { outputRoot: await mkdtemp(join(tmpdir(), 'goodfetch-v1-')), skipEnvironment: true, command: backend => commandFor(backend, 5000) });
   const { attempts } = await engine(fromLegacyBench(legacy), { command: backend => commandFor(backend as never, 5000) });
   for (const phase of ['conformance', 'warmup', 'measure'] as const) for (const status of ['verified', 'failed'] as const)
     assert.equal(attempts.filter(a => a.phase === phase && a.status === status).length, v1.rows.filter(r => r.phase === phase && r.status === status).length, `${phase}/${status}`);
 });
 
 test('a hung adapter yields one timeout, aborted siblings excluded from failures, then a restarted worker', async () => {
-  const flag = join(await mkdtemp(join(tmpdir(), 'automan-hang-')), 'hung');
+  const flag = join(await mkdtemp(join(tmpdir(), 'goodfetch-hang-')), 'hung');
   const { run, attempts } = await engine(base({ iterations: 14, concurrency: 4, timeoutMs: 700, maxRestarts: 1 }), { command: fakeAdapter(200, flag) });
   const measured = attempts.filter(a => a.phase === 'measure');
   assert.equal(measured.filter(a => a.status === 'timeout').length, 1);

@@ -9,8 +9,8 @@ import {labRoot} from '../../src/registry.ts';
 
 const task={scenario:'http-catalog',url:'http://127.0.0.1/catalog',seed:42,pages:1,actions:1,timeoutMs:1000,variant:'normal'};
 for(const runtime of ['node-shared','rust'] as const)test(`${runtime}: durable records, idempotent receipts and stale-token fencing use the shared SQLite`,async()=>{
-  const path=join(await mkdtemp(join(tmpdir(),'automan-shared-ledger-')),'state.sqlite');
-  const w=new WorkerClient(runtime==='rust'?{command:join(labRoot,'.native/automan-workflow-rust'),args:['sink'],cwd:labRoot,timeoutMs:10000}:{command:process.execPath,args:[join(labRoot,'adapters/workflow-node/worker.ts')],env:{...process.env,AUTOMAN_SHARED_SQLITE:'1'},cwd:labRoot,timeoutMs:10000});
+  const path=join(await mkdtemp(join(tmpdir(),'goodfetch-shared-ledger-')),'state.sqlite');
+  const w=new WorkerClient(runtime==='rust'?{command:join(labRoot,'.native/goodfetch-workflow-rust'),args:['sink'],cwd:labRoot,timeoutMs:10000}:{command:process.execPath,args:[join(labRoot,'adapters/workflow-node/worker.ts')],env:{...process.env,LAB_SHARED_SQLITE:'1'},cwd:labRoot,timeoutMs:10000});
   try{
     await w.call('prepare',{path,leaseMs:10000});
     const info=await w.call('hello',{}) as {sqlite:string;sourceId:string;libraryPath:string};

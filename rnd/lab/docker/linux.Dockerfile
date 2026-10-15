@@ -24,5 +24,5 @@ COPY . .
 WORKDIR /repo/rnd/lab
 ENV PLAYWRIGHT_BROWSERS_PATH=/repo/rnd/lab/.browsers
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @automan-lab/node-adapters exec playwright install --with-deps chromium firefox webkit
+RUN pnpm --filter @goodfetch-lab/node-adapters exec playwright install --with-deps chromium firefox webkit
 CMD ["node", "tools/lab.ts", "ci"]

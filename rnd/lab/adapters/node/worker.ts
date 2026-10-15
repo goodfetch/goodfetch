@@ -176,7 +176,7 @@ function wrapPuppeteer(page: PuppeteerPage): BrowserPage {
     upload: async (selector, path) => { const handle = await page.$(selector) as ElementHandle<HTMLInputElement> | null; if (!handle) throw new Error(`no element for ${selector}`); await handle.uploadFile(path); },
     // Puppeteer has no download API: downloads go through the CDP Browser domain, as its users do.
     download: async selector => {
-      const directory = await mkdtemp(join(tmpdir(), 'automan-download-')); const session = await page.createCDPSession();
+      const directory = await mkdtemp(join(tmpdir(), 'goodfetch-download-')); const session = await page.createCDPSession();
       await session.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: directory, eventsEnabled: true });
       const completed = new Promise<void>((resolve, reject) => session.on('Browser.downloadProgress', event => { if (event.state === 'completed') resolve(); if (event.state === 'canceled') reject(new Error('download canceled')); }));
       await page.locator(selector).click(); await completed;

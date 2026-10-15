@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://automan.local/lab/schemas/classification.schema.json",
+  "$id": "https://goodfetch.local/lab/schemas/classification.schema.json",
   "title": "Human classification of lab result runs, input of the results ledger",
   "type": "object",
   "additionalProperties": false,

@@ -37,7 +37,7 @@ function expectedOutcome(variant: IdentityVariant, { profile, purpose }: Expecta
 }
 
 const robotsFor: Partial<Record<IdentityVariant, string>> = {
-  'robots-path': 'User-agent: *\nDisallow: /private/\n', 'robots-agent': 'User-agent: AutomanLab\nDisallow: /\n\nUser-agent: *\nAllow: /\n',
+  'robots-path': 'User-agent: *\nDisallow: /private/\n', 'robots-agent': 'User-agent: GoodfetchLab\nDisallow: /\n\nUser-agent: *\nAllow: /\n',
   'crawl-delay': 'User-agent: *\nCrawl-delay: 1\nAllow: /\n', 'content-signal': 'User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\nAllow: /\n'
 };
 

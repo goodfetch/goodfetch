@@ -1,4 +1,4 @@
-# Automan lab — test and measurement engineering
+# Goodfetch lab — test and measurement engineering
 
 **Research of October 7, 2026.** Primary sources consulted: tool documentation, the authors' own work, Google Testing/SRE, ACM and NIST. The "now" prescriptions are our adaptation to the [lab](../lab/README.md), not a universal standard nor proof of performance already achieved.
 

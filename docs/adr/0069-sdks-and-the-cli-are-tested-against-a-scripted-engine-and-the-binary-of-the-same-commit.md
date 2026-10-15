@@ -36,6 +36,7 @@ Decided in [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/2
 ### The real binary
 
 - **SDK integration tests run the `goodfetch` binary built from the same commit.** Never a downloaded release, never a guessed path. The Rust crate's linked mode is the crate itself, of the same commit, so only its Daemon mode starts the binary.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's SDK packages run against their own Product's executable of the same commit, and each runs the Client conformance cases and the completeness checks for its own Product's catalog.
 - **The binary and the home reach the SDK through its environment map** (ADR 0062). The TypeScript and Python test-support fixtures build the map from `goodfetch-test-env`'s JSON description, with `GOODFETCH_ENGINE_PATH` and `GOODFETCH_HOME` set, and pass it in the SDK's environment-map option; the SDK starts an Attached engine with exactly that map as the child's environment. In Rust the map is the value given to the settings resolver (ADR 0059). No test sets a variable in its own process, and `vi.stubEnv` and `monkeypatch` stay banned.
 - **Each test has its own Goodfetch home** from `goodfetch-test-env` (ADR 0062); a Daemon test starts its own Daemon there.
 - **No process outlives its test.** The test-support fixtures record every engine, Daemon and handler process a test starts, and fail the test if one is alive after teardown. Vitest's `hanging-process` reporter runs in CI.
@@ -82,6 +83,7 @@ Decided in [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/2
 - **Optional dependencies and package checks:** an install with `--omit=optional` must fail at first use with Goodfetch's error naming the cause and the fix (ADR 0024). `publint`, `@arethetypeswrong/cli` and the type tests run against the packed tarball.
 - **PyPI:** each wheel installs into a fresh environment with `uv pip install --no-index --find-links` and with `pip`, and the package's `tests/integration` runs against it unchanged. Linux runs in a glibc and an Alpine (musl) container.
 - **crates.io:** `cargo package` builds the crate, and a temporary consumer project builds and runs against the packaged sources.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's packages install this way, and one environment per package manager also installs both Products' packages and runs both executables, proving that they collide nowhere (ADR 0090).
 
 ### The CLI
 

@@ -41,6 +41,7 @@ Each suite runs everything the suite before it runs.
   - every Sink's suite;
   - the deployment-target smoke runs that CI hosts (ADR 0049);
   - the tests that need released binaries, such as version skew and rolling upgrades (decided by [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287)).
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each suite covers both Products. A test that runs an executable runs Collie's when Collie carries everything it needs and Foxhound's otherwise, `xtask affected` reaches only Foxhound's tests from a change confined to Foxhound's side, and each target's job builds both executables.
 
 Checks that are non-deterministic by nature are not in any suite: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, and the benchmark. They keep the tiers ADRs 0026, 0032 and 0043 give them. How they report, and when they block, is decided by [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280).
 > Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate's pinned tests are in no suite too, since they need the build's source tree.

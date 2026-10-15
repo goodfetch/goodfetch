@@ -35,6 +35,7 @@ Three conflicts show the order:
 ### Tie-breaker
 
 - **T. Written for coding agents too.** When shapes still tie, the one that scores better in the [Agent-writability check](https://github.com/goodfetch/automan/issues/484) and the golden scenarios (concepts introduced, lines, failure points) wins. Every deprecated name, generated or hand-written, carries the language's type-level marker (PEP 702's `@deprecated`, TSDoc's `@deprecated`, Rust's `#[deprecated]`) besides ADR 0030's runtime warning: models write deprecated calls 70–90% of the time when nearby code is outdated, and a type-level marker is what lets the type checker flag them.
+  > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): a deprecated name carries its language's type-level marker wherever the language has one; a Python plain-data field or settings `TypedDict` key, which PEP 702 cannot mark, keeps ADR 0030's runtime warning and is listed in the release notes' deprecations.
 
 ### Rules already adopted
 

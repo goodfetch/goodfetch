@@ -9,10 +9,10 @@ One Operation catalog generates every surface (ADRs 0011, 0038), and this decide
 - A raw `call` is the Client layer's way down.
 - Deprecations carry each language's type-level marker.
 - The engine names everything in the caller's own spelling.
-- Both Products' connections implement one `Connection` type.
+- Both Products' connections implement one `Connection` type, and each Rust crate shows only its own Product's entries.
 
 **Evidence.**
-- **Playwright** keeps per-language aliases and language-only entries in 461 `* langs:` lines, and playwright-python a table of reasoned exceptions ([browser drivers §4.3](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/browser-drivers.md)). Its ports still drift where they are hand-written: `AbortSignal` is JavaScript-only, and Java renames `goto` and `continue`.
+- **Playwright** keeps per-language aliases and language-only entries in 461 `* langs:` lines, and playwright-python a table of reasoned exceptions ([browser drivers §4.3](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/browser-drivers.md)). So its languages differ entry by entry: `AbortSignal` is JavaScript-only, and Java renames `goto` and `continue`.
 - **Smithy** turns language-neutral traits into each language's idiom.
 - **The languages disagree** on initialisms (`HTTPServerError` in PEP 8, `Uuid` in Rust's C-CASE, `waitForURL` in Playwright) and on keywords (PEP 8's trailing underscore, rustc's `r#`).
 - **`tsc` never reports a deprecation**, mypy only on request, and MCP has no deprecated field.
@@ -80,7 +80,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   | `on` | observes side activity (ADR 0081) |
 
   - A read is named for what it returns, never with `get_`, except names kept from Playwright (`getAttribute`, `getBy*`).
-  - `set_` names only a page gesture Playwright names so (`setContent`, `setInputFiles`), never a setting (ADR 0083).
+  - `set_` changes state the value itself holds, as Playwright's gestures (`setContent`, `setInputFiles`) and a Run's progress message do, never a setting (ADR 0083).
   - Other verbs, such as starting or resuming a Run, are their owning ticket's.
 
 ### Shapes
@@ -90,21 +90,23 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   | Kind | TypeScript | Python | Rust |
   |---|---|---|---|
   | Round trip | `async` method | `async def` in an `Async…` class, a plain method in its sync twin | method returning a `Call<T>` builder, awaited; `send()` in `blocking` |
-  | A read the SDK answers itself | method when it may change during the value's life (`page.url()`, `session.pages()`, `page.isClosed()`); `readonly` property when fixed at creation (`run.id`, `connection.engine`) | property, except a name starting `is_` or `as_`, which is a method: Playwright for Python's generator rule (`response.ok`, `page.url`, `page.is_closed()`, CM A2) | method (C-GETTER) |
+  | A read the SDK answers itself, on a handle | method, as all of Playwright's are (`page.url()`, `response.ok()`, `run.id()`, `connection.engine()`) | a read with no arguments is a property, except a name starting `is_` or `as_`, which is a method: Playwright for Python's generator rule (`response.ok`, `page.url`, `run.id`, `page.is_closed()`, CM A2) | method (C-GETTER) |
   | Builder without I/O (`getByRole`, `filter`) | sync method | sync method | method |
-  | Sub-object without I/O (`keyboard`, `request`) | `readonly` property | property | method |
+  | Sub-object without I/O (`keyboard`, `request`, `identities`) | `readonly` property | property | method |
   | Waiter (ADR 0080) | `waitForX(…)` | `wait_for_x(…)`, and an `expect_x` block for an event the program's own action triggers | `wait_for_x(…)` returning a `Waiter` with `during(action)` |
   | Side-activity event (ADR 0081) | `on('x', listener)` returning a `Subscription` | the same | `events(events::X)` returning an `EventStream` |
   | Sequence (ADR 0081) | `AsyncIterable` | async iterator; iterator in the sync API | `EventStream`; `Iterator` in `blocking` |
   | Opener | the value, with `await using` | the value, with `async with` or `with` | the value, with `close()` |
   | Cancellable (ADR 0080) | `signal` option | task cancellation | dropping the future |
   | Duration (ADR 0080) | `number` of milliseconds | `timedelta` | `Duration` |
+  | Point in time (Sessions, logins, Human pause and secrets in code) | `Date` | time-zone-aware `datetime` in UTC | `SystemTime` |
 
-- **Reads on the page API's classes.** They keep Playwright's methods in TypeScript (`request.url()`, `response.ok()`), as ADR 0085 decided (S3). Elsewhere, a property for a fixed fact turns a call written by mistake into a type error, where a method used as a value can pass unseen in a template string (T).
+- **One form for reads in TypeScript.** A read on a handle is a method whether it may change (`page.url()`) or is fixed at creation (`request.url()`, `run.id()`): one form in the language (S1), Playwright's (S3), which ADR 0085 keeps for the page API. A property would have suited a fixed fact better for T, since a method used as a value can pass unseen in a template string, but T ranks below both.
 - **Plain data** (results, error fields, event data that is not a page-API class):
   - TypeScript: `readonly` properties;
   - Python: attributes;
   - Rust: public fields of `#[non_exhaustive]` structs, with `goodfetch::Error` staying opaque (ADR 0079).
+  - A field only Foxhound fills belongs to a Foxhound type, never to a type both Products share (as `CrawlRun` beside `Run`), since a Rust struct cannot hide a field from one crate.
 - **Parameters.**
   - Required parameters are positional, in the catalog's order, and a boolean is never positional.
   - Optional parameters go in a trailing options object in TypeScript, as keyword-only arguments in Python, and as builder methods named after the parameter in Rust.
@@ -117,7 +119,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 
 ### Generated and hand-written
 
-- **Generated,** into the package of the Product each entry's mark names (ADR 0095):
+- **Generated,** Collie's entries into the Collie client package and Foxhound's into Foxhound's package (ADR 0095):
   - every member a kind expresses, with its option types, result types, doc text and its Experimental and deprecated markers;
   - Python's sync twins and Rust's `blocking` twins;
   - error classes, event types and settings types;
@@ -142,7 +144,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **The method.** `call(operation, params?, options?)` exists on the connection and on every handle, named after ADR 0077's "raw catalog call" and JSON-RPC's own word.
   - It reaches an operation the SDK does not generate, such as one a newer engine minor added, or one of Foxhound's from a Collie program on a Foxhound engine (ADR 0095).
   - `params` and the result are the wire's JSON, in snake_case and never camelCased: TypeScript's and Python's JSON types, `serde_json` values in Rust.
-  - Its options are `timeout`, plus `signal` in TypeScript.
+  - Its options are `timeout`, plus `signal` in TypeScript. `params` is optional, so in Rust it is a builder method: `page.call("page.x").params(…).await`.
 - **On a value,** `operation` must be in the value's own namespace, and the value fills the parameter of that name. Any other operation fails with a `ProgramError` before it is sent. On the connection, `params` names every value itself.
 - **The main path's protections hold** (G2, G3, G6):
   - a closed value fails with `closed`;
@@ -151,7 +153,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - the SDK never retries, and resends after a reconnect only for read and idempotent classes;
   - the engine validates `params` strictly and enforces every policy;
   - the Run trace records the call, marked raw.
-- **No events.** It returns the result only; an operation whose use needs events the SDK lacks waits for the SDK that generates them.
+- **Its limits.** It returns the result only: an operation whose use needs events the SDK lacks waits for the SDK that generates them. A parameter that names a second value takes that value's ID, so `call` reaches such an operation only where the program holds one, as a Run's.
 - **Semver** covers `call`'s shape, and the catalog's own rules cover what it reaches. No golden scenario uses it (G8).
 
 ### Deprecation and Experimental markers (T)
@@ -167,7 +169,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   | MCP | a deprecated tool's description opens "Deprecated: use `<tool>`, removed in <major>", and its `inputSchema` root carries the JSON Schema `deprecated: true`; a deprecated argument carries it too. MCP's Tool has no field of its own (CM D1, D6) |
   | CLI | ADR 0030's warning on stderr, and `--help` names the replacement |
 
-- **Where PEP 702 has no marker,** for a field of plain data or a key of a settings `TypedDict` (CM C1, C6), the name keeps ADR 0030's runtime warning and its docstring. Codegen lists each such name in the release notes' deprecations.
+- **Where PEP 702 has no marker,** for a field of plain data or a key of a settings `TypedDict` (CM C1, C6), the name keeps ADR 0030's runtime warning and its docstring. Codegen lists each such name in the release notes' deprecations. This is a departure from T's "every deprecated name", recorded as an amendment of ADR 0077.
 - **The runtime warning** fires once per process per name, through the host's channel (ADR 0078).
 - **Experimental** (ADR 0030):
   - TSDoc's `@experimental`, a Discretionary standard tag (CM C7);
@@ -179,14 +181,15 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 ### Other surfaces
 
 - **MCP tools and Framework adapters' tools** share one name: the canonical name with `_` in place of `.` (`page_goto`, `run_checkpoint`).
-  - Only `[a-z0-9_]`, at most 40 characters: OpenAI's and Anthropic's tool names refuse a dot, and OpenAI caps a function name at 64 characters, which a host's `mcp__goodfetch-foxhound__` prefix shares (CM D1 to D3). Codegen refuses a longer name.
+  - Only `[a-z0-9_]`, at most 39 characters: OpenAI's and Anthropic's tool names refuse a dot, and OpenAI caps a function name at 64 characters, which a host's 25-character `mcp__goodfetch-foxhound__` prefix shares (CM D1 to D3). Codegen refuses a longer name.
   - Foxhound's carry Collie's under the same names (ADR 0095).
 - **CLI commands** read `<executable> <namespace> <member>`, words joined by `-` (`goodfetch-foxhound run checkpoint <run>`).
   - A value-bound operation takes its value's reference as the first positional argument.
   - Flags are `--<parameter>` in kebab-case, as gh, docker and clap's defaults do.
   - `--json` fields stay snake_case (ADR 0038).
-  - Hand-written commands (ADR 0069) follow the same spelling.
+  - A command group is a singular noun, generated or hand-written (ADR 0069's `daemon start`, `config explain`), as gh's `gh run list` and docker's `docker plugin install` are. A glossary term in the plural keeps its own words (`rules update` for the Clean-up rules).
   - Which operations the CLI offers is area 11's.
+- **An entry kept off agent surfaces** (ADR 0011's list, ADR 0041's raising of a Limit, ADR 0029's answer about an uncertain Effect, and the cookie operations Sessions, logins, Human pause and secrets in code offers to no Client acting for a model) is generated for no MCP tool, Framework adapter, Code mode global or skill.
 - **Code mode and Script Hooks** keep ADR 0051's TypeScript names.
 - **Integrations** use canonical names as identifiers.
 - **Reference pages** show the canonical name and each language's spelling.
@@ -209,14 +212,17 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - TypeScript: `interface Connection`, which `Collie` and `Foxhound` implement.
   - Python: base classes `Connection` and `AsyncConnection`, which `Collie`, `Foxhound` and their async twins extend.
   - Rust: `trait Connection` and `blocking::Connection`.
-  - Its members are what both connections share: `engine`, `identities`, `call`, `close`, `explainSettings` and Collie's Run start.
+  - Its members are what both connections share: `engine`, `identities` (the Saved identities of [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)), `call`, `close`, `explainSettings` and Collie's Run start.
   - Every Product's package re-exports it.
 - **Rust keeps inherent methods.** `Collie` and `Foxhound` keep their own generated methods of the same names, so a program never imports the trait to call them. The trait serves code written for both Products, which avoids sqlx's "trait not in scope" (CM B7).
 - **Why the name.** psycopg's `Connection` and `AsyncConnection`, and sqlx's and diesel's `Connection` traits, use it for the same thing (CM B6, B7).
 - **Error classes per Product.**
   - In TypeScript and Python, Collie's code classes live in the client package, and Foxhound's own in Foxhound's package, all extending the client package's group classes. A Collie program that meets a Foxhound code gets its group's class with the code kept (ADR 0079).
-  - In Rust, `ErrorCode` is one `#[non_exhaustive]` enum in the client crate. It lists every code, each variant's doc naming its Product: Rust reuses `goodfetch-protocol`'s list with nothing generated (ADR 0038), another crate cannot extend an enum, and a second Foxhound enum would give Foxhound programs two code types to match (S2).
-  - Settings constants, events and values stay with their Product's crate.
+- **How `goodfetch-protocol` lays out its types for the Rust crates,** which ADR 0095 hands to this decision so that each SDK crate shows only its own Product's entries:
+  - a type wholly one Product's is re-exported only by that Product's crate, and settings constants, events and values stay with their Product's crate;
+  - a type both Products share whose values Foxhound extends (Error codes, Usage kinds, Limit scopes, Notification events) is an open value type: a newtype over its wire string, with an associated constant for each Collie value in the client crate (`ErrorCode::TARGET_NOT_UNIQUE`) and a constant of the same type in Foxhound's crate for each Foxhound value (`goodfetch_foxhound::error_code::PAYLOAD_INVALID`);
+  - a program compares such a value with `==` or matches it against the constants, as `http::StatusCode` and `http::Method` are matched, and a value it does not know stays a value, with `as_str()` (G3);
+  - this replaces ADR 0079's Rust `ErrorCode` enum. One enum listing Foxhound's codes would put them in Collie's crate, an enum cannot be extended by another crate, and a second Foxhound enum would give Foxhound programs two code types to match (S2).
 
 ## Considered Options
 
@@ -232,11 +238,11 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **Trailing underscores in Rust,** as playwright-rs: rejected. rustc's own help leads to `r#`, and Rust's generated SDKs use it.
 - **Per-language renames,** as Java's `navigate`: rejected by S1.
 - **Aliases kept for familiarity,** with or without a warning: rejected by S2 and T.
-- **Every TypeScript read a method,** as Playwright's: rejected outside the page API's classes. A fact fixed at creation, such as `run.id`, is safer as a property.
+- **A `readonly` property for a fact fixed at creation in TypeScript,** with methods only for reads that change: rejected. The page API keeps Playwright's methods for fixed facts (`request.url()`), so TypeScript would show two forms for one kind (S1). **Properties for every read**, as fetch's `Response`: rejected. Playwright's page API is the leader there (S3).
 - **No raw call,** a newer operation waiting for an SDK upgrade: rejected by G8.
 - **A raw call on the connection only,** with each value exposing a wire ID for the program to place: rejected. It adds a member to every value and leaves the placement to the program.
 - **A raw call that also surfaces events:** rejected. Unknown events would need a second, untyped event API.
-- **Pydantic's `Field(deprecated=…)` as Python's marker for a field:** rejected as the only marker. It warns at run time only, and type checkers do not flag it (CM C6).
+- **Pydantic's `Field(deprecated=…)` as Python's marker for a field:** rejected as the only marker. Its docs promise a runtime warning and the JSON Schema keyword only, and mypy does not flag it (CM C6).
 - **A Tool-level `deprecated` field in MCP:** not available (CM D1). The description and JSON Schema's annotation are what hosts and models read.
 - **Dotted MCP tool names** (`page.goto`), which MCP allows: rejected. OpenAI and Anthropic refuse them as tool names (CM D2).
 - **One rendering form per SDK only,** leaving the CLI's and MCP's to their own designs: rejected. A model calling `page_goto` should read the names it called.
@@ -245,7 +251,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - `EngineConnection` is longer, and ADR 0078 rejected "engine" for the connection, since closing it never stops a Daemon.
   - ADR 0090 rejected `Goodfetch`, which names nothing installed, and ADR 0078 rejected `Client`, the glossary's word for the program.
 - **The shared members on the Rust trait only:** rejected. Every program would import the trait (rustc E0599).
-- **Foxhound-only Error codes in a second Rust enum:** rejected by S2.
+- **One Rust `ErrorCode` enum listing both Products' codes:** rejected. It puts Foxhound's names in Collie's crate (ADR 0095). **Foxhound's variants behind a Cargo feature:** rejected. A Cargo feature exists only for heavy optional dependencies and test utilities (ADR 0038), and types would change with features, as Spider's do (ADR 0083). **A second Rust enum for Foxhound's codes:** rejected by S2.
 
 ## Consequences
 
@@ -258,15 +264,18 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - `operation` holds the canonical name, rendered in the caller's spelling in the message.
   - Class names follow this ADR's initialism rule (`CDPCommandRefusedError`).
   - The language `hello` carries is one of six forms, and names besides targets are rendered in it.
+  - Rust's `ErrorCode` is an open value type with constants, no longer an enum.
 - **Amends ADR 0083.** "Camelcases each segment" applies the initialism rule (`baseURL`).
 - **Amends ADR 0030.**
   - Each language's deprecation marker and its gaps are as above.
   - MCP's "`deprecated` in the tool schema" is the description's first sentence and JSON Schema's `deprecated`.
   - Experimental's per-language marks are as above.
+- **Amends ADR 0077.** T's "every deprecated name carries the language's type-level marker" holds where the language has one; a Python plain-data field or settings `TypedDict` key keeps the runtime warning and is listed in the release notes.
 - **Amends ADR 0069.** Its completeness tests also check the hand-written manifest, its markers and its unused lines.
 - **Reading rules for earlier ADRs and specs:**
-  - an operation namespace written in the plural reads singular: `runs.<x>` is `run.<x>` (ADRs 0031, 0036, 0038, 0041, 0054, 0055, 0068 and area 3's spec) and `schedules.<x>` is `schedule.<x>` (ADRs 0036, 0037 and 0041); setting keys keep their areas (ADR 0083);
-  - a type name written in one language's casing (`JsonValue`, `CdpSession`, `AiWorkResult`) is spelled in each SDK by this ADR's rule.
+  - an operation namespace written in the plural reads singular: `runs.<x>` is `run.<x>` (ADRs 0031, 0036, 0038, 0041, 0054, 0055, 0068, 0072 and area 3's spec) and `schedules.<x>` is `schedule.<x>` (ADRs 0036, 0041 and ADR 0037's area order); setting keys keep their areas (ADR 0083);
+  - a CLI command group written in the plural reads singular: `goodfetch runs reindex` is `run reindex`, `plugins add` is `plugin add`, `certs accept` is `cert accept`, `browsers install` is `browser install`, `schedules apply` is `schedule apply`, `skills install` is `skill install`, `sinks list` is `sink list`; `rules update` keeps the Clean-up rules' own word;
+  - a name written in one language's spelling (`JsonValue`, `CdpSession`, `AiWorkResult`, `newCdpSession()`, a TypeScript read written as a property) is spelled in each SDK by this ADR's rule.
 - **`GLOSSARY.md`** gains **Connection**, and its Limit and Usage ledger entries say "a Connection".
 - **`STYLE.md`'s** Names section points to this ADR, and its SDK section adds the manifest.
 - **`TESTING.md`** gains catalog-mapping conformance cases.
@@ -277,7 +286,9 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - Area 12 (Console) shows each call in its Client's form.
 - **Other tickets.**
   - [Collie's page API](https://github.com/goodfetch/automan/issues/472) spells `newCDPSession` and `CDPSession` in TypeScript and Python, `r#continue` in Rust, `continue_` and the `ok` property in Python.
-  - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) applies the remaining initialism renames (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes) and `call` on every handle.
+  - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) applies the remaining renames: initialisms (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes), TypeScript reads on handles as methods (`run.id()`, `run.startedAs()`), and `call` on every handle.
+  - [The Run in code](https://github.com/goodfetch/automan/issues/478) spells its TypeScript reads as methods (`run.id()`, `run.startedAs()`).
+  - [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476) gets `identities` as a sub-object in every language, and its cookie operations kept off agent surfaces.
   - [Agent-writability check](https://github.com/goodfetch/automan/issues/484) runs pyright strict, mypy with `--enable-error-code deprecated` and oxlint's `no-deprecated`.
   - [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499) shows each reference page's canonical name and per-language spellings.
-- **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `catalog` files for each language ([`b9eaed1`](https://github.com/goodfetch/automan/commit/b9eaed1)). The pain coverage matrix closes P07, P33, P43 and K06 as API.
+- **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `catalog` files for each language ([`b9eaed1`](https://github.com/goodfetch/automan/commit/b9eaed1), [`251bda0`](https://github.com/goodfetch/automan/commit/251bda0)). The pain coverage matrix closes P07, P33, P43 and K06 as API.

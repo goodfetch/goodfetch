@@ -25,7 +25,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   _Why:_ specs, docs, code and conversations then use one language.
 - **Full words, no abbreviations** except those everyone writes (`id`, `url`, `http`, `cdp`).
 - **Rust naming follows the Rust API Guidelines:** casing, `as_`/`to_`/`into_` for conversions by cost and ownership, no `get_` prefix on getters, `iter`/`iter_mut`/`into_iter`.
-- **Names in the SDK API, the CLI and MCP come from the catalog's canonical words by one rule per language** ([ADR 0099](docs/adr/0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md)): initialisms from its closed list are capitals in TypeScript names and Python class names (`waitForURL`, `CDPSession`) and one word in Rust (`CdpSession`); a keyword is escaped, never renamed (`continue_` in Python, `r#continue` in Rust); no name keeps an alias beyond a deprecation's window.
+- **Names in the SDK API, the CLI and MCP come from the catalog's canonical words by one rule per language** ([ADR 0099](docs/adr/0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md)): initialisms from its closed list are capitals in TypeScript names and Python class names (`waitForURL`, `CDPSession`), lowercase where they open a camelCase name (`url()`), and one word in Rust (`CdpSession`); a keyword is escaped, never renamed (`continue_` in Python, `r#continue` in Rust); no name keeps an alias beyond a deprecation's window.
   _Why:_ every surface then names an entry the same way, and a reader or a coding agent applies one rule without exceptions.
 
 ## Rust
@@ -142,7 +142,7 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 - **Every public hand-written member is listed in its SDK's manifest** with the catalog entry it serves, or none and a reason; it carries that entry's doc text and markers, and a member the generator could express is generated instead ([ADR 0099](docs/adr/0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md)).
   _Why:_ hand-written ports drift from what they port; a listed member is checked, and an unlisted one fails the build.
 - **Settings reach code through one `settings` option per scope, generated from the settings schema** ([ADR 0083](docs/adr/0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md)): a nested object literal in TypeScript, a nested `TypedDict` in Python, typed key constants on `Settings` in Rust. No SDK reads the environment outside `connect()`'s environment map; in Rust, that read of the process environment carries the one `#[expect]` of `disallowed-methods` outside `main` (ADR 0059).
-- **The wire is snake_case.** Python uses wire names as they are; TypeScript presents camelCase through the generated mapping, which never renames user data (extracted records, headers, metadata maps).
+- **The wire is snake_case.** Python uses wire names as they are, a keyword taking a trailing underscore (`continue_`, ADR 0099); TypeScript presents camelCase through the generated mapping, which never renames user data (extracted records, headers, metadata maps).
 
 ## TypeScript
 
@@ -151,7 +151,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/`
 - **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc, Twoslash) until TypeScript 7 provides one.
 - **Optional fields are written `?: T | undefined`.**
   _Why:_ the published types then work whether or not the consumer enables `exactOptionalPropertyTypes`.
-- **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` is an error.
+- **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` and `typescript/no-deprecated` are errors.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
 - **Libraries build with tsdown. Outside `console/` and `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
 - **The Console and the docs site are tested in browsers, on one Node line:** Vitest Browser Mode and Playwright Test, against the binary for the served Console (ADR 0068, rules in [`TESTING.md`](TESTING.md)).
@@ -170,7 +170,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/`
 
 Applies to `sdks/python`, the Python adapters and the uv workspace. Supported versions follow ADR 0024: every CPython not past end of life, including free-threaded builds.
 
-- **pyright in strict mode gates CI**, and mypy `--strict` checks the generated code and the type tests that exercise the public API (`TESTING.md`, ADR 0069).
+- **pyright in strict mode gates CI**, and mypy `--strict`, with the `deprecated` error code on, checks the generated code and the type tests that exercise the public API (`TESTING.md`, ADRs 0069 and 0099).
   _Why:_ pyright is what most editors show; the mypy check keeps the types right for mypy users too.
 - **ruff formats and lints**, with the rule sets `E F I UP B C4 ARG T20 TID251 PERF RUF ANN PYI TC ASYNC D`, ignoring `D206` and `D300`, which conflict with ruff's formatter.
   _Why:_ `ASYNC` catches blocking calls inside async code, and `T20` bans `print`.

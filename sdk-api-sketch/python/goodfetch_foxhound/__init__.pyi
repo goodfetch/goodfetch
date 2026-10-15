@@ -466,6 +466,7 @@ from goodfetch_foxhound._crawl import AsyncHandler as AsyncHandler
 from goodfetch_foxhound._crawl import AttemptEndedError as AttemptEndedError
 from goodfetch_foxhound._crawl import AttemptEndReason as AttemptEndReason
 from goodfetch_foxhound._crawl import BrowserRequiredError as BrowserRequiredError
+from goodfetch_foxhound._crawl import ResponsesNotKeptError as ResponsesNotKeptError
 from goodfetch_foxhound._crawl import Crawl as Crawl
 from goodfetch_foxhound._crawl import CrawlContext as CrawlContext
 from goodfetch_foxhound._crawl import CrawlRequest as CrawlRequest
@@ -590,6 +591,7 @@ from goodfetch_foxhound._settings import CrawlScopeSettings as CrawlScopeSetting
 from goodfetch_foxhound._settings import CrawlScopeStrategy as CrawlScopeStrategy
 from goodfetch_foxhound._settings import CrawlSettings as CrawlSettings
 from goodfetch_foxhound._settings import FetchSettings as FetchSettings
+from goodfetch_foxhound._settings import KeptResponsesSettings as KeptResponsesSettings
 from goodfetch_foxhound._settings import LabelCrawlSettings as LabelCrawlSettings
 from goodfetch_foxhound._settings import LabelFetchSettings as LabelFetchSettings
 from goodfetch_foxhound._settings import LabelSettings as LabelSettings

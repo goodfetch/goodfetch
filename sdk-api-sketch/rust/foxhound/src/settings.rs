@@ -172,6 +172,22 @@ pub mod fetch {
     pub const TIER: Setting<TierChoice> = Setting::new("fetch.tier");
     /// `fetch.tier_race`, ADR 0040's `tier_race`. Built-in: false.
     pub const TIER_RACE: Setting<bool> = Setting::new("fetch.tier_race");
+
+    /// `fetch.kept_responses.*` (ADR 0110): the responses a handler reads with
+    /// `ctx.kept_response` and `ctx.kept_responses`, on a crawl's Run or its Labels. A Label that
+    /// sets `URLS` while forcing `http` or `browser_fetch` fails the Run's start with
+    /// `setting_not_applicable`: those tiers run no script.
+    pub mod kept_responses {
+        use crate::crawl::UrlPattern;
+        use crate::settings::Setting;
+
+        /// `fetch.kept_responses.urls`: the URLs of the responses kept on a request's page from
+        /// the start of its navigation, matched in the engine. Built-in: none.
+        pub const URLS: Setting<Vec<UrlPattern>> = Setting::new("fetch.kept_responses.urls");
+        /// `fetch.kept_responses.max_size`: bytes of kept bodies per attempt; a body past it reads
+        /// as `body_unavailable`. Built-in: 16 MiB.
+        pub const MAX_SIZE: Setting<u64> = Setting::new("fetch.kept_responses.max_size");
+    }
 }
 
 /// `politeness.*` (ADR 0086): one family, so `goodfetch-foxhound config explain politeness` shows

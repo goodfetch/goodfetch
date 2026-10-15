@@ -273,7 +273,9 @@ class AsyncRunControl(Generic[_Report, _Progress]):
         a crawl, or, under `crawl.keep_alive`, once drained after this call; when the engine ends it for a detached Run.
         If something stops the Run first (a Limit, its timeout, a person, the engine), the report says `stopped`. Its
         wait has no timeout of its own: the Run's own bounds it, and a `timeout` given here, or cancelling the task,
-        ends only the wait.
+        ends only the wait. A failed write of the Plan file or the Response recording raises `PathNotWritableError` or
+        `FileWriteFailedError` once the Run has ended; `open_run(id).report()` reads its report, which keeps a warning
+        naming the code (ADR 0116).
         """
     async def stop(self, *, timeout: Timeout = ...) -> _Report:
         """Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program,

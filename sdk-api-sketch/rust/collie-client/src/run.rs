@@ -280,7 +280,10 @@ impl Run {
     /// report: at once for a Collie Run, whose program says it is done; when the engine ends it for
     /// a detached Run. If something stops the Run first (a Limit, its timeout, a person, the
     /// engine), the report says `Stopped`. Its wait has no timeout of its own: the Run's own bounds
-    /// it, and `.timeout(..)` or dropping the future ends only the wait.
+    /// it, and `.timeout(..)` or dropping the future ends only the wait. A failed write of the Plan
+    /// file or the Response recording fails with `path_not_writable` or `file_write_failed` once the
+    /// Run has ended; `open_run(id).report()` reads its report, which keeps a warning naming the code
+    /// (ADR 0116).
     pub fn finish(&self) -> Call<RunReport> {
         unimplemented!()
     }

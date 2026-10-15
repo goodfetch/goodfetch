@@ -218,6 +218,9 @@ export interface RunControl {
    * flight for a crawl; when the engine ends it for a detached Run. If something stops the Run first
    * (a Limit, its timeout, a person, the engine), the report says `stopped`. Its wait has no timeout
    * of its own: the Run's own bounds it, and a `timeout` or `signal` given here ends only the wait.
+   * A failed write of the Plan file or the Response recording throws `PathNotWritableError` or
+   * `FileWriteFailedError` once the Run has ended; `openRun(id).report()` reads its report, which
+   * keeps a warning naming the code (ADR 0116).
    */
   finish(options?: CallOptions): Promise<RunReport>;
   /**

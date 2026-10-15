@@ -31,7 +31,7 @@ export async function names(page: Page): Promise<boolean> {
   await using cdp = await page.newCDPSession();
   void cdp;
   const response = await page.goto("https://books.toscrape.com/");
-  return response?.ok() ?? false; // a Playwright class keeps Playwright's accessor methods
+  return response?.ok() ?? false; // a read on a handle is a method, as all of Playwright's are
 }
 
 export async function bothProducts(): Promise<void> {

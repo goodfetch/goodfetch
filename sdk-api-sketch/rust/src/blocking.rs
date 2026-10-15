@@ -313,6 +313,9 @@ pub trait Connection {
     /// The engine reached, fixed when the connection opened.
     fn engine(&self) -> &crate::EngineInfo;
 
+    /// The install's Saved identities.
+    fn identities(&self) -> crate::Identities;
+
     /// The raw catalog call; set its parameters with [`RawCall::params`], then [`RawCall::send`] it.
     fn call(&self, operation: &str) -> RawCall;
 
@@ -357,6 +360,10 @@ impl RawCall {
 impl Connection for Goodfetch {
     fn engine(&self) -> &crate::EngineInfo {
         Goodfetch::engine(self)
+    }
+
+    fn identities(&self) -> crate::Identities {
+        unimplemented!()
     }
 
     fn call(&self, operation: &str) -> RawCall {

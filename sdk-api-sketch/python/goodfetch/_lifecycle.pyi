@@ -28,6 +28,7 @@ from goodfetch._concurrency import (
     Subscription,
 )
 from goodfetch._data import JsonValue
+from goodfetch._effects import AsyncDeclaresEffects, DeclaresEffects
 from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, RunUsage
 from goodfetch._output import AsyncExport, AsyncKeyValueStore, DatasetRecord, Export, ExportFormat, KeyValueStore, RejectedRecord, StoredBytes
 from goodfetch._hooks import (
@@ -171,7 +172,7 @@ class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionStateApi
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
-class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[RunReport, RunProgress], AsyncRawCall):
+class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[RunReport, RunProgress], AsyncRawCall, AsyncDeclaresEffects):
     """A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it with a
     Checkpoint, resumable by starting its ID again (ADR 0102)."""
 
@@ -245,7 +246,7 @@ class AsyncCollie:
         Raises `RunNotFoundError`."""
 
 @final
-class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[CrawlRunReport, CrawlRunProgress]):
+class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[CrawlRunReport, CrawlRunProgress], AsyncDeclaresEffects):
     """A crawl's Run (ADRs 0093, 0102); its Records are ADR 0103's. Its handlers run from its start until it ends."""
 
     @property
@@ -457,7 +458,7 @@ class Session(_Closeable, _ExplainsSettings, SessionStateApi, RawCall):
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
-class Run(_Closeable, _ExplainsSettings, RunEvents, RunControl[RunReport, RunProgress], RawCall):
+class Run(_Closeable, _ExplainsSettings, RunEvents, RunControl[RunReport, RunProgress], RawCall, DeclaresEffects):
     """A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it with a
     Checkpoint, resumable by starting its ID again (ADR 0102)."""
 
@@ -516,7 +517,7 @@ class Collie:
     def open_run(self, id: str, *, timeout: Timeout = ...) -> RunView[RunReport, RunProgress]: ...
 
 @final
-class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunReport, CrawlRunProgress]):
+class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunReport, CrawlRunProgress], DeclaresEffects):
     """A crawl's Run (ADRs 0093, 0102); its Records are ADR 0103's. Its handlers run on the connection's thread pool from
     its start until it ends."""
 

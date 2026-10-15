@@ -692,15 +692,9 @@ pub struct ModelNotConfigured {
     pub instruction: String,
 }
 
-/// Details of `effect_uncertain`. Never retried: a person reconciles it (ADR 0029).
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct EffectUncertain {
-    /// The step's instruction.
-    pub instruction: String,
-    /// The Effect journal's entry.
-    pub journal_id: String,
-}
+/// Details of `effect_uncertain`: an AI action's instruction or a declared Effect's key
+/// (ADR 0106). Never retried: a person reconciles it (ADR 0029).
+pub type EffectUncertain = crate::effects::UncertainEffect;
 
 /// Details of `effect_not_confirmed`.
 #[derive(Debug, Clone)]

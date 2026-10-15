@@ -9,6 +9,7 @@
 import type { RecordingReport } from "./recording.js";
 import type { EventIterator } from "./concurrency.js";
 import type { ReportedFetchTier } from "./crawl.js";
+import type { UncertainEffect } from "./effects.js";
 import type { Closeable } from "./lifecycle.js";
 import type { RecordCounts } from "./output.js";
 import type { RunUsage } from "./models.js";
@@ -183,6 +184,8 @@ export interface RunReport {
   readonly verdict: Verdict;
   /** Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects (ADR 0079). */
   readonly verdictReasons: readonly string[];
+  /** Each Effect left uncertain, waiting for a person to reconcile it in the Console (ADRs 0029, 0106). */
+  readonly uncertainEffects: readonly UncertainEffect[];
   readonly completeness: Completeness;
   /** Why it is not `complete`: stopped early, a bound reached, offset pagination, pages left at `payment_required` (ADR 0005). */
   readonly completenessReasons: readonly string[];

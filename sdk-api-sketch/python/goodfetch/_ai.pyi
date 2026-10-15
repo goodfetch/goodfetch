@@ -21,6 +21,7 @@ from datetime import timedelta
 from typing import Generic, Literal, TypeAlias, TypeVar, final, overload
 
 from goodfetch._data import JsonSchema, JsonValue
+from goodfetch._effects import UncertainEffect
 from goodfetch._lifecycle import AsyncPage, Page
 from goodfetch._models import ModelReference, ModelUsage, StructuredOutputStrategy
 from goodfetch._page import AsyncLocator, AsyncResponse, Locator, Response
@@ -476,16 +477,15 @@ class ExtractionInvalidError(ModelError):
     @property
     def details(self) -> ExtractionInvalidDetails: ...
 
-@final
-@dataclass(frozen=True, kw_only=True)
-class EffectUncertainDetails:
-    instruction: str
-    journal_id: str
+EffectUncertainDetails: TypeAlias = UncertainEffect
+"""The uncertain Effect: an AI action's instruction, or a declared Effect's key (ADR 0106)."""
 
 @final
 class EffectUncertainError(PageError):
-    """An `act` whose action the engine classed an Effect failed after the action was sent. Never retry: a person
-    reconciles it (ADR 0029). `__cause__` holds the original."""
+    """An Effect may have happened and Goodfetch cannot tell: an `act` whose action the engine classed an Effect failed
+    after the action was sent, or a declared Effect's body ended after a send (ADR 0106), now or in an earlier attempt.
+    Never retry: a person reconciles it (ADR 0029). `__cause__` holds the original, when it was raised in this
+    process."""
 
     @property
     def details(self) -> EffectUncertainDetails: ...

@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod concurrency;
 pub mod crawl;
 pub mod data;
+pub mod effects;
 pub mod hooks;
 pub mod lifecycle;
 pub mod models;
@@ -41,6 +42,9 @@ pub use crawl::{
     NotAddedReason, Seed, StartCrawl, UrlPattern,
 };
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
+pub use effects::{
+    DeclareEffect, Effect, EffectKeyInvalid, EffectKeyReused, EffectOutputInvalid, EffectResult, UncertainEffect, UncertainWhy,
+};
 pub use hooks::{
     AfterResponseContext, BackendRequest, BackendResponse, BeforeRequestContext, FetchCall, HandlerError, HeaderForbidden, HookFailed, HookOn,
     HookStage, PageStageContext, ProxyAnswer, ProxyCall, ProxyRequest, RecordCommitContext, RecordHookOn, RequestChange, ResponseChange,

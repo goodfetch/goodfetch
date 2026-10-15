@@ -301,6 +301,18 @@ pub mod network {
     pub const THROTTLE: Setting<Option<NetworkThrottle>> = Setting::new("network.throttle");
 }
 
+/// `effect.*` (ADR 0106): set on a connection or a Run.
+pub mod effect {
+    /// `effect.output.*`.
+    pub mod output {
+        use super::super::Setting;
+
+        /// `effect.output.max_size`, in bytes: the largest output of a declared Effect the journal
+        /// keeps. Built-in: 64 KiB.
+        pub const MAX_SIZE: Setting<u64> = Setting::new("effect.output.max_size");
+    }
+}
+
 /// `checkpoint.*` (ADRs 0002, 0102).
 pub mod checkpoint {
     use super::Setting;

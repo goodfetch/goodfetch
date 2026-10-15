@@ -16,6 +16,7 @@ from typing import Generic, Literal, Self, TypeAlias, TypeVar, final
 
 from goodfetch._recording import RecordingReport
 from goodfetch._concurrency import AsyncEventIterator, EventIterator
+from goodfetch._effects import UncertainEffect
 from goodfetch._models import RunUsage
 from goodfetch._results import (
     BlockCause,
@@ -229,6 +230,8 @@ class RunReport:
     verdict: Verdict
     verdict_reasons: Sequence[str]
     """Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects (ADR 0079)."""
+    uncertain_effects: Sequence[UncertainEffect]
+    """Each Effect left uncertain, waiting for a person to reconcile it in the Console (ADRs 0029, 0106)."""
     completeness: Completeness
     completeness_reasons: Sequence[str]
     """Why it is not `complete`: stopped early, a bound reached, offset pagination, pages left at `payment_required`

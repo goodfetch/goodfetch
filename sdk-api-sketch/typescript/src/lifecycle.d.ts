@@ -9,6 +9,7 @@ import type { Connection, RawCall } from "./catalog.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
 import type { Crawl, CrawlRun, CrawlRunView, CrawlStartOptions } from "./crawl.js";
 import type { JsonObject, JsonValue } from "./data.js";
+import type { DeclaresEffects } from "./effects.js";
 import type { ModelProviderHandler, ReadsUsage } from "./models.js";
 import type { KeyValueStore } from "./output.js";
 import type { FetchBackendHandler, ProxyProviderHandler, SinkHandler } from "./hooks.js";
@@ -161,7 +162,7 @@ export interface NewSessionOptions extends CallOptions {
  * A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it
  * with a Checkpoint, resumable by starting its ID again (ADR 0102).
  */
-export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage, RunControl, RawCall {
+export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage, RunControl, RawCall, DeclaresEffects {
   /** Chosen by the program at the start, or generated: it names this Run for good. */
   readonly id: string;
   /**

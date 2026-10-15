@@ -12,6 +12,7 @@
 // Model references and `ModelUsage` are ADR 0101's (models.d.ts). Secret placeholders in instructions are ADR 0092's.
 
 import type { JsonValue, Schema, SchemaOutput } from "./data.js";
+import type { UncertainEffect } from "./effects.js";
 import type { Page } from "./lifecycle.js";
 import type { ModelReference, ModelUsage, StructuredOutputStrategy } from "./models.js";
 import type { Locator, Response } from "./page.js";
@@ -281,11 +282,16 @@ export declare class ExtractionInvalidError extends ModelError {
   };
 }
 
-/** An `act` whose action the engine classed an Effect failed after the action was sent. Never retry: a person reconciles it (ADR 0029). `cause` holds the original. */
+/**
+ * An Effect may have happened and Goodfetch cannot tell: an `act` whose action the engine classed an
+ * Effect failed after the action was sent, or a declared Effect's body ended after a send (ADR 0106),
+ * now or in an earlier attempt. Never retry: a person reconciles it (ADR 0029). `cause` holds the
+ * original, when it was thrown in this process.
+ */
 export declare class EffectUncertainError extends PageError {
   readonly code: "effect_uncertain";
   readonly retryable: false;
-  readonly details: { readonly instruction: string; readonly journalId: string };
+  readonly details: UncertainEffect;
 }
 
 /** An AI Effect in one of ADR 0014's categories was not confirmed: a person declined its Human pause, or the pause expired (ADR 0092). */

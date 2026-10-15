@@ -344,6 +344,9 @@ pub struct RunReport {
     pub verdict: Verdict,
     /// Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects.
     pub verdict_reasons: Vec<String>,
+    /// Each Effect left uncertain, waiting for a person to reconcile it in the Console (ADRs 0029,
+    /// 0106).
+    pub uncertain_effects: Vec<crate::effects::UncertainEffect>,
     /// Its Completeness.
     pub completeness: Completeness,
     /// Why it is not `complete`: stopped early, a bound reached, offset pagination, pages left at

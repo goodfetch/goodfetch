@@ -18,6 +18,7 @@ import type {
 import type { Permission, ProxySettings, SecretsSettings, SessionLoginSettings } from "./sessions.js";
 import type { AgentSettings } from "./agent.js";
 import type { AiSettings } from "./models.js";
+import type { EffectSettings } from "./effects.js";
 
 /**
  * `timeout.*`: ADR 0080's phases, one family. `null` clears a phase's timeout for the whole scope.
@@ -213,6 +214,8 @@ export interface Settings {
   /** `sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets. */
   readonly sinks?: Readonly<Record<string, SinkSettings>>;
   readonly checkpoint?: CheckpointSettings;
+  /** `effect.*`: what the Effect journal keeps of a declared Effect (ADR 0106). */
+  readonly effect?: EffectSettings;
 }
 
 /** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */
@@ -256,6 +259,7 @@ export interface RunSettings {
   readonly secrets?: SecretsSettings;
   readonly proxy?: ProxySettings;
   readonly checkpoint?: CheckpointSettings;
+  readonly effect?: EffectSettings;
 }
 
 /**
@@ -263,7 +267,7 @@ export interface RunSettings {
  * `source` argument, one spelling (S2). Set where a Borrowed browser's Session opens, any `browser.*`
  * value is refused with `setting_not_applicable`.
  */
-export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session" | "plan" | "checkpoint"> {
+export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session" | "plan" | "checkpoint" | "effect"> {
   readonly session?: Omit<SessionLoginSettings, "source">;
 }
 
@@ -318,6 +322,7 @@ export type SettingKey =
   | "browser.permissions"
   | "network.throttle"
   | "crawl.payload.max_size"
+  | "effect.output.max_size"
   | "politeness.domain.concurrency"
   | "politeness.domain.delay"
   | "politeness.backoff.enabled"

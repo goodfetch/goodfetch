@@ -142,9 +142,16 @@ pub enum ErrorCode {
     ExtractionIncomplete,
     /// `extraction_invalid`, a model error: the model's answers never passed the checks within the retries (ADR 0091).
     ExtractionInvalid,
-    /// `effect_uncertain`: an `act` whose action was an Effect failed after the action was sent; never
-    /// retried, a person reconciles it (ADR 0091).
+    /// `effect_uncertain`: an Effect may have happened and Goodfetch cannot tell: an `act` whose
+    /// action was an Effect failed after the action was sent (ADR 0091), or a declared Effect's body
+    /// ended after a send (ADR 0106); never retried, a person reconciles it.
     EffectUncertain,
+    /// `effect_key_invalid`: an empty key, or one longer than 255 characters (ADR 0106).
+    EffectKeyInvalid,
+    /// `effect_key_reused`: a key declared again after this attempt already got its answer (ADR 0106).
+    EffectKeyReused,
+    /// `effect_output_invalid`: a body's value is not JSON or is too large (ADR 0106).
+    EffectOutputInvalid,
     /// `effect_not_confirmed`, a refusal: an AI Effect's confirmation was declined or its Human pause
     /// expired (ADR 0091).
     EffectNotConfirmed,
@@ -496,6 +503,12 @@ pub enum ErrorDetails {
     ModelNotConfigured(crate::ai::ModelNotConfigured),
     /// Of `effect_uncertain`.
     EffectUncertain(crate::ai::EffectUncertain),
+    /// Of `effect_key_invalid`.
+    EffectKeyInvalid(crate::effects::EffectKeyInvalid),
+    /// Of `effect_key_reused`.
+    EffectKeyReused(crate::effects::EffectKeyReused),
+    /// Of `effect_output_invalid`.
+    EffectOutputInvalid(crate::effects::EffectOutputInvalid),
     /// Of `effect_not_confirmed`.
     EffectNotConfirmed(crate::ai::EffectNotConfirmed),
     /// Of `model_not_found`, `model_unauthorized`, `model_funds_exhausted`, `model_declined` and

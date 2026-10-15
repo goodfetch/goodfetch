@@ -186,6 +186,16 @@ class CheckpointSettings(TypedDict, total=False):
     interval: timedelta | None
     """`checkpoint.interval`: how often the Run writes a Checkpoint. Built-in: none locally."""
 
+class EffectOutputSettings(TypedDict, total=False):
+    max_size: int
+    """`effect.output.max_size`, in bytes: the largest output of a declared Effect the journal keeps (ADR 0106).
+    Built-in: 64 KiB."""
+
+class EffectSettings(TypedDict, total=False):
+    """`effect.*` (ADR 0106): set on a connection or a Run."""
+
+    output: EffectOutputSettings
+
 class FetchSettings(TypedDict, total=False):
     """`fetch.*`: the fetch tiers of ADR 0020 (ADR 0093)."""
 
@@ -252,6 +262,8 @@ class Settings(TypedDict, total=False):
     sinks: Mapping[str, SinkSettings]
     """`sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets."""
     checkpoint: CheckpointSettings
+    effect: EffectSettings
+    """`effect.*`: what the Effect journal keeps of a declared Effect (ADR 0106)."""
 
 class CrawlRunSettings(TypedDict, total=False):
     """A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2)."""
@@ -269,6 +281,7 @@ class CrawlRunSettings(TypedDict, total=False):
     observation: ObservationSettings
     sinks: Mapping[str, SinkSettings]
     checkpoint: CheckpointSettings
+    effect: EffectSettings
 
 class LabelTimeoutSettings(PageTimeoutSettings, total=False):
     """The phases a Label can set: a page's, and its handler's."""
@@ -325,6 +338,7 @@ class RunSettings(TypedDict, total=False):
     secrets: SecretsSettings
     proxy: ProxySettings
     checkpoint: CheckpointSettings
+    effect: EffectSettings
 
 class SessionSettings(TypedDict, total=False):
     """A Session's settings: Politeness and Site preferences are a Run's, and `session.source` is `new_session()`'s
@@ -383,6 +397,7 @@ SettingKey: TypeAlias = Literal[
     "browser.permissions",
     "network.throttle",
     "crawl.payload.max_size",
+    "effect.output.max_size",
     "politeness.domain.concurrency",
     "politeness.domain.delay",
     "politeness.backoff.enabled",

@@ -235,7 +235,7 @@ My inferences:
 | Contracts and types | 1 | Features change field types, signatures, receivers and trait impls; public fields everywhere; serialized config varies with features; stringly control/cron/budget |
 | Error model | 2 | Typed enums at the seams and in the agent, but crawl failures become synthetic HTTP statuses, `build()` returns `Err(Website)`, and `unwrap_unchecked` hides fallible calls behind UB |
 | Test architecture | 2 | ~1,930 tests exist, but inline in giant files, many network-bound, core suites not run in CI, no feature matrix |
-| Tooling/CI enforcement | 2 | fmt, clippy `-D warnings` and `cargo audit` run, but 25 crate-wide allows, 2 of 128 feature sets checked, no MSRV, `--no-verify` publishing |
+| Tooling/CI enforcement | 2 | fmt, clippy `-D warnings` and `cargo audit` run, but 25 crate-wide allows, two configurations out of 128 features checked, no MSRV, `--no-verify` publishing |
 | In-code documentation | 4 | `missing_docs` enforced through clippy `-D warnings`, long rationale comments, a feature catalog in `lib.rs`, 74 examples; minus version-history narration in comments, and docs.rs cannot build every feature |
 
 ## 10. Lessons for Goodfetch

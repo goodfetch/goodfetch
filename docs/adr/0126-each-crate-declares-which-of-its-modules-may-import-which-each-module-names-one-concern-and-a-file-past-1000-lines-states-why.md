@@ -61,4 +61,5 @@ Decided in [Separation of concerns inside a crate is unchecked](https://github.c
 
 - **`STYLE.md`.** Workspace and crates states the import rules and the size alarm; Design states the one-concern rule; Lints states that the two function-size lints stay on.
 - **Review.** The one-concern rule and each `Size:` reason are review rules in `STYLE.md`, checked by the fresh review of a pull request; the `xtask` check holds the rest.
+- **ADR 0061** carries a note: the Quick suite runs this check.
 - **ADR 0037.** Area 1 (Repository, CI and release) lists this ADR: [Workspace skeleton and the "all green" pull-request check](https://github.com/goodfetch/goodfetch/issues/132) builds the `xtask` check. Every area's crates follow it, as they follow ADR 0038.

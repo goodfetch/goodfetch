@@ -25,6 +25,7 @@ Each suite runs everything the suite before it runs.
   - `xtask codegen --check` and `xtask affected`'s own tests.
   - Nothing that starts a process, a browser or a container, or binds a socket.
   > Amended by [ADR 0097](0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md): the Quick suite also runs `xtask wording`, which fails on a term of ADR 0035's wording list in published prose.
+  > Amended by [ADR 0126](0126-each-crate-declares-which-of-its-modules-may-import-which-each-module-names-one-concern-and-a-file-past-1000-lines-states-why.md): the Quick suite also runs the `xtask` check of each crate's `modules.toml` and of the 1,000-line size alarm.
 - **Pre-merge suite**: what ADR 0032's pull-request tier runs, on one platform. That is the Quick suite plus:
   - the `tests/it` binary of every touched crate and of the crates that depend on it (`rdeps`);
   - the conformance suites against the local Proving ground with the Goodfetch Chromium;

@@ -19,7 +19,7 @@ Decided in [A failure from CDP, a fetch, a proxy or a model has no single place 
   - each Model provider adapter (ADRs 0012 and 0101), where ADR 0101's classification by error type and message happens;
   - each built-in Sink's client (ADR 0026);
   - any later module that talks to such a party, which its area spec names.
-- **A proxy's refusal is told apart where it arrives.** On a tier that sends HTTP itself, the tier's transport primitive sees the proxy's own answer to its tunnel request; on a browser tier, the CDP client sees the browser's proxy error. Each maps ADR 0053's proxy refusals to their own variants there.
+- **A proxy's refusal is classified only where an engine module sees the proxy's own answer.** That is the transport primitive of a tier that sends HTTP itself, which reads the answer to its tunnel request, and ADR 0017's egress proxy on a path where it forwards to an upstream proxy, which is then that path's translation point. There ADR 0053's proxy refusals get their own variants. A browser reached without the egress proxy shows less: Chromium reports any refused tunnel but a 407 as one network error (`ERR_TUNNEL_CONNECTION_FAILED`), and a 407 as `Fetch.authRequired`. The CDP client maps those, and area 5's spec decides how such a failure counts under ADR 0053.
 - **Process Plugins and SDK handlers need none.** They return typed errors through the plugin protocol (ADR 0033), whose engine side checks them like any other decoded input.
 - **A translation point is the module that first receives the party's failure.** Where one implementation talks to the party, it owns its error enum of typed variants, written with `thiserror` (`STYLE.md`), from which its crate maps to Error codes. Only the RPC layer converts to the wire, as before.
 - **Where a driver sits above several implementations (ADR 0129), the driver defines the enum once** and decides what each variant leads to (a retry, a backoff, an Error code). Each implementation's translation point maps its party's failures into that enum, since each reaches a different library or format. The driver never reads a party's text.
@@ -48,5 +48,5 @@ Decided in [A failure from CDP, a fetch, a proxy or a model has no single place 
 - **`STYLE.md`.** Errors states the translation-point rule and the private text.
 - **`TESTING.md`.** The review checklist checks that a new upstream message or code has its case in its translation point's table.
 - **ADR 0053 and ADR 0101** carry notes: the proxy refusal and the Model provider classification each happen in their translation point.
-- **ADR 0129** states the drivers whose enums the translation points of the fetch tiers and the Model provider adapters map into.
+- **ADR 0129** states the drivers whose enums the translation points of the fetch tiers, the Model provider adapters and the Sinks' clients map into.
 - **ADR 0037.** Areas 3 (Engine runtime), 5 (Site access), 6 (Collection) and 9 (AI and agent) list this ADR. Each spec names its translation points and the generic code an unknown failure maps to.

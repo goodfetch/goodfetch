@@ -69,7 +69,6 @@ export interface WaitingPause {
   readonly deadline: Date | null;
 }
 
-/** A Run's progress: a telemetry value, coalesced under load (ADR 0024). */
 /**
  * A filesystem the Run writes to, at its storage level (ADR 0122). At `low` the Run sheds Run trace
  * video and new Response cache entries and carries `storage_low`; at `critical` it stops resumably.
@@ -82,6 +81,7 @@ export interface StorageState {
   readonly freeBytes: number | null;
 }
 
+/** A Run's progress: a telemetry value, coalesced under load (ADR 0024). */
 export interface RunProgress {
   readonly lifecycle: Lifecycle;
   /** `none` when nothing works the Run, as after a crash, until a start with its ID resumes it. */

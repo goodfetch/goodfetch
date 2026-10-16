@@ -33,13 +33,14 @@ When an extracted field is a number, an amount's currency or a date, and the pag
 |---|---|---|
 | `text` | the element's text, whitespace normalized as `expect` normalizes it, or one attribute; an `href` or `src` is resolved against the document's base URL, as ADR 0093's links are | the text |
 | `match` | a capture group of a regular expression over that text, matched in the engine (ADR 0081) | the text |
-| `number` | an integer or decimal under its locale's CLDR symbols | the canonical decimal |
-| `currency` | a currency symbol or code under its locale's CLDR names (`€`; `$` is USD under `en-US` and CAD under `en-CA`) | the ISO 4217 code |
+| `number` | an integer or decimal under its locale's CLDR decimal patterns, or an amount under its currency patterns, whose currency sign it skips ("1.099,98 €" under `de-DE`) | the canonical decimal |
+| `currency` | a currency symbol or code under its locale's CLDR names, alone or in an amount under its currency patterns (`€`; `$` is USD under `en-US` and CAD under `en-CA`) | the ISO 4217 code |
 | `date` | a date in one of its locale's CLDR date formats, or in a stated CLDR pattern such as `dd/MM/yyyy` | `YYYY-MM-DD` |
 | `date_time` | a date and time, likewise, with its time zone | RFC 3339, with its offset |
 | `relative_time` | CLDR's relative forms in its locale ("3 hours ago", "yesterday", "il y a 3 heures"), with its time zone | a date-time, or a date where the field is a date |
 | `map` | an exact text, looked up in a table the transform declares ("Three" → 3) | the table's value |
 
+- **A field keeps one transform, optionally preceded by a `match`.** The `match`'s capture group is the text the transform reads, so "Price: 1.099,98 € incl. VAT" is a `match` then a `number`, and the price and its currency are two fields read from one element. No longer chain exists. In model mode the answer names the same pair, and Grounding checks the element's text, then runs both.
 - **Machine-readable values come first.** `number`, `date` and `date_time` read from a `<time datetime>`, a `<data value>` or a `content` attribute use the invariant forms (ISO 8601, a plain decimal with a dot), whatever the locale, and the compile prefers them. HTML gives these attributes "a machine-readable form" of their element's contents ([HTML](https://html.spec.whatwg.org/multipage/text-level-semantics.html#the-time-element)).
 - **Output forms.**
   - A `number` never passes through a float. It writes a JSON number where the field's JSON Schema takes a number, and text where it takes a string, the exact decimal of ADR 0082 (scenario 02's `"51.77"`).
@@ -113,9 +114,9 @@ When an extracted field is a number, an amount's currency or a date, and the pag
 
 ## Consequences
 
-- **Amends ADR 0013.** A "declared transform" is a Value transform from this ADR's list, run by the engine. A model never writes a typed value it parsed itself. A note sits under its first paragraph.
+- **Amends ADR 0013.** A "declared transform" is a Value transform from this ADR's list, run by the engine. A model never writes a typed value it parsed itself. The one value a model writes is in a compiled `map`'s table, which a person accepts before the Plan keeps it. A note sits under its first paragraph.
 - **Amends ADR 0091.**
-  - The closed list of compiled transforms is this ADR's.
+  - The closed list of compiled transforms is this ADR's, and a field's transform may be preceded by a `match`.
   - In model mode, the model answers each field with its text and transform, and the engine computes the value.
   - A replayed transform that does not parse, or a field read from an element in another language than the one kept, is Drift, which `GLOSSARY.md`'s **Drift** now covers beside a target that no longer matches its Target fingerprint.
   - The variant key of an entry holding a locale-dependent transform also holds the document's language, the Session's locale and the `extract.locale` in effect, and for a date-time or relative time the Session's zone and `extract.timezone_id`; each field keeps its element's language, checked once the element is found. Under `plan.frozen` a missing variant fails with `plan_drift`.
@@ -135,5 +136,5 @@ When an extracted field is a number, an amount's currency or a date, and the pag
   - **Area 6 (Collection)** lists this ADR for Records.
   - **Area 2 (Proving ground and conformance)** serves the cases from the Proving ground's "geo and language variants" pages (ADR 0025).
   - Each lists this ADR.
-- **The pitfall catalog's D05** closes as Handled. [#550](https://github.com/goodfetch/goodfetch/issues/550) decodes bytes to text before any transform runs.
+- **The pitfall catalog's D05** closes as Handled. [ADR 0119](0119-every-fetch-tier-decodes-a-crawls-document-as-the-browser-does-a-label-names-the-content-types-its-handler-takes-and-exports-are-utf-8.md) decodes bytes to text before any transform runs.
 - **The `prototype/sdk-api` sketch** holds the two settings in its `settings` files for each language, with a snippet reading a German price and date in its `ai` snippets.

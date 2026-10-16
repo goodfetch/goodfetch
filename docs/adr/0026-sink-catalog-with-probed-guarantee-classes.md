@@ -110,6 +110,8 @@ They share one interface and one conformance suite, and earn the class they pass
 
 **Export formats.** JSON, JSONL, CSV, XLSX, XML and Parquet are joined by HTML table, RSS/Atom, Avro, Arrow IPC and Markdown, with gzip or zstd compression.
 
+> Amended by [ADR 0119](0119-every-fetch-tier-decodes-a-crawls-document-as-the-browser-does-a-label-names-the-content-types-its-handler-takes-and-exports-are-utf-8.md): every text Export format is UTF-8, JSON and JSONL with no BOM and characters written as themselves, and CSV with a BOM only when `export.csv.bom` is on (off by default); values are written as decoded, never normalized or repaired.
+
 **OAuth.** Tokens are Secret references obtained by a loopback `goodfetch auth <provider>` flow, or by service accounts.
 - Refreshed and rotated tokens are written back to a writable Secret provider (keychain, encrypted file, vaults). With a read-only provider such as `env:`, they are kept in the run's encrypted state (ADR 0015) and the docs advise a writable provider for rotating tokens.
 - The run-start probe checks every token and sends an `auth expired` Notification before collection.

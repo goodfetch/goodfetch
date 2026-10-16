@@ -32,6 +32,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
   - **On every tier.** The engine resolves the `href` attribute's own value, not the browser's resolved link, so a link's identity never depends on the tier that served the page (G1, and ADR 0093's one handler on every tier).
 - **The base.**
   - An `href` and a handler's `enqueue` resolve against the document's base URL, as ADR 0093's `enqueueLinks` does, so a relative URL in `enqueue` works as Scrapy's `response.follow` does.
+  - An `href`'s query is percent-encoded in its document's encoding, as the HTML standard's URL parsing does, and that encoding is the one [ADR 0119](0119-every-fetch-tier-decodes-a-crawls-document-as-the-browser-does-a-label-names-the-content-types-its-handler-takes-and-exports-are-utf-8.md) decodes the document with. A handler's `enqueue`, a seed and a sitemap entry use UTF-8.
   - A sitemap entry resolves against its sitemap's URL.
   - A `Location` resolves against its request's URL.
   - A seed and `addSeed` take an absolute URL.

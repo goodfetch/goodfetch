@@ -20,7 +20,7 @@ The engine parses every URL a crawl meets once, with the WHATWG URL Standard, wh
   - [sitemaps.org](https://www.sitemaps.org/protocol.html#submit_robots) lets a sitemap list another host's URLs when that host's robots.txt names it (R 1.25).
   - Google treats `rel=canonical` as "a hint, not a rule" (R 1.15). It tells sites to disallow facet parameters in robots.txt (R 1.5).
 
-Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](https://github.com/goodfetch/goodfetch/issues/551), raised by the [Common pitfalls catalog](https://github.com/goodfetch/goodfetch/issues/547) on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/551#issuecomment-6204435654) its [first addendum](https://github.com/goodfetch/goodfetch/issues/551#issuecomment-6204745613) and its [second addendum](https://github.com/goodfetch/goodfetch/issues/551#issuecomment-6204877870). It extends ADR 0093, which the owner confirmed, and reverses none of it. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md).
+Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](https://github.com/goodfetch/goodfetch/issues/551), raised by the [Common pitfalls catalog](https://github.com/goodfetch/goodfetch/issues/547) on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/551#issuecomment-6204435654), its [first addendum](https://github.com/goodfetch/goodfetch/issues/551#issuecomment-6204745613) and its [second addendum](https://github.com/goodfetch/goodfetch/issues/551#issuecomment-6204877870). It extends ADR 0093, which the owner confirmed, and reverses none of it. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md).
 
 ## Decision
 
@@ -85,7 +85,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
   | `crawl.max_path_segments` | 20 | a path of more segments, as the parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`) |
   | `crawl.max_segment_repeats` | 2 | a segment, or a run of segments, that appears more than this many times back to back, so `/a/a` passes and `/a/a/a` does not (Heritrix's `maxRepetitions`) |
 
-  - `crawl.max_segment_repeats` counts `/a/a/a` as Heritrix does. It also catches the `/a/b/a/b/a/b` loops that relative links make on a site answering 200 for any path, Google's `../../category/stuff`. Numbers that recur apart, as in `/page/1/tag/1/sort/1`, are not caught, though StormCrawler's any-third-occurrence rule would refuse them.
+  - `crawl.max_segment_repeats` counts as Heritrix's `maxRepetitions` pattern does, a run of segments as well as one segment: `/a/a/a`, and the `/a/b/a/b/a/b` loops that relative links make on a site answering 200 for any path, Google's `../../category/stuff`. Numbers that recur apart, as in `/page/1/tag/1/sort/1`, are not caught, though StormCrawler's any-third-occurrence rule would refuse them.
   - `null` turns a cap off.
 - **Where they apply.** They are checked on what enters the Frontier (seeds, enqueues, sitemap entries), after the scope and the domain policy, so only a URL the crawl would otherwise admit is refused by a cap, and an over-long link to another host stays `out_of_scope`. Redirects are not checked, since their limits are [#549](https://github.com/goodfetch/goodfetch/issues/549)'s.
 - **The answer.** A URL past a cap is not added, with the setting's name as its reason (`max_url_length`, `max_path_segments`, `max_segment_repeats`), as ADR 0093 names `max_depth`.
@@ -126,7 +126,7 @@ The not-added reasons of ADR 0093 gain `invalid_url`, `max_url_length`, `max_pat
 - **Stripping `sid`, `phpsessid` and `sessionid` as a fixed list** (Nutch): rejected. `sid` names a story on some sites, and ADR 0005's learned rule merges real session IDs on evidence.
 - **Honouring `rel=canonical` as a merge:** rejected. Google calls it a hint, and a mis-templated site drops every page but one.
 - **Ignoring `rel=canonical`:** rejected. It is free evidence for rules the Frontier learns anyway.
-- **No caps by default,** as Scrapy's `DEPTH_LIMIT` and Crawlee's `maxCrawlDepth`: rejected by G5. A trap the learned rule misses runs until a Limit.
+- **No URL-shape caps by default,** as Scrapy's `DEPTH_LIMIT` and Crawlee's `maxCrawlDepth` leave depth open (Scrapy's `URLLENGTH_LIMIT` is on): rejected by G5. A trap the learned rule misses runs until a Limit.
 - **StormCrawler's repeat rule** (any third occurrence of a segment): rejected. It refuses numeric paths such as `/page/1/tag/1/sort/1`.
 - **A URL refused by a cap leaving the Run `complete`:** rejected by G1. A heuristic cut the crawl space, which is what `unverified` says (ADR 0005).
 - **A default facet rule** (a per-path variant cap, a learned no-new-links trap or a default per-path bound): rejected. Each one cuts real crawls, as shown above.

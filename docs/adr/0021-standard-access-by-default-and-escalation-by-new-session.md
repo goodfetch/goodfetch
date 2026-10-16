@@ -12,6 +12,8 @@ Every Session opens in one Access mode, fixed for its life. `standard`, the defa
 
 > Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): in ADR 0086's note above, the robots.txt token is `goodfetch-foxhound`, not `Foxhound`.
 
+> Amended by [ADR 0121](0121-service-workers-run-under-the-engines-interception-the-back-forward-cache-is-off-locators-reach-closed-shadow-roots-and-a-read-never-scrolls-a-list.md): on WebKit, `browser.service_workers: block`, its only value there, is Playwright's page-visible `register` stub, since Playwright's driver reaches no WebKit switch for service workers. A `standard` WebKit Session therefore departs from the no-injection identity, as a user init script does, and Provenance marks it. On Chromium and Firefox, `block` injects nothing.
+
 ## Considered Options
 
 - **`identified` by default** (the R&D's draft ADR-002): rejected. It applied Site preferences by default, which ADR 0016 rejected to stay competitive with Crawlee and Spider, and a declared bot is blocked more often.

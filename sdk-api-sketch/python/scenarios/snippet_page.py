@@ -130,7 +130,7 @@ async def all_rows(page: AsyncPage) -> dict[str, str]:
     found: dict[str, str] = {}
     while True:
         seen = await rows.evaluate_all(
-            "els => Object.fromEntries(els.map(el => [el.getAttribute('aria-rowindex') ?? '', el.textContent ?? '']))"
+            "els => Object.fromEntries(els.map(el => [el.getAttribute('aria-rowindex') ?? el.textContent, el.textContent]))"
         )
         before = len(found)
         if isinstance(seen, dict):

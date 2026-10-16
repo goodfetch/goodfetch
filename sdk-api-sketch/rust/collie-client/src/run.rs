@@ -198,7 +198,8 @@ pub struct StorageState {
 pub enum StorageLevel {
     /// Enough space.
     Normal,
-    /// The Run sheds Run trace video and new Response cache entries and carries `storage_low`.
+    /// The Run sheds Run trace video, new Response cache entries and periodic Checkpoints onto that
+    /// filesystem, and carries `storage_low`.
     Low,
     /// Every Run whose essential writes are there stops resumably.
     Critical,

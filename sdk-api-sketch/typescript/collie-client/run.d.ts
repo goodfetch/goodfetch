@@ -71,7 +71,8 @@ export interface WaitingPause {
 
 /**
  * A filesystem the Run writes to, at its storage level (ADR 0122). At `low` the Run sheds Run trace
- * video and new Response cache entries and carries `storage_low`; at `critical` it stops resumably.
+ * video, new Response cache entries and periodic Checkpoints onto that filesystem, and carries
+ * `storage_low`; at `critical` it stops resumably.
  */
 export interface StorageState {
   readonly level: "normal" | "low" | "critical" | (string & {});

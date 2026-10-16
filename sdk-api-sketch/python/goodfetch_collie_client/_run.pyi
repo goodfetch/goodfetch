@@ -49,8 +49,8 @@ Completeness: TypeAlias = Literal["complete", "incomplete", "unverified"] | str
 class StorageState:
     """A filesystem the Run writes to, at its storage level (ADR 0122).
 
-    At `low` the Run sheds Run trace video and new Response cache entries and carries `storage_low`; at `critical` it
-    stops resumably.
+    At `low` the Run sheds Run trace video, new Response cache entries and periodic Checkpoints onto that filesystem
+    and carries `storage_low`; at `critical` it stops resumably.
     """
 
     level: Literal["normal", "low", "critical"] | str

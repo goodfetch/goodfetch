@@ -26,7 +26,7 @@ Decided in [Parallel implementations of one contract have no rule that their sha
 
 - **Fetch tiers** (area 5, ADRs 0020 and 0118): the tiers that send HTTP themselves share one fetch driver for redirects, retries, cookies, decoding (ADR 0119) and the transport-failure enum; each provides its per-hop request and maps its library's failures into that enum. On a browser tier the browser follows redirects and keeps cookies itself, so those tiers go through the Session-level driver below and the CDP client; area 5's spec decides what else of the fetch driver they share.
 - **Sinks** (area 6, ADR 0026): one delivery driver for retries, the delivery ID and the run epoch (ADR 0008) and the delivery-failure enum; each Sink provides its write and maps its service's failures into that enum.
-- **The other built-in Plugin kinds** (area 7, ADR 0033): a kind with two or more built-in implementations gets a driver, which its area spec names.
+- **Other Plugin kinds with built-in implementations** (ADR 0033), such as Secret providers (area 4, ADR 0015) and Notification channels (area 11, ADR 0027): a kind with two or more built-in implementations gets a driver, which the area spec that builds them names.
 - **Model providers** (area 9, ADRs 0012 and 0101): ADR 0012 already puts JSON repair and the bounded retry above the formats; Usage, the deadline and the model-failure enum join them, and each adapter provides its request, its response mapping and the mapping of its provider's failures into that enum.
 - **A local browser and a Browser host** (areas 3 and 5, ADRs 0022 and 0096): one Session-level driver; each provides its connection.
 - **Each area spec names its drivers and their primitives.** A spec that adds a second implementation of a contract adds its driver in the same change.
@@ -46,4 +46,4 @@ Decided in [Parallel implementations of one contract have no rule that their sha
 ## Consequences
 
 - **`STYLE.md`.** Design states the rule beside "a trait only where two adapters exist".
-- **ADR 0037.** Areas 3 (Engine runtime), 5 (Site access), 6 (Collection), 7 (Plugin protocol) and 9 (AI and agent) list this ADR. Each spec names its drivers and primitives.
+- **ADR 0037.** Every area follows this ADR, as it follows ADRs 0126 and 0127, since any area may build several implementations of a contract: Secret providers (area 4) and Notification channels (area 11) among them. Areas 3, 5, 6, 7 and 9 also list it in their rows. Each spec names its drivers and primitives.

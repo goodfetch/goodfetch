@@ -13,7 +13,7 @@ Decided in [Separation of concerns inside a crate is unchecked](https://github.c
 
 ### Module import rules
 
-- **Each crate has a `modules.toml` beside its `Cargo.toml`.** It lists each top-level module of the crate (each module `lib.rs` or `main.rs` declares) with the sibling modules it may import:
+- **Each crate has a `modules.toml` beside its `Cargo.toml`.** It lists every top-level module of the crate (each module `lib.rs` or `main.rs` declares) with the sibling modules it may import, an empty list for one that imports none:
 
   ```toml
   [modules]
@@ -22,15 +22,15 @@ Decided in [Separation of concerns inside a crate is unchecked](https://github.c
   error = []
   ```
 
-  A module absent from the file may import no sibling. A module's own submodules are its business; a module that grows submodules worth rules of their own adds a `[submodules.<name>]` table in the same file, listing its submodules the same way. A submodule's imports of its parent's siblings count against its parent's line:
+  A module missing from the file fails the check. A module's own submodules are its business; a module that grows submodules worth rules of their own adds a `[submodules.<name>]` table in the same file, listing its submodules the same way. A submodule's imports of its parent's siblings count against its parent's line:
 
   ```toml
   [submodules.dispatch]
   route = ["table"]
   table = []
   ```
-- **What counts as an import:** any path that reaches a sibling, whether through `use`, a qualified path in code, or a type in a signature: `crate::x`, `super::x` resolving to a sibling, and re-exports. **Type-only imports are not exempt.** Generated code (`generated/` folders, ADR 0038) is not checked, and generated bindings sit under one top-level module. `lib.rs` only declares modules and re-exports (`STYLE.md`), and `main.rs` is the composition root, which names every module by design (ADR 0087); neither is checked. Code under `#[cfg(test)]` is not checked: a test may build its fixtures from any module of its crate, and it still calls the module under test through its interface (ADR 0062).
-- **The `xtask` check fails** on an import the file does not allow, on a cycle among the allowed imports, and on a name in the file that is not a module of the crate. It runs in the Quick suite (ADR 0061) and parses source with `syn`, so it needs no build.
+- **What counts as an import:** any path that reaches a sibling, whether through `use`, a qualified path in code, or a type in a signature: `crate::x`, `super::x` resolving to a sibling, and re-exports. **Type-only imports are not exempt.** Generated code (`generated/` folders, ADR 0038) is not checked, and generated bindings sit under one top-level module. `lib.rs` only declares modules and re-exports (`STYLE.md`), and `main.rs` is the composition root (ADR 0087); neither is checked. Code under `#[cfg(test)]` is not checked: a test may build its fixtures from any module of its crate, and it still calls the module under test through its interface (ADR 0062).
+- **The `xtask` check fails** on an import the file does not allow, on a cycle among the allowed imports, on a name in the file that is not a module of the crate, and on a module the file does not list. It runs in the Quick suite (ADR 0061) and parses source with `syn`, so it needs no build.
 - **It adds to the existing pins.** A module that `disallowed-methods` or `disallowed-types` already reserves a concern to (`transport`, `tasks`, `Clock`, `Entropy`, `sync`) keeps that reservation; the file only says who may call it.
 
 ### One concern per module

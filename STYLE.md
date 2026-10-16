@@ -52,7 +52,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Each crate and each module opens with a `//!` comment stating its role.**
 - **Each crate's `modules.toml` lists which of its top-level modules may import which** (ADR 0126). An `xtask` check in the Quick suite fails on any other import (type-only imports included, `#[cfg(test)]` code excepted), on a cycle, and on a name that is no module of the crate.
   _Why:_ Rust's visibility does not stop one sibling module from using another, and import rules held in the research only where a tool checked them.
-- **A Rust file over 1,000 lines states why it is still one concern**, in a `Size:` line of its `//!` header, or the same `xtask` check fails. Only files under `src/` count, every line included, but for `#[cfg(test)]` items (and files only they declare) and generated code. It is an alarm, not a cap.
+- **A Rust file over 1,000 lines states why it is still one concern**, in a `Size:` line of its `//!` header, or the same `xtask` check fails. Every line of a file under `src/` counts, except `#[cfg(test)]` items (and files only they declare) and generated code. It is an alarm, not a cap.
 
 ### Errors
 
@@ -60,7 +60,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **`anyhow` only in `main`, `xtask` and tests.**
 - **Every failure a Client can see maps to an Error code** from the list in `goodfetch-protocol` (snake_case string, retryable flag, JSON-RPC class). Only the RPC layer converts errors for the wire.
   _Why:_ Error codes are under semver (ADR 0030) and every SDK generates a class per code, so a code is matched on, never a message.
-- **A failure from a party Goodfetch did not write becomes a typed error in one translation point per boundary** ([ADR 0127](docs/adr/0127-a-failure-from-a-party-goodfetch-did-not-write-becomes-a-typed-error-in-one-module-per-boundary-and-no-other-code-reads-its-text.md)): the CDP client, the transport primitive of each fetch tier that sends HTTP itself, each Model provider adapter and each built-in Sink's client; under a driver (ADR 0129) each maps into the enum the driver defines. The party's message is a private, redacted field with no string accessor, and only the translation point matches on it; an unknown failure becomes its `Unrecognized` variant, logged at `warn`.
+- **A failure from a party Goodfetch did not write becomes a typed error in one translation point per boundary** ([ADR 0127](docs/adr/0127-a-failure-from-a-party-goodfetch-did-not-write-becomes-a-typed-error-in-one-module-per-boundary-and-no-other-code-reads-its-text.md)): such as the CDP client, the transport primitive of each fetch tier that sends HTTP itself, the egress proxy where it forwards to an upstream proxy, each Model provider adapter and each built-in Sink's client; under a driver (ADR 0129) each maps into the enum the driver defines. The party's message is a private, redacted field with no string accessor, and only the translation point matches on it; an unknown failure becomes its `Unrecognized` variant, logged at `warn`.
   _Why:_ text matched wherever it is needed breaks in every place at once when the party rewords it.
 - **No `unwrap()` outside tests.** `expect("invariant: …")` states an invariant the type system can't express; anything input can trigger returns an error.
 - **Panics are for bugs only, never for input or control flow.**

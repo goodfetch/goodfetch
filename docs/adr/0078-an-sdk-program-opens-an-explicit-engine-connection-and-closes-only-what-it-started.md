@@ -61,6 +61,7 @@ A program reaches Goodfetch through one value it opens and holds: an engine conn
 - **Every SDK:** logger names and targets are part of the SDK API under semver, message text is not. An expected outcome is never logged at error level (G1).
 - **The engine's logs** reach a Client as log events of its own connection and runs, which area 3's spec already classes as telemetry: coalesced under backpressure with a `dropped` count, never slowing a run. The engine filters them at a level the SDK sets: from the logger's effective level in Python, from `tracing`'s level hint in Rust, and as area 11's spec gives it for the TypeScript `logger` option. The SDK re-emits them under its engine loggers or targets (`goodfetch.engine.*` in Python, `goodfetch::engine::…` in Rust). A Daemon keeps its own log.
 - **An Attached engine's stderr** is piped, never inherited. An Attached engine started by an SDK sends its logs only as log events, so its stderr carries only ADR 0030's age notice and crash output. The SDK re-emits each stderr line through the host logger at warning level and keeps the last 64 KiB to attach to the error raised when the engine exits unexpectedly (G6).
+  > Amended by [ADR 0122](0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md): an Attached engine also writes JSON lines to the Goodfetch home's log folder when `log.output` is `file` in its configuration, as test support sets it for ADR 0072's exercise audit. Its logs still go as log events, and its stderr is unchanged.
 
 ### Rust
 

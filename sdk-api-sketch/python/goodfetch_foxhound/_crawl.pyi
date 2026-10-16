@@ -130,7 +130,8 @@ class CrawlRequest(Generic[P]):
     def id(self) -> str: ...
     @property
     def url(self) -> str:
-        """The URL the Frontier admitted, after its URL rules (ADR 0005). The final URL is `page.url`."""
+        """The URL fetched, as parsed (ADR 0120): the Frontier's URL rules make only its key (ADR 0005), so its
+        parameters keep their order and no fragment is sent. The final URL is `page.url`."""
     @property
     def label(self) -> Label[P]:
         """The request's own Label, the handle to enqueue more of the same kind (pagination)."""

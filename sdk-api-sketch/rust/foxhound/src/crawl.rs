@@ -335,7 +335,8 @@ impl<P> CrawlRequest<P> {
         unimplemented!()
     }
 
-    /// The URL the Frontier admitted, after its URL rules (ADR 0005). The final URL is
+    /// The URL fetched, as parsed (ADR 0120): the Frontier's URL rules make only its key (ADR
+    /// 0005), so its parameters keep their order and no fragment is sent. The final URL is
     /// `page().url()`.
     pub fn url(&self) -> &str {
         unimplemented!()

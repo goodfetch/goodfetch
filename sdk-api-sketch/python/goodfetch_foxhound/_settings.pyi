@@ -100,11 +100,12 @@ class CrawlSettings(TypedDict, total=False):
     """`crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests`
     and ends the Run `incomplete`. Built-in: none."""
     max_url_length: int | None
-    """`crawl.max_url_length`: characters of a URL as parsed; a longer one is not added with `max_url_length`, and the
-    finished Run is `unverified`. Built-in: 2,083, Scrapy's; `None` for none (ADR 0120)."""
+    """`crawl.max_url_length`: characters of a URL as parsed, its fragment not counted; a longer one is not added with
+    `max_url_length`, and the finished Run is `unverified`. Built-in: 2,083, Scrapy's; `None` for none (ADR 0120)."""
     max_path_segments: int | None
-    """`crawl.max_path_segments`: a URL with a longer path is not added with `max_path_segments`, and the finished Run is
-    `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120)."""
+    """`crawl.max_path_segments`: segments of a URL's path as parsed, an empty last one (a trailing slash) not counted;
+    a URL with a longer path is not added with `max_path_segments`, and the finished Run is `unverified`. Built-in: 20,
+    Heritrix's; `None` for none (ADR 0120)."""
     max_segment_repeats: int | None
     """`crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may appear back to back
     (`/a/a` passes, `/a/a/a` does not); past it a URL is not added with `max_segment_repeats`, and the finished Run is

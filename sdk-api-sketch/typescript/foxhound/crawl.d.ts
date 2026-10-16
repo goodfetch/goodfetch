@@ -174,7 +174,10 @@ export declare function sitemap(url: string | URL, rules: readonly SitemapRule[]
 /** One crawl request of Label `L`, as its handler sees it. The engine's fields are kept apart from the Payload (ADR 0082). */
 export interface CrawlRequest<L extends Label<unknown, unknown> = Label<undefined>> {
   readonly id: string;
-  /** The URL the Frontier admitted, after its URL rules (ADR 0005). The final URL is `page.url()`. */
+  /**
+   * The URL fetched, as parsed (ADR 0120): the Frontier's URL rules make only its key (ADR 0005), so its
+   * parameters keep their order and no fragment is sent. The final URL is `page.url()`.
+   */
   readonly url: string;
   /** The request's own Label, the handle to enqueue more of the same kind (pagination). */
   readonly label: L;

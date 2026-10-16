@@ -35,7 +35,9 @@ pub enum SkipReason {
     /// A redirect or a Hook's rewrite reached a host the run's domain policy refuses (ADRs 0014,
     /// 0017).
     DomainPolicy,
-    /// A URL rule the Frontier learned after admitting it merged it with another (ADR 0005).
+    /// A URL rule the Frontier learned after admitting it merged it with another (ADR 0005), or its
+    /// redirect reached a URL whose key the Frontier already admitted, and its handler did not run
+    /// (ADR 0120).
     Duplicate,
     /// A Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a 5xx, or
     /// unreachable, with no earlier copy, until the request's retries ran out (ADR 0086).

@@ -56,9 +56,9 @@ export interface CrawlSettings {
   readonly maxDepth?: number | null;
   /** `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests` and ends the Run `incomplete`. Built-in: none. */
   readonly maxRequests?: number | null;
-  /** `crawl.max_url_length`: characters of a URL as parsed; a longer one is not added with `max_url_length`, and the finished Run is `unverified`. Built-in: 2,083, Scrapy's; `null` for none (ADR 0120). */
+  /** `crawl.max_url_length`: characters of a URL as parsed, its fragment not counted; a longer one is not added with `max_url_length`, and the finished Run is `unverified`. Built-in: 2,083, Scrapy's; `null` for none (ADR 0120). */
   readonly maxUrlLength?: number | null;
-  /** `crawl.max_path_segments`: a URL with a longer path is not added with `max_path_segments`, and the finished Run is `unverified`. Built-in: 20, Heritrix's; `null` for none (ADR 0120). */
+  /** `crawl.max_path_segments`: segments of a URL's path as parsed, an empty last one (a trailing slash) not counted; a URL with a longer path is not added with `max_path_segments`, and the finished Run is `unverified`. Built-in: 20, Heritrix's; `null` for none (ADR 0120). */
   readonly maxPathSegments?: number | null;
   /** `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may appear back to back, so `/a/a` passes and `/a/a/a` or `/a/b/a/b/a/b` does not; past it a URL is not added with `max_segment_repeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `null` for none (ADR 0120). */
   readonly maxSegmentRepeats?: number | null;

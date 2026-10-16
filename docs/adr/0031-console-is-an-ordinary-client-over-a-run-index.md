@@ -82,7 +82,7 @@ Evidence from the competitor survey made for that ticket:
 - **Retention.**
   - **Kept by default** for runs that are `failed`, `rejected` or `needs-review`, or that had a takeover or an Effect. A takeover is always recorded.
   - **Size cap.** Each run keeps up to 1 GB of trace by default. Past it, the oldest video goes first, while snapshots and the HAR are kept.
-    > Amended by [ADR 0122](0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md): at the `low` storage level a Run trace stops recording video, and at `critical` or when a trace write fails it stops, with the "no trace" mark. "Needs you" also lists a filesystem at `low` or `critical`, with its folder.
+    > Amended by [ADR 0122](0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md): at the `low` storage level a Run trace stops recording video, and at `critical` or when a trace write fails it stops, with the "no trace" mark. "Needs you" also lists a filesystem at `low` or `critical`, with its folder, and a Run stopped by storage.
   - **Erasure.** Traces are erased with their run.
 - **Cost.** Traces are a costly control (ADR 0023). Its switch is the trace setting; its mark is "no trace" on the run report and on the Timeline.
 - **The main world.** By default, on Chromium, nothing stays in the page, and the engine's only calls there are ADR 0048's calls into a consent vendor's own API. The opt-in exceptions are those ADR 0019 lists, and ADR 0047's on-demand hiding on Firefox and WebKit leaves a visible `<style>` element, marked in Provenance.

@@ -1,7 +1,7 @@
 # A Run stops resumably before its disk fills, and a Daemon's logs rotate at a bounded size
 
 The resource governor samples the free space of every filesystem a Run writes to. It works at three storage levels, `normal`, `low` and `critical`:
-- **At `low`,** a Run sheds the writes it can do without (Run trace video, new Response cache entries) and carries a `storage_low` warning.
+- **At `low`,** a Run sheds the writes it can do without (Run trace video, new Response cache entries, periodic Checkpoints onto that filesystem) and carries a `storage_low` warning.
 - **At `critical`,** every Run whose essential writes are on that filesystem stops resumably, with the stop reason `resources` and `resource: "storage"`. It keeps enough room to record the stop, and a start with its ID resumes it once space is freed.
 
 A write that fails before a sample sees it rolls back, is never acknowledged, and stops the Run the same way. WARC files keep only whole, committed records.
@@ -24,7 +24,7 @@ Logs are bounded as follows. `goodfetch daemon run` logs to stdout for its platf
   - Docker's default `json-file` driver performs no rotation, and Docker's docs advise the `local` driver "to prevent disk-exhaustion" ([configure](https://docs.docker.com/engine/logging/configure/)).
 - **`tracing-appender`** 0.2.5 rotates by time only, and its `max_log_files` keeps the last `n` files ([Builder](https://docs.rs/tracing-appender/0.2.5/tracing_appender/rolling/struct.Builder.html)).
 
-Decided in [A disk that fills under a long Run, and log volume](https://github.com/goodfetch/goodfetch/issues/553), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204412536), its [first addendum](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204734833) and its [second addendum](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204844106). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It holds in both Products: the storage levels, the stops and the logs are the engine's, and only WARC output and the per-domain Politeness are Foxhound's (ADR 0084); the Politeness file also holds Collie's per-proxy limits (ADR 0088).
+Decided in [A disk that fills under a long Run, and log volume](https://github.com/goodfetch/goodfetch/issues/553), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204412536), its [first addendum](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204734833), its [second addendum](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204844106) and its [third addendum](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6206021043). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It holds in both Products: the storage levels, the stops and the logs are the engine's, and only WARC output and the per-domain Politeness are Foxhound's (ADR 0084); the Politeness file also holds Collie's per-proxy limits (ADR 0088).
 
 ## Decision
 
@@ -49,7 +49,7 @@ Decided in [A disk that fills under a long Run, and log volume](https://github.c
   - **Why two levels.** Two levels follow Elasticsearch's watermarks and ADR 0040's pressure and critical.
   - **Why the smaller of two values.** The percentage keeps a small disk usable, and the fixed size keeps a large one from stopping with hundreds of gigabytes free. Heritrix's 8 GiB alone would stop a crawl on a 16 GB disk before it starts.
   - A level drops back as soon as a sample finds the space again.
-  - A level set to `0` is off, and a Run then meets only a failed write (below).
+  - A level set to `0` is off, and a Run then meets only a failed write (below). The report's `weakened` lists it, as it lists any setting that weakens a safeguard (ADRs 0028, 0102).
   - The defaults keep the user's machine usable and the Run resumable with nothing set (G5).
 - **Where it shows.**
   - `run.progress()` carries `storage`: the worst level among the filesystems the Run writes to, with that filesystem's folder and free space.
@@ -61,6 +61,7 @@ Decided in [A disk that fills under a long Run, and log volume](https://github.c
 Nothing stops at `low`, and admission goes on. Holding new work, as ADR 0040 does under memory pressure, would stall for ever, since a full disk never frees itself, unlike memory. Instead:
 - **The Run trace** stops recording video. Snapshots and the HAR go on, in the order ADR 0031's size cap already sheds them.
 - **The Response cache** stores no new entry. It evicts nothing beyond its own cap, so `replay` (ADR 0046) keeps serving what it holds.
+- **A periodic Checkpoint** whose location is on that filesystem is skipped, since a copy is as large as the run file and could spend the room kept for the stops between two samples; the run file still holds the state. A Checkpoint on another filesystem is still written, and an explicit `run.checkpoint()` still writes until `critical`.
 - **The warning.** The Run carries the warning `storage_low` in its report, naming the folder, the free space when it was raised and what was shed (G1, G6).
 
 ### At `critical`: every Run there stops resumably
@@ -100,7 +101,7 @@ A quota, another process filling the disk between two samples, or a filesystem t
 | The Usage ledger: Limits depend on it (ADR 0041) | yes | written | stops every Run of the engine |
 | The Politeness file: no request it limits is sent without its permit, per domain or per proxy (ADRs 0053, 0088) | yes | written | stops every Run of the engine that takes its permits |
 | WARC output (CO-30): the Run's own output, as its Records are | yes | written | stops the Run |
-| A periodic Checkpoint (ADR 0002) | no | written | skipped, with a `file_write_failed` warning; the run file still holds the state |
+| A periodic Checkpoint (ADR 0002) | no | skipped on that filesystem | skipped, with a `file_write_failed` warning; the run file still holds the state |
 | The Run trace (ADR 0031) | no | no video | stops for the Run, which carries the "no trace" mark |
 | A Response cache entry (ADR 0046) | no | not stored | not stored |
 | The Run index row (ADR 0031) | no | written | written later, and `goodfetch runs reindex` rebuilds it |
@@ -108,7 +109,7 @@ A quota, another process filling the disk between two samples, or a filesystem t
 
 - **WARC files hold only whole, committed records.**
   - The run file commits each WARC file's length together with the attempt whose records it holds.
-  - A resume cuts each WARC file back to its committed length, so neither a torn record nor the capture of a request the stop left uncommitted stays in it. The request is fetched again and captured once, as ADR 0003's "visible once" requires of every output.
+  - A resume cuts each WARC file back to its committed length, so neither a torn record nor the capture of a request the stop left uncommitted stays in it. The request is fetched again and captured once, since ADR 0003's outputs "become visible exactly once".
   - Heritrix instead leaves `.warc.gz.open` files that a crash may truncate and a person must validate.
 - **No new per-Run byte cap.** The parts a Run can do without already have caps: a Run trace has 1 GB per Run (ADR 0031), the Response cache 10 GB per user (ADR 0046), and logs the cap below. The run file and WARC output are the Run's own output, bounded by its Limits (ADR 0041). A byte cap per Run would stop Runs on an arbitrary number while the disk still has room.
 
@@ -127,7 +128,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 ### Logs
 
 - **`goodfetch daemon run`** keeps ADR 0049's JSON lines on stdout, for the platform to collect and rotate: the kubelet, journald, or the container runtime.
-  - The docs' Docker and Compose guides set the `local` logging driver, since `json-file` does not rotate by default.
+  - The Compose files `goodfetch init` writes, and the docs' Docker and Compose guides, set the `local` logging driver, since `json-file` does not rotate by default.
   - The Helm chart relies on the kubelet's rotation.
 - **Every other Daemon writes its own files.** That covers a Daemon started on demand (ADR 0024), by `goodfetch daemon start`, by launchd or systemd activation, or by the Windows logon task (ADR 0031).
   - They are JSON lines, in the Goodfetch home's log folder, one set of files per Daemon.
@@ -165,7 +166,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 - **Logging only to stdout or stderr:** rejected. A Daemon started on demand, by launchd or by a Windows logon task has no manager that keeps or rotates its output.
 - **Always writing the engine's own files:** rejected. In a container they would duplicate what the platform already collects and rotates, on a filesystem that may be ephemeral.
 - **Daily rotation, as `tracing-appender` offers:** rejected. A busy day's file is unbounded.
-- **`debug` by default** (Scrapy): rejected. It costs CPU and disk per request, which Scrapy's own optimisation guide tells users to switch off.
+- **`debug` by default** (Scrapy): rejected. It costs CPU and disk per request, which Scrapy's own [broad crawls guide](https://docs.scrapy.org/en/latest/topics/broad-crawls.html) tells users to switch off.
 
 ## Consequences
 
@@ -181,10 +182,10 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   - `storage_low` joins the report's warnings.
   - The call waiting on a Run whose stop could not be recorded raises `resources_exhausted`.
   - Notes sit under its report's fields and its `progress()`.
-- **Amends ADR 0002.** A stop at `critical` writes no Checkpoint copy onto the full filesystem, and a periodic Checkpoint whose write fails is skipped with a warning. A note sits under its Checkpoints bullet.
+- **Amends ADR 0002.** A stop at `critical` writes no Checkpoint copy onto the full filesystem, a periodic Checkpoint onto a filesystem at `low` is skipped, and a periodic Checkpoint whose write fails is skipped with a warning. A note sits under its Checkpoints bullet.
 - **Amends ADR 0031.**
   - At `low`, a Run trace stops recording video, and at `critical` or on a failed write it stops, with the "no trace" mark.
-  - "Needs you" lists a filesystem at `low` or `critical`.
+  - "Needs you" lists a filesystem at `low` or `critical`, and a Run stopped by storage.
   - A note sits under its Run traces' size cap and names both.
 - **Amends ADR 0046.** At `low`, the Response cache stores no new entry. A note sits under its size cap.
 - **Amends ADR 0050.**
@@ -193,7 +194,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   - A note sits under `/readyz`.
 - **Adds to ADR 0078.** An Attached engine also writes JSON lines to the Goodfetch home's log folder when `log.output` is `file` in its configuration; it still sends its logs as log events, and its stderr is unchanged. A note sits under its stderr bullet.
 - **Adds to ADR 0072.** An Attached engine writes the structured log its exercise audit reads when test support sets `log.output: file` and a `log.level` that includes the rpc dispatch records.
-- **Adds to ADR 0049.** The Docker and Compose guides set the `local` logging driver, and every Daemon outside `daemon run` writes its own rotated files.
+- **Adds to ADR 0049.** `init`'s Compose files and the Docker and Compose guides set the `local` logging driver, and every Daemon outside `daemon run` writes its own rotated files.
 - **Adds to ADR 0083.** The `storage.*` and `log.*` areas join the settings schema.
 - **ADR 0037's matrix:**
   - RT-17 (structured logging) becomes `decided`, citing ADRs 0078 and 0122;

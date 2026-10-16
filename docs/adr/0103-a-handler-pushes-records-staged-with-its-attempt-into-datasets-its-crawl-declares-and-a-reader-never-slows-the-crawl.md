@@ -137,6 +137,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 - **Wherever the engine runs.** A path on the engine's own machine would break on a Daemon or in Goodfetch Cloud (ADR 0001; the research's "works locally but not on the Apify Platform").
   > Amended by [ADR 0116](0116-a-saved-file-is-written-whole-or-not-at-all-and-a-failed-write-says-whether-its-path-or-its-storage-failed.md): `run.export` returns an `Export` only once its file is complete, and fails with `file_write_failed` (an `UnavailableError`, side `engine`) when the engine cannot write it. `saveAs` writes a hidden temporary file beside the path and renames it over the path, so the path holds the whole Export or what it held before. It creates missing parent folders and replaces an existing file, as Playwright's does, and fails with `path_not_writable` (a `ProgramError`) when the program's path cannot be written, or `file_write_failed` (side `program`) when its storage is full or fails. Neither code is retryable.
 - **The format is named, never inferred** from a file name, as Crawlee's `exportData` infers it, so a typo is a type error (G3). Each format's options are `export.*` settings, named by area 6.
+  > Amended by [ADR 0119](0119-every-fetch-tier-decodes-a-crawls-document-as-the-browser-does-a-label-names-the-content-types-its-handler-takes-and-exports-are-utf-8.md): every text format is UTF-8, and CSV's BOM is the setting `export.csv.bom`, off by default.
 
 ### The Key-value store
 

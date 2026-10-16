@@ -139,7 +139,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - `out_of_scope`: a redirect leaving the crawl's scope;
   - `domain_policy`: a redirect or a Hook's rewrite to a host the run's domain policy refuses (ADRs 0014, 0017);
   - `duplicate`: a pending request merged by a URL rule learned after its admission (ADR 0005);
-    > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): also a request whose redirect reaches a URL whose key the Frontier already admitted; its handler does not run.
+    > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): also a request whose redirect reaches a URL whose key the Frontier already admitted for another request; its handler does not run.
   - `robots_txt`, `crawl_delay` and `use_signals` (ADR 0086);
   - `hook`: a before-request Hook (ADR 0033);
   - `handler`: `ctx.skip()`.
@@ -161,7 +161,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
 - **Staging.** A handler's enqueues are outputs staged with its attempt and committed with it (ADR 0003), so a failed or escalated attempt leaves no stray links.
   > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): while a declared Effect's body runs in an attempt, a call that stages an output with that attempt (an enqueue, a seed, a Record, a Key-value store write) fails with `effect_staging_refused`, since a re-run that finds the Effect in the Effect journal does not run the body again.
 - **The Frontier.** Its identity for a request is the method, the URL after its rules and a hash of the body, whatever the Label, as Crawlee's `useExtendedUniqueKey` (amends ADR 0005's URL-only identity). `key` replaces that identity, a declared canonicalization that always wins. `priority` and `forefront` are ADR 0005's.
-  > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): the engine parses every URL with the WHATWG URL Standard, as the `url` crate implements it, on every tier; the URL's part of the identity is a key made by that ADR's rules, with the fragment kept only under `crawl.keep_url_fragment`, while the request is fetched at its URL as parsed; a redirect reaching a key already admitted ends the request `skipped` with `duplicate`.
+  > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): the engine parses every URL with the WHATWG URL Standard, as the `url` crate implements it, on every tier; the URL's part of the identity is a key made by that ADR's rules, with the fragment kept only under `crawl.keep_url_fragment`, while the request is fetched at its URL as parsed; a redirect reaching a key already admitted for another request ends the request `skipped` with `duplicate`.
 - **Hooks keep cross-cutting policy,** such as a header on every request, and URL rewrites (ADR 0033).
 
   > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a before-request Hook changes a crawl request's URL and headers, never the method or the body it was enqueued with, which its context shows.

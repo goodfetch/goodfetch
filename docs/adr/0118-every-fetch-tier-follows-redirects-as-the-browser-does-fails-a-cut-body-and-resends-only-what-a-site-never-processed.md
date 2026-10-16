@@ -57,7 +57,7 @@ Decided in [Redirect limits, truncated bodies and transport failures on the fetc
   - `Authorization` is dropped once the chain reaches another origin, and a Secret placeholder resolves only for its own domains on every hop (ADR 0092);
   - each hop's cookies come from the Session's jar for that hop's URL.
   - The crawl request keeps its Frontier identity, the method, URL and body hash it was admitted with (ADR 0093).
-    > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): the identity's URL is its key, made by ADR 0120's rules. A hop that reaches a URL whose key the Frontier already admitted ends the request `skipped` with `duplicate`, and its handler does not run.
+    > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): the identity's URL is its key, made by ADR 0120's rules. A hop that reaches a URL whose key the Frontier already admitted for another request ends the request `skipped` with `duplicate`, and its handler does not run. A hop back to the request's own key, or to a URL earlier in its own chain, is followed and counted as above.
 - **Each hop goes through the navigation gate** (ADR 0087), on every tier:
   - the crawl's scope (`out_of_scope`), the domain policy (`domain_policy`) and robots.txt (`robots_txt`), as ADR 0093 already checks every redirect;
   - the hop's domain's limits and delay. Each hop takes its own permit, and the previous hop's 3xx releases its own. A loop therefore costs a site at most `fetch.redirect.max` requests at the domain's pace, never a burst (G5).

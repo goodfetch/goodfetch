@@ -14,7 +14,7 @@ The engine parses every URL a crawl meets once, with the WHATWG URL Standard, wh
   - Nutch rejects a segment repeated three times, Heritrix three identical segments in a row, and Heritrix's `maxPathDepth` is 20 (R 1.2, 1.3).
   - Nutch strips session IDs broadly, Heritrix only 32-character ones (R 1.6).
 - **Standards.**
-  - RFC 3986 §6.2.2 and §6.2.3 list the safe normalizations. §6.2.4 merges `/data` and `/data/` only when "a redirect or protocol result shows equivalence" (R 1.10).
+  - RFC 3986 §6.2.2 and §6.2.3 list the safe normalizations. §6.2.4 allows protocol-based merges only when "equivalence is clearly indicated by both the result of accessing the resources" and the scheme's conventions: a spider that sees `/data` redirect to `/data/` will "likely regard the two as equivalent in the future" (R 1.10).
   - The [WHATWG URL Standard](https://url.spec.whatwg.org/) is what browsers parse, hosts included: UTS #46 punycode, hex and octal IPv4 (R 1.12, 1.13). The [`url` crate](https://docs.rs/url/2.5.8/url/) 2.5.8 implements it.
   - [Jakarta Servlet 6.0](https://jakarta.ee/specifications/servlet/6.0/jakarta-servlet-spec-6.0.html) §7.1.3 names the URL-rewriting session parameter `jsessionid`.
   - [sitemaps.org](https://www.sitemaps.org/protocol.html#submit_robots) lets a sitemap list another host's URLs when that host's robots.txt names it (R 1.25).
@@ -29,7 +29,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
 - **Every URL a crawl meets is parsed by the WHATWG URL Standard's basic URL parser, as the `url` crate implements it.** That covers a seed, an `addSeed`, an `enqueue`, an `enqueueLinks` `href`, a sitemap entry, a redirect's `Location` and a Hook's rewrite (ADR 0104).
   - **Why browsers' parser.** The parser strips leading and trailing spaces and controls and removes tabs and newlines. It reads `\` as `/`, lowercases the scheme and host, and drops the default port. It reads an empty path as `/`, resolves dot segments (`%2e` forms too) and percent-encodes what each component's set requires. So the crawl sees the links a user's browser sees (R 1.13).
   - **Hosts.** A host is percent-decoded, mapped to ASCII by UTS #46 (punycode), and an IPv4 address in hex, octal or shortened form becomes dotted decimal (R 1.12). Politeness's domain key (ADR 0004), robots.txt's origin (ADR 0086), the scope (ADR 0093) and the domain policy (ADR 0017) all read this parsed host. `bücher.example` and `xn--bcher-kva.example` are then one host everywhere.
-  - **On every tier.** The engine resolves the `href` attribute's own value, not the browser's resolved link, so a link's identity never depends on the tier that served the page (S1).
+  - **On every tier.** The engine resolves the `href` attribute's own value, not the browser's resolved link, so a link's identity never depends on the tier that served the page (G1, and ADR 0093's one handler on every tier).
 - **The base.**
   - An `href` and a handler's `enqueue` resolve against the document's base URL, as ADR 0093's `enqueueLinks` does, so a relative URL in `enqueue` works as Scrapy's `response.follow` does.
   - A sitemap entry resolves against its sitemap's URL.
@@ -61,7 +61,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
     - A pending request it merges ends `skipped` with ADR 0093's `duplicate`.
     - Whether the slash and index-file merges hold per host or per path, and how much evidence each kind needs, are area 6's spec, like ADR 0005's other thresholds.
   - **Why.** A fixed merge that is wrong is silent: the second page is never fetched, and nothing says so (G1). The cost is the first fetch of each other form on a host. On most sites that fetch answers with a redirect, which is itself the evidence.
-- **The scope ignores one leading `www.` label on its own.** ADR 0093 compares scope hosts "after the Frontier's fixed URL rules, so `www.` is no other host". That stays true: comparing hosts for scope ignores one leading `www.` label as a scope rule. The scope therefore does not change while identity waits for evidence.
+- **The scope ignores one leading `www.` label on its own.** ADR 0093 compares scope hosts "after the Frontier's fixed URL rules, so `www.` is no other host". That stays true: comparing hosts for scope ignores one leading `www.` label as a scope rule. Under `same_origin`, which also compares the scheme and port, a seed's `http` origin also admits the `https` origin of its host, since sites upgrade and the old fixed scheme merge admitted it; never the reverse, a downgrade. The scope therefore does not change while identity waits for evidence.
 - **`rel=canonical` is evidence, never a merge.** A page's canonical is the first `<link rel="canonical">` in its `<head>`, or a `Link` header with `rel="canonical"`. It counts as evidence for a learned rule when it differs from the page's URL only by what such a rule covers: a parameter, `www.`, the scheme, a trailing slash or an index file. It never merges anything by itself. A canonical to another path or another registrable domain is ignored for identity, since a mis-templated site may point every page at its home page (R 1.15). The canonical URL is not enqueued for the program: a handler that wants it reads the tag and enqueues it.
 - **A redirect to a URL the Frontier already holds.** When a request's redirect reaches a URL whose key the Frontier already admitted, the request ends `skipped` with `duplicate` and its handler does not run, as Scrapy's duplicate filter drops it. The redirect still counts as evidence for a learned merge. A redirect's final URL is recorded under its key as visited, so a later enqueue of it is a `duplicate` too. A `Location` that fails to parse, hop limits and loops are [#549](https://github.com/goodfetch/goodfetch/issues/549)'s.
 
@@ -81,8 +81,8 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
 
   | Key | Built-in | Refuses |
   |---|---|---|
-  | `crawl.max_url_length` | 2,083 | a URL longer than this many characters, as parsed (Scrapy's `URLLENGTH_LIMIT`) |
-  | `crawl.max_path_segments` | 20 | a path of more segments (Heritrix's `maxPathDepth`) |
+  | `crawl.max_url_length` | 2,083 | a URL longer than this many characters, as parsed and without its fragment (Scrapy's `URLLENGTH_LIMIT`) |
+  | `crawl.max_path_segments` | 20 | a path of more segments, as the parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`) |
   | `crawl.max_segment_repeats` | 2 | a segment, or a run of segments, that appears more than this many times back to back, so `/a/a` passes and `/a/a/a` does not (Heritrix's `maxRepetitions`) |
 
   - `crawl.max_segment_repeats` counts `/a/a/a` as Heritrix does. It also catches the `/a/b/a/b/a/b` loops that relative links make on a site answering 200 for any path, Google's `../../category/stuff`. Numbers that recur apart, as in `/page/1/tag/1/sort/1`, are not caught, though StormCrawler's any-third-occurrence rule would refuse them.
@@ -141,14 +141,16 @@ The not-added reasons of ADR 0093 gain `invalid_url`, `max_url_length`, `max_pat
   - Firecrawl's `www`, scheme, trailing-slash and index-file merges become learned rules on evidence.
   - `rel=canonical` and redirects count as evidence.
   - A URL refused by a cap makes a finished Run `unverified`.
-  - A note sits under its summary.
+  - Notes sit under its summary and its "Fixed rules only" option.
 - **Amends ADR 0093.**
   - The engine parses every URL with the WHATWG URL Standard, and a handler's `enqueue` resolves against the document's base URL.
   - The key is made by this ADR's rules and the URL fetched is the URL as parsed.
   - `crawl.keep_url_fragment` is a Label setting, the caps are Run settings, and the not-added reasons gain four values.
   - A redirect to an admitted key ends `skipped` with `duplicate`.
   - The scope ignores one leading `www.` label on its own, and a sitemap seed widens it by the host the program named.
-  - Notes sit under its sitemap seed, its enqueue answers, its Frontier bullet, its scope bullet and its settings table.
+  - Under `same_origin`, a seed's `http` origin also admits its host's `https` origin.
+  - The `duplicate` skip reason also covers a redirect reaching a key already admitted.
+  - Notes sit under its sitemap seed, its `duplicate` skip reason, its enqueue answers, its Frontier bullet, its scope bullet and its settings table.
 - **Adds to ADR 0102.** `crawl.keep_url_fragment` is a key fixed for a Run's life. A note sits under its resume's `settings` bullet.
 - **ADR 0037's matrix.**
   - CO-01, CO-05, CO-07, CO-10 and SC-02 cite this ADR. SC-02's sitemap filtering is now this ADR's rule.

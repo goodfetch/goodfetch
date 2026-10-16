@@ -138,6 +138,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - `out_of_scope`: a redirect leaving the crawl's scope;
   - `domain_policy`: a redirect or a Hook's rewrite to a host the run's domain policy refuses (ADRs 0014, 0017);
   - `duplicate`: a pending request merged by a URL rule learned after its admission (ADR 0005);
+    > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): also a request whose redirect reaches a URL whose key the Frontier already admitted; its handler does not run.
   - `robots_txt`, `crawl_delay` and `use_signals` (ADR 0086);
   - `hook`: a before-request Hook (ADR 0033);
   - `handler`: `ctx.skip()`.
@@ -168,7 +169,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - `crawl.scope.strategy`: `same_hostname` by default (Crawlee's default; Scrapy allows every host when `allowed_domains` is unset), or `same_domain`, `same_origin` or `all`.
   - `crawl.scope.include` and `crawl.scope.exclude`: URL patterns matched in the engine (ADR 0081). Besides the strategy, a URL must match an `include` pattern when there are any, and no `exclude` pattern; they never replace the strategy, as Crawlee v4 learned.
   - **Measured against every seed,** with hosts compared after the Frontier's fixed URL rules, so `www.` is no other host (ADR 0005). `include` and `exclude` on `enqueueLinks` only narrow.
-    > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): hosts are compared as the WHATWG parser leaves them, and the scope ignores one leading `www.` label as a rule of its own, since the identity merges `www.` only on evidence.
+    > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): hosts are compared as the WHATWG parser leaves them, and the scope ignores one leading `www.` label as a rule of its own, since the identity merges `www.` only on evidence; under `same_origin`, a seed's `http` origin also admits its host's `https` origin.
   - **Bounds.** `crawl.max_depth` (seeds at 0) and `crawl.max_requests` (requests admitted) have no default. Reaching either refuses further enqueues with its reason and ends the Run `incomplete` (ADR 0005).
   - **No transform function:** rewriting is a Hook's.
 

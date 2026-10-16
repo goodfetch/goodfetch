@@ -6,8 +6,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 127 | 5 | 24 |
-| `spec` | 14 | 0 | 0 |
+| `decided` | 128 | 5 | 24 |
+| `spec` | 13 | 0 | 0 |
 | `excluded` | 1 | 0 | 0 |
 | `open → #N` | 0 | 0 | 0 |
 | Total | 142 | 5 | 24 |

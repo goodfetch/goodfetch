@@ -41,7 +41,7 @@ async fn crawl_on_a_small_disk(books: &Crawl<'_>, home: &Label<()>) -> Result<Op
 }
 
 /// While it runs: the worst storage level among the filesystems it writes to.
-async fn watch_storage(run: &CrawlRun) -> Result<(), Error> {
+async fn follow_storage(run: &CrawlRun) -> Result<(), Error> {
     let mut progress = run.progress();
     while let Some(now) = progress.next().await {
         let storage = now?.run.storage;
@@ -53,5 +53,5 @@ async fn watch_storage(run: &CrawlRun) -> Result<(), Error> {
 }
 
 fn main() {
-    let _ = (crawl_on_a_small_disk, watch_storage);
+    let _ = (crawl_on_a_small_disk, follow_storage);
 }

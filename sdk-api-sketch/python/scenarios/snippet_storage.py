@@ -35,7 +35,7 @@ async def crawl_on_a_small_disk() -> CrawlRunReport | None:
             return None
 
 
-async def watch_storage(run: AsyncCrawlRun) -> None:
+async def follow_storage(run: AsyncCrawlRun) -> None:
     """While it runs: the worst storage level among the filesystems it writes to."""
     async for progress in run.progress():
         if progress.storage.level != "normal":

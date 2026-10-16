@@ -32,7 +32,7 @@ export async function crawlOnASmallDisk(): Promise<CrawlRunReport | null> {
 }
 
 /** While it runs: the worst storage level among the filesystems it writes to. */
-export async function watchStorage(run: CrawlRun): Promise<void> {
+export async function followStorage(run: CrawlRun): Promise<void> {
   for await (const now of run.progress()) {
     if (now.storage.level !== "normal") log.warn("storage", { level: now.storage.level, path: now.storage.path, freeBytes: now.storage.freeBytes });
   }

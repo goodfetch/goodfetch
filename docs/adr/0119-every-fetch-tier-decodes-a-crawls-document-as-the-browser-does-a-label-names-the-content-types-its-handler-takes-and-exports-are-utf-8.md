@@ -1,6 +1,6 @@
 # Every fetch tier decodes a crawl's document as the browser does, a Label names the content types its handler takes, and Exports are UTF-8
 
-A crawl request's document is decoded the same way on every fetch tier. The engine follows the HTML standard's declared steps: a BOM, an encoding the Label forces, the `Content-Type` charset, the `<meta>` prescan, then UTF-8 for a valid UTF-8 body. A non-browser tier never guesses: it escalates the request to the browser instead. The engine also gives the browser the same encoding, so ADR 0020's sample comparison sees one reading. Content codings are decoded as Chrome decodes them, and a body that fails to decode fails as Chrome fails it. A Label lists the content types its handler takes, and any other response ends `skipped` before its body is read. Every text Export is UTF-8.
+The documents of a crawl handler's page are decoded the same way on every fetch tier. The engine follows the HTML standard's declared steps, with Chrome's `<meta>` prescan: a BOM, an encoding the Label forces, the `Content-Type` charset, the `<meta>` prescan, then UTF-8 for a valid UTF-8 body. A non-browser tier never guesses: it escalates the request to the browser instead. The engine also gives the browser the same encoding, so ADR 0020's sample comparison sees one reading. Content codings are decoded as Chrome decodes them, and a body that fails to decode fails as Chrome fails it. A Label lists the content types its handler takes, and any other response ends `skipped` before its body is read. Every text Export is UTF-8.
 
 The [Common pitfalls catalog](https://github.com/goodfetch/goodfetch/issues/547) found four gaps: rows H16, H17, H25 and D04 of [`pitfalls.md`](https://github.com/goodfetch/goodfetch/blob/prototype/sdk-api/sdk-api-sketch/pitfalls.md), items 2.15, 2.18, 2.19 and 4.C4 of its [research](https://github.com/goodfetch/goodfetch/blob/research/common-pitfalls/rnd/research/2026-10-16-common-pitfalls.md). ADR 0037's CO-24 left "detection and forced encoding" to spec. ADR 0020 compares a sample fetched over HTTP with the browser's, so an HTTP decoder that differs from Chrome's would either fail the comparison or store mojibake where both readings agree. [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md) sends every 2xx to the handler without saying what its page is for a PDF.
 
@@ -23,7 +23,7 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
   1. a BOM;
   2. `fetch.encoding`, when set, for the crawl request's own document;
   3. the `Content-Type` charset, when WHATWG Encoding knows its label;
-  4. the HTML standard's `<meta>` prescan of the first 1,024 bytes (§13.2.3.2), where a UTF-16 label reads as UTF-8 and `x-user-defined` as windows-1252, with its change of encoding while parsing (§13.2.3.4) for a later declaration;
+  4. the `<meta>` prescan as Chrome runs it: the first 1,024 bytes always, then on while only tags allowed in the head appear (Blink's `HTMLMetaCharsetParser`), with the HTML standard's labels, so a UTF-16 label reads as UTF-8 and `x-user-defined` as windows-1252. A declaration later in the document is not read, and nothing is decoded twice, as in Chrome;
   5. UTF-8, when nothing above applies and the whole body is valid UTF-8 (ASCII included).
 
   Every label maps as WHATWG Encoding maps it, so `latin1`, `iso-8859-1` and `ascii` are windows-1252. A byte that does not decode becomes U+FFFD, as in a browser.
@@ -31,7 +31,7 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
   - Under `fetch.tier: auto`, the request escalates to `browser`, where Chrome's own detector decides.
   - Under a forced tier, it fails with `browser_required`, whose `fix` names `fetch.encoding` and `fetch.tier` (G6).
   - A frequency detector on the HTTP tier (chardetng, Firefox's) was rejected. It is not Chrome's, so it diverges exactly on the pages where a guess is needed.
-- **The browser gets the same encoding.** At its interception of each such document, the engine sets the `Content-Type` charset to `fetch.encoding` when one applies. With nothing declared and a valid UTF-8 body, it sets UTF-8. Chrome then decodes as every other tier does: a BOM still wins and a declaration is still read. An unlabelled UTF-8 page no longer becomes Chrome's locale default, which is mojibake (G1). A Collie program's own page is not touched and decodes as Chrome does (S3). The rewrite is the engine's own: `ctx.response.headers()` and the Response recording keep the site's headers as received, and Provenance's `setting` or `utf8` says why the encoding differs from them.
+- **The browser gets the same encoding.** A declaration the prescan finds counts as declared. At its interception of each such document, the engine sets the `Content-Type` charset to `fetch.encoding` when one applies. With nothing declared and a valid UTF-8 body, it sets UTF-8. Chrome then decodes as every other tier does: a BOM still wins and a declaration is still read. An unlabelled UTF-8 page no longer becomes Chrome's locale default, which is mojibake (G1). A Collie program's own page is not touched and decodes as Chrome does (S3). The rewrite is the engine's own: `ctx.response.headers()` and the Response recording keep the site's headers as received, and Provenance's `setting` or `utf8` says why the encoding differs from them.
 - **`fetch.encoding`** forces an encoding: a WHATWG Encoding label, or none (the built-in), at any scope down to a Label. An unknown label is refused with `setting_invalid` when its scope opens (G3, ADR 0083). It stands where the HTML standard's user override stands, after the BOM. It applies to the crawl request's own document on every attempt and tier, not to a handler's own navigations elsewhere. Like every `fetch.*` key, it is Foxhound's (ADR 0093).
 - **Provenance and the Run trace** record the encoding and where it came from: `bom`, `setting`, `header`, `meta`, `utf8` or `detected` (the browser's guess) (G6).
 - **The sample comparison checks it.** ADR 0020's comparison also fails when the browser sample's `document.characterSet` differs from the encoding the other tier used. A Label on a domain therefore stays on the browser wherever Chrome reads its pages differently from this rule (G1).
@@ -77,7 +77,8 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
   - `response_not_document` is a `ProgramError`, not retryable, and names the type. Its `fix` says to read `ctx.response` (G6);
   - the call never escalates, since the browser would hold no document either;
   - `page.request`, `goto` and the context's own members work as usual.
-- **On the browser tier,** the engine reads the response at its interception and ends the navigation there, so Chrome never starts a download. A crawl request never adds a Download to its Run. A handler's own `goto` to such a response follows the same rule on its page.
+- **On the browser tier,** the engine reads the response at its interception and ends the navigation there, so Chrome never starts a download from it. A handler's own `goto` or `reload` to such a response follows the same rule on its page, so no navigation of a crawl page adds a `Download` to its Run.
+- **A download a handler's gesture starts** (a click on an `<a download>` link, a button whose script streams a file) is not a navigation, and stays ADR 0085's `Download`, kept with the Run and read through the page's `download` event.
 - **A Collie program's own page is unchanged.** Its navigation to a file stays ADR 0085's download, as in Playwright, and how its `goto` reports one is area 5's spec.
 
 ### Exports
@@ -96,10 +97,10 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
 - **`text()` always UTF-8, as Playwright and Fetch:** rejected by G1. `ctx.response.text()` would disagree with `page.content()` on a Shift_JIS page.
 - **Every content type to the handler, as Scrapy:** rejected, as ADR 0093 rejected every non-2xx reaching the handler. A PDF would pass as an empty page unless every handler checked, and each one would be downloaded in full (G1, G5).
 - **Failing an unaccepted type, as Crawlee:** rejected by G1. Nothing went wrong: the crawl does not collect that type.
-- **Treating a non-document response as a Download:** rejected. A crawl collects Records from the request's response, and a Download belongs to a page's gestures (ADR 0085).
+- **Treating a non-document response as a download:** rejected. A crawl collects Records from the request's response, and a `Download` belongs to a page's gestures (ADR 0085).
 - **JSON and XML as documents on every tier:** rejected for V1. Chrome renders them as viewer documents that the HTTP tier would have to imitate, and `ctx.response.json()` and the program's XML parser read them exactly.
 - **Reading a mislabelled body as it is when it decodes:** rejected. Chrome fails it, so the HTTP tier would serve a page the browser cannot, and the comparison would fail.
-- **A new Error code for a decoding failure:** rejected. The browser tier already raises `navigation_failed` with Chrome's network error (ADR 0085), so one code serves every tier (S2).
+- **A new Error code for a decoding failure:** rejected. ADR 0085 already defines `navigation_failed` with the browser's network error, which the browser tier raises for it, so the same code serves every tier.
 - **A BOM on CSV by default, as Apify does:** rejected. It breaks programmatic readers, which are what an SDK serves first, and XLSX exists for spreadsheets.
 - **Repairing mojibake, as ftfy does:** declined. Repair changes text that Grounding (ADR 0013) requires to be on the page, and the decoding rule above prevents the cause.
 
@@ -112,7 +113,7 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
   - **Skip reasons:** `content_type` joins them.
   - **The settings table:** `crawl.content_types` and `fetch.encoding`.
   - **The Error codes table:** `response_not_document`.
-- **Amends ADR 0085:** `text()` decodes with the response's encoding, and a body that fails its content coding is `navigation_failed` with `net::ERR_CONTENT_DECODING_FAILED`. A crawl handler's page never starts a download. Notes sit under "Bodies", "An unreachable site" and "Downloads".
+- **Amends ADR 0085:** `text()` decodes with the response's encoding, and a body that fails its content coding is `navigation_failed` with `net::ERR_CONTENT_DECODING_FAILED`. A navigation of a crawl handler's page never starts a download, while a download its gesture starts stays a `Download`. Notes sit under "Bodies", "An unreachable site" and "Downloads".
 - **Amends ADR 0079:** `content_type` joins the skip reasons. A note sits beside ADR 0107's.
 - **Amends ADR 0026 and ADR 0103:** every text Export is UTF-8, and CSV's BOM is the setting `export.csv.bom`, off by default. Notes sit under "Export formats" and under "The format is named".
 - **Amends ADR 0025 and ADR 0073:** ADR 0025's Pages list gains the content-coding pages above, and the odd-encodings family and the "PDFs and downloads" pages now have expected results. Each encodings page is read by this ADR's order, with where its encoding came from, and is the same on every tier. A file is `skipped` with `content_type` by default, and with `crawl.content_types` it reaches the handler with its bytes and no Download.
@@ -129,6 +130,6 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
 - **The `prototype/sdk-api` sketch** has:
   - the settings, the skip reason and `response_not_document` in each language;
   - `text()`'s rule on `Response`;
-  - a snippet with a Label that takes PDFs.
+  - a snippet with a Label that takes PDFs and one that forces Shift_JIS.
 
   The pitfall rows H16, H17, H25 and D04 are now Handled.

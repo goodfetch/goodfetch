@@ -106,9 +106,9 @@ class CrawlSettings(TypedDict, total=False):
     """`crawl.max_path_segments`: a URL with a longer path is not added with `max_path_segments`, and the finished Run is
     `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120)."""
     max_segment_repeats: int | None
-    """`crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may appear back to back (`/a/a` passes, `/a/a/a` does not); past it a URL
-    is not added with `max_segment_repeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `None` for
-    none (ADR 0120)."""
+    """`crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may appear back to back
+    (`/a/a` passes, `/a/a/a` does not); past it a URL is not added with `max_segment_repeats`, and the finished Run is
+    `unverified`. Built-in: 2, Heritrix's; `None` for none (ADR 0120)."""
     keep_url_fragment: bool
     """`crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests are hash routes. Such
     a Label is served only on `light_browser` or `browser`, and a resume may not change it. Built-in: False (ADR 0120)."""

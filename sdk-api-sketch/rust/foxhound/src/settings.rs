@@ -94,8 +94,9 @@ pub mod crawl {
     /// the finished Run is `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120).
     pub const MAX_PATH_SEGMENTS: Setting<Option<u32>> = Setting::new("crawl.max_path_segments");
     /// `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may appear
-    /// back to back (`/a/a` passes, `/a/a/a` does not); past it a URL is not added with `MaxSegmentRepeats`, and the finished Run is
-    /// `unverified`. Built-in: 2, Heritrix's; `None` for none (ADR 0120).
+    /// back to back (`/a/a` passes, `/a/a/a` does not); past it a URL is not added with
+    /// `MaxSegmentRepeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `None`
+    /// for none (ADR 0120).
     pub const MAX_SEGMENT_REPEATS: Setting<Option<u32>> = Setting::new("crawl.max_segment_repeats");
     /// `crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests
     /// are hash routes. Such a Label is served only on `light_browser` or `browser`, and a resume may
@@ -138,7 +139,8 @@ pub mod crawl {
             SameHostname,
             /// `same_domain`: the registrable domain, subdomains included.
             SameDomain,
-            /// `same_origin`: scheme, host and port.
+            /// `same_origin`: scheme, host and port; a seed's `http` origin also admits its host's
+            /// `https` origin, never the reverse (ADR 0120).
             SameOrigin,
             /// `all`: any host, for `INCLUDE` to narrow.
             All,

@@ -135,7 +135,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   - The docs name the folder for each OS.
 - **Engines that write no log file by default.** An Attached engine sends its logs only as log events (ADR 0078), and writes JSON lines to the Goodfetch home's log folder only when `log.output` is `file` in its configuration, as test support sets it for ADR 0072's exercise audit. A Rust program's linked engine logs through the program's own `tracing` subscriber. The CLI's output is the CLI's design.
 - **The default level is `info`,** and `info` logs state changes only. Examples are a Run started, resumed or stopped, a domain backing off (ADR 0102), a storage level changing, and a Daemon draining. A line per request, per fetch or per command is `debug` or below. So at the default level the volume follows what happens to Runs, never the number of requests; Scrapy's `DEBUG` default is the opposite. What a Run did per request stays in its run state and its Run trace, read through `outcomes()` and the Console (ADR 0102).
-- **Settings,** in a new `log.*` area, applying where a Daemon reads its configuration:
+- **Settings,** in a new `log.*` area, applying where an engine process reads its configuration (ADR 0028):
 
   | Key | Default |
   |---|---|

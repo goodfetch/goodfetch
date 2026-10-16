@@ -38,7 +38,7 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
   - So the docs of `route` and the Response cache state the rule: when a site's service worker answers what they must act on, set `block`.
 - **`page.request` never goes through a service worker.** It is the engine's own request (ADR 0020's browser-fetch tier), sent to the network as Playwright's `APIRequestContext` sends its requests.
 - **On Firefox and WebKit, no service worker registers.** Playwright's driver, through which ADR 0019 runs them, intercepts none of a service worker's requests. So the domain policy could not judge them, and ADR 0014 fails closed.
-  - **This has a cost on Firefox.** Firefox stealth is Camoufox, through that same driver (ADR 0035). A `stealth` Camoufox Session therefore refuses a registration real Firefox accepts, a difference a site can see.
+  - **This has a cost on Firefox.** Firefox stealth is Camoufox, through that same driver (ADR 0035). A `stealth` Camoufox Session therefore offers no service worker where real Firefox does, a difference a site can see.
   - ADR 0014's guarantee outranks it (G5), and Chromium is the engine that leads stealth (ADR 0035).
   - Area 8's spec measures how often a site's challenge or page needs a service worker on Camoufox. WebKit runs without a stealth mode (ADR 0035).
 - **The setting `browser.service_workers`,** with Playwright's values `allow` and `block` (S3, ADR 0083), is a Session setting. It is `allow` by default on Chromium and `block` on Firefox and WebKit, and `explainSettings` shows which applies and why (G6).
@@ -53,6 +53,7 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
     - The Session is marked in Provenance as ADR 0019 marks a main-world action on WebKit. Like a user init script, the stub departs from `standard`'s no-injection identity (ADR 0021, SA-16), and the mark says so.
     - A WebKit switch the engine can reach replaces the stub.
   - **`block` also keeps a service worker that is already registered, such as one in a Profile directory used in place (ADR 0056), from controlling a page.** Failing `register()` alone would not, and a page's requests must all reach its routes. Area 5's spec proves it in each browser.
+    - Where a browser's mechanism cannot, as Playwright's WebKit stub cannot, a Session on a Profile directory used in place that holds a service worker registration is refused when it opens, with `capability_unavailable`. Its fix names a run-only import of the directory's state with `state_file` (ADR 0056), which carries no service worker (G3, ADR 0014).
 
 ### The back/forward cache
 
@@ -128,6 +129,7 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
   A note sits under its page list.
 - **Adds to ADR 0014.** On Chromium, a service worker's own requests are judged as a page's subresources are. On Firefox and WebKit, where they cannot be judged, service workers never register.
 - **Amends ADR 0035.** A `stealth` Camoufox Session never registers a service worker, a difference from real Firefox that a site can see. Firefox's own `dom.serviceWorkers.enabled` preference refuses it, never a page-visible stub. A note sits under its Firefox engine bullet.
+- **Amends ADR 0056.** A Profile directory used in place that holds a service worker registration `block` cannot keep from running, as on WebKit, is refused when its Session opens. A note sits under its WebKit bullet.
 - **Amends ADRs 0019 and 0021.** On WebKit, `block` is Playwright's `register` stub, a main-world injection marked in Provenance as ADR 0019's are, so a `standard` WebKit Session carries it. Notes sit under ADR 0019's main-world bullet and among ADR 0021's notes.
 - **Adds to ADR 0047.** Filter lists cover a service worker's own requests on Chromium. A request the service worker answers from its own cache reaches no network and needs no blocking.
 - **Adds to ADR 0046.** The Response cache acts at interception, so a page request a site's service worker answers is outside it. Its docs say to set `browser.service_workers: block` when that matters.
@@ -139,6 +141,8 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
     - the service-worker auto-attach and its interception, and the observed responses kept responses match;
     - `block`'s refusal: the mechanism inside Chromium, Firefox's preference, WebKit's stub and its Provenance mark, and the proof that an already registered service worker controls no page;
     - the navigation gate's permit for a service worker's `navigate` request, held until the page's load event;
+    - `page.request` sent so that no service worker answers it, never as a `fetch()` from a page a service worker controls;
+    - the refusal of a Profile directory used in place whose service worker registration `block` cannot keep from running;
     - the back/forward cache switches, and the prerendering test;
     - closed-root resolution in the isolated world, for locators, the guard and `ariaSnapshot`;
     - the `observed` text on Firefox and WebKit.

@@ -179,7 +179,7 @@ Each is a Live check of ADR 0064, owned by area 9, with the placement below.
   - Area 11: what the skills package ships as.
 - **The "Test infrastructure" spec** builds:
   - the Scripted model's Rust interface and crate;
-    > Amended by [ADR 0125](0125-a-test-adapter-of-a-goodfetch-interface-is-its-own-test-only-crate-which-no-unit-test-of-a-crate-it-depends-on-takes.md): its crate is `goodfetch-scripted-model`, a test adapter crate under ADR 0125. Each Product's executable bans it, which holds "never compiled into the binary". The unit tests of the crates that call the Model provider interface take it, in the Quick suite; the unit tests of the interface's own crate do not.
+    > Amended by [ADR 0125](0125-a-test-adapter-of-a-goodfetch-interface-is-its-own-test-only-crate-which-no-unit-test-of-a-crate-it-depends-on-takes.md): its crate is `goodfetch-scripted-model`, a test adapter crate under ADR 0125. Each Product's executable bans it, which holds "never compiled into the binary". The unit tests of the crates that call the Model provider interface take it, in the Quick suite. The unit tests of the interface's own crate do not, so that crate holds none of the code tested on the Scripted model, such as JSON repair, the bounded retry and Usage.
   - the recording format with its allowlist and matrix checks;
   - the recorder command;
   - the model manifest and its retirement check;

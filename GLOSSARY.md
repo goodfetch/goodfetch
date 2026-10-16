@@ -417,7 +417,7 @@ What identifies a Plan step's target to a person, checked before any Effect to t
 _Avoid_: fingerprint (alone, it means a browser or TLS identity), selector, locator
 
 **Drift**:
-The state of a Plan step whose target no longer matches its Target fingerprint.
+The state of a Plan step whose target no longer matches its Target fingerprint, whose page text no longer parses under the Value transform the step keeps, or whose element is no longer in the language kept for that transform.
 _Avoid_: breakage, flake
 
 **Repair**:
@@ -469,8 +469,12 @@ A Model provider whose model picks one option from a fixed list with a confidenc
 _Avoid_: classifier, router
 
 **Grounding**:
-The requirement that every extracted value appears in the page it was read from (for an Agent's task, any page the task observed), or in the program's own data that an Agent tool returned, or follows from a declared transform.
+The requirement that every extracted value appears in the page it was read from (for an Agent's task, any page the task observed), or in the program's own data that an Agent tool returned, or follows from text found there by a Value transform the engine runs.
 _Avoid_: verification, fact-check
+
+**Value transform**:
+One of the engine's closed list of deterministic rules by which an extracted value follows from the page text it was read from, such as a number read under the locale `de-DE` or a date-time in a stated time zone, with every parameter stated and recorded in Provenance.
+_Avoid_: normalizer, converter, cast
 
 **Element reference**:
 A short name the engine gives an element in an AI accessibility snapshot of a page, such as `e12`, by which a model or a program acts on that element for as long as it stays in the page.

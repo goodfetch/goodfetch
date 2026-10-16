@@ -4,7 +4,7 @@ An AI task succeeds only when a declared Success check passes, evaluated live by
 
 > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an Agent's output may also be Grounded in the result of one of the task's Agent tools, the program's own data, besides the pages it observed; the built-in Agent's SDK form is `page.agent`.
 
-> Amended by [ADR 0123](0123-a-typed-value-read-from-page-text-comes-from-an-engine-transform-under-a-stated-locale-and-time-zone.md): a declared transform is a Value transform from ADR 0123's closed list, run by the engine under a stated locale and, where it needs one, time zone; a model names the page text and the transform and never writes a typed value it parsed itself.
+> Amended by [ADR 0123](0123-a-typed-value-read-from-page-text-comes-from-an-engine-transform-under-a-stated-locale-and-time-zone.md): a declared transform is a Value transform from ADR 0123's closed list, run by the engine under a stated locale and, where it needs one, time zone; a model names the transform with the page text it read (in model mode) or the locators that read it (compiled), and never writes a typed value it parsed itself.
 
 ## Considered Options
 

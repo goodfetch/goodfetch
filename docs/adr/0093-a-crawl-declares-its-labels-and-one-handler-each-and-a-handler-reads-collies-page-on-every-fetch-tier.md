@@ -134,6 +134,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - a 5xx or a 408 is retried, and fails as `response_unavailable` (a `PageError` that is retryable: the site is failing for now, as ADR 0085's `navigation_failed` is a site never answering) when retries run out; its 502, 503 and 504 also back off the domain (ADR 0086);
   - any other 4xx fails at once with `response_not_ok` (a `PageError`, not retryable);
   - `crawl.handle_statuses` (none by default, settable per Label) lists other statuses whose responses go to the handler, so a link checker reads its 404s, and the error's `fix` names it.
+  > Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): a 3xx is followed only when it is one of Fetch's redirect statuses with a `Location` that parses to an HTTP(S) URL, at most `fetch.redirect.max` (20) times. Past that, the attempt fails with `too_many_redirects` (a `PageError`, not retryable). Any other 3xx fails at once with `response_not_ok`, and a redirect status listed in `crawl.handle_statuses` reaches the handler unfollowed. A cut document fails with `response_truncated` (a `PageError`, retryable) and never reaches the handler, and a transport failure with `navigation_failed`. A request that a `Retry-After` past `politeness.retry_after.max` holds ends `failed` with `response_unavailable`.
 - **The skip reasons** (ADR 0079's full list):
   - `out_of_scope`: a redirect leaving the crawl's scope;
   - `domain_policy`: a redirect or a Hook's rewrite to a host the run's domain policy refuses (ADRs 0014, 0017);
@@ -205,6 +206,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
 | `fetch.tier` | `auto` | down to a Label |
 | `fetch.tier_race` (was `tier_race`) | off | connection, Run |
 
+> Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): `fetch.redirect.max` (20, from 1 to 20) and `fetch.refresh.max_delay` (100 s, `null` for any delay) join, down to a Label.
 > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): `crawl.keep_url_fragment` (off, down to a Label; a Label keeping fragments is served only on `light_browser` or `browser`), and `crawl.max_url_length` (2,083), `crawl.max_path_segments` (20) and `crawl.max_segment_repeats` (2), at connection and Run scope.
 
 `fetch.*` is a crawl's, as `crawl.*` is: on a Collie engine it answers `not_in_product` (ADR 0087), and on a Collie Run on a Foxhound engine `setting_not_applicable`; the TypeScript and Python types of a Collie Run leave it out.
@@ -220,6 +222,8 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
 | `RefusedError` | `site_preferences_refused` | no |
 
 > Amended by [ADR 0110](0110-a-crawl-handler-reads-the-responses-its-labels-settings-kept-from-its-own-navigation.md): `responses_not_kept`, a `ProgramError` that is not retryable, joins them.
+
+> Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): a crawl request also fails with Collie's `too_many_redirects` and `response_truncated`. `response_unavailable`'s details gain `retryAfter`, and its status is `null` when a `Retry-After` held the request unsent.
 
 ## Considered Options
 

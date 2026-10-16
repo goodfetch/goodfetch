@@ -63,7 +63,7 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
   - raw deflate;
   - an unknown coding (`utf-8`);
   - a body compressed twice with gzip and with zstd but labelled once.
-- **What it does not cover.** A compressed stream that ends early is a truncated body, decided by [Redirect limits, truncated bodies and transport failures on the fetch tiers](https://github.com/goodfetch/goodfetch/issues/549). A `page.request` whose body fails to decode raises what that ticket gives its other transport failures. The decoded size stays bounded by ADR 0067's decompression-bomb limits.
+- **What it does not cover.** A compressed body that was cut is [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md)'s `response_truncated`, not a decoding failure. A `page.request` whose body fails to decode raises `navigation_failed` with `net::ERR_CONTENT_DECODING_FAILED`, as ADR 0118 ends its other transport failures. The decoded size stays bounded by ADR 0067's decompression-bomb limits.
 
 ### Responses that are not an HTML document
 

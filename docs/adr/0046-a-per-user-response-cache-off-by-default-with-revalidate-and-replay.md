@@ -30,6 +30,7 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 
 **Never cached.**
 - Responses with any Block cause (`challenge`, `captcha`, `rate_limit`, `ip_block`, `decoy`, `payment_required`, `consent_required`; ADRs 0035, 0045 and 0048), responses the Decision provider classes as a soft block (ADR 0021), and responses whose Page check fails.
+  > Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): nor a cut response, whose body ended before its length, its last chunk or its stream's end.
 - Requests the Effect journal records as Effects (ADR 0010), Paid fetches (ADR 0045), and requests carrying a resolved secret (ADR 0016).
 - Responses fetched under a certificate exception (`trusted_cas`, `client_certificates` or `accept_invalid_certs`; ADR 0042), so a run that verifies a host normally is never served what another run accepted without verification.
 

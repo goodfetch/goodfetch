@@ -130,7 +130,7 @@ export async function allRows(page: Page): Promise<Map<string, string>> {
   const all = new Map<string, string>();
   for (;;) {
     const seen = await rows.evaluateAll((els: Element[]) =>
-      els.map((el): [string, string] => [el.getAttribute("aria-rowindex") ?? "", el.textContent ?? ""]),
+      els.map((el): [string, string] => [el.getAttribute("aria-rowindex") ?? el.textContent ?? "", el.textContent ?? ""]),
     );
     const before = all.size;
     for (const [key, text] of seen) all.set(key, text);

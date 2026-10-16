@@ -118,7 +118,7 @@ async fn all_rows(page: &Page) -> Result<BTreeMap<String, String>, Error> {
     let mut all = BTreeMap::new();
     loop {
         let seen: BTreeMap<String, String> = rows
-            .evaluate_all("els => Object.fromEntries(els.map(el => [el.getAttribute('aria-rowindex') ?? '', el.textContent ?? '']))")
+            .evaluate_all("els => Object.fromEntries(els.map(el => [el.getAttribute('aria-rowindex') ?? el.textContent, el.textContent]))")
             .await?;
         let before = all.len();
         all.extend(seen);

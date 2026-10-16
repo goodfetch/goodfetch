@@ -369,8 +369,9 @@ export interface Response {
   headers(): Headers;
   request(): Request;
   /**
-   * `true` when a site's service worker answered the request itself, typically from its own cache,
-   * so it reached no network and no route answered it (ADR 0121). Playwright's accessor.
+   * `true` when a site's service worker's fetch handler supplied the response, from its own cache or
+   * through its own fetch, Playwright's accessor (ADR 0121). No page route saw the page's request;
+   * what reached the network was the service worker's own request, which Session routes see.
    */
   fromServiceWorker(): boolean;
   /**

@@ -109,11 +109,12 @@ export interface BrowserSettings {
   readonly blockResources?: readonly BlockedResourceType[];
   /**
    * `browser.service_workers`: whether a site's service workers run, Playwright's `serviceWorkers`
-   * values (S3, ADR 0121). `"allow"` by default on Chromium, where a worker's own requests pass the
-   * engine's interception and a request it answers itself is marked `fromServiceWorker()`; set
-   * `"block"` when a route or the Response cache must act on every request. `"block"` on Firefox
-   * and WebKit, where an explicit `"allow"` raises `capability_unavailable`. `"block"` never patches
-   * `register`: registration fails as a browser's own refusal does.
+   * values (S3, ADR 0121). `"allow"` by default on Chromium, where a service worker's own requests
+   * pass the engine's interception and a response its fetch handler supplies is marked
+   * `fromServiceWorker()`; set `"block"` when a route or the Response cache must act on every
+   * request. `"block"` on Firefox and WebKit, where an explicit `"allow"` raises
+   * `capability_unavailable`. On Chromium, `"block"` never patches `register`: registration fails
+   * as a browser's own refusal does.
    */
   readonly serviceWorkers?: "allow" | "block";
 }

@@ -12,10 +12,14 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   _Why:_ what callers can't see, maintainers can change freely.
 - **Concrete types first; a trait only where two adapters exist.** A test fake counts as the second adapter only when the dependency has no local stand-in: SQLite in a temporary file is a stand-in, so it gets no trait; a remote model provider has none, so a mock adapter is justified. Every external dependency is still injected, never reached through a global: as a value (the Goodfetch home, an address, the environment map) when a stand-in exists, and as a handle only for time (`Clock`) and random choices (`Entropy`), whose test versions are the second adapter (ADR 0059, rules in [`TESTING.md`](TESTING.md)). The Plugin kinds of ADR 0033 are real seams, since built-ins, process Plugins and SDK handlers all implement them.
   _Why:_ a trait with one implementation is indirection with no payoff, and it spreads generics and slows compiles.
+- **What every implementation of a contract shares lives once, in a driver above them** ([ADR 0129](docs/adr/0129-what-every-implementation-of-a-contract-shares-lives-once-in-a-driver-above-them-and-each-implementation-fills-only-narrow-primitives.md)). Redirects, retries, cookies, the typed-failure enum and what each variant leads to, validation and timeouts sit in a concrete driver type; each implementation (a fetch tier, a Sink, a Model provider, a local browser or a Browser host) fills only a narrow trait of primitives, such as one `send` per hop. Each area spec names its drivers and primitives.
+  _Why:_ copies along an implementation axis drift apart, even under one conformance suite.
 - **Prefer types over generics, and generics over `dyn`.** When `dyn` is needed, hide it in a newtype of our own (`struct Transport(Arc<dyn TransportImpl>)`) instead of showing `Arc<dyn …>` in an interface.
   _Why:_ the interface stays stable if the dispatch strategy changes.
 - **State with one owner is an actor.** A task owns it and receives messages through a channel; no `Arc<Mutex<…>>` around a connection, a CDP session or a run's writer.
   _Why:_ one owner removes lock ordering, lock-held-across-await bugs and shared mutation.
+- **Each module has one concern, named in its `//!` comment** ([ADR 0126](docs/adr/0126-each-crate-declares-which-of-its-modules-may-import-which-each-module-names-one-concern-and-a-file-past-1000-lines-states-why.md)). A role that needs "and" to join two jobs is two modules.
+  _Why:_ every central class in the competitor research grew by taking the next feature where it was easiest to add.
 - **Tests go through the interface.** If a test needs to reach past it, the module is the wrong shape.
   _Why:_ such tests survive internal refactors, and they test what callers rely on.
 
@@ -46,6 +50,9 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Module files are `foo.rs` beside a `foo/` folder, never `mod.rs`.** `lib.rs` only declares modules and re-exports.
   _Why:_ editor tabs full of `mod.rs` are unreadable, and a short `lib.rs` shows the crate's shape at a glance.
 - **Each crate and each module opens with a `//!` comment stating its role.**
+- **Each crate's `modules.toml` lists which of its top-level modules may import which** (ADR 0126). An `xtask` check in the Quick suite fails on any other import (type-only imports included, `#[cfg(test)]` code excepted), on a cycle, on a name that is no module of the crate, and on a module the file does not list.
+  _Why:_ Rust's visibility does not stop one sibling module from using another, and import rules held in the research only where a tool checked them.
+- **A Rust file over 1,000 lines states why it is still one concern**, in a `Size:` line of its `//!` header, or the same `xtask` check fails. Every line of a file under `src/` counts, except `#[cfg(test)]` items (and files only they declare) and generated code. It is an alarm, not a cap.
 
 ### Errors
 
@@ -53,6 +60,8 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **`anyhow` only in `main`, `xtask` and tests.**
 - **Every failure a Client can see maps to an Error code** from the list in `goodfetch-protocol` (snake_case string, retryable flag, JSON-RPC class). Only the RPC layer converts errors for the wire.
   _Why:_ Error codes are under semver (ADR 0030) and every SDK generates a class per code, so a code is matched on, never a message.
+- **A failure from a party Goodfetch did not write becomes a typed error in one translation point per boundary** ([ADR 0127](docs/adr/0127-a-failure-from-a-party-goodfetch-did-not-write-becomes-a-typed-error-in-one-module-per-boundary-and-no-other-code-reads-its-text.md)): such as the CDP client, the transport primitive of each fetch tier that sends HTTP itself, the egress proxy where it forwards to an upstream proxy, each Model provider adapter and each built-in Sink's client; under a driver (ADR 0129) each maps into the enum the driver defines. The party's message is a private, redacted field with no string accessor, and only the translation point matches on it; an unknown failure becomes its `Unrecognized` variant, logged at `warn`.
+  _Why:_ text matched wherever it is needed breaks in every place at once when the party rewords it.
 - **No `unwrap()` outside tests.** `expect("invariant: …")` states an invariant the type system can't express; anything input can trigger returns an error.
 - **Panics are for bugs only, never for input or control flow.**
 
@@ -67,6 +76,8 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   - Only `main`, test helpers and bench targets (`benches/`, ADR 0071) build a Tokio runtime (`Runtime::new`, `Builder::new_current_thread`, `Builder::new_multi_thread`, `#[tokio::main]`), plus the Rust SDK's connection, which builds one for its linked engine or its transport through the helper `main` uses and takes the test helper's paused one in its unit tests over the in-memory transport pair (ADR 0081); `tokio::task::block_in_place` is in `disallowed-methods`.
   _Why:_ the same engine code then runs on the OS, the in-memory transport pair and the Simulation, and replays from a seed.
 - **Never hold a lock across `.await`.**
+- **A Session, a page, the engine and a Run change state only through one transition function** ([ADR 0128](docs/adr/0128-a-session-a-page-the-engine-and-a-run-each-change-state-through-one-transition-function-that-refuses-an-invalid-transition.md)) that matches the state, then the event inside each state's arm, never a `(state, event)` tuple, with no wildcard (`clippy::wildcard_enum_match_arm` denied in the transition function's own submodule; the lint does not look inside a tuple, and review refuses an `if let`, `let … else` or `matches!` in place of the inner `match`) and returns `InvalidTransition` for a pair its table does not allow. A program-caused one gets its user-facing code (`closed`, `call_cancelled`); one only a bug can cause is an `InternalError`, never a warning that carries on. Typestates are for short-lived values such as builders.
+  _Why:_ the crawlers in the research added state machines only after shipping hangs and teardown bugs.
 - **Every public async function has a `# Cancel safety` section** saying what is lost if its future is dropped.
 - **Public futures are `Send`**, checked by a compile-time assertion on the main entry points.
 
@@ -75,6 +86,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Edition 2024, a pinned toolchain in `rust-toolchain.toml`, and the MSRV of ADR 0030 tested in CI.**
 - **Warnings fail CI.** Clippy runs with `--all-targets --all-features`.
 - **Clippy `pedantic` is on as warnings**, with a short allow-list kept in `[workspace.lints]`.
+- **`too_many_lines` (100) and `too_many_arguments` (7) stay at their defaults** and never join that allow-list (ADR 0126); a function that needs more takes an `#[expect]` with its reason.
 - **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059). The handles' test constructors `Clock::paused` and `Entropy::seeded` are in `disallowed-methods` too, opted into only by test modules (ADR 0062) and bench target roots (ADR 0071).
   _Why:_ a test can then drive every clock the code reads, and hash order never reaches output.
 - **Denied:** `print_stdout` and `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes`, `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`). `std::io::stdout` and `std::io::stderr` are in `disallowed-methods`.

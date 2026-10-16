@@ -104,7 +104,7 @@ A quota, another process filling the disk between two samples, or a filesystem t
 | The Run trace (ADR 0031) | no | no video | stops for the Run, which carries the "no trace" mark |
 | A Response cache entry (ADR 0046) | no | not stored | not stored |
 | The Run index row (ADR 0031) | no | written | written later, and `goodfetch runs reindex` rebuilds it |
-| The Daemon's log lines | no | written | dropped and counted (below) |
+| An engine's log lines | no | written | dropped and counted (below) |
 
 - **WARC files hold only whole, committed records.**
   - The run file commits each WARC file's length together with the attempt whose records it holds.
@@ -191,6 +191,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   - `/readyz` also fails while the filesystem holding run state is at `critical`.
   - The metrics gain each sampled filesystem's free space and storage level, labelled by what it holds (run state, home, trace, WARC, temporary), a bounded set.
   - A note sits under `/readyz`.
+- **Adds to ADR 0078.** An Attached engine also writes JSON lines to the Goodfetch home's log folder when `log.output` is `file` in its configuration; it still sends its logs as log events, and its stderr is unchanged. A note sits under its stderr bullet.
 - **Adds to ADR 0072.** An Attached engine writes the structured log its exercise audit reads when test support sets `log.output: file` and a `log.level` that includes the rpc dispatch records.
 - **Adds to ADR 0049.** The Docker and Compose guides set the `local` logging driver, and every Daemon outside `daemon run` writes its own rotated files.
 - **Adds to ADR 0083.** The `storage.*` and `log.*` areas join the settings schema.

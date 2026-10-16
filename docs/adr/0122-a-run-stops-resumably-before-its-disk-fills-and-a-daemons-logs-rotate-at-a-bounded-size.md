@@ -24,7 +24,7 @@ Logs are bounded as follows. `goodfetch daemon run` logs to stdout for its platf
   - Docker's default `json-file` driver performs no rotation, and Docker's docs advise the `local` driver "to prevent disk-exhaustion" ([configure](https://docs.docker.com/engine/logging/configure/)).
 - **`tracing-appender`** 0.2.5 rotates by time only, and its `max_log_files` keeps the last `n` files ([Builder](https://docs.rs/tracing-appender/0.2.5/tracing_appender/rolling/struct.Builder.html)).
 
-Decided in [A disk that fills under a long Run, and log volume](https://github.com/goodfetch/goodfetch/issues/553), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204412536) and its [first addendum](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204734833). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It holds in both Products: the storage levels, the stops and the logs are the engine's, and only WARC output and the Politeness file are Foxhound's (ADR 0084).
+Decided in [A disk that fills under a long Run, and log volume](https://github.com/goodfetch/goodfetch/issues/553), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204412536) and its [first addendum](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204734833). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It holds in both Products: the storage levels, the stops and the logs are the engine's, and only WARC output and the per-domain Politeness are Foxhound's (ADR 0084); the Politeness file also holds Collie's per-proxy limits (ADR 0088).
 
 ## Decision
 
@@ -38,7 +38,7 @@ Decided in [A disk that fills under a long Run, and log volume](https://github.c
 
   Each filesystem is sampled once, however many of these it holds.
 - **What is read.** The space and the inodes available to the engine's user: `statvfs`'s `f_bavail` and `f_favail` on Unix, and `GetDiskFreeSpaceExW`'s space available to the caller on Windows, which honours quotas. A per-user quota on Linux, which `statvfs` does not show, is met as a failed write (below).
-- **Three storage levels,** set by two settings of a new `storage.*` area (ADR 0083), each applying where the engine process reads its configuration (ADR 0028) and capped by Operator policy:
+- **Three storage levels,** set by two settings of a new `storage.*` area (ADR 0083), each a size in bytes, applying where the engine process reads its configuration (ADR 0028) and capped by Operator policy. Left unset, each takes its built-in default, computed per filesystem:
 
   | Level | Free space below | Default |
   |---|---|---|
@@ -98,7 +98,7 @@ A quota, another process filling the disk between two samples, or a filesystem t
 |---|---|---|---|
 | The run file, or the per-install database (ADR 0002) | yes | written | stops the Run |
 | The Usage ledger: Limits depend on it (ADR 0041) | yes | written | stops every Run of the engine |
-| The Politeness file: no crawl request is sent without its permit (ADR 0053) | yes | written | stops every crawl of the engine |
+| The Politeness file: no request it limits is sent without its permit, per domain or per proxy (ADRs 0053, 0088) | yes | written | stops every Run of the engine that takes its permits |
 | WARC output (CO-30): the Run's own output, as its Records are | yes | written | stops the Run |
 | A periodic Checkpoint (ADR 0002) | no | written | skipped, with a `file_write_failed` warning; the run file still holds the state |
 | The Run trace (ADR 0031) | no | no video | stops for the Run, which carries the "no trace" mark |
@@ -133,19 +133,20 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   - They are JSON lines, in the Goodfetch home's log folder, one set of files per Daemon.
   - A file rotates when it reaches `log.file.max_size` (10 MiB), and `log.file.max_files` (5) are kept, the kubelet's defaults. A Daemon's logs therefore stay under about 50 MiB. The rotation is by size, because a quiet day and a busy hour then cost the same.
   - The docs name the folder for each OS.
-- **Engines that write no log file.** An Attached engine sends its logs only as log events (ADR 0078). A Rust program's linked engine logs through the program's own `tracing` subscriber. The CLI's output is the CLI's design.
+- **Engines that write no log file by default.** An Attached engine sends its logs only as log events (ADR 0078), and writes JSON lines to the Goodfetch home's log folder only when `log.output` is `file` in its configuration, as test support sets it for ADR 0072's exercise audit. A Rust program's linked engine logs through the program's own `tracing` subscriber. The CLI's output is the CLI's design.
 - **The default level is `info`,** and `info` logs state changes only. Examples are a Run started, resumed or stopped, a domain backing off (ADR 0102), a storage level changing, and a Daemon draining. A line per request, per fetch or per command is `debug` or below. So at the default level the volume follows what happens to Runs, never the number of requests; Scrapy's `DEBUG` default is the opposite. What a Run did per request stays in its run state and its Run trace, read through `outcomes()` and the Console (ADR 0102).
 - **Settings,** in a new `log.*` area, applying where a Daemon reads its configuration:
 
   | Key | Default |
   |---|---|
   | `log.level` | `info`, or a `tracing` filter directive |
-  | `log.output` | `stdout` under `daemon run`, otherwise `file` |
+  | `log.output` | `stdout` under `daemon run`; `file` for every other Daemon; `none` for an Attached engine, whose logs go as log events |
   | `log.format` | `json`; `text` for a person reading a terminal |
   | `log.file.max_size` | 10 MiB |
   | `log.file.max_files` | 5 |
 
-  - Set where no Daemon reads them, as on an Attached engine, they fail with `setting_not_applicable` (ADR 0083).
+  - They apply to any engine process, read from its configuration (ADR 0028). `log.output: stdout` on an Attached engine, whose stdout is its protocol channel, fails with `setting_not_applicable` (ADR 0083), and `log.file.*` apply wherever `log.output` is `file`.
+  - The rpc dispatch records ADR 0072's exercise audit reads (each request's method and Error code, each event's type) are per-request lines, so they are `debug`: test support sets `log.level` to include them.
   - An SDK still sets its connection's level through its host's logger and never logs on its own (ADR 0078; G4).
 - **A log write never blocks or stops anything.** The writer is lossy and non-blocking. A line it cannot write, because its buffer is full or the disk is, is dropped and counted, and the next line written says how many were dropped. That is ADR 0078's rule that logs are telemetry, "never slowing a run".
 
@@ -184,12 +185,13 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 - **Amends ADR 0031.**
   - At `low`, a Run trace stops recording video, and at `critical` or on a failed write it stops, with the "no trace" mark.
   - "Needs you" lists a filesystem at `low` or `critical`.
-  - A note sits under its Run traces' size cap.
+  - A note sits under its Run traces' size cap and names both.
 - **Amends ADR 0046.** At `low`, the Response cache stores no new entry. A note sits under its size cap.
 - **Amends ADR 0050.**
   - `/readyz` also fails while the filesystem holding run state is at `critical`.
   - The metrics gain each sampled filesystem's free space and storage level, labelled by what it holds (run state, home, trace, WARC, temporary), a bounded set.
   - A note sits under `/readyz`.
+- **Adds to ADR 0072.** An Attached engine writes the structured log its exercise audit reads when test support sets `log.output: file` and a `log.level` that includes the rpc dispatch records.
 - **Adds to ADR 0049.** The Docker and Compose guides set the `local` logging driver, and every Daemon outside `daemon run` writes its own rotated files.
 - **Adds to ADR 0083.** The `storage.*` and `log.*` areas join the settings schema.
 - **ADR 0037's matrix:**

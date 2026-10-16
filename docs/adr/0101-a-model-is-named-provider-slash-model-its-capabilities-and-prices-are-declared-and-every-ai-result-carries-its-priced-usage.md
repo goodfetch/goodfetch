@@ -59,6 +59,8 @@ One code per remedy, as ADR 0080 kept one `deadline_exceeded`. Each names the Mo
 
 The engine classifies by the provider's error type and message, not by the status alone, since providers send a cap as a 400 or a 429. A rejected key and an empty account are not retried: the research's lesson is to fail fast on both (AI pain 8). `model_declined` avoids "refused", which names the `RefusedError` group, and `model_funds_exhausted` avoids "quota", a `GLOSSARY.md` _Avoid_ term of Limit.
 
+> Amended by [ADR 0127](0127-a-failure-from-a-party-goodfetch-did-not-write-becomes-a-typed-error-in-one-module-per-boundary-and-no-other-code-reads-its-text.md): this classification happens once, in each Model provider adapter, its translation point; the provider's message stays a private field no other code reads.
+
 ### A model request's own timeout
 
 - **`timeout.model`, 60 s,** bounds one attempt of one model request, the program's own provider included. An attempt that outlasts it is retried as a transient failure, under ADR 0012's bounded retries; it nests inside the call that made it (ADR 0080), such as an AI verb's `timeout.ai` of 120 s (ADR 0091), so the retries share the enclosing time, and whichever ends first is the one `deadline_exceeded` names. openai-python waits 10 minutes by default and the AI SDK documents no default; ADR 0080 gives every phase a finite default (G6). A slow local model or a long reasoning answer raises both.

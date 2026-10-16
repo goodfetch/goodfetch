@@ -23,6 +23,7 @@ Spider wraps reqwest's `local_address` and `interface`, and its interface option
 
 **Leaks.**
 - DNS queries for a Session with a local address leave from that address through the engine's own resolver (ADR 0024), on every OS.
+  > Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): the engine's resolver keeps each answer for its TTL, a negative answer for its negative TTL and a server failure not at all, and drops an answer whose every address fails to connect. The engine's HTTP transports race the Session's address families under RFC 8305, 250 ms between attempts.
 - **Changes ADR 0024:** the engine's own resolver, used on Linux by default, is also used on macOS and Windows for Sessions with a local address.
 - Browsers hold WebRTC to `disable_non_proxied_udp` (`--force-webrtc-ip-handling-policy`), so it never reveals the host's other addresses; ADR 0014's interception of WebRTC still applies.
 

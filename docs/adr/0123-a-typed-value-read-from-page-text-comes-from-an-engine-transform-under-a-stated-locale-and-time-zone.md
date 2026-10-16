@@ -88,7 +88,7 @@ When an extracted field is a number, an amount's currency or a date, and the pag
 - **For each field, Provenance keeps (G6):**
   - the text exactly as read;
   - the transform with its resolved locale, time zone, pattern and anchor;
-  - the step and the locator it was read with.
+  - the step it was read in, and in compiled mode the locator it was read with.
 
   It sits where ADR 0091 keeps the rest of a value's Provenance, in the Run trace, beside what ADR 0100 keeps per output field. A Record reaches it through the crawl request that produced it (ADR 0103).
 - **The output stays the schema's type (S2, ADR 0082).** No value is wrapped with its text. A program that wants the page's text in its data declares a text field of its own, read with `text`, as Diffbot's `text` and Zyte's `currencyRaw` sit beside the parsed value.
@@ -113,7 +113,7 @@ When an extracted field is a number, an amount's currency or a date, and the pag
 - **Amends ADR 0091.**
   - The closed list of compiled transforms is this ADR's.
   - In model mode, the model answers each field with its text and transform, and the engine computes the value.
-  - A replayed transform that does not parse is Drift, which `GLOSSARY.md`'s **Drift** now covers beside a target that no longer matches its Target fingerprint.
+  - A replayed transform that does not parse, or a field read from an element in another language than the one kept, is Drift, which `GLOSSARY.md`'s **Drift** now covers beside a target that no longer matches its Target fingerprint.
   - The variant key of an entry holding a locale-dependent transform also holds the document's language, the Session's locale and the `extract.locale` in effect, and for a date-time or relative time the Session's zone and `extract.timezone_id`; each field keeps its element's language, checked once the element is found. Under `plan.frozen` a missing variant fails with `plan_drift`.
   - `extract.locale` and `extract.timezone_id` join `extract.mode`.
   - Notes sit under its Plan section and Compiled and model extraction.

@@ -414,7 +414,7 @@ The fresh review of a pull request checks its tests against this list:
 15. A spec change and its `features/stories/` file agree.
 16. A new Console string is in the catalog, a new component state has its Storybook story, and every changed Reference screenshot is intended ([Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)).
 17. A new or changed Chromium patch has its row in `chromium/surfaces.toml` and its tests, and each new expectation entry has its category and evidence ([Goodfetch Chromium](#goodfetch-chromium)).
-18. A new message or code from a party Goodfetch did not write has its named case in its translation point's table, and an unknown one has its `Unrecognized` case (ADR 0127).
+18. A new message or code from a party Goodfetch did not write has its named case in its translation point's table, which also holds one case for a failure it does not recognize (ADR 0127).
 19. A new lifecycle state or event adds a named case for each pair it forms, with the outcome copied from its area spec's table (ADR 0128).
 
 ## Suites, commands and time budgets

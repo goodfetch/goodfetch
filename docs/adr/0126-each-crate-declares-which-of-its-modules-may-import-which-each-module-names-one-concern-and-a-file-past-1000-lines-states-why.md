@@ -22,7 +22,7 @@ Decided in [Separation of concerns inside a crate is unchecked](https://github.c
   error = []
   ```
 
-  A module absent from the file may import no sibling. A module's own submodules are its business; a module that grows submodules worth rules of their own adds a `[submodules.<name>]` table in the same file, listing its submodules the same way:
+  A module absent from the file may import no sibling. A module's own submodules are its business; a module that grows submodules worth rules of their own adds a `[submodules.<name>]` table in the same file, listing its submodules the same way. A submodule's imports of its parent's siblings count against its parent's line:
 
   ```toml
   [submodules.dispatch]
@@ -39,7 +39,7 @@ Decided in [Separation of concerns inside a crate is unchecked](https://github.c
 
 ### A size alarm, not a cap
 
-- **A Rust source file under a crate's `src/` over 1,000 lines fails the `xtask` check unless its `//!` header holds a line `Size: <why this is still one concern>`.** Test code is not counted: files under `tests/` and `benches/` are not checked, and the count leaves out items under `#[cfg(test)]`, a file such as `foo/tests.rs` that only a `#[cfg(test)] mod tests;` declares included. Blank lines, comments and generated code (`generated/` folders, ADR 0038) are not counted either. The line is read by the review like any reason under `#[expect]`.
+- **A Rust source file under a crate's `src/` over 1,000 lines fails the `xtask` check unless its `//!` header holds a line `Size: <why this is still one concern>`.** Test code is not counted: files under `tests/` and `benches/` are not checked, and the count leaves out items under `#[cfg(test)]`, a file such as `foo/tests.rs` that only a `#[cfg(test)] mod tests;` declares included. Generated code (`generated/` folders, ADR 0038) is not counted either. Every other line counts, blank lines and comments included, as the research's sizes do. The line is read by the review like any reason under `#[expect]`.
 - **There is no alarm on a type's number of methods.** The import rules and the one-concern rule reach the cause; a method count would flag a deep type as readily as one that mixes concerns.
 - **The rule covers the Rust workspace**, the Rust SDK crates included. The hand-written code of the TypeScript and Python SDKs is their runtime and ergonomic layer, listed member by member in each manifest (ADR 0099); it is not checked by size.
 

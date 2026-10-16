@@ -7,7 +7,7 @@ The outbound side was decided: one Error code per remedy, a retryable flag and a
 - **The fix, in part.** Scrapy's download handlers (HTTP/1.1, HTTP/2, aiohttp, httpx, FTP) all raise one transport-neutral family (`DownloadTimeoutError`, `CannotResolveHostError` and the rest). Playwright turns every "target closed" protocol error into one `TargetClosedError` carrying the close reason.
 - The error model ties with duplication as the field's lowest-scored dimension, a mean of 2.1 of 5.
 
-Decided in [A failure from CDP, a fetch, a proxy or a model has no single place where it becomes a typed error](https://github.com/goodfetch/goodfetch/issues/571) ([grilling record](https://github.com/goodfetch/goodfetch/issues/571#issuecomment-6214830281)). The owner decided the rules; the agent decided their details on the owner's delegation of 2026-10-16. No SDK API changes, so ADR 0077's principles do not apply.
+Decided in [A failure from CDP, a fetch, a proxy or a model has no single place where it becomes a typed error](https://github.com/goodfetch/goodfetch/issues/571) ([grilling record](https://github.com/goodfetch/goodfetch/issues/571#issuecomment-6214830281)). The owner decided the rules; the agent decided their details on the owner's delegation of 2026-10-16. One detail departs from the grilling record, which named one translation point for the fetch layer every tier shares and one for the proxy layer: each fetch tier reaches a different library, and a proxy's refusal arrives through whichever library or browser met it, so the text is read where each failure arrives, and what the tiers share is the enum and its handling (ADR 0129). No SDK API changes, so ADR 0077's principles do not apply.
 
 ## Decision
 
@@ -15,12 +15,12 @@ Decided in [A failure from CDP, a fetch, a proxy or a model has no single place 
 
 - **The translation points are:**
   - the CDP client, for every CDP error and every disconnection of the browser;
-  - each fetch tier's transport primitive (ADR 0129), for its library's transport, TLS and HTTP failures (the browser tier's are the CDP client's);
-  - the proxy layer, where ADR 0053's proxy refusals are told apart from a site's answer;
+  - the transport primitive of each fetch tier that sends HTTP itself (ADR 0129), for its library's transport, TLS and HTTP failures; a browser tier's failures reach the CDP client;
   - each Model provider adapter (ADRs 0012 and 0101), where ADR 0101's classification by error type and message happens;
   - each built-in Sink's client (ADR 0026);
   - any later module that talks to such a party, which its area spec names.
-- **Process Plugins need none.** They return typed errors through the plugin protocol (ADR 0033), whose engine side checks them like any other decoded input.
+- **A proxy's refusal is told apart where it arrives.** On a tier that sends HTTP itself, the tier's transport primitive sees the proxy's own answer to its tunnel request; on a browser tier, the CDP client sees the browser's proxy error. Each maps ADR 0053's proxy refusals to their own variants there.
+- **Process Plugins and SDK handlers need none.** They return typed errors through the plugin protocol (ADR 0033), whose engine side checks them like any other decoded input.
 - **A translation point is the module that first receives the party's failure.** Where one implementation talks to the party, it owns its error enum of typed variants, written with `thiserror` (`STYLE.md`), from which its crate maps to Error codes. Only the RPC layer converts to the wire, as before.
 - **Where a driver sits above several implementations (ADR 0129), the driver defines the enum once** and decides what each variant leads to (a retry, a backoff, an Error code). Each implementation's translation point maps its party's failures into that enum, since each reaches a different library or format. The driver never reads a party's text.
 - **Matching on a party's text happens only inside the translation point**, against literals kept beside the enum. Everywhere else, code matches on variants.
@@ -40,7 +40,7 @@ Decided in [A failure from CDP, a fetch, a proxy or a model has no single place 
 - **Classify wherever the failure is handled:** rejected. It is what Crawlee, Stagehand and Browser Use do, and a reworded message then breaks each site separately.
 - **An `xtask` check that greps for string matching on errors:** rejected. It is noisy and easy to dodge, and it cannot tell a log line from a comparison.
 - **Review alone, with the text public:** rejected. It leaves the easy path open.
-- **Drop the text after classifying:** rejected. An unknown failure would carry nothing to diagnose it with, and every Error code carries what was observed (ADR 0079's fields).
+- **Drop the text after classifying:** rejected. An unknown failure would carry nothing to diagnose it with, and an Error code carries what was observed where that applies (ADR 0079's fields).
 - **An unknown failure as an `InternalError`:** rejected. A party sending a new message is not a bug in Goodfetch; the operation's own code names the remedy.
 
 ## Consequences

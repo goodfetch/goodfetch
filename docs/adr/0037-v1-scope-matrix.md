@@ -184,7 +184,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| CN-01 | Watch a running browser live | `decided` | ADR 0031, ADR 0006 | 12 Console | Live view with three tiers and take control. |
+| CN-01 | Watch a running browser live | `decided` | ADR 0031, ADR 0006, ADR 0130 | 12 Console | Live view with three tiers and take control. |
 | CN-02 | Session recording and replay | `decided` | ADR 0031 | 12 Console | Self-hosted: Run traces replayed on the Timeline. |
 | CN-03 | Run status and progress in a UI | `decided` | ADR 0031, ADR 0029, ADR 0024, ADR 0098 | 12 Console | Console over the Run index, on three axes; one Console per major for both Products (ADR 0098). |
 | CN-04 | Hosted dashboard of runs, filterable by metadata | `decided` | ADR 0031, ADR 0036 | 12 Console | Self-hosted: the Console over the Run index, with run labels. |

@@ -113,8 +113,10 @@ export interface BrowserSettings {
    * pass the engine's interception and a response its fetch handler supplies is marked
    * `fromServiceWorker()`; set `"block"` when a route or the Response cache must act on every
    * request. `"block"` on Firefox and WebKit, where an explicit `"allow"` raises
-   * `capability_unavailable`. On Chromium, `"block"` never patches `register`: registration fails
-   * as a browser's own refusal does.
+   * `capability_unavailable` and an inherited one yields. On Chromium, `"block"` never patches
+   * `register`: registration fails as a browser's own refusal does. On Firefox it is Firefox's own
+   * `dom.serviceWorkers.enabled` preference; on WebKit, Playwright's `register` stub, marked in
+   * Provenance.
    */
   readonly serviceWorkers?: "allow" | "block";
 }

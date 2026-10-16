@@ -273,8 +273,10 @@ pub mod browser {
     /// where a service worker's own requests pass the engine's interception and a response its
     /// fetch handler supplies is marked `from_service_worker()`; set [`ServiceWorkers::Block`]
     /// when a route or the Response cache must act on every request. `Block` on Firefox and
-    /// WebKit, where an explicit `Allow` fails with `capability_unavailable`. On Chromium, `Block`
-    /// never patches `register`: registration fails as a browser's own refusal does.
+    /// WebKit, where an explicit `Allow` fails with `capability_unavailable` and an inherited one
+    /// yields. On Chromium, `Block` never patches `register`: registration fails as a browser's own
+    /// refusal does. On Firefox it is Firefox's own `dom.serviceWorkers.enabled` preference; on
+    /// WebKit, Playwright's `register` stub, marked in Provenance.
     pub const SERVICE_WORKERS: Setting<ServiceWorkers> = Setting::new("browser.service_workers");
 
     /// Whether a site's service workers run (ADR 0121).

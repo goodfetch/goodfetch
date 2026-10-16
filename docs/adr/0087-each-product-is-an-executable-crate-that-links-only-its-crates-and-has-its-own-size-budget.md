@@ -101,7 +101,7 @@ Foxhound contains Collie, so only a Collie engine meets one: a Foxhound SDK or a
   - so 65–83 MB raw and 27–33 MB compressed, or 73–93 MB and 30–37 MB with static musl's 12% more.
 - **Neither Product counts the browser.** The Goodfetch Chromium stays outside every executable (ADR 0084), and its archive keeps the Chromium build gate's own 5 MB threshold (ADR 0074).
 - **The headroom absorbs the engine's own code,** which no probe counted: 13–20 MB compressed and 27–47 MB raw over Collie's projection, as ADR 0057's 15–25 MB did for the full binary. The ceilings stop drift; a misplaced Foxhound dependency, such as DuckDB (+33.0 MB raw), is stopped earlier by Collie's ban list.
-  > Amended by [ADR 0124](0124-collies-tls-relay-links-wreqs-boringssl-but-not-wreq-and-forwards-the-browsers-own-http2.md): Collie's parts also include BoringSSL for its TLS relay, at most about +5.5 MB raw and +2.6 MB compressed. That leaves about 10–17 MB compressed and 21–41 MB raw of headroom, with musl, and no ceiling moves.
+  > Amended by [ADR 0124](0124-collies-tls-relay-links-wreqs-boringssl-but-not-wreq-and-forwards-the-browsers-own-http2.md): Collie's parts also include BoringSSL for its TLS relay, measured at +1.43 MB raw and +0.70 MB compressed. That leaves about 12–19 MB compressed and 26–46 MB raw of headroom, with musl, and no ceiling moves.
 - **One increase threshold, +1 MB,** is about 3% of Collie's compressed file and 2–3% of Foxhound's, so a change to a crate both Products link trips both checks or neither.
 - **ADR 0057's rules hold per Product:**
   - every target is measured, and the largest must fit;

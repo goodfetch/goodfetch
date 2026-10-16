@@ -6,6 +6,8 @@ The engine fetches each page through one of four tiers: HTTP; a discovered API, 
 
 > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): a sample comparison compares what each attempt staged, before any "Record before commit" Hook: its Records and its enqueues, weighed as area 5's spec says. The browser's attempt, the reference, is the one that commits, whether the two match or not; where the comparison also runs with Filter-list blocking off (ADR 0047), the browser attempt whose blocking setting the route keeps commits. Every other attempt is discarded.
 
+> Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): a sample whose browser attempt ended on another URL than the other tier's attempt never matches, so a page that redirects by script keeps its Label on the browser on that domain. Every tier follows the same redirects and refresh stubs, so a chain alone never makes two attempts differ.
+
 ## Considered Options
 
 - **Browser only**: rejected as the default. It is exact but the most expensive tier, by two orders of magnitude on static pages and discoverable APIs.

@@ -38,7 +38,7 @@ A crawl request reaches its handler only as a whole document, after the same red
   - hickory-resolver keeps answers for their TTL ([`ResolverOpts`](https://docs.rs/hickory-resolver/latest/hickory_resolver/config/struct.ResolverOpts.html)).
   - RFC 2308 [§7.1](https://www.rfc-editor.org/rfc/rfc2308.html#section-7.1) keeps a server failure five minutes at most.
 
-Decided in [Redirect limits, truncated bodies and transport failures on the fetch tiers](https://github.com/goodfetch/goodfetch/issues/549), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461), raised by the [Common pitfalls catalog](https://github.com/goodfetch/goodfetch/issues/547). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/549#issuecomment-6204511037). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The two new codes are Collie's, in its client package, since a Collie navigation and `page.request` raise them too; a Foxhound crawl request uses them as it uses `navigation_failed` ([ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md)).
+Decided in [Redirect limits, truncated bodies and transport failures on the fetch tiers](https://github.com/goodfetch/goodfetch/issues/549), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461), raised by the [Common pitfalls catalog](https://github.com/goodfetch/goodfetch/issues/547). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/549#issuecomment-6204511037) and its [first addendum](https://github.com/goodfetch/goodfetch/issues/549#issuecomment-6204849045). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The two new codes are Collie's, in its client package, since a Collie navigation and `page.request` raise them too; a Foxhound crawl request uses them as it uses `navigation_failed` ([ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md)).
 
 ## Decision
 
@@ -101,10 +101,10 @@ Decided in [Redirect limits, truncated bodies and transport failures on the fetc
   - an HTTP/2 `HTTP_1_1_REQUIRED`, sent again over HTTP/1.1, which that origin then keeps for the Run;
   - a reused idle connection that closes or resets before any byte of the response arrives, or answers 408 on HTTP/1.1 (RFC 9112 §9.3.1, §9.5).
 - **Which methods.** The first four are sent again whatever the method: the site said it processed nothing. The last is sent again only for a read: a crawl request, which ADR 0106 makes a read whatever its method, or an idempotent method (RFC 9110 §9.2.2).
-- **Once.** A resend that fails is never resent (RFC 9110 §9.2.2).
+- **Once.** A resend that fails, or that a reused connection answers 408 again, is never resent (RFC 9110 §9.2.2). Its failure or its 408 is then the attempt's.
 - **A resend counts as nothing.** It is not an attempt, not a retry under `crawl.retry.max`, and no new request start in Politeness: it holds its hop's permit, as the browser's own resends do inside one navigation. The Run trace records each one, and its bytes count in Usage. Counting them would fail and slow the HTTP tiers where the browser tier succeeds, and move a Label's tier choice to the browser for a server's routine draining of connections.
 - **Every other transport failure ends the attempt with `navigation_failed`,** the network error in its details, retryable, on every tier, as ADR 0085 names a site that never answered. That includes a failed resend, a name that does not resolve, a refused or timed-out connection, a TLS failure and a reset on a fresh connection. A refused or timed-out connection also backs off the domain (ADR 0086).
-- **An HTTP/2 `ENHANCE_YOUR_CALM` from a site** backs off the domain as a 503 does (G5). From a proxy, it is a proxy refusal (ADR 0053).
+- **An HTTP/2 `ENHANCE_YOUR_CALM` from a site** backs off the domain as a 503 does (G5).
 - **The browser tiers.** The browser and `page.request`, which the browser-fetch tier sends, rely on the browser's own resends, which cover the same cases.
 
 ### `Retry-After`
@@ -125,7 +125,7 @@ Decided in [Redirect limits, truncated bodies and transport failures on the fetc
 
 ### Jitter
 
-- **The domain's backoff is spread with decorrelated jitter.** Each wait is drawn from the `Entropy` handle (ADR 0059) between `politeness.backoff.initial` and three times the previous wait, at most `politeness.backoff.max`. It still starts at 2 s and grows toward 60 s, as ADR 0021 says. Domains behind one origin or one proxy that back off together then come back apart.
+- **The domain's backoff is spread with decorrelated jitter.** Each wait is drawn from the `Entropy` handle (ADR 0059) between `politeness.backoff.initial` and three times the previous wait, the first between `initial` and three times `initial`, and none above `politeness.backoff.max`. It still starts from 2 s and grows toward 60 s, as ADR 0021 says, but the first waits are spread too. Domains behind one origin or one proxy that back off together then come back apart.
   - It never draws below `politeness.backoff.initial`. Full jitter can, and ADR 0086 counts a shorter wait as pressing a site harder.
 - **A crawl retry gets no timer of its own.** It is admitted again under its domain's delay and backoff, the one place where waits are set (the Builders' Library's single retry layer).
 - **A resend goes at once,** since the site processed nothing, as the browser's do.
@@ -154,14 +154,14 @@ An answer whose every address fails to connect is dropped before its TTL ends, s
 | `fetch.refresh.max_delay` | 100 s; `null` for any | a crawl, down to a Label |
 | `politeness.retry_after.max` | 15 minutes | a crawl, on a connection or a Run |
 
-`fetch.*` and `politeness.*` are a crawl's (ADRs 0086, 0093): a Collie engine refuses them with `not_in_product`, and a Collie Run on a Foxhound engine with `setting_not_applicable`. Durations take each language's duration type (ADR 0080).
+The three keys are a crawl's (ADRs 0086, 0093): a Collie engine refuses them with `not_in_product`, and a Collie Run on a Foxhound engine with `setting_not_applicable`. Durations take each language's duration type (ADR 0080).
 
 | Group | Code | Retryable | Package |
 |---|---|---|---|
 | `PageError` | `too_many_redirects` | no | Collie client |
 | `PageError` | `response_truncated` | yes | Collie client |
 
-Their classes are `TooManyRedirectsError` and `ResponseTruncatedError` under ADR 0079's naming rule. `too_many_redirects` carries the first URL, the hops followed and the count's setting or option. `response_truncated` carries the URL and the bytes received and expected. `ResponseUnavailableError` gains `retryAfter`, and its `status` may be `null`.
+Their classes are `TooManyRedirectsError` and `ResponseTruncatedError` under ADR 0079's naming rule. `too_many_redirects` carries the first URL, the hops followed and the count's setting or option. `response_truncated` carries the URL and the bytes received and expected. `ResponseUnavailableError` gains `retryAfter`, and its `status` may be `null`. `BlockedError` gains `retryAfter` too: the site's time for a `rate_limit`, or `null`.
 
 ## Considered Options
 
@@ -197,6 +197,7 @@ Their classes are `TooManyRedirectsError` and `ResponseTruncatedError` under ADR
 - **Amends ADR 0093.** Which responses reach a handler gains the 3xx rules, `too_many_redirects`, `response_truncated` and `navigation_failed` for transport failures. `fetch.redirect.max` and `fetch.refresh.max_delay` join its settings, and `response_unavailable` covers a request a long `Retry-After` held. Notes sit under its responses list, its settings and its Error codes.
 - **Amends ADR 0085.** A navigation past the browser's 20 redirects raises `too_many_redirects`, a cut main document or body `response_truncated`, and `page.request`'s `maxRedirects` stops at 20. Notes sit under its Navigation section and its Error codes table.
 - **Adds to ADRs 0046 and 0105.** The Response cache never stores a cut response, and a Response recording keeps one with `WARC-Truncated: disconnect`, replayed as `response_truncated`. Notes sit under ADR 0046's list of what is never stored and ADR 0105's recording.
+- **Adds to ADR 0092.** The details of `blocked` also carry `retryAfter`, the time a `rate_limit`'s `Retry-After` asks for, read in either form. A note sits under its Block cause bullet.
 - **Adds to ADR 0102.** The wait reason `backoff` also covers a `Retry-After`'s wait, its setting `politeness.retry_after.max` when the site's time is the longer. A note sits under `CrawlRunProgress`.
 - **Adds to ADR 0044.** The engine's resolver keeps answers for their TTL, and its HTTP transports race the Session's address families under RFC 8305. A note sits under its DNS consequence.
 - **Error codes.** `too_many_redirects` (not retryable) and `response_truncated` (retryable) join `goodfetch-protocol` in the `page` group through `xtask codegen`'s naming checks (ADR 0079). They are Collie's codes, so Rust has `ErrorCode::TOO_MANY_REDIRECTS` and `ErrorCode::RESPONSE_TRUNCATED` (ADR 0099).

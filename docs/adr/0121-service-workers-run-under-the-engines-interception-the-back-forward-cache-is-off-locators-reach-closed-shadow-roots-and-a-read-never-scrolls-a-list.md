@@ -12,6 +12,7 @@ The [Common pitfalls catalog](https://github.com/goodfetch/goodfetch/issues/547)
 The decisions were made in [Page states the page API leaves open](https://github.com/goodfetch/goodfetch/issues/552), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461), every answer by the agent on the owner's delegation. The evidence is primary sources read on 2026-10-16:
 - Playwright 1.64.1's docs and source;
 - Puppeteer's, Crawlee's and chromedriver's source;
+- Firefox's, WebKit's and Camoufox's source, for their service-worker preferences;
 - the Chrome DevTools Protocol's domain files;
 - the WebDriver and WebDriver BiDi specifications;
 - WAI-ARIA 1.2;
@@ -24,10 +25,10 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
 ### Service workers
 
 - **On Chromium, a site's service workers run, as in Playwright, whose `serviceWorkers` defaults to `'allow'`** (S3).
-  - **The engine attaches to each service worker before it runs.** It uses the browser protocol's auto-attach, which pauses a new worker target until it is set up. So no request leaves a service worker before interception covers it, and ADR 0014's domain policy still fails closed.
+  - **The engine attaches to each service worker before it runs.** It uses the browser protocol's auto-attach, which pauses a new service worker target until it is set up. So no request leaves a service worker before interception covers it, and ADR 0014's domain policy still fails closed.
   - **What a service worker requests itself passes the same interception as a page's subresources:** precaching, background sync, and the fetches it makes to pass a page's request on to the network. That covers the domain policy, Filter lists (ADR 0047 already covers "service workers included"), the Response cache and the Session's routes.
   - **A service worker's own requests never pass a page's routes, and a page's events do not report them, since a service worker belongs to no page.** Playwright's `context.route` likewise sees them, and `page.route` does not. The Run trace records them.
-  - **The navigation gate (ADR 0087) counts what reaches the site.** A service worker's request that carries a page's navigation to the network, as a network-first service worker passes it on, takes the permit that navigation would take, so a service worker never lets a crawl press a site past Politeness (G5). A navigation the service worker answers from its own cache sends nothing to the site and takes none.
+  - **The navigation gate (ADR 0087) counts what reaches the site.** A service worker's request that carries a page's navigation to the network, as a network-first service worker passes it on, takes the permit that navigation would take, so a service worker never lets a crawl press a site past Politeness (G5). The engine recognises that request by its `navigate` mode, and holds the permit as ADR 0087 holds a browser-tier page's, until the page's load event. A navigation the service worker answers from its own cache sends nothing to the site and takes none.
 - **A page request that a service worker's fetch handler answers never passes the page's interception.**
   - The fetch handler either answers from the service worker's own Cache Storage, which reaches no network, or passes the request on with its own fetch, the request above.
   - Neither a page's route nor the Response cache can answer or serve the page's request. Playwright's routes miss it too ("will not intercept requests intercepted by Service Worker"). What reaches the network was already judged as the service worker's own request, so nothing escapes the domain policy or Filter lists.
@@ -41,14 +42,17 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
   - ADR 0014's guarantee outranks it (G5), and Chromium is the engine that leads stealth (ADR 0035).
   - Area 8's spec measures how often a site's challenge or page needs a service worker on Camoufox. WebKit runs without a stealth mode (ADR 0035).
 - **The setting `browser.service_workers`,** with Playwright's values `allow` and `block` (S3, ADR 0083), is a Session setting. It is `allow` by default on Chromium and `block` on Firefox and WebKit, and `explainSettings` shows which applies and why (G6).
-  - An explicit `allow` on Firefox or WebKit raises ADR 0083's `capability_unavailable`, whose fix names `block` (G3).
+  - An explicit `allow` set where a Firefox or WebKit Session opens raises ADR 0083's `capability_unavailable`, whose fix names `block` (G3).
+  - An `allow` inherited from the Run or the environment, set there for its Chromium Sessions, yields to `block` on a Firefox or WebKit Session, as ADR 0083's inherited values yield, and `explainSettings` says so.
   - On a Borrowed browser, where `browser.*` settings are refused (ADR 0083), the person's own service workers run as they are. On Chromium the engine attaches to them as it does on its own browser. With no network layer under that browser, their requests are held by interception alone, as its pages' are (ADRs 0014, 0056).
   - On a page whose interception a raw CDP client can switch off, a service worker's requests are held at the network layer as its page's are (ADRs 0017, 0089).
-- **On Chromium, `block` changes nothing the page can read.**
-  - Registration fails as a browser's own refusal fails, with `register()`'s promise rejected.
-  - `register` stays the browser's own native function. Playwright's `'block'` replaces it with a page-visible stub that logs "Service Worker registration blocked by Playwright", which would break the `standard` Access mode's no-injection identity (ADR 0021) (G5).
-  - Area 5's spec picks the mechanism inside the browser.
-  - On Firefox and WebKit, `block` uses what Playwright's driver offers there, and this ADR promises no hidden refusal. Area 8's spec picks Camoufox's.
+- **`block` refuses registration with the browser's own switch, never a page-visible stub, wherever the browser has one** (G5, ADR 0021).
+  - **On Chromium, `block` changes nothing the page can read.** Registration fails as a browser's own refusal fails, with `register()`'s promise rejected, and `register` stays the browser's own native function. Area 5's spec picks the mechanism inside the browser.
+  - **On Firefox, Camoufox included, the engine sets Firefox's preference `dom.serviceWorkers.enabled` to `false`** through the driver's Firefox preferences: Playwright's `firefoxUserPrefs`, and Camoufox's `firefox_user_prefs`, which its own configuration leaves unset. Firefox then exposes no `navigator.serviceWorker`, as any Firefox with that preference off does, and injects nothing.
+  - **On WebKit, Playwright's driver reaches no such switch.** WebKit's `ServiceWorkersEnabled` preference is not among the settings its inspector protocol's `Page.overrideSetting` takes, and the driver takes no WebKit preferences. There `block` is Playwright's stub of `register`, which logs "Service Worker registration blocked by Playwright" and registers nothing.
+    - The Session is marked in Provenance as ADR 0019 marks a main-world action on WebKit. Like a user init script, the stub departs from `standard`'s no-injection identity (ADR 0021, SA-16), and the mark says so.
+    - A WebKit switch the engine can reach replaces the stub.
+  - **`block` also keeps a service worker that is already registered, such as one in a Profile directory used in place (ADR 0056), from controlling a page.** Failing `register()` alone would not, and a page's requests must all reach its routes. Area 5's spec proves it in each browser.
 
 ### The back/forward cache
 
@@ -89,12 +93,13 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
   - So the guard's checks hold in full, nothing is marked unguarded, and the page sees no change (G5).
 - **`locator.evaluate` hands such an element to a page function in either world.** The main world's own scripts still cannot reach the root.
 - **On Firefox and WebKit,** which run through Playwright's driver (ADR 0019), closed roots are not reached. When one may hide a target, ADR 0085's deadline error's `observed` names the closed root and says that Chromium reaches it (G6).
+  - So a locator that is unique on Firefox or WebKit can match more elements on Chromium, inside a closed root, and raise `target_not_unique` there. The docs of `locator` warn programs that run on several browsers.
 
 ## Considered Options
 
 - **Service workers blocked by default, with a `browser.*` setting that allows them,** as Playwright's docs advise under `route`: rejected. Every site would see a browser no person uses, to protect only the programs that mock what a service worker answers, and those set `block`.
 - **Bypassed by default** (Puppeteer's `setBypassServiceWorker`, CDP's `Network.setBypassServiceWorker`): rejected. No leader defaults to it. It leaves a registered service worker that never sees its page's fetches, a state no real browser is in, and it would add a third value for one use (S2).
-- **Playwright's `'block'` as it is,** an init script that stubs `register`: rejected by G5 and ADR 0021. A page can read the stub and its console warning.
+- **Playwright's `'block'` as it is,** an init script that stubs `register`, anywhere a browser switch exists: rejected by G5 and ADR 0021. A page can read the stub and its console warning. It remains only on WebKit, where the driver reaches no switch, and is marked there.
 - **Service workers allowed on Firefox and WebKit too,** their requests unseen: rejected by ADR 0014, which fails closed on a request the policy cannot judge.
 - **The back/forward cache left on, with a restore reported as its own navigation:** rejected. A restore passes neither interception nor the gate, has no `Response` for `goBack` to return, and is a navigation kind no leader supports. Puppeteer and chromedriver leave the cache on; Playwright, which switches it off, is the leader whose names the page keeps (ADR 0019).
 - **`extract` and `observe` scrolling a list and collecting its rows by key:** rejected. A read would become a Gesture, concurrent reads would contend for one scroll position, and a Plan step would depend on a position the program never set.
@@ -122,7 +127,8 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
 
   A note sits under its page list.
 - **Adds to ADR 0014.** On Chromium, a service worker's own requests are judged as a page's subresources are. On Firefox and WebKit, where they cannot be judged, service workers never register.
-- **Amends ADR 0035.** A `stealth` Camoufox Session never registers a service worker, a difference from real Firefox that a site can see. A note sits under its Firefox engine bullet.
+- **Amends ADR 0035.** A `stealth` Camoufox Session never registers a service worker, a difference from real Firefox that a site can see. Firefox's own `dom.serviceWorkers.enabled` preference refuses it, never a page-visible stub. A note sits under its Firefox engine bullet.
+- **Amends ADRs 0019 and 0021.** On WebKit, `block` is Playwright's `register` stub, a main-world injection marked in Provenance as ADR 0019's are, so a `standard` WebKit Session carries it. Notes sit under ADR 0019's main-world bullet and among ADR 0021's notes.
 - **Adds to ADR 0047.** Filter lists cover a service worker's own requests on Chromium. A request the service worker answers from its own cache reaches no network and needs no blocking.
 - **Adds to ADR 0046.** The Response cache acts at interception, so a page request a site's service worker answers is outside it. Its docs say to set `browser.service_workers: block` when that matters.
 - **Amends ADR 0110.** Kept responses match the responses the engine observes through the browser protocol's network events, not only those its interception pauses, so they keep a response a service worker's fetch handler supplied, marked by `fromServiceWorker()`. A note sits under `fetch.kept_responses.urls`.
@@ -131,19 +137,20 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
 - **Who builds what.** Each area lists this ADR.
   - **Area 5 (Site access)** builds:
     - the service-worker auto-attach and its interception, and the observed responses kept responses match;
-    - `block`'s browser-side refusal;
+    - `block`'s refusal: the mechanism inside Chromium, Firefox's preference, WebKit's stub and its Provenance mark, and the proof that an already registered service worker controls no page;
+    - the navigation gate's permit for a service worker's `navigate` request, held until the page's load event;
     - the back/forward cache switches, and the prerendering test;
     - closed-root resolution in the isolated world, for locators, the guard and `ariaSnapshot`;
     - the `observed` text on Firefox and WebKit.
   - **Area 4 (Security and egress)** checks that the domain policy holds over service workers, attached before they run on Chromium and never registered on Firefox and WebKit.
   - **Area 6 (Collection)**, if it adds CO-17's infinite-scroll helper, has it collect rows by a key at each step.
-  - **Area 8 (Stealth and Challenge solving)** measures what a `stealth` Camoufox Session loses without service workers and picks `block`'s mechanism there.
+  - **Area 8 (Stealth and Challenge solving)** measures what a `stealth` Camoufox Session loses without service workers, refused there by Firefox's preference.
   - **Area 9 (AI and agent)** builds the `ai` snapshot's count line.
-  - **Area 11 (Client surfaces)** builds `fromServiceWorker()` and the setting per language, and the doc text of `route`, `extract` and the virtualized-list recipe.
+  - **Area 11 (Client surfaces)** builds `fromServiceWorker()` and the setting per language, and the doc text of `route`, `extract`, `locator`'s cross-browser warning and the virtualized-list recipe.
   - **Area 2 (Proving ground and conformance)** builds the four pages.
 - **ADR 0037's matrix.**
   - SA-15 becomes `decided`, since its last `spec` part, closed shadow roots, is decided here.
-  - SA-14, SA-17 and CO-17 cite this ADR.
+  - SA-14, SA-16, SA-17 and CO-17 cite this ADR.
   - The status counts follow.
 - **`TESTING.md`** gains the page state conformance cases. The virtualized-list recipe runs as a docs code sample.
 - **The `prototype/sdk-api` sketch** holds `browser.service_workers` and `fromServiceWorker()` in each language. Its pitfall rows B10, B13, B20 and B21 close as Handled, and its pain row P34 names this answer.

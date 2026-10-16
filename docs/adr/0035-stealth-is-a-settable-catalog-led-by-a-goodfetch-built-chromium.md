@@ -50,7 +50,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 
 - Chromium is the main stealth engine, driven over Goodfetch's CDP driver (ADR 0019), with Chrome, Edge and Android Chrome identities.
 - Firefox stealth is Camoufox, reached through Playwright's driver and its Juggler protocol, with Firefox identities only. A native WebDriver BiDi path would not replace Juggler for Camoufox, whose isolation depends on it.
-  > Amended by [ADR 0121](0121-service-workers-run-under-the-engines-interception-the-back-forward-cache-is-off-locators-reach-closed-shadow-roots-and-a-read-never-scrolls-a-list.md): a Camoufox Session never registers a service worker, since Playwright's driver intercepts none of a service worker's requests and ADR 0014 fails closed; a site can see the difference from real Firefox, and area 8's spec measures its cost and picks how registration is refused.
+  > Amended by [ADR 0121](0121-service-workers-run-under-the-engines-interception-the-back-forward-cache-is-off-locators-reach-closed-shadow-roots-and-a-read-never-scrolls-a-list.md): a Camoufox Session never registers a service worker, since Playwright's driver intercepts none of a service worker's requests and ADR 0014 fails closed; Firefox's own `dom.serviceWorkers.enabled` preference, set through the driver's Firefox preferences, refuses it, never a page-visible stub; a site can see the difference from real Firefox, and area 8's spec measures its cost.
 - WebKit runs without a stealth mode and never claims to be Safari.
 
 ### The rest of the catalog

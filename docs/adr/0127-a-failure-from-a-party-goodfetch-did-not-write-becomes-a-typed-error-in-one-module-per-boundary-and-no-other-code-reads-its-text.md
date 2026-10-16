@@ -15,18 +15,19 @@ Decided in [A failure from CDP, a fetch, a proxy or a model has no single place 
 
 - **The translation points are:**
   - the CDP client, for every CDP error and every disconnection of the browser;
-  - the fetch layer every fetch tier shares (ADR 0129), for transport, TLS and HTTP failures, with what differs per tier in each tier's primitives;
+  - each fetch tier's transport primitive (ADR 0129), for its library's transport, TLS and HTTP failures (the browser tier's are the CDP client's);
   - the proxy layer, where ADR 0053's proxy refusals are told apart from a site's answer;
   - each Model provider adapter (ADRs 0012 and 0101), where ADR 0101's classification by error type and message happens;
   - each built-in Sink's client (ADR 0026);
   - any later module that talks to such a party, which its area spec names.
 - **Process Plugins need none.** They return typed errors through the plugin protocol (ADR 0033), whose engine side checks them like any other decoded input.
-- **Each translation point owns one error enum** of typed variants, written with `thiserror` (`STYLE.md`), from which its crate maps to Error codes. Only the RPC layer converts to the wire, as before.
+- **A translation point is the module that first receives the party's failure.** Where one implementation talks to the party, it owns its error enum of typed variants, written with `thiserror` (`STYLE.md`), from which its crate maps to Error codes. Only the RPC layer converts to the wire, as before.
+- **Where a driver sits above several implementations (ADR 0129), the driver defines the enum once** and decides what each variant leads to (a retry, a backoff, an Error code). Each implementation's translation point maps its party's failures into that enum, since each reaches a different library or format. The driver never reads a party's text.
 - **Matching on a party's text happens only inside the translation point**, against literals kept beside the enum. Everywhere else, code matches on variants.
 
 ### The text is kept, not exposed
 
-- **The party's own message is a private field** of a newtype with a `Display` and a `Debug` that go through ADR 0015's redaction. It has no accessor that returns `&str` or `String`.
+- **The party's own message is a private field** of a newtype with a `Display` and a `Debug` that redact Secrets and credentials as every log does (ADRs 0014 and 0015, tested under ADR 0067). It has no accessor that returns `&str` or `String`.
 - **Formatting an error and searching the result is refused in review.** Hiding the field makes the wrong path a detour that review sees; no lint can tell such a search from formatting for a log.
 
 ### Unknown failures and tests
@@ -39,7 +40,7 @@ Decided in [A failure from CDP, a fetch, a proxy or a model has no single place 
 - **Classify wherever the failure is handled:** rejected. It is what Crawlee, Stagehand and Browser Use do, and a reworded message then breaks each site separately.
 - **An `xtask` check that greps for string matching on errors:** rejected. It is noisy and easy to dodge, and it cannot tell a log line from a comparison.
 - **Review alone, with the text public:** rejected. It leaves the easy path open.
-- **Drop the text after classifying:** rejected. An unknown failure would carry nothing to diagnose it with, and ADR 0077's G6 requires that a failure says what was observed.
+- **Drop the text after classifying:** rejected. An unknown failure would carry nothing to diagnose it with, and every Error code carries what was observed (ADR 0079's fields).
 - **An unknown failure as an `InternalError`:** rejected. A party sending a new message is not a bug in Goodfetch; the operation's own code names the remedy.
 
 ## Consequences
@@ -47,4 +48,5 @@ Decided in [A failure from CDP, a fetch, a proxy or a model has no single place 
 - **`STYLE.md`.** Errors states the translation-point rule and the private text.
 - **`TESTING.md`.** The review checklist checks that a new upstream message or code has its case in its translation point's table.
 - **ADR 0053 and ADR 0101** carry notes: the proxy refusal and the Model provider classification each happen in their translation point.
+- **ADR 0129** states the drivers whose enums the translation points of the fetch tiers and the Model provider adapters map into.
 - **ADR 0037.** Areas 3 (Engine runtime), 5 (Site access), 6 (Collection) and 9 (AI and agent) list this ADR. Each spec names its translation points and the generic code an unknown failure maps to.

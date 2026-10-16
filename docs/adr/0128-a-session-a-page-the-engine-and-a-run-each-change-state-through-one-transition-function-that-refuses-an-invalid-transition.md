@@ -15,7 +15,7 @@ Decided in [An invalid lifecycle transition has no refusal rule](https://github.
 
 - **The objects:** a Session, a page, the engine (an Attached engine and a Daemon) and a Run. Each area spec lists its object's states, its events and the table of allowed transitions under this rule: area 3 (Engine runtime) for the engine and the Run, area 5 (Site access) for a Session and a page. An area spec may put another object an actor owns under the same rule.
 - **The state is an enum the actor owns.** It changes only through one function, such as `fn apply(&mut self, event: Event) -> Result<Effects, InvalidTransition>`, in the module that owns the object (ADR 0126).
-- **The function matches every pair of state and event, with no wildcard arm.** Its module turns on `#![deny(clippy::wildcard_enum_match_arm)]`, so a new state or event cannot compile until each pair is decided.
+- **The function matches the state, then the event inside each state's arm, with no wildcard arm in either.** Its module turns on `#![deny(clippy::wildcard_enum_match_arm)]`, so a new state or event cannot compile until each pair is decided. A single `match (state, event)` on a tuple is not allowed: the lint does not look inside a tuple pattern, so `(_, event)` and `_` arms would pass it (checked with Clippy 0.1.93).
 - **`InvalidTransition` names the state and the event.**
 - **Typestates are allowed for short-lived values a caller holds and consumes**, such as a builder, where each state is its own type and an invalid call does not compile. An object whose state changes as messages reach its actor keeps the enum.
 
@@ -37,9 +37,10 @@ Decided in [An invalid lifecycle transition has no refusal rule](https://github.
 - **Log a warning and carry on**, as Scrapy: rejected. The object is then in a state no one designed.
 - **Panic on an invalid transition:** rejected. A program can cause some of them, and `STYLE.md` keeps panics for bugs that input cannot trigger.
 - **A wildcard arm returning `InvalidTransition`:** rejected. A new state or event would then be refused silently instead of decided.
+- **One `match (state, event)` with a review rule against wildcards:** rejected. The lint cannot hold it, and a wildcard in a tuple pattern is easy to miss in review.
 
 ## Consequences
 
-- **`STYLE.md`.** Async and concurrency states the rule beside "state with one owner is an actor".
+- **`STYLE.md`.** Async and concurrency states the rule; Design's "state with one owner is an actor" names who owns the state.
 - **`TESTING.md`.** The review checklist checks that a new state or event adds its named cases.
 - **ADR 0037.** Areas 3 (Engine runtime) and 5 (Site access) list this ADR. Their specs list the states, events and tables.

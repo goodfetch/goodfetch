@@ -15,8 +15,8 @@ Decided in [Collie's TLS relay needs BoringSSL, which ADR 0087 bans from Collie]
 
 ### What Collie links
 
-- **BoringSSL, through `btls`, `btls-sys` and `tokio-btls`, for the TLS relay only.** The relay's crate is their one direct parent in Collie. Their version is the one `wreq` uses, so the workspace builds one BoringSSL and Foxhound links it once.
-- **Not `wreq`, nor the crates only it uses** (`wreq-util`, `wreq-proto`, `wreq-rt`, `http2`). The HTTP and discovered-API fetch tiers and impersonated HTTP stay Foxhound's (ADR 0088). Collie sends a Session's HTTP only from inside the Session's browser.
+- **BoringSSL, through `btls`, `btls-sys` and `tokio-btls`, for the TLS relay only.** Outside these three, the relay's crate is the only crate in Collie that depends on them. Their version is the one `wreq` uses, so the workspace builds one BoringSSL and Foxhound links it once.
+- **Not `wreq`, nor the crates that exist for it:** its dependencies `wreq-proto`, `wreq-rt` and `http2`, and its companion `wreq-util`. The HTTP and discovered-API fetch tiers and impersonated HTTP stay Foxhound's (ADR 0088). Collie sends a Session's HTTP only from inside the Session's browser.
 - **A version bump of `wreq` that moves `btls` moves the relay's dependency in the same pull request.** The `links` rule leaves no other way to build.
 
 ### How the relay connects upstream
@@ -45,10 +45,11 @@ Decided in [Collie's TLS relay needs BoringSSL, which ADR 0087 bans from Collie]
 
 ## Consequences
 
-- **Amends ADR 0087.** Collie's ban list keeps `wreq` and the crates only it uses. `btls`, `btls-sys` and `tokio-btls` are deny entries whose `wrappers` name the relay's crate as their only allowed direct parent; cargo-deny's `wrappers` "allows specific crates to have a direct dependency on the banned crate but denies all transitive dependencies on it" ([bans config](https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html)). A note sits at the ban list.
+- **Amends ADR 0087.** Collie's ban list keeps `wreq` and the crates that exist for it. `btls`, `btls-sys` and `tokio-btls` are each a deny entry whose `wrappers` list its allowed direct parents: `tokio-btls` the relay's crate; `btls` the relay's crate and `tokio-btls`; `btls-sys` `btls`, and the relay's crate only if it calls the FFI itself, so no other crate reaches BoringSSL. cargo-deny checks every direct parent of a denied crate against its `wrappers`, which "allows specific crates to have a direct dependency on the banned crate but denies all transitive dependencies on it" ([bans config](https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html)). A note sits at the ban list.
 - **Amends ADR 0088.** Collie's ban list keeps out `wreq` but not its BoringSSL, which the relay links. A note sits at "Collie's `cargo-deny` ban list".
 - **Amends ADR 0042.** The relay connects upstream through `btls`, not through `wreq`. It rebuilds the ClientHello from the browser's, and forwards the browser's own HTTP/2 frames instead of rebuilding them. A note sits at the relay's upstream item. ADR 0042's change to `wreq` for pins stays: it is for Foxhound's HTTP tiers.
 - **Building Collie's engine from source** (`cargo install goodfetch-collie`, the Rust SDK crate; ADRs 0024 and 0094) now needs CMake, a C and C++ compiler, libclang and git, which `btls-sys`'s build script uses. Building Foxhound already needs them, through `wreq`. The Rust SDK's install docs list them.
+- **Collie's Rust SDK crate keeps the relay.** An engine embedded in a Rust program launches browser Sessions that can have certificate exceptions, so the relay is not put behind a Cargo feature as ADR 0094 put V8 behind `executable`. V8 could go there because the embedded engine runs the Script sandbox from the engine executable (ADR 0051). Keeping a capability out of an engine by a feature is what ADR 0038 refuses.
 - **ADR 0037.** SC-06 cites this ADR. Areas 1 and 4 list it.
 - **Areas.**
   - Area 1 (Repository, CI and release) builds the ban list and its `wrappers`, and the Size budget check that records the relay's increase.

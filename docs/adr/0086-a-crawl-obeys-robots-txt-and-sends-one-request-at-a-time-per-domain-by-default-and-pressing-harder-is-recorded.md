@@ -52,6 +52,7 @@ Sources, read at those tags: Scrapy's [`default_settings.py`](https://github.com
 - **One request in flight per domain, at least one second between two starts** (`politeness.domain.concurrency` 1, `politeness.domain.delay` 1 s). These are Scrapy's template values, chosen in answer to #6597, and StormCrawler's; Nutch waits 5 s and Heritrix at least 3 s.
   - The delay counts between starts, so a domain gets at most one request a second, and fewer as it slows down: a site that takes 3 s to answer gets one request every 3 s.
   - A browser-tier fetch counts as one request, whatever its page loads.
+    > Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): each redirect or refresh hop of that fetch is a request start of its own, with its own permit; what its page loads besides still counts as nothing.
   - A crawl of many sites stays fast, because ADR 0004 serves domains in turn. One large site is slower: books.toscrape.com's 1,100 pages take about 18 minutes.
   - A `politeness.domain.delay` of 0 means no delay.
 - **A failing site slows the crawl.** A 502, a 504, and a connection that is refused or times out back off the domain as ADR 0021's 503 does. A 500 does not, because it usually belongs to one page. A 429 still halves the domain's concurrency.

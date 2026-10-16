@@ -49,6 +49,7 @@ Evidence from the competitor survey made for that ticket:
   1. **The real window.** When the browser is headful on the person's own desktop, "Take control" can bring that window to the front.
   2. **CDP screencast** everywhere else, the default for headless browsers. It sends JPEG frames sized by `devicePixelRatio` under acknowledgement-based flow control. For remote viewers, the screencast is relayed over WebRTC as video, and falls back to JPEG frames over the WebSocket when WebRTC cannot connect.
   3. **WebRTC H.264.** Where the browser runs headful in a virtual display (Linux containers, the OCI image, a Browser host, Goodfetch Cloud), the engine captures that display at about 25 fps, and falls back to tier 2 when capture fails or WebRTC cannot connect. Steel moved from screencast ("4-12fps, unstable") to this.
+     > Amended by [ADR 0130](0130-the-live-views-webrtc-video-is-vp8-encoded-with-libvpx-not-h264.md): every WebRTC video of the Live view, this tier's and tier 2's relay, is VP8 encoded with libvpx; H.264 is declined because it needs a patent licence.
   
   Input goes through CDP (`Input.dispatch*`, `Input.insertText`, `Input.imeSetComposition`).
 - **The Session, not one tab.**

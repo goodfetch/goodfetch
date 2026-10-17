@@ -390,7 +390,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 ## Test-first process
 
 - **An agent implementing a ticket follows the `tdd` skill.** The seams named in the spec's Testing Decisions are the seams agreed in advance. A test at another seam needs the pull request to name that seam and the reason, and the fresh review to accept it.
-- **Every behaviour lands red, then green.** The pull request's Verification section lists each new test with the failure it showed before the code existed. Commits stay green.
+- **Every behaviour lands red, then green.** The pull request's Verification section lists each new test with the failure it showed before the code existed. Commits stay green. The Verification section is the **Evidence** section of the `pr` skill's pull-request template: its Before is each test's red failure, its After the same test passing.
   _Why:_ a test never seen failing may test nothing, and green commits keep `git bisect` and the "all green" check working.
 - **A bug fix starts with a test that reproduces the bug**, named by the behaviour, not the issue.
 - **Refactoring is not part of the red-green loop;** it happens in review.

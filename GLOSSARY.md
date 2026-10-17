@@ -80,6 +80,10 @@ _Avoid_: snapshot, Checkpoint (which is a run's)
 The stable name a Client receives when an operation fails, such as `page_check_failed`, which programs can match on and which keeps its meaning across releases of a major version.
 _Avoid_: error name, error kind, status code
 
+**Trace context**:
+The identifiers a request carries so that its caller's OpenTelemetry trace continues in the process that receives it.
+_Avoid_: trace (alone), span context, correlation ID
+
 **Private component**:
 A closed component kept outside the open-source Products, used by Goodfetch Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
 _Avoid_: enterprise edition, premium module, closed core
@@ -125,7 +129,7 @@ The signed list of community Plugins that people search to find one, with each P
 _Avoid_: registry (for the index; Plugins live in OCI registries), marketplace, hub
 
 **Experimental**:
-The status of an operation, setting or SDK method released outside semver's compatibility promise until it is promoted.
+The status of an operation, setting, SDK method, metric or span released outside semver's compatibility promise until it is promoted.
 _Avoid_: unstable, nursery
 
 ## Pillars

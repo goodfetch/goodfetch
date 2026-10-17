@@ -1073,6 +1073,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 - **Plant a Secret canary for every kind of secret** (typed password, TOTP seed, emailed or texted one-time code, proxy password, HTTP authentication password, a header or JSON value sent by `page.request` or a route, a value a `caller:` resolver returns, model API key, webhook signing secret, Sink credential, Session cookie, endpoint token, run data key), through the Proving ground's login flows and every Secret provider (ADR 0092).
 - **Search every output for every Secret canary**, raw and JSON-escaped, URL-encoded, base64 and hex, and inside the Basic `Authorization` and `Proxy-Authorization` headers the engine builds. The outputs are:
   - logs, Run traces, HAR files and console captures, and screenshots and recordings where masking applies;
+  - the OTLP export, read through an in-process OTLP collector (ADR 0132);
   - the Audit log, the Effect journal, and Checkpoints outside their encrypted fields;
   - Exports and Notifications;
   - JSON-RPC errors, error messages in run state, and model requests;

@@ -1,6 +1,6 @@
 # Product design and interfaces
 
-**Proposal of October 7, 2026.** The React/shadcn console, the macOS app and the flows described remain to be implemented. The [HTML mockup](design/automan-console.html) is a standalone design artifact with simulated data; it is neither a React app nor an integration of the engine.
+**Proposal of October 7, 2026.** The React/shadcn console, the macOS app and the flows described remain to be implemented. The [HTML mockup](design/goodfetch-console.html) is a standalone design artifact with simulated data; it is neither a React app nor an integration of the engine.
 
 ## 1. Central object: a result and its history
 

@@ -33,29 +33,29 @@ Decided with the owner in [Trace context has no place in the protocol envelope, 
   - a call forwarded over the peer link of a Daemon group (ADR 0055);
   - Goodfetch Cloud's gateway, which passes it on unchanged;
   - the plugin protocol's requests to a process Plugin the user installed (ADR 0033);
-  - the MCP server's calls to the engine, taking the MCP client's `_meta.traceparent` and `_meta.tracestate`;
+  - the MCP server's calls to the engine, taking the MCP host's `_meta.traceparent` and `_meta.tracestate`;
   - the HTTP listener (ADR 0027), which also reads the HTTP `traceparent` and `tracestate` headers when `_meta` has none, since workflow tools inject them.
-- **Goodfetch's own code never sends it anywhere else.** No trace header goes to a target site, through a Fetch tier or from a browser, where it would mark the request as automated, nor to a Model provider, Sink, webhook, Notification or Secret provider (ADR 0043). The engine's HTTP client injects no trace header.
+- **Goodfetch's own code never sends it anywhere else.** No trace header goes to a target site, through a Fetch tier or from a browser, where it would mark the request as automated, nor to the endpoints of a Model provider, Sink, webhook, Notification channel or Secret provider (ADR 0043). The engine's HTTP client injects no trace header. A process Plugin or SDK handler of one of those kinds is a link above: it receives the Trace context of the engine's request to it like any other, and what it sends on is its own.
 
 ### What a receiver does
 
 - **With no `traceparent`,** the request's span is a new root.
 - **A value it cannot use is dropped, never refused:** a `traceparent` that does not parse, or is longer than 256 characters, starts a new OpenTelemetry trace and drops `tracestate`, as W3C says; a `tracestate` longer than 512 characters, invalid on its own, or sent without a valid `traceparent`, is dropped and a valid `traceparent` is kept. The schema checks only that each value is a string.
 - **None of these fails the call.** Each leaves one `debug` event.
-- **An engine or a Browser host uses Trace context only while its own OTLP export is on.** With export off, it ignores what it receives and sends none on. Each decides for itself: a Browser host without export ignores the context its engine sends. Clients do not apply this rule: an SDK, the MCP server and the HTTP listener's callers send what their caller has, and the gateway passes it on unchanged, since none of them can know the receiving engine's export setting.
+- **An engine or a Browser host uses Trace context only while its own OTLP export is on.** With export off, it ignores what it receives and sends none on. Each decides for itself: a Browser host without export ignores the Trace context its engine sends. Clients do not apply this rule: an SDK, the MCP server and the HTTP listener's callers send what their caller has, and the gateway passes it on unchanged, since none of them can know the receiving engine's export setting.
 
 ### The SDKs
 
 - **An SDK passes on its host program's ambient OpenTelemetry context:**
-  - TypeScript, from `@opentelemetry/api`'s active context when that package is installed, an optional peer dependency;
+  - TypeScript, from `@opentelemetry/api`'s active OpenTelemetry context when that package is installed, an optional peer dependency;
   - Python, from `opentelemetry-api` when it can be imported, with no required dependency, taken on the caller's thread by the sync API;
-  - Rust, through a trait of `goodfetch-collie-client` that reads the current context, which `goodfetch-collie` and `goodfetch-foxhound` implement behind an `opentelemetry` Cargo feature through `tracing-opentelemetry`. The client crate depends on no OpenTelemetry crate, and the feature sits on the crates through which each Product's SDK embeds its engine, as ADRs 0038 and 0087 allow for a heavy optional dependency.
-- **An SDK handler runs under the context the engine sent,** made current around the user's code, so its spans nest under the engine's.
+  - Rust, through a trait of `goodfetch-collie-client` that reads the current OpenTelemetry context, which `goodfetch-collie` and `goodfetch-foxhound` implement behind an `opentelemetry` Cargo feature through `tracing-opentelemetry`. The client crate depends on no OpenTelemetry crate, and the feature sits on the crates through which each Product's SDK embeds its engine, as ADRs 0038 and 0087 allow for a heavy optional dependency.
+- **An SDK handler runs under the Trace context the engine sent,** made current around the user's code, so its spans nest under the engine's.
 - **SDKs open no spans of their own in V1,** so the engine's request span is the user's span's direct child. Adding SDK spans later breaks nothing.
 
 ### Spans
 
-- **In an engine and a Browser host, the RPC layer's dispatcher opens one `SERVER` span per request received,** from the request's catalog entry, **and the RPC layer one `CLIENT` span per request sent,** whose context it writes into that request's `_meta`. Both follow OpenTelemetry's RPC and JSON-RPC conventions:
+- **In an engine and a Browser host, the RPC layer's dispatcher opens one `SERVER` span per request received,** from the request's catalog entry, **and the RPC layer one `CLIENT` span per request sent,** whose Trace context it writes into that request's `_meta`. Both follow OpenTelemetry's RPC and JSON-RPC conventions:
   - the span is named by the operation's canonical name (`run.start`, `page.goto`);
   - its fields are `rpc.system.name` (`jsonrpc`), `rpc.method` and `jsonrpc.request.id`, a failed reply's Error code as `error.type` and its JSON-RPC numeric code as `rpc.response.status_code`, and the glossary IDs found in the params (`run_id`, `session_id`).
 - **Handlers hold no request-span code.** They open their own child spans for runs, pages and CDP commands (`STYLE.md`).
@@ -88,10 +88,10 @@ Decided with the owner in [Trace context has no place in the protocol envelope, 
 - **Amends ADR 0030.** Semver does not cover span names, span fields or the engine's targets in an export, which are Experimental from 1.0, marked in the reference only and never warned about. Notes sit at its list of what semver does not cover and at its Experimental bullet.
 - **Amends ADR 0033.** Every request the engine sends a process Plugin may carry `_meta`. A note sits at its decision.
 - **Amends ADR 0050.** Metric names stay a versioned contract and spans do not. A note sits at its Stable or Experimental bullet.
-- **Amends ADR 0078.** The Rust SDK's targets stay under semver, while the engine's targets in an export are Experimental. Each SDK passes on its host program's context and runs an SDK handler under the engine's. A note sits at its Every SDK bullet.
+- **Amends ADR 0078.** The Rust SDK's targets stay under semver, while the engine's targets in an export are Experimental. Each SDK passes on its host program's OpenTelemetry context and runs an SDK handler under the engine's Trace context. A note sits at its Every SDK bullet.
 - **Amends ADR 0099.** `_meta` is an envelope field, not a catalog parameter: its underscore is outside the snake_case word rule, and no generator gives it a member. A note sits at its name rule.
 - **Tests.** Through an in-process OTLP collector: the receiver rules and both span kinds in the engine's tests; propagation across each link in that link's tests and in the protocol conformance cases; and no `traceparent`, `tracestate` or `baggage` header in what the Proving ground, the Model recorder, Sink and webhook receivers see. **`TESTING.md`'s Secret canary search** covers the OTLP export.
 - **`STYLE.md`'s tracing rules** say that the dispatcher opens request spans and what a span field may hold.
 - **The Simulation** draws trace and span IDs from its seeded randomness, so its OpenTelemetry traces replay (ADR 0060).
-- **ADR 0037.** Row RT-18 and pain row 19 (`dx-observability`) cite this ADR. Area 3, Engine runtime, builds the envelope, the receiver's rules and the spans. Area 11, Client surfaces, builds what each SDK sends and the context an SDK handler runs under.
+- **ADR 0037.** Row RT-18 and pain row 19 (`dx-observability`) cite this ADR. Area 3, Engine runtime, builds the envelope, the receiver's rules and the spans. Area 11, Client surfaces, builds what each SDK sends and the Trace context an SDK handler runs under.
 - **Glossary.** Adds **Trace context**, and **Experimental** also names metrics and the engine's trace output.

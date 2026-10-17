@@ -108,6 +108,9 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 ### Logging and secrets
 
 - **`tracing` everywhere, never `println!` or `log`.** Spans cover each RPC request, run, page and CDP command, with glossary IDs as fields (`run_id`, `session_id`).
+- **The RPC layer opens every request's span:** its dispatcher one per request received, from the catalog entry, and one per request sent, whose Trace context it writes into `_meta` ([ADR 0132](docs/adr/0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md)). A handler opens only its own child spans, never a request span.
+- **Span fields hold bounded values only:** IDs, operation names, Error codes and values from bounded sets. A URL is recorded as its origin; params, page content, extracted data and model prompts and completions never reach a span.
+  _Why:_ an OTLP export is one more output that leaves the process, and a query string can hold a token.
 - **`#[instrument(skip_all, fields(…))]`**, so arguments are only logged when named.
   _Why:_ one `?config` in a log line can leak a proxy password, and secrets never reach logs (ADRs 0014, 0015).
 - **Events are structured:** a fixed message plus fields, no `format!` inside a log call.

@@ -58,7 +58,7 @@ All durations come from a Mac M3 Max (macOS 27). None is publishable as is.
 
 ## 3. Comparison table: stack before testing and recommended after
 
-"Before" draws on the [proposal](proposals/proposition-automan.md), the [architecture](proposals/architecture.md), [ADR-001](adr/0001-runtime-language.md), [ADR-002](adr/0002-access-identity-stealth.md) and the [October 7 qualification](lab/reports/qualification-2026-10-07.md), produced by the design sessions before any decision campaign.
+"Before" draws on the [proposal](proposals/proposition-goodfetch.md), the [architecture](proposals/architecture.md), [ADR-001](adr/0001-runtime-language.md), [ADR-002](adr/0002-access-identity-stealth.md) and the [October 7 qualification](lab/reports/qualification-2026-10-07.md), produced by the design sessions before any decision campaign.
 
 | # | Area | Before testing | Recommended now | Verdict | Strength |
 | --- | --- | --- | --- | --- | --- |
@@ -334,7 +334,7 @@ These are lab defects found along the way, all fixed. To keep in mind going forw
 | Folder | Contents | Status |
 | --- | --- | --- |
 | [`GLOSSARY.md`](GLOSSARY.md) | Domain vocabulary drafted during the R&D | R&D draft |
-| [`proposals/`](proposals/) | Pre-test proposals: [proposal](proposals/proposition-automan.md), [architecture](proposals/architecture.md), [API](proposals/api.md), [product design](proposals/product-design.md), [documentation plan](proposals/documentation-plan.md), [console mockup](proposals/design/automan-console.html) | Historical, written before the tests |
+| [`proposals/`](proposals/) | Pre-test proposals: [proposal](proposals/proposition-goodfetch.md), [architecture](proposals/architecture.md), [API](proposals/api.md), [product design](proposals/product-design.md), [documentation plan](proposals/documentation-plan.md), [console mockup](proposals/design/goodfetch-console.html) | Historical, written before the tests |
 | [`plan/`](plan/) | [R&D plan](plan/rd-plan.md), [reference host](plan/reference-host.md) | Phases P0 to P9 |
 | [`adr/`](adr/) | **Proposed** ADRs: [0001 language](adr/0001-runtime-language.md), [0002 access and identity](adr/0002-access-identity-stealth.md), [0003 sessions](adr/0003-session-model.md) | R&D drafts, not adopted |
 | [`research/`](research/) | Sourced research ([index](research/README.md)) and [market track](research/market/) | Dated sources |

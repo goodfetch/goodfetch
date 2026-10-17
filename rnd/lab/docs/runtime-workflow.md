@@ -13,7 +13,7 @@ engine, or proof of recovery of external effects.
 
 ## Reproducing
 
-Select Node 25.5.0, then from `/Users/jb/Dev/automan/lab`:
+Select Node 25.5.0, then from `/Users/jb/Dev/goodfetch/rnd/lab`:
 
 ```sh
 pnpm shared-build

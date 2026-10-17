@@ -1,6 +1,6 @@
 # Commercial web automation market — October 7, 2026
 
-> **Scope update:** the user withdrew the small-team and 3–6-month release constraint after the first draft. The planning and TS-first passages below relate to that initial assumption. The current target is a Rust engine shared by the SDKs, the CLI and the cloud; see [the updated synthesis](2026-10-07-direction-automan.md). The mapping, the recorded prices and the caveats remain applicable.
+> **Scope update:** the user withdrew the small-team and 3–6-month release constraint after the first draft. The planning and TS-first passages below relate to that initial assumption. The current target is a Rust engine shared by the SDKs, the CLI and the cloud; see [the updated synthesis](2026-10-07-direction-goodfetch.md). The mapping, the recorded prices and the caveats remain applicable.
 
 ## Conclusion for a small team, MVP in 3–6 months
 

@@ -1,6 +1,6 @@
 # Browser frameworks and agents — survey as of October 7, 2026
 
-> **Scope update:** the user removed the small-team and 3–6-month release constraint after the first draft. The TypeScript/timeline advice below documents this initial assumption. The current recommendation, a canonical Rust engine and capability-based validation, appears in [the updated synthesis](2026-10-07-direction-automan.md). The technical facts and their caveats remain applicable.
+> **Scope update:** the user removed the small-team and 3–6-month release constraint after the first draft. The TypeScript/timeline advice below documents this initial assumption. The current recommendation, a canonical Rust engine and capability-based validation, appears in [the updated synthesis](2026-10-07-direction-goodfetch.md). The technical facts and their caveats remain applicable.
 
 This note covers browser frameworks, their primitives, the shift from agent to reusable code and the boundary between public libraries and paid services. It complements the other crawling/infrastructure strands. Product context: small team, first version in 3–6 months. No performance figure was reproduced here.
 

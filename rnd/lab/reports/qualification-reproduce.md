@@ -1,6 +1,6 @@
 # Reproducing the October 8 qualifications
 
-From `/Users/jb/Dev/automan/lab`, with the Node pinned in `.node-version` and the dependencies/bootstrap already built:
+From `/Users/jb/Dev/goodfetch/rnd/lab`, with the Node pinned in `.node-version` and the dependencies/bootstrap already built:
 
 ```sh
 node --test --test-concurrency=1 tests/*.test.ts tests/integration/*.test.ts

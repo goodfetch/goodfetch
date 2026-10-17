@@ -11,7 +11,7 @@ The retained HTML reports, manifests and raw samples are gathered in the [experi
 Versions run: **Node 25.5.0, pnpm 12.9.1, Rust 1.93.0, Crawlee 3.18.2, Spider 2.53.9, Playwright 1.63.0, Puppeteer 25.12.0, Stagehand 4.1.0 and 3.7.3, SQLx 0.8.6**. Chrome for Testing **153.0.8010.12** is provided explicitly to the adapters. Locks, source SHAs, browser and executables are recorded. No source change was detected during the retained experiments.
 
 ```sh
-cd /Users/jb/Dev/automan/lab
+cd /Users/jb/Dev/goodfetch/rnd/lab
 pnpm install --frozen-lockfile
 pnpm bootstrap
 pnpm run doctor

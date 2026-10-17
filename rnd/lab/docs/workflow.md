@@ -3,7 +3,7 @@
 The lab now runs HTTP acquisition and extraction, independent validation, a bounded result queue, batched writing, atomic commit and persistent acknowledgment. This Node prototype establishes the contract to compare; it does not choose the runtime of the future portable core.
 
 ```sh
-cd /Users/jb/Dev/automan/lab
+cd /Users/jb/Dev/goodfetch/rnd/lab
 # Use the qualified Node: 25.5.0, then check node --version.
 pnpm workflow campaigns/workflow-throughput.json
 pnpm workflow campaigns/workflow-recovery.json

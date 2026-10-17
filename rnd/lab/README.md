@@ -110,7 +110,7 @@ The bench produces one cell per driver, scenario and block, which makes it possi
 Prerequisites: Node >=24, pnpm **12.9.1**, Rust/Cargo and C/C++ build tools. The executed Node version, **25.5.0**, is specified in `.node-version`; other versions require requalification, notably for SQLite. The executed environment is recorded in each manifest. The lab uses Node's native TypeScript stripping, without a development server.
 
 ```sh
-cd /Users/jb/Dev/automan/lab
+cd /Users/jb/Dev/goodfetch/rnd/lab
 pnpm install --frozen-lockfile
 pnpm bootstrap
 pnpm check

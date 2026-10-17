@@ -164,7 +164,7 @@ The testimonials point toward authenticated sessions, observability, inference c
 
 ## 9. Concrete direction for Goodfetch
 
-Keep the [autonomous Rust runtime + shared protocol + SDK](2026-10-07-direction-automan.md) target, but specify what this comparison imposes on the product:
+Keep the [autonomous Rust runtime + shared protocol + SDK](2026-10-07-direction-goodfetch.md) target, but specify what this comparison imposes on the product:
 
 1. **Task and ResultContract at the center.** Define expected data, identity, completeness, freshness and observable final state. The model proposes an action; an appropriate check decides whether the objective has been reached.
 2. **Interchangeable executors.** Documented API/HTTP, parsing, deterministic browser and semantic discovery. Choose according to the result and the history, with the browser used directly on routes known to require it. Avoid a double HTTP-then-browser attempt on every request.

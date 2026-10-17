@@ -2,6 +2,8 @@
 
 V1 extends the engine through **Plugins**, each implementing one or more **Plugin kinds** under one contract per kind and one conformance suite. ADR 0026's pattern for Sinks becomes the rule for all of them: the public sink protocol becomes the **plugin protocol**, with a `hello` handshake that negotiates the protocol version and declares the Plugin's kinds, then one group of JSON-RPC methods per kind (`sink.*`, `fetch.*`, …). The engine accounts for every call into a Plugin, whatever its form: it counts it, classes it, journals what ADRs 0010 and 0012 require, and holds it to Limits. A process Plugin also runs confined on Linux, macOS and Windows, at the network level its manifest declares; where the host cannot provide a level, the engine refuses it rather than weaken it (unless Operator policy allows reduced confinement for a first-party Plugin), and it states plainly what a level cannot check. Decided in [Plugin and extension model](https://github.com/goodfetch/goodfetch/issues/108).
 
+> Amended by [ADR 0132](0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md): every request the engine sends a process Plugin may carry `_meta`, its Trace context (`traceparent` and `tracestate`), and the engine uses it only while its own OTLP export is on.
+
 Thirteen kinds:
 
 | Kind | What it adds | Precedent |

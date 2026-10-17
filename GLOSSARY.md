@@ -81,7 +81,7 @@ The stable name a Client receives when an operation fails, such as `page_check_f
 _Avoid_: error name, error kind, status code
 
 **Trace context**:
-The identifiers a request carries so that its caller's OpenTelemetry trace continues in the process that receives it.
+The W3C values a request carries so that its caller's OpenTelemetry trace continues in the process that receives it.
 _Avoid_: trace (alone), span context, correlation ID
 
 **Private component**:
@@ -129,7 +129,7 @@ The signed list of community Plugins that people search to find one, with each P
 _Avoid_: registry (for the index; Plugins live in OCI registries), marketplace, hub
 
 **Experimental**:
-The status of an operation, setting, SDK method, metric or span released outside semver's compatibility promise until it is promoted.
+The status of an operation, setting, SDK method, metric or part of the engine's trace output released outside semver's compatibility promise until it is promoted.
 _Avoid_: unstable, nursery
 
 ## Pillars

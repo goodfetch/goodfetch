@@ -25,7 +25,7 @@ Browserless users asked for a health check that needs no token, for Kubernetes p
 **Metrics** (adds to ADR 0030).
 - Names follow OpenTelemetry conventions under `goodfetch.*`, rendered `goodfetch_*` for Prometheus, and are generated from `goodfetch-protocol` into the reference, as the Operation catalog is (ADR 0038).
 - Each metric is Stable or Experimental under ADR 0030's semver scope.
+  > Amended by [ADR 0132](0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md): metric names stay a versioned contract; span names and span fields do not, and are Experimental.
 - The initial set: runs active by Lifecycle and finished by Verdict and Completeness (ADR 0029); work items queued, leased and retried; requests by tier and outcome, Block causes, and latency histograms by tier; browsers running, recycled and their memory; the governor's concurrency target and pressure source; Sink delivery lag and failures by Guarantee class (ADR 0026); model calls, tokens and latency by provider under the GenAI conventions; connected Clients and drain state.
 - Labels take values from bounded sets only, such as tier, Block cause, Error code, browser kind and Guarantee class.
 - Usage stays journaled and is never derived from metrics or traces.
-  > Amended by [ADR 0132](0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md): metric names stay a versioned contract; span names and span fields do not, and are Experimental.

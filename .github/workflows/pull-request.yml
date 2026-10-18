@@ -62,6 +62,9 @@ jobs:
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -137,6 +140,9 @@ jobs:
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -182,6 +188,9 @@ jobs:
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

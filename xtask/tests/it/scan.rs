@@ -3,7 +3,7 @@
 //! reopened on a recurrence; a Live check's fail, or its third inconclusive
 //! result in a row, opens or updates its `live-check` issue. Issues are read
 //! and written through a local stand-in for GitHub.
-//! Covers: story:1-65
+//! Covers: story:1-65, story:1-113
 
 use rstest::rstest;
 use serde_json::{Value, json};

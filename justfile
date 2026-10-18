@@ -41,7 +41,7 @@ lint: fmt-check
     ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows
     ci/tool.sh actionlint actionlint
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check bans
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
@@ -146,6 +146,42 @@ test suite *packages:
         exit 2
         ;;
     esac
+
+# `--test <runner>=<test ID>`, repeatable, or `--quarantined <n>`, the
+# quarantine list's n oldest entries. The diagnostic runs (20) and the daily
+# test-health job (50) call it; quarantined tests run too, as they must there.
+# Every runner runs even when another failed; the exit code is the last
+# failure's.
+# Runs chosen tests `count` times each, whatever each run's result (ADR 0064).
+[positional-arguments]
+repeat count *selection:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shift
+    nextest=() vitest=() playwright=() pytest=()
+    arguments=$(cargo run --quiet -p xtask -- repeat --count "{{ count }}" "$@")
+    while IFS=$'\t' read -r runner argument; do
+      case "$runner" in
+        nextest) nextest+=("$argument") ;;
+        vitest) vitest+=("$argument") ;;
+        playwright) playwright+=("$argument") ;;
+        pytest) pytest+=("$argument") ;;
+      esac
+    done <<< "$arguments"
+    status=0
+    if [[ ${#nextest[@]} -gt 0 ]]; then
+      cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${nextest[@]}" || status=$?
+    fi
+    if [[ ${#vitest[@]} -gt 0 ]]; then
+      pnpm exec vitest run "${vitest[@]}" || status=$?
+    fi
+    if [[ ${#playwright[@]} -gt 0 ]]; then
+      pnpm exec playwright test "${playwright[@]}" || status=$?
+    fi
+    if [[ ${#pytest[@]} -gt 0 ]]; then
+      uv run pytest "${pytest[@]}" || status=$?
+    fi
+    exit "$status"
 
 # Runs one suite's tests over what `xtask affected` selects (ADR 0061): the
 # working tree, uncommitted and untracked files included, against the merge

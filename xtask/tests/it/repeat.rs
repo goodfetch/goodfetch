@@ -3,7 +3,7 @@
 //! quarantined tests. `xtask repeat` gives each runner the arguments that
 //! select those tests and repeat them; each runner then runs the fixture
 //! workspace's tests for real, and its JUnit file shows every run.
-//! Covers: story:1-65
+//! Covers: story:1-113
 
 use rstest::rstest;
 

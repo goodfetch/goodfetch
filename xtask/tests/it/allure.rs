@@ -2,7 +2,7 @@
 //! results allure` writes each test's latest result and one history point
 //! per run attempt, and the pinned Allure, run for real, shows per-test
 //! history and durations from them.
-//! Covers: story:1-65
+//! Covers: story:1-113
 
 use serde_json::{Value, json};
 

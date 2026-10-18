@@ -36,6 +36,20 @@ pub(crate) fn runner(file_name: &str) -> &str {
     stem.split(['-', '.']).next().unwrap_or(stem)
 }
 
+/// The runtime a JUnit file's name adds after its runner (`vitest-node24.xml`,
+/// `pytest-3.14t.xml`); none for nextest, whose suffix names a profile or a
+/// cell, never a runtime.
+pub(crate) fn file_runtime(file_name: &str) -> Option<&str> {
+    let stem = file_name.strip_suffix(".xml").unwrap_or(file_name);
+    let runner = runner(file_name);
+    if runner == "nextest" {
+        return None;
+    }
+    stem.strip_prefix(runner)?
+        .strip_prefix('-')
+        .filter(|runtime| !runtime.is_empty())
+}
+
 /// Every test case of `text`, in document order.
 pub(crate) fn test_cases(runner: &str, text: &str) -> Result<Vec<TestCase>> {
     let mut reader = Reader::from_str(text);

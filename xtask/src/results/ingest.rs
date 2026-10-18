@@ -154,14 +154,15 @@ pub(crate) struct Failed {
     runtime: Option<String>,
 }
 
-/// The tests that failed in the attempt, once each per configuration, of
-/// the runners `xtask repeat` repeats; never a Live check's.
-pub(crate) fn failed(source: &Source<'_>) -> Result<Vec<Failed>> {
+/// The tests that failed in the attempt, on `os` when given, once each per
+/// configuration, of the runners `xtask repeat` repeats; never a Live check's.
+pub(crate) fn failed(source: &Source<'_>, os: Option<&str>) -> Result<Vec<Failed>> {
     let (attempt, _) = read(source)?;
     let failed: BTreeSet<Failed> = attempt
         .test_runs
         .into_iter()
         .filter(|run| run.outcome == Outcome::Failed && run.tier != LIVE_TIER)
+        .filter(|run| os.is_none_or(|os| run.os == os))
         .filter(|run| ["nextest", "vitest", "playwright", "pytest"].contains(&run.runner.as_str()))
         .map(|run| Failed {
             test: format!("{}={}", run.runner, run.test),
@@ -277,6 +278,13 @@ fn read_artifact(
             .is_some_and(|extension| extension.eq_ignore_ascii_case("xml"));
         if is_xml {
             let runner = junit::runner(file_name);
+            let runtime = match (
+                configuration.runtime.as_deref(),
+                junit::file_runtime(file_name),
+            ) {
+                (Some(artifact), Some(file)) => Some(format!("{artifact}-{file}")),
+                (artifact, file) => artifact.or(file).map(str::to_owned),
+            };
             let text = std::str::from_utf8(&contents)
                 .with_context(|| format!("{} is not UTF-8", path.display()))?;
             let cases = junit::test_cases(runner, text)
@@ -294,7 +302,7 @@ fn read_artifact(
                     job: context.job.clone(),
                     os: configuration.os.clone(),
                     arch: configuration.arch.clone(),
-                    runtime: configuration.runtime.clone(),
+                    runtime: runtime.clone(),
                     shard: configuration.shard.clone(),
                     commit: run.commit.clone(),
                     tree: run.tree.clone(),

@@ -2,7 +2,7 @@
 //! pass or fail, becomes one compressed file holding its JUnit files as
 //! written, one record per test run and one per job. GitHub's interface is a
 //! local stand-in; the artifacts are a downloaded run's folders.
-//! Covers: story:1-65
+//! Covers: story:1-113
 
 use serde_json::{Value, json};
 
@@ -181,6 +181,52 @@ fn daily_ingest_lists_the_finished_attempts_the_store_lacks() {
 
     assert_eq!(outcome.code, 0);
     assert_eq!(outcome.stdout, "50 2\n52 1\n");
+}
+
+/// A Release cell runs Vitest on each Node.js line and pytest on each
+/// Python version, one JUnit file each (`vitest-node24.xml`): the file's runtime
+/// joins the artifact's, so each is a configuration of its own; nextest's
+/// file names its cell or profile, which adds nothing.
+#[test]
+fn runtime_of_a_runners_file_joins_its_artifacts() {
+    let workspace = Workspace::from_fixture("results-ingest");
+    let vitest = r#"<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.1">
+  <testsuite name="web/sample.test.ts" tests="1" failures="0" errors="0" skipped="0" time="0.1">
+    <testcase classname="web/sample.test.ts" name="sample &gt; flaky" time="0.1"/>
+  </testsuite>
+</testsuites>"#;
+    let nextest = r#"<testsuites name="nextest-run" tests="1" failures="0" errors="0" time="0.1">
+  <testsuite name="sample" tests="1" failures="0" errors="0">
+    <testcase name="tests::flaky" classname="sample" time="0.1"/>
+  </testsuite>
+</testsuites>"#;
+
+    let outcome = ingest_third_attempt(
+        &workspace,
+        "junit-release-dispatch-linux-x64-gnu-1",
+        &[
+            (
+                "context.json",
+                br#"{ "job": "linux-x64-gnu", "order_seed": null, "entropy_seed": null }"#,
+            ),
+            ("nextest-linux-x64-gnu.xml", nextest.as_bytes()),
+            ("vitest-node24.xml", vitest.as_bytes()),
+        ],
+    );
+
+    assert_eq!(outcome.code, 0);
+    let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/10/42-3.tar.gz"));
+    let runtimes: Vec<(&str, &str)> = file
+        .test_runs
+        .iter()
+        .map(|run| {
+            (
+                run["runner"].as_str().unwrap(),
+                run["runtime"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(runtimes, vec![("nextest", "gnu"), ("vitest", "gnu-node24")]);
 }
 
 #[test]

@@ -272,6 +272,9 @@ enum ResultsCommand {
         /// The folder the run's artifacts were downloaded into, one folder each.
         #[arg(long)]
         artifacts: PathBuf,
+        /// Only the tests that failed on this OS (`linux`, `macos`, `windows`).
+        #[arg(long)]
+        os: Option<String>,
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
@@ -598,10 +601,11 @@ fn run_results(
             run_id,
             attempt,
             artifacts,
+            os,
             api_url,
         } => {
             // A run with more failures than this is broken, not flaky; the
-            // rest are named in the job summary instead.
+            // rest are only counted, for the job summary.
             const DIAGNOSED_AT_MOST: usize = 20;
             let source = results::Source {
                 api: github::Api {
@@ -613,10 +617,13 @@ fn run_results(
                 attempt,
                 artifacts: &root.join(artifacts),
             };
-            let mut failed = results::failed(&source)?;
+            let mut failed = results::failed(&source, os.as_deref())?;
             let left_out = failed.split_off(failed.len().min(DIAGNOSED_AT_MOST));
-            let matrix = serde_json::json!({ "include": failed });
-            output::line(&format!("matrix={matrix}"));
+            output::line(&format!("count={}", failed.len()));
+            output::line(&format!(
+                "matrix={}",
+                serde_json::json!({ "include": failed })
+            ));
             output::line(&format!("left_out={}", left_out.len()));
             Ok(ExitCode::SUCCESS)
         }

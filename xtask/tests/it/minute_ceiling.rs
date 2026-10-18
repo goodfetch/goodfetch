@@ -4,7 +4,7 @@
 //! Linux-equivalent minutes, skip the constrained runs, then the diagnostic
 //! runs, as they near 1,000, and the coverage and mutation jobs from 550;
 //! a skip goes to the job summary.
-//! Covers: story:1-65
+//! Covers: story:1-113
 
 use rstest::rstest;
 

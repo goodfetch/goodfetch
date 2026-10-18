@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Runs the visual projects in the job's VM, inside the pinned Playwright image
+# (ADR 0073), which `ci/vm/start.sh <mode> playwright` loaded:
+#   ci/vm/visual.sh install  starts the image's container for the job and
+#                            installs the packages, before ADR 0043's deny
+#   ci/vm/visual.sh test     compares every Reference screenshot (the visual job)
+#   ci/vm/visual.sh update   rewrites the changed ones (`update-screenshots`)
+# The container runs ci/visual/run.sh on the workspace at /work; the cache
+# folder is read-only to it. Under the deny, pnpm runs offline.
+set -euo pipefail
+
+mode=${1:?usage: ci/vm/visual.sh install|test|update}
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=ci/vm/common.sh
+source "$here/common.sh"
+
+if [[ "$mode" == install ]]; then
+  vm_shell nerdctl run --detach --name "$VISUAL_CONTAINER" --platform linux/amd64 --ipc=host \
+    --volume /work:/work --volume /cache:/cache:ro \
+    --env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST" \
+    "$PLAYWRIGHT_IMAGE" sleep infinity
+fi
+
+environment=(--env CI=true)
+if [[ -f "$EGRESS_STATE" ]]; then
+  environment+=(--env npm_config_offline=true)
+fi
+vm_shell nerdctl exec "${environment[@]}" "$VISUAL_CONTAINER" /work/ci/visual/run.sh "$mode"

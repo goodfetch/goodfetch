@@ -14,6 +14,7 @@ mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod output;
+mod screenshots;
 mod self_hosted;
 mod size;
 mod workflow;
@@ -65,6 +66,11 @@ enum Command {
     /// `modules.toml` does not allow, and on a long file that does not say
     /// why it is one concern (ADR 0126).
     Modules,
+    /// Reference screenshots (ADR 0073).
+    Screenshots {
+        #[command(subcommand)]
+        command: ScreenshotsCommand,
+    },
     /// The self-hosted allowlist (ADRs 0108 and 0135).
     SelfHosted {
         #[command(subcommand)]
@@ -129,6 +135,19 @@ struct SizeFiles {
     /// which a later run reads as `main`'s (ADR 0061).
     #[arg(long)]
     save: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum ScreenshotsCommand {
+    /// Applies the screenshots of a downloaded `update-screenshots` run, or
+    /// fails when it was not made in the pinned image on the head.
+    Fetch {
+        /// The folder the run's artifact was downloaded into.
+        run: PathBuf,
+    },
+    /// Fails on a Reference screenshot that no visual test read, after a
+    /// run of every visual project.
+    Orphans,
 }
 
 #[derive(Subcommand)]
@@ -237,6 +256,12 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
+        Command::Screenshots { command } => match command {
+            ScreenshotsCommand::Fetch { run } => {
+                Ok(check::report(&screenshots::fetch(root, &root.join(run))?))
+            }
+            ScreenshotsCommand::Orphans => Ok(check::report(&screenshots::orphans(root)?)),
+        },
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
             SelfHostedCommand::Export => {

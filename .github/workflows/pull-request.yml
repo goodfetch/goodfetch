@@ -104,6 +104,60 @@ jobs:
         if: always()
         run: ci/vm/stop.sh
 
+  # The visual projects of the Pre-merge suite (ADR 0073): Chromium screenshots,
+  # compared with zero mismatched pixels, only inside the Playwright image
+  # pinned by digest in ci/visual/image.toml, on Linux x86-64. No other job
+  # runs them, and no job writes a Reference screenshot: the
+  # update-screenshots workflow does.
+  visual:
+    name: visual
+    needs: quick
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start the VM with the pinned Playwright image
+        run: ci/vm/start.sh read-only ci playwright
+      - name: Install the visual projects' packages
+        run: ci/vm/visual.sh install
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the visual projects in the pinned image"
+        run: ci/vm/visual.sh test
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
+      - name: Upload the JUnit files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-visual-pull-request-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Upload the expected, actual and diff images
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: visual-differences-pull-request
+          path: |
+            target/playwright/
+            target/vitest-attachments/
+          if-no-files-found: ignore
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
   # Area 8's gate (ADR 0074). Until its free design (#445) is decided and its
   # first build lands, it passes and builds nothing, so it needs no VM.
   chromium-build-gate:
@@ -119,7 +173,7 @@ jobs:
   all-green:
     name: all green
     if: always()
-    needs: [quick, pre-merge]
+    needs: [quick, pre-merge, visual]
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 20
     permissions:

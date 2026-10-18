@@ -40,7 +40,7 @@ lint: fmt-check
     ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows
     ci/tool.sh actionlint actionlint
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/runner/*.sh ci/vm/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check bans
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
@@ -110,12 +110,13 @@ test suite *packages:
 quick *all: _skips-reset lint (test "quick") _skips-report
 
 # The Pre-merge suite on this host: the Quick suite, then every test and the
-# static checks' proofs (`all`: the whole workspace).
-pre-merge *all: _skips-reset lint (test "quick") (test "pre-merge") proofs _skips-report
+# static checks' proofs (`all`: the whole workspace). The visual projects run
+# only in the pinned Playwright image, in CI's `visual` job (ADR 0073).
+pre-merge *all: _skips-reset lint (test "quick") (test "pre-merge") proofs _visual-elsewhere _skips-report
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
-release: _skips-reset lint (test "quick") (test "release") proofs _skips-report
+release: _skips-reset lint (test "quick") (test "release") proofs _visual-elsewhere _skips-report
     @echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
 # Dispatches the Release suite's workflow on the pushed branch and follows it;
@@ -144,6 +145,18 @@ warm:
     cargo build --workspace --profile ci
     cargo bench --workspace --no-run
 
+# Applies the Reference screenshots of an `update-screenshots` run of this
+# branch (ADR 0073), refusing a run made in another image than the pinned one
+# or on another commit than the head. Commit them with your own sign-off,
+# naming the run in the message.
+screenshots-fetch run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    folder=$(mktemp -d)
+    trap 'rm -rf "$folder"' EXIT
+    gh run download "{{ run }}" --name reference-screenshots --dir "$folder"
+    cargo run --quiet -p xtask -- screenshots fetch "$folder"
+
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.
 proofs:
@@ -166,6 +179,12 @@ rosetta-trial:
 
 _skips-reset:
     @rm -f target/skipped.txt
+
+# Runner configs define the `visual` projects only inside the pinned image
+# (ci/visual/run.sh), so no host test command runs them.
+_visual-elsewhere:
+    @mkdir -p target
+    @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
 
 _skips-report:
     #!/usr/bin/env bash

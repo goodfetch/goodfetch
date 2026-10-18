@@ -8,8 +8,10 @@
 VM_NAME=goodfetch-job
 
 # The job's container inside the VM, which start.sh starts and every step's
-# command runs in (exec.sh).
+# command runs in (exec.sh); and the pinned Playwright image's container,
+# which `ci/vm/visual.sh install` starts for the visual projects.
 CONTAINER=goodfetch-job
+VISUAL_CONTAINER=goodfetch-visual
 
 # The CI image is tagged by its Containerfile's hash, so a changed
 # Containerfile never reuses an older image from the cache folder.
@@ -21,8 +23,16 @@ CI_IMAGE="goodfetch-ci:$(shasum -a 256 "$ci_root/ci/image/Containerfile" | cut -
 # end-of-job check knows the deny ran.
 EGRESS_STATE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/goodfetch-egress-denied"
 
+# The pinned Playwright image of the visual projects (ADR 0073), by digest,
+# from ci/visual/image.toml.
+image_key() {
+  sed -n "s/^$1 = \"\\(.*\\)\"\$/\\1/p" "$ci_root/ci/visual/image.toml"
+}
+PLAYWRIGHT_DIGEST=$(image_key digest)
+PLAYWRIGHT_IMAGE="$(image_key repository)@$PLAYWRIGHT_DIGEST"
+
 vm_shell() {
   limactl shell --workdir /work "$VM_NAME" -- "$@"
 }
 
-export VM_NAME CONTAINER CI_IMAGE EGRESS_STATE
+export VM_NAME CONTAINER VISUAL_CONTAINER CI_IMAGE EGRESS_STATE PLAYWRIGHT_DIGEST PLAYWRIGHT_IMAGE

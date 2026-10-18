@@ -1,0 +1,315 @@
+//! Reference screenshots (ADR 0073): `fetch` applies the screenshots of one
+//! `update-screenshots` run, downloaded by `just screenshots-fetch <run>`,
+//! only when the run rendered them in the pinned Playwright image on the
+//! branch's head; `orphans` refuses a reference no visual test read.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
+)]
+
+use std::collections::BTreeSet;
+use std::fmt;
+use std::path::{Component, Path, PathBuf};
+use std::process::Command;
+
+use anyhow::{Context as _, Result, bail};
+use serde::Deserialize;
+
+use crate::check::Finding;
+use crate::output;
+
+/// The pinned Playwright image, read by the workflows and by this module.
+const PINNED_IMAGE: &str = "ci/visual/image.toml";
+
+/// What a downloaded run says about itself, written by the workflow.
+const RUN_PROVENANCE: &str = "provenance.json";
+
+/// Where a downloaded run keeps its screenshots, by repository path.
+const RUN_SCREENSHOTS: &str = "screenshots";
+
+/// Where the visual projects record each Reference screenshot they read, one
+/// repository path a line, in files of their own (the shared helper for
+/// Playwright, `vitest.config.ts` for Vitest).
+const READ_RECORDS: &str = "target/visual/read";
+
+/// Folders the walk never enters, wherever they are: version control, build
+/// outputs and installed packages.
+const SKIPPED: [&str; 4] = [".git", "target", "node_modules", ".venv"];
+
+/// The frozen R&D archive at the root (ADR 0032).
+const FROZEN: &str = "rnd";
+
+/// An image's content digest, `sha256:` and 64 lowercase hexadecimal digits.
+#[derive(Debug, PartialEq, Eq)]
+struct Digest(String);
+
+impl Digest {
+    fn parse(text: &str) -> Result<Self> {
+        let hex = text
+            .strip_prefix("sha256:")
+            .context("an image digest starts with `sha256:`")?;
+        if hex.len() != 64 || !is_lower_hex(hex) {
+            bail!("`{text}` is not a sha256 digest");
+        }
+        Ok(Self(text.to_owned()))
+    }
+}
+
+impl fmt::Display for Digest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// A commit's full hexadecimal name: 40 digits for SHA-1, 64 for SHA-256.
+#[derive(Debug, PartialEq, Eq)]
+struct CommitId(String);
+
+impl CommitId {
+    fn parse(text: &str) -> Result<Self> {
+        let text = text.trim();
+        if !matches!(text.len(), 40 | 64) || !is_lower_hex(text) {
+            bail!("`{text}` is not a full commit name");
+        }
+        Ok(Self(text.to_owned()))
+    }
+}
+
+impl fmt::Display for CommitId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+fn is_lower_hex(text: &str) -> bool {
+    text.bytes()
+        .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinnedImage {
+    #[expect(
+        dead_code,
+        reason = "read by the workflows' scripts; parsed here so the file keeps its shape"
+    )]
+    repository: String,
+    #[expect(
+        dead_code,
+        reason = "read by the workflows' scripts; parsed here so the file keeps its shape"
+    )]
+    tag: String,
+    digest: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Provenance {
+    digest: String,
+    commit: String,
+    /// The workflow run's ID, which the author's commit names.
+    run: u64,
+}
+
+fn pinned_digest(root: &Path) -> Result<Digest> {
+    let path = root.join(PINNED_IMAGE);
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let image: PinnedImage =
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    Digest::parse(&image.digest).with_context(|| format!("reading {}", path.display()))
+}
+
+/// The commit checked out in the workspace at `root`.
+fn head(root: &Path) -> Result<CommitId> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .context("running git rev-parse HEAD")?;
+    if !output.status.success() {
+        bail!(
+            "git rev-parse HEAD failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    CommitId::parse(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Applies every screenshot of the downloaded run at `run` to the workspace,
+/// or nothing when the run was not made in the pinned image on the head.
+pub(crate) fn fetch(root: &Path, run: &Path) -> Result<Vec<Finding>> {
+    let pinned = pinned_digest(root)?;
+    let head = head(root)?;
+    let path = run.join(RUN_PROVENANCE);
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let provenance: Provenance =
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let digest =
+        Digest::parse(&provenance.digest).with_context(|| format!("reading {}", path.display()))?;
+    let commit = CommitId::parse(&provenance.commit)
+        .with_context(|| format!("reading {}", path.display()))?;
+
+    let mut findings = Vec::new();
+    if digest != pinned {
+        findings.push(Finding::new(
+            "image-not-pinned",
+            digest.to_string(),
+            format!(
+                "the run rendered its screenshots in another image than {PINNED_IMAGE}'s {pinned}"
+            ),
+        ));
+    }
+    if commit != head {
+        findings.push(Finding::new(
+            "commit-not-head",
+            commit.to_string(),
+            format!("the run rendered another commit than the branch's head, {head}; dispatch the workflow again on the pushed head"),
+        ));
+    }
+
+    // A run that changed no screenshot uploads no folder of them.
+    let screenshots = run.join(RUN_SCREENSHOTS);
+    let mut files = Vec::new();
+    if screenshots.is_dir() {
+        collect(&screenshots, &mut files)?;
+    }
+    let mut relatives = Vec::new();
+    for file in &files {
+        let relative = file.strip_prefix(&screenshots)?;
+        if !is_reference_screenshot(relative) {
+            findings.push(Finding::new(
+                "not-a-reference-screenshot",
+                slash_path(relative),
+                "a run may write only PNG files in `__screenshots__/` and `-snapshots/` folders",
+            ));
+        }
+        relatives.push(relative);
+    }
+    if !findings.is_empty() {
+        return Ok(findings);
+    }
+
+    for (file, relative) in files.iter().zip(relatives) {
+        let target = root.join(relative);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::copy(file, &target).with_context(|| format!("writing {}", target.display()))?;
+        output::line(&format!("applied {}", slash_path(relative)));
+    }
+    if files.is_empty() {
+        output::line("The run changed no Reference screenshot.");
+        return Ok(findings);
+    }
+    output::line(&format!(
+        "Commit them with your own sign-off (`git commit -s`), naming update-screenshots run {} in the message.",
+        provenance.run
+    ));
+    Ok(findings)
+}
+
+/// Every Reference screenshot of the workspace that no visual test read in
+/// the run recorded under `target/visual/read/` (ADR 0073's orphan check).
+pub(crate) fn orphans(root: &Path) -> Result<Vec<Finding>> {
+    let records = root.join(READ_RECORDS);
+    let mut read = BTreeSet::new();
+    for entry in std::fs::read_dir(&records).with_context(|| {
+        format!(
+            "reading {}; run every visual project first",
+            records.display()
+        )
+    })? {
+        let path = entry?.path();
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        read.extend(
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned),
+        );
+    }
+    let mut references = Vec::new();
+    walk(root, root, &mut references)?;
+    Ok(references
+        .into_iter()
+        .filter(|reference| !read.contains(reference))
+        .map(|reference| {
+            Finding::new(
+                "orphaned-reference-screenshot",
+                reference,
+                "no visual test read this Reference screenshot; remove it, or take the screenshot through the shared helper",
+            )
+        })
+        .collect())
+}
+
+/// Collects every Reference screenshot under `folder`, as repository paths.
+fn walk(root: &Path, folder: &Path, references: &mut Vec<String>) -> Result<()> {
+    let mut entries = std::fs::read_dir(folder)
+        .with_context(|| format!("reading {}", folder.display()))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<PathBuf>, _>>()?;
+    entries.sort();
+    for path in entries {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let metadata = std::fs::symlink_metadata(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let relative = path.strip_prefix(root)?;
+        if metadata.is_dir() {
+            if SKIPPED.contains(&name) || (folder == root && name == FROZEN) {
+                continue;
+            }
+            walk(root, &path, references)?;
+        } else if is_reference_screenshot(relative) {
+            references.push(slash_path(relative));
+        }
+    }
+    Ok(())
+}
+
+/// Whether the repository path is a Reference screenshot: a PNG file inside
+/// Vitest's `__screenshots__/` folder or a Playwright `<test file>-snapshots/`
+/// folder (ADR 0073).
+pub(crate) fn is_reference_screenshot(relative: &Path) -> bool {
+    let in_reference_folder = relative.parent().is_some_and(|parent| {
+        parent.components().any(|component| match component {
+            Component::Normal(name) => name
+                .to_str()
+                .is_some_and(|name| name == "__screenshots__" || name.ends_with("-snapshots")),
+            _ => false,
+        })
+    });
+    let plain = relative
+        .components()
+        .all(|component| matches!(component, Component::Normal(_)));
+    plain
+        && in_reference_folder
+        && relative
+            .extension()
+            .is_some_and(|extension| extension == "png")
+}
+
+fn slash_path(relative: &Path) -> String {
+    relative.to_string_lossy().replace('\\', "/")
+}
+
+fn collect(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in
+        std::fs::read_dir(folder).with_context(|| format!("reading {}", folder.display()))?
+    {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect(&path, files)?;
+        } else {
+            files.push(path);
+        }
+    }
+    Ok(())
+}

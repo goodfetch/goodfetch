@@ -28,7 +28,7 @@ Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests fo
 
 Traps that break things, each explained in `STYLE.md`:
 
-- Write to stdout or stderr only from the protocol transport, the CLI's output writer and the `tracing` subscriber's writer; everything else logs through `tracing`. Stdout is the JSON-RPC channel when the binary is an Attached engine started by an SDK, or the stdio MCP server.
+- Write to stdout or stderr only from the protocol transport, the CLI's output writer and the `tracing` subscriber's writer; everything else logs through `tracing`. Stdout is the JSON-RPC channel when the binary is an Attached engine started by an SDK, or the stdio MCP server. Two test-only executables are exceptions: `goodfetch-scripted-engine` (ADR 0069) and `goodfetch-test-env` (ADR 0062) write their own stdout, and neither ships in a Product.
 - Change contracts in `goodfetch-protocol`'s Rust types, then run `xtask codegen`; generated code (`generated/` folders, the committed JSON Schema bundle and catalog file) is never edited by hand.
 - Spawn every task through its owner's tracker, never with a bare `tokio::spawn` or `spawn_blocking`. Outside tests, return an error or `expect("invariant: …")` rather than `unwrap()`. Silence a lint with `#[expect(lint, reason = "…")]`, never `#[allow]`.
 - Make a capability a setting, never a Cargo feature. Outside `crates/foxhound/`, only `xtask` depends on a crate inside it (ADR 0087).

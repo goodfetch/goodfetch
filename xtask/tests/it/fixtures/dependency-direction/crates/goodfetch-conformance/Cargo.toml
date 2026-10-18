@@ -1,0 +1,11 @@
+[package]
+name = "goodfetch-conformance"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+goodfetch-protocol = { path = "../goodfetch-protocol" }
+
+[dev-dependencies]
+goodfetch-test-support = { path = "../goodfetch-test-support" }

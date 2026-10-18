@@ -331,7 +331,7 @@ fn runs_test(words: &[String], index: usize) -> bool {
 
 /// Whether a script runs a test anywhere.
 pub(super) fn script_runs_test(text: &str) -> bool {
-    let words: Vec<String> = text.lines().flat_map(words).collect();
+    let words = script_words(text);
     (0..words.len()).any(|index| runs_test(&words, index))
 }
 
@@ -346,7 +346,7 @@ struct Loop {
 /// and break out (`for i in 1 2 3; do just test quick && break; done`). A
 /// `for` loop over packages that runs each one once is no retry.
 fn check_loops(path: &str, text: &str, findings: &mut Vec<Finding>) {
-    let words: Vec<String> = text.lines().flat_map(words).collect();
+    let words = script_words(text);
     let mut open: Vec<Loop> = Vec::new();
     for (index, word) in words.iter().enumerate() {
         match word.as_str() {
@@ -403,6 +403,20 @@ fn logical_lines(text: &str) -> Vec<String> {
         lines.push(current);
     }
     lines
+}
+
+/// A script's words, without the patterns of its `case` statements
+/// (`nextest) …`), which name a runner without running it.
+fn script_words(text: &str) -> Vec<String> {
+    text.lines()
+        .flat_map(|line| {
+            line.split_whitespace()
+                .take_while(|word| !word.starts_with('#'))
+                .filter(|word| !word.ends_with(')') || word.contains('('))
+                .collect::<Vec<_>>()
+        })
+        .flat_map(words)
+        .collect()
 }
 
 /// A line's words, quotes and brackets trimmed, up to a `#` comment.

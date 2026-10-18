@@ -5,7 +5,7 @@
 // fails and none is written.
 import { defineConfig, type ViteUserConfig } from "vitest/config";
 
-const outside = ["**/node_modules/**", "rnd/**", "ci/proofs/**", "target/**"];
+const outside = ["**/node_modules/**", "rnd/**", "ci/proofs/**", "target/**", "**/fixtures/**"];
 
 const config: ViteUserConfig = defineConfig({
   test: {

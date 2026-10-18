@@ -18,4 +18,5 @@ mod fixture_size;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
+mod quarantine;
 mod self_hosted;

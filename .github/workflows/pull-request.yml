@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      # The quarantine-list check reads each entry's issue (ADR 0064).
+      issues: read
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -34,6 +36,8 @@ jobs:
       - name: Start the VM
         run: ci/vm/start.sh read-only
       - name: "Test: just quick all"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ci/vm/exec.sh just quick all
       - name: Summarize the failed tests
         if: failure()

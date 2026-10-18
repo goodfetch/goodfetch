@@ -48,6 +48,8 @@ lint: fmt-check
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- mocking-lockfile
     cargo run --quiet -p xtask -- no-retry
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     ci/repository-files.sh
 
@@ -65,6 +67,18 @@ test suite *packages:
     packages=()
     for package in {{ packages }}; do packages+=(-p "$package"); done
     [[ ${#packages[@]} -eq 0 ]] && packages=(--workspace)
+    # Each runner skips the tests on the test quarantine list through its own
+    # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
+    nextest=() vitest=() playwright=() pytest=()
+    exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
+    while IFS=$'\t' read -r runner argument; do
+      case "$runner" in
+        nextest) nextest+=("$argument") ;;
+        vitest) vitest+=("$argument") ;;
+        playwright) playwright+=("$argument") ;;
+        pytest) pytest+=("$argument") ;;
+      esac
+    done <<< "$exclusions"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
     case "{{ suite }}" in
@@ -74,21 +88,21 @@ test suite *packages:
         # when every test runs, in the Pre-merge suite.
         NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check \
           --test-runner nextest --nextest-profile quick --profile {{ test_profile }} \
-          --disable-nextest-doctest
-        pnpm exec vitest run --project unit --slowTestThreshold=1000
+          --disable-nextest-doctest ${nextest[@]+"${nextest[@]}"}
+        pnpm exec vitest run --project unit --slowTestThreshold=1000 ${vitest[@]+"${vitest[@]}"}
         # pytest exits 5 when it collects no test, as before any Python test exists.
-        uv run pytest --timeout=10 --ignore-glob='*/tests/integration/*' || [[ $? -eq 5 ]]
+        uv run pytest --timeout=10 --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} || [[ $? -eq 5 ]]
         ;;
       pre-merge|release)
         NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced reject \
           --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
-          --disable-nextest-doctest
+          --disable-nextest-doctest ${nextest[@]+"${nextest[@]}"}
         # nextest runs no doctests; cargo-insta's own doctest pass would take
         # nextest's profile flag, which `cargo test` refuses.
         cargo test "${packages[@]}" --doc --profile {{ test_profile }}
-        pnpm exec vitest run
-        pnpm exec playwright test --pass-with-no-tests
-        uv run pytest || [[ $? -eq 5 ]]
+        pnpm exec vitest run ${vitest[@]+"${vitest[@]}"}
+        pnpm exec playwright test --pass-with-no-tests ${playwright[@]+"${playwright[@]}"}
+        uv run pytest ${pytest[@]+"${pytest[@]}"} || [[ $? -eq 5 ]]
         ;;
       *)
         echo "error: the suite is quick, pre-merge or release, not {{ suite }}" >&2

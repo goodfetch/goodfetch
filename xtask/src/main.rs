@@ -8,11 +8,13 @@ mod all_green;
 mod check;
 mod dependency_direction;
 mod fixture_size;
+mod github;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod output;
+mod quarantine;
 mod self_hosted;
 mod workflow;
 
@@ -61,6 +63,11 @@ enum Command {
     /// Fails on any setting, flag, variable or workflow pattern that retries a
     /// test (ADRs 0064 and 0074).
     NoRetry,
+    /// The test quarantine list, `quarantine.toml` (ADR 0064).
+    Quarantine {
+        #[command(subcommand)]
+        command: QuarantineCommand,
+    },
     /// The self-hosted allowlist (ADRs 0108 and 0135).
     SelfHosted {
         #[command(subcommand)]
@@ -74,6 +81,25 @@ enum SelfHostedCommand {
     Check,
     /// Prints the flat copy of the allowlist that the pre-job script reads.
     Export,
+}
+
+#[derive(Subcommand)]
+enum QuarantineCommand {
+    /// Fails on an entry whose issue is not an open `flaky-test` issue, or
+    /// whose test its runner no longer lists.
+    Check {
+        /// The repository whose issues the entries name, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+        /// The Cargo profile nextest builds its listing with.
+        #[arg(long)]
+        cargo_profile: Option<String>,
+    },
+    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
+    /// runner skip the listed tests.
+    Exclude,
 }
 
 /// What `main` reads from the environment, the only place that does (ADR 0059).
@@ -110,6 +136,30 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
+        Command::Quarantine { command } => match command {
+            QuarantineCommand::Check {
+                repository,
+                api_url,
+                cargo_profile,
+            } => {
+                let sources = quarantine::Sources {
+                    api: github::Api {
+                        url: &api_url,
+                        token: environment.github_token.as_deref(),
+                    },
+                    repository: &repository,
+                    cargo: &environment.cargo,
+                    cargo_profile: cargo_profile.as_deref(),
+                };
+                Ok(check::report(&quarantine::check(root, &sources)?))
+            }
+            QuarantineCommand::Exclude => {
+                for (runner, argument) in quarantine::exclusions(root)? {
+                    output::line(&format!("{runner}\t{argument}"));
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
             SelfHostedCommand::Export => {

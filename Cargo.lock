@@ -329,9 +329,11 @@ version = "0.0.0"
 name = "goodfetch-protocol"
 version = "0.0.0"
 dependencies = [
+ "rstest",
  "schemars",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

@@ -3,10 +3,15 @@
 //! type's schema under `$defs`; the catalog lists every entry with its
 //! Product mark (ADR 0095) and refers to its types in the bundle.
 //!
-//! What later decisions put in the bundle joins here once its types exist,
-//! through the same `xtask codegen`: the format registry (ADR 0066), the
-//! `--json` output types and the exit-code table (ADR 0069), and the Journey
-//! and Feature inventory schemas (ADRs 0063 and 0072). A new catalog section
+//! The bundle's `files` maps each repository file a contract shapes to its
+//! schema: `compat/releases.toml` (ADR 0066) so far. What later decisions put
+//! in the bundle joins here once its types exist, through the same `xtask
+//! codegen`: the format registry (ADR 0066), the `--json` output types and the
+//! exit-code table (ADR 0069), and the Journey and Feature inventory schemas
+//! (ADRs 0063 and 0072). `xtask compat` reads the format registry as the
+//! bundle's `formats`: an array of `{name, version, storage, schema}`, where
+//! `storage` is `json`, `sqlite` or `transcript`; without it, no format is
+//! registered. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
 
@@ -18,6 +23,7 @@ use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, Metric, Operation,
     OperationClass, PROTOCOL_VERSION, PluginKind, Product, ProtocolVersion, Stability,
 };
+use crate::releases::ReleasesFile;
 use crate::{foxhound, sample};
 
 /// Every module that defines entries.
@@ -38,12 +44,14 @@ pub fn emit() -> Emitted {
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }
+    let releases = generator.subschema_for::<ReleasesFile>();
     let definitions = generator.take_definitions(true);
     Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "Goodfetch protocol",
             "protocol_version": version(PROTOCOL_VERSION),
+            "files": { "compat/releases.toml": releases },
             "$defs": definitions,
         }),
         catalog: sections.into_catalog(),
@@ -217,3 +225,6 @@ fn metric_entry(metric: &Metric) -> Value {
         "arrived_in": version(metric.arrived_in),
     })
 }
+
+#[cfg(test)]
+mod tests;

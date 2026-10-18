@@ -17,6 +17,7 @@ Facts this rests on, checked on 2026-10-14:
 - **No paid resource until the owner declares revenue.** No job, build, account or service that bills is created or switched on. An agent that finds a paid option better states the free option it chose instead, and records the paid one as declined, never as pending.
 - **CI and builds use free tiers:** GitHub-hosted standard runners within the private plan's included minutes (ADR 0064's ceiling), unlimited once the repository is public, and self-hosted runners on the owner's machine where a build needs more than a hosted runner holds. A self-hosted runner never runs a pull request from a fork.
   > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, the owner's machine also runs the manual-dispatch Release suite's macOS cells, on `main` only, behind a committed allowlist and a pre-job script.
+  > Amended by [ADR 0135](0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md): while the repository is private, the owner's machine also runs the pull-request tier, from branches of the repository only, each job's build and tests in a Linux VM recreated for it; and it runs private fuzzing nightly.
 - **Live AI calls go through the Vercel AI Gateway** with one key, `AI_GATEWAY_API_KEY`, on the free tier only:
   - the provider check, the recorder, the Evaluations and the skill Evaluations of ADR 0065 call models through the gateway's OpenAI-compatible and Anthropic Messages endpoints;
   - no credits are bought, auto top-up stays off and the gateway's billable add-ons stay off, so the key cannot spend money; that replaces ADR 0065's per-job paid caps;
@@ -48,6 +49,8 @@ Facts this rests on, checked on 2026-10-14:
   | a paid LocalStack token (ADR 0032) | LocalStack's free open-source licence, applied for; if refused, the affected Sinks use free emulators such as MinIO, or wait |
   | a paid translation service (ADR 0073) | pseudo-locales only |
   | a larger cache, larger runners, hosted visual services, Antithesis | not used |
+
+  > Amended by [ADR 0135](0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md): private fuzzing runs nightly on the owner's machine, through a runner instance of the private fuzzing repository, and uses no included minutes.
 
 - **Local secrets live in `.env` at the repository root:** git-ignored, mode 600, written only by `scripts/env-setup.sh`, which reads the names, their purpose, the milestone that needs them and the page that creates each from the committed `.env.example`, and never prints a value. `.env.example` is the one list of every secret a contributor may need, and a new secret joins it in the pull request that first needs it.
 - **Tests never read `.env`.** Test support clears the environment (ADR 0059). Only the recipes that run Live checks load it, each on its own: the `justfile` never sets `dotenv-load` globally. CI reads the same names from GitHub Actions secrets, which fork pull requests never receive.

@@ -1,0 +1,166 @@
+//! A fixture results store (ADR 0064) in a workspace folder: one compressed
+//! file per run attempt, written in the store's format, for the commands
+//! that read the store.
+
+use std::io::Write as _;
+
+use serde_json::{Value, json};
+
+use crate::workspace::Workspace;
+
+/// The store's folder inside the fixture workspace.
+pub(crate) const STORE: &str = "test-results";
+
+/// One run attempt of a fixture store.
+pub(crate) struct Attempt {
+    pub(crate) workflow: &'static str,
+    pub(crate) run: u64,
+    pub(crate) number: u32,
+    /// When the attempt started, RFC 3339.
+    pub(crate) started_at: &'static str,
+    pub(crate) test_runs: Vec<Value>,
+    pub(crate) jobs: Vec<Value>,
+}
+
+impl Attempt {
+    pub(crate) fn new(run: u64, started_at: &'static str) -> Self {
+        Self {
+            workflow: ".github/workflows/test-health.yml",
+            run,
+            number: 1,
+            started_at,
+            test_runs: Vec::new(),
+            jobs: Vec::new(),
+        }
+    }
+}
+
+/// One test run of a fixture attempt, on Linux x64 in the Pre-merge suite of
+/// the test-health tier, to be adjusted with [`with`].
+pub(crate) fn test_run(test: &str, outcome: &str, tree: &str) -> Value {
+    json!({
+        "test": test,
+        "runner": "nextest",
+        "suite": "pre-merge",
+        "tier": "test-health",
+        "job": "quarantined",
+        "os": "linux",
+        "arch": "x64",
+        "runtime": null,
+        "shard": "1",
+        "commit": format!("c{tree}"),
+        "tree": tree,
+        "outcome": outcome,
+        "duration_seconds": 0.5,
+        "order_seed": null,
+        "entropy_seed": null,
+    })
+}
+
+/// `value` with `field` replaced.
+pub(crate) fn with(mut value: Value, field: &str, replacement: Value) -> Value {
+    value[field] = replacement;
+    value
+}
+
+/// Writes each attempt as the store's compressed file for it.
+pub(crate) fn write_store(workspace: &Workspace, attempts: &[Attempt]) {
+    for attempt in attempts {
+        let month = &attempt.started_at[..7].replace('-', "/");
+        let name = format!(
+            "{STORE}/runs/{month}/{}-{}.tar.gz",
+            attempt.run, attempt.number
+        );
+        let run = json!({
+            "repository": "goodfetch/goodfetch",
+            "workflow": attempt.workflow,
+            "run": attempt.run,
+            "attempt": attempt.number,
+            "event": "schedule",
+            "branch": "main",
+            "commit": "c0",
+            "tree": "0",
+            "started_at": attempt.started_at,
+        });
+        let test_runs: Vec<Value> = attempt
+            .test_runs
+            .iter()
+            .map(|test_run| {
+                let mut test_run = test_run.clone();
+                test_run["workflow"] = json!(attempt.workflow);
+                test_run["run"] = json!(attempt.run);
+                test_run["attempt"] = json!(attempt.number);
+                test_run["started_at"] = json!(attempt.started_at);
+                test_run
+            })
+            .collect();
+        let mut archive = tar::Builder::new(flate2::write::GzEncoder::new(
+            Vec::new(),
+            flate2::Compression::default(),
+        ));
+        add(&mut archive, "run.json", run.to_string().as_bytes());
+        add(&mut archive, "test-runs.jsonl", &lines(&test_runs));
+        add(&mut archive, "jobs.jsonl", &lines(&attempt.jobs));
+        let bytes = archive.into_inner().unwrap().finish().unwrap();
+        workspace.write(&name, &bytes);
+    }
+}
+
+/// What one store file holds: the paths of its entries, then its run, test
+/// runs and jobs as JSON.
+pub(crate) struct StoreFile {
+    pub(crate) paths: Vec<String>,
+    pub(crate) run: Value,
+    pub(crate) test_runs: Vec<Value>,
+    pub(crate) jobs: Vec<Value>,
+}
+
+/// Reads the store file at `relative` in the workspace.
+pub(crate) fn read_store_file(workspace: &Workspace, relative: &str) -> StoreFile {
+    let bytes = workspace
+        .read(relative)
+        .unwrap_or_else(|| panic!("{relative} is missing"));
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes.as_slice()));
+    let mut file = StoreFile {
+        paths: Vec::new(),
+        run: Value::Null,
+        test_runs: Vec::new(),
+        jobs: Vec::new(),
+    };
+    for entry in archive.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        let path = entry.path().unwrap().to_string_lossy().into_owned();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut text).unwrap();
+        let parsed = || -> Vec<Value> {
+            text.lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect()
+        };
+        match path.as_str() {
+            "run.json" => file.run = serde_json::from_str(&text).unwrap(),
+            "test-runs.jsonl" => file.test_runs = parsed(),
+            "jobs.jsonl" => file.jobs = parsed(),
+            _ => {}
+        }
+        file.paths.push(path);
+    }
+    file.paths.sort();
+    file
+}
+
+fn lines(values: &[Value]) -> Vec<u8> {
+    let mut text = Vec::new();
+    for value in values {
+        writeln!(text, "{value}").unwrap();
+    }
+    text
+}
+
+fn add(archive: &mut tar::Builder<impl std::io::Write>, path: &str, contents: &[u8]) {
+    let mut header = tar::Header::new_gnu();
+    header.set_size(contents.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    archive.append_data(&mut header, path, contents).unwrap();
+}

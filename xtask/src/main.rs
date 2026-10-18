@@ -18,6 +18,8 @@ mod modules;
 mod no_retry;
 mod output;
 mod quarantine;
+mod results;
+mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
@@ -92,6 +94,11 @@ enum Command {
     Quarantine {
         #[command(subcommand)]
         command: QuarantineCommand,
+    },
+    /// The results store, `test-results` (ADR 0064).
+    Results {
+        #[command(subcommand)]
+        command: ResultsCommand,
     },
     /// Reference screenshots (ADR 0073).
     Screenshots {
@@ -205,6 +212,43 @@ enum QuarantineCommand {
 }
 
 #[derive(Subcommand)]
+enum ResultsCommand {
+    /// Writes one run attempt into the store: its JUnit files as written,
+    /// one record per test run and one per job.
+    Ingest {
+        /// The repository of the run, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long)]
+        run_id: u64,
+        #[arg(long)]
+        attempt: u32,
+        /// The folder the run's artifacts were downloaded into, one folder each.
+        #[arg(long)]
+        artifacts: PathBuf,
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Opens or reopens one `flaky-test` issue per test that passed and
+    /// failed on one tree hash and configuration, and opens or updates one
+    /// `live-check` issue per Live check that failed or was inconclusive
+    /// three times in a row.
+    Scan {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The repository whose issues the scan keeps, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum EgressCommand {
     /// Fails on a workflow job not declared in `ci/egress/endpoints.toml`,
     /// and on a job under the deny whose steps do not deny before its tests,
@@ -315,6 +359,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
+        Command::Results { command } => run_results(command, root, environment),
         Command::Screenshots { command } => run_screenshots(command, root),
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
@@ -414,6 +459,54 @@ fn run_quarantine(
                 output::line(&format!("{runner}\t{argument}"));
             }
             Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// The `results` commands (ADR 0064).
+fn run_results(
+    command: ResultsCommand,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        ResultsCommand::Ingest {
+            repository,
+            run_id,
+            attempt,
+            artifacts,
+            store,
+            api_url,
+        } => {
+            let source = results::Source {
+                api: github::Api {
+                    url: &api_url,
+                    token: environment.github_token.as_deref(),
+                },
+                repository: &repository,
+                run: run_id,
+                attempt,
+                artifacts: &root.join(artifacts),
+            };
+            let path = results::ingest(&source, &root.join(store))?;
+            output::line(&format!("wrote {}", path.display()));
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::Scan {
+            store,
+            repository,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            Ok(check::report(&scan::scan(
+                root,
+                &root.join(store),
+                &api,
+                &repository,
+            )?))
         }
     }
 }

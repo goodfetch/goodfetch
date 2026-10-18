@@ -10,6 +10,7 @@
 )]
 
 mod github;
+mod store;
 mod workspace;
 
 mod affected;
@@ -19,10 +20,12 @@ mod egress;
 mod egress_canary;
 mod egress_rules;
 mod fixture_size;
+mod ingest;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod quarantine;
+mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;

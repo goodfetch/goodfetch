@@ -2,6 +2,8 @@
 # toolchain; Cargo features). An exception is an `#[expect(…, reason = "…")]`
 # on the one module allowed to use the item, never `#[allow]`.
 allow-unwrap-in-tests = true
+# Names that are words in prose, not code, besides Clippy's own (`..`).
+doc-valid-idents = ["JUnit", ".."]
 
 disallowed-methods = [
   # Tasks start only through their owner's tracker, in the `tasks` module.

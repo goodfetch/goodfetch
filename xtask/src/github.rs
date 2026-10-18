@@ -20,7 +20,7 @@ impl Api<'_> {
     /// As [`Api::get`], but `None` when GitHub answers 404: the document does
     /// not exist, or the token cannot see it.
     pub(crate) fn find<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>> {
-        let url = format!("{}{path}", self.url.trim_end_matches('/'));
+        let url = self.url(path);
         let mut request = ureq::get(&url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
@@ -38,4 +38,43 @@ impl Api<'_> {
             Err(error) => Err(error).with_context(|| format!("reading {url}")),
         }
     }
+
+    /// Sends `body` as JSON with `method` to `path`, which needs a token
+    /// allowed to write there, and parses GitHub's JSON answer.
+    pub(crate) fn send<T: DeserializeOwned>(
+        &self,
+        method: Write,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<T> {
+        let url = self.url(path);
+        let request = match method {
+            Write::Post => ureq::post(&url),
+            Write::Patch => ureq::patch(&url),
+        };
+        let mut request = request
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "goodfetch-xtask");
+        if let Some(token) = self.token {
+            request = request.header("Authorization", format!("Bearer {token}"));
+        }
+        request
+            .send_json(body)
+            .with_context(|| format!("writing {url}"))?
+            .body_mut()
+            .read_json()
+            .with_context(|| format!("reading GitHub's answer from {url}"))
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.url.trim_end_matches('/'))
+    }
+}
+
+/// The HTTP methods that write through GitHub's interface.
+#[derive(Clone, Copy)]
+pub(crate) enum Write {
+    Post,
+    Patch,
 }

@@ -1,0 +1,8 @@
+<testsuites id="" name="" tests="1" failures="0" skipped="1" errors="0" time="0.27">
+<testsuite name="e2e/sample.spec.ts" timestamp="2026-10-18T03:02:04.506Z" hostname="" tests="1" failures="0" skipped="1" time="0.002" errors="0">
+<testcase name="sample › flaky" classname="e2e/sample.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>

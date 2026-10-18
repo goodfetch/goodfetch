@@ -1,0 +1,1 @@
+Not a JUnit artifact: the ingest leaves it out.

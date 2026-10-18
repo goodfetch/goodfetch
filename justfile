@@ -27,6 +27,9 @@ fmt-check:
 
 # Formatting checks, then every linter and the repository's own static checks.
 lint: fmt-check
+    cargo metadata --locked --format-version 1 > /dev/null
+    pnpm install --lockfile-only --frozen-lockfile
+    uv lock --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     pnpm exec tsc -p tsconfig.json
     pnpm -r --if-present run typecheck

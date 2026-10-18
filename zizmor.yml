@@ -1,0 +1,8 @@
+# zizmor, run on every pull request by `just lint` (STYLE.md; ADR 0067).
+rules:
+  # Every Action is pinned by a full commit SHA, with its version in a comment
+  # (story 1-71). `hash-pin` refuses a tag or branch for every `uses:`.
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin

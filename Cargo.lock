@@ -1098,7 +1098,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "goodfetch-test-support",
  "rstest",
  "serde",
  "serde-saphyr",

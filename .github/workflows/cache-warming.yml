@@ -1,0 +1,38 @@
+# The cache-warming job (ADRs 0061, 0071 and 0135): after each push to
+# `main`, it builds the pull-request tier's dependencies, tests and benchmark
+# targets with the tier's profiles, without running them, and saves the build
+# cache, the pnpm store and uv's cache into the cache folder on the owner's
+# machine. It is the only job that mounts that folder writable; pull-request
+# VMs read it. One run at a time: a newer waiting run replaces an older one.
+name: cache warming
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: cache-warming
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    name: warm
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start the VM with the cache folder writable
+        run: ci/vm/start.sh writable
+      - name: Build the tier's targets and save the cache
+        run: ci/vm/exec.sh just warm
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh

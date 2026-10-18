@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Opt in with `just hooks`: refuses a commit whose files are not formatted.
+set -euo pipefail
+exec just fmt-check

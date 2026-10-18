@@ -20,6 +20,10 @@ export CARGO_TARGET_DIR=/var/tmp/target
 export npm_config_store_dir=/var/tmp/pnpm-store
 export UV_CACHE_DIR=/var/tmp/uv-cache
 
+# The workspace belongs to the host's user, so git refuses it as another
+# user's repository unless told to trust it (`xtask affected` reads git).
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/work
+
 if [[ "$mode" == prepare ]]; then
   set -e
   mkdir -p "$CARGO_TARGET_DIR" "$npm_config_store_dir" "$UV_CACHE_DIR"

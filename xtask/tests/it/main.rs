@@ -12,6 +12,7 @@
 mod github;
 mod workspace;
 
+mod affected;
 mod all_green;
 mod dependency_direction;
 mod egress;

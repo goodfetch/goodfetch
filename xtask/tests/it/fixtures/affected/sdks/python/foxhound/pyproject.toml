@@ -1,0 +1,4 @@
+[project]
+name = "goodfetch-foxhound"
+version = "0.0.0"
+dependencies = ["goodfetch_collie_client>=0.0.0"]

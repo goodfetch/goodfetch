@@ -6,7 +6,7 @@
 use rstest::rstest;
 
 use crate::github::GitHub;
-use crate::workspace::{Outcome, Workspace, finding};
+use crate::workspace::{Finding, Outcome, Workspace, finding};
 
 const PASSED_NEEDS: &str = r#"{
   "quick": { "result": "success", "outputs": {} },
@@ -61,6 +61,69 @@ fn job_that_did_not_succeed_fails(#[case] result: &str) {
         outcome.findings(),
         vec![finding("job-not-successful", "pre-merge")]
     );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn job_the_selection_skipped_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[]);
+    let needs = r#"{
+      "affected": { "result": "success", "outputs": { "jobs": "[\"docs\"]" } },
+      "quick": { "result": "success", "outputs": {} },
+      "pre-merge": { "result": "skipped", "outputs": {} }
+    }"#;
+
+    let outcome = all_green(&workspace, needs, "1", github.url());
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn skipped_job_the_selection_never_chooses_fails() {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[]);
+    let needs = r#"{
+      "affected": { "result": "success", "outputs": { "jobs": "[\"pre-merge\"]" } },
+      "quick": { "result": "skipped", "outputs": {} },
+      "pre-merge": { "result": "success", "outputs": {} }
+    }"#;
+
+    let outcome = all_green(&workspace, needs, "1", github.url());
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("job-not-successful", "quick")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[rstest]
+#[case::selected(
+    r#"{ "result": "success", "outputs": { "jobs": "[\"pre-merge\"]" } }"#,
+    vec![finding("job-not-successful", "pre-merge")]
+)]
+#[case::selection_failed(
+    r#"{ "result": "failure", "outputs": {} }"#,
+    vec![
+        finding("job-not-successful", "affected"),
+        finding("job-not-successful", "pre-merge"),
+    ]
+)]
+fn skipped_job_the_selection_did_not_skip_fails(
+    #[case] affected: &str,
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[]);
+    let needs = format!(
+        r#"{{ "affected": {affected}, "pre-merge": {{ "result": "skipped", "outputs": {{}} }} }}"#
+    );
+
+    let outcome = all_green(&workspace, &needs, "1", github.url());
+
+    assert_eq!(outcome.findings(), expected);
     assert_eq!(outcome.code, 1);
 }
 

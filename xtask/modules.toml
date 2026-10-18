@@ -1,10 +1,12 @@
 # Which of xtask's top-level modules may import which (ADR 0126).
 [modules]
-all_green = ["check", "github"]
+affected = ["foxhound_side", "metadata"]
+all_green = ["affected", "check", "github"]
 check = ["output"]
 dependency_direction = ["check", "metadata"]
 egress = ["check", "workflow"]
 fixture_size = ["check", "screenshots"]
+foxhound_side = []
 github = []
 metadata = []
 mocking_lockfile = ["check"]

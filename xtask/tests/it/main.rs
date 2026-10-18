@@ -19,3 +19,4 @@ mod fixture_size;
 mod mocking_lockfile;
 mod modules;
 mod self_hosted;
+mod size;

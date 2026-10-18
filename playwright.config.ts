@@ -5,7 +5,7 @@ import { defineConfig, type PlaywrightTestConfig } from "@playwright/test";
 
 const config: PlaywrightTestConfig = defineConfig({
   testMatch: "**/*.spec.ts",
-  testIgnore: ["**/node_modules/**", "rnd/**", "ci/proofs/**"],
+  testIgnore: ["**/node_modules/**", ".*/**", "**/fixtures/**", "rnd/**", "ci/proofs/**"],
   outputDir: "target/playwright",
   retries: 0,
   failOnFlakyTests: true,

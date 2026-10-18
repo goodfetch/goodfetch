@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "node", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "options": {
+    "typeAware": true,
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-deprecated": "error",
+    "vitest/no-restricted-vi-methods": [
+      "error",
+      {
+        "mock": "Mocks owned code (ADR 0062); test through the interface with a local stand-in.",
+        "doMock": "Mocks owned code (ADR 0062); test through the interface with a local stand-in.",
+        "importMock": "Mocks owned code (ADR 0062); test through the interface with a local stand-in.",
+        "mockObject": "Mocks owned code (ADR 0062); test through the interface with a local stand-in.",
+        "spyOn": "Mocks owned code (ADR 0062); test through the interface with a local stand-in.",
+        "stubGlobal": "Patches a global (ADR 0062); pass the value through an option instead.",
+        "stubEnv": "Patches the environment (ADR 0062); pass the environment map through an option instead."
+      }
+    ]
+  },
+  "ignorePatterns": ["rnd/**", "**/generated/**", "ci/proofs/**"]
+}

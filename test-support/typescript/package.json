@@ -1,0 +1,7 @@
+{
+  "name": "@goodfetch/test-support",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Goodfetch's shared Vitest fixtures (ADR 0062); never published.",
+  "type": "module"
+}

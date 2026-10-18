@@ -16,4 +16,5 @@ mod all_green;
 mod dependency_direction;
 mod fixture_size;
 mod mocking_lockfile;
+mod modules;
 mod self_hosted;

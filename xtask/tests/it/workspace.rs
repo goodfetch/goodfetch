@@ -90,6 +90,10 @@ impl Workspace {
         std::fs::copy(fixtures().join(fixture), target).unwrap();
     }
 
+    pub(crate) fn remove(&self, relative: &str) {
+        std::fs::remove_file(self.path().join(relative)).unwrap();
+    }
+
     pub(crate) fn write(&self, relative: &str, contents: &[u8]) {
         let target = self.path().join(relative);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();

@@ -1098,10 +1098,13 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "proc-macro2",
+ "quote",
  "rstest",
  "serde",
  "serde-saphyr",
  "serde_json",
+ "syn 3.0.9",
  "tempfile",
  "toml",
  "ureq",

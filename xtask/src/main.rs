@@ -8,7 +8,9 @@ mod all_green;
 mod check;
 mod dependency_direction;
 mod fixture_size;
+mod metadata;
 mod mocking_lockfile;
+mod modules;
 mod output;
 mod self_hosted;
 mod workflow;
@@ -51,6 +53,10 @@ enum Command {
     FixtureSize,
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
+    /// Fails on an import between top-level modules that a crate's
+    /// `modules.toml` does not allow, and on a long file that does not say
+    /// why it is one concern (ADR 0126).
+    Modules,
     /// The self-hosted allowlist (ADRs 0108 and 0135).
     SelfHosted {
         #[command(subcommand)]
@@ -98,6 +104,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         )?)),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
+        Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
             SelfHostedCommand::Export => {

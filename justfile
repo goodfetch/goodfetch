@@ -44,6 +44,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- fixture-size
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- mocking-lockfile
+    cargo run --quiet -p xtask -- modules
     ci/repository-files.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.

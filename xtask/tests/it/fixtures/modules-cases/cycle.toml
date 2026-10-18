@@ -1,0 +1,4 @@
+[modules]
+clock = ["dispatch"]
+retry = ["clock"]
+dispatch = ["retry"]

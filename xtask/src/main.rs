@@ -7,6 +7,8 @@
 mod affected;
 mod all_green;
 mod check;
+mod codegen;
+mod containment;
 mod dependency_direction;
 mod egress;
 mod fixture_size;
@@ -27,7 +29,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Goodfetch's release and CI tool")]
@@ -70,6 +72,14 @@ enum Command {
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
+    /// Regenerates every file generated from `goodfetch-protocol`'s types:
+    /// the JSON Schema bundle and catalog file, each Product's projection,
+    /// the names only Foxhound carries, the cargo-deny `wrappers` list and
+    /// each SDK package's `generated/` layer (ADR 0038).
+    Codegen(CodegenArguments),
+    /// Fails unless every generated contract of Collie's is in Foxhound's,
+    /// unchanged (ADR 0094).
+    Containment,
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
@@ -305,6 +315,8 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             };
             Ok(check::report(&all_green::check(&root.join(needs), &run)?))
         }
+        Command::Codegen(arguments) => run_codegen(arguments, root, environment),
+        Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::DependencyDirection => Ok(check::report(&dependency_direction::check(
             &environment.cargo,
             root,
@@ -323,57 +335,93 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
                 Ok(ExitCode::SUCCESS)
             }
         },
-        Command::Size { mode } => match &mode {
-            SizeMode::Estimate {
-                files,
-                main_report,
-                main,
-            } => {
-                let main = main_report.as_deref().map(|report| size::Main {
-                    report,
-                    reference: main,
-                });
-                size::run(
-                    &size::Mode::Estimate { main },
-                    root,
-                    &files.files,
-                    files.save.as_deref(),
-                )
-            }
-            SizeMode::Increase {
-                files,
-                main_report,
-                main,
-                pull_request,
-                repository,
-                api_url,
-            } => {
-                let main = size::Main {
-                    report: main_report,
-                    reference: main,
-                };
-                let pull_request =
-                    pull_request
-                        .zip(repository.as_deref())
-                        .map(|(number, repository)| size::PullRequest {
-                            api: github::Api {
-                                url: api_url,
-                                token: environment.github_token.as_deref(),
-                            },
-                            repository,
-                            number,
-                        });
-                let mode = size::Mode::Increase { main, pull_request };
-                size::run(&mode, root, &files.files, files.save.as_deref())
-            }
-            SizeMode::Ceilings { files } => size::run(
-                &size::Mode::Ceilings,
+        Command::Size { mode } => run_size(&mode, root, environment),
+    }
+}
+
+/// The `size` modes (ADRs 0057 and 0087).
+fn run_size(mode: &SizeMode, root: &Path, environment: &Environment) -> anyhow::Result<ExitCode> {
+    match mode {
+        SizeMode::Estimate {
+            files,
+            main_report,
+            main,
+        } => {
+            let main = main_report.as_deref().map(|report| size::Main {
+                report,
+                reference: main,
+            });
+            size::run(
+                &size::Mode::Estimate { main },
                 root,
                 &files.files,
                 files.save.as_deref(),
-            ),
-        },
+            )
+        }
+        SizeMode::Increase {
+            files,
+            main_report,
+            main,
+            pull_request,
+            repository,
+            api_url,
+        } => {
+            let main = size::Main {
+                report: main_report,
+                reference: main,
+            };
+            let pull_request =
+                pull_request
+                    .zip(repository.as_deref())
+                    .map(|(number, repository)| size::PullRequest {
+                        api: github::Api {
+                            url: api_url,
+                            token: environment.github_token.as_deref(),
+                        },
+                        repository,
+                        number,
+                    });
+            let mode = size::Mode::Increase { main, pull_request };
+            size::run(&mode, root, &files.files, files.save.as_deref())
+        }
+        SizeMode::Ceilings { files } => size::run(
+            &size::Mode::Ceilings,
+            root,
+            &files.files,
+            files.save.as_deref(),
+        ),
     }
+}
+
+#[derive(Args)]
+struct CodegenArguments {
+    /// Fails on any committed file that differs from what the types
+    /// generate, without running the TypeScript and Python generators.
+    #[arg(long)]
+    check: bool,
+    /// `json-schema-to-typescript`'s executable.
+    #[arg(long, default_value = "node_modules/.bin/json2ts")]
+    json2ts: PathBuf,
+    /// `datamodel-code-generator`'s executable.
+    #[arg(long, default_value = ".venv/bin/datamodel-codegen")]
+    datamodel_codegen: PathBuf,
+}
+
+/// `codegen` and its `--check` (ADR 0038).
+fn run_codegen(
+    arguments: CodegenArguments,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    if arguments.check {
+        return Ok(check::report(&codegen::check(&environment.cargo, root)?));
+    }
+    let generators = codegen::Generators {
+        json2ts: arguments.json2ts,
+        datamodel_codegen: arguments.datamodel_codegen,
+    };
+    codegen::write(&environment.cargo, &generators, root)?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// The `screenshots` commands (ADR 0073).

@@ -1,0 +1,51 @@
+//! Runs `goodfetch-protocol`'s `emit` example, which writes the JSON Schema
+//! bundle and catalog file through schemars (ADR 0038). It is the one process
+//! `xtask codegen --check` starts: the Rust toolchain, never a generator.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
+)]
+
+use std::ffi::OsStr;
+use std::path::Path;
+use std::process::Command;
+
+use anyhow::{Context as _, Result, bail};
+
+/// The two files the emitter wrote, as it wrote them.
+pub(super) struct Emitted {
+    pub(super) bundle: Vec<u8>,
+    pub(super) catalog: Vec<u8>,
+}
+
+pub(super) fn emit(cargo: &OsStr, root: &Path) -> Result<Emitted> {
+    let folder = tempfile::tempdir().context("creating a folder for the emitter")?;
+    let output = Command::new(cargo)
+        .args([
+            "run",
+            "--quiet",
+            "--package",
+            "goodfetch-protocol",
+            "--example",
+            "emit",
+            "--",
+        ])
+        .arg(folder.path())
+        .current_dir(root)
+        .output()
+        .context("running goodfetch-protocol's emitter")?;
+    if !output.status.success() {
+        bail!(
+            "goodfetch-protocol's emitter failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let read = |name: &str| {
+        std::fs::read(folder.path().join(name))
+            .with_context(|| format!("reading the emitted {name}"))
+    };
+    Ok(Emitted {
+        bundle: read("bundle.json")?,
+        catalog: read("catalog.json")?,
+    })
+}

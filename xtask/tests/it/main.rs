@@ -13,6 +13,8 @@ mod github;
 mod workspace;
 
 mod all_green;
+mod codegen;
+mod containment;
 mod dependency_direction;
 mod fixture_size;
 mod mocking_lockfile;

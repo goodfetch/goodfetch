@@ -24,6 +24,7 @@ Install [`just`](https://just.systems), Rust through `rustup` (the toolchain is 
 | `just release-ci` | Dispatches the Release suite on your pushed branch in CI and follows it. |
 | `just test <suite> [packages]` | One suite's tests (`quick`, `pre-merge` or `release`), without lints. |
 | `just fmt`, `just lint`, `just build` | Format, check and build Rust, TypeScript and Python. |
+| `just codegen` | Regenerates everything generated from `goodfetch-protocol`'s types (ADR 0038). Run it after changing a contract and commit what it writes; `just lint` fails on drift. |
 | `just hooks` | Opts in to the git hooks: pre-commit checks formatting, pre-push runs `just quick`. |
 
 A local run lists every part it could not run on your host, and why. Its exit code covers what ran; CI is the verdict.

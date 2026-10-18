@@ -48,7 +48,18 @@ lint: fmt-check
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- mocking-lockfile
     cargo run --quiet -p xtask -- modules
+    cargo run --quiet -p xtask -- codegen --check
+    cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
+
+# Regenerates every file generated from goodfetch-protocol's types: the JSON
+# Schema bundle and catalog, each Product's projection, the names only
+# Foxhound carries, deny.toml's wrappers list and each SDK's generated/ layer
+# (ADR 0038). Commit what it writes.
+codegen:
+    pnpm install --frozen-lockfile
+    uv sync --frozen
+    cargo run --quiet -p xtask -- codegen
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":

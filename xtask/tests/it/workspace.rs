@@ -18,6 +18,9 @@ pub(crate) struct Finding {
 pub(crate) struct Outcome {
     pub(crate) code: i32,
     pub(crate) stdout: String,
+    /// What went wrong when the command could not reach a verdict; shown
+    /// when an assertion on the exit code fails.
+    pub(crate) stderr: String,
 }
 
 impl Outcome {
@@ -58,6 +61,9 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures")
 }
 
+/// Copies a tree, each file written anew rather than cloned (as macOS clones
+/// with `std::fs::copy`), so its modification time is the copy's and Cargo
+/// rebuilds a fixture crate whose artifacts another copy left.
 fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
@@ -66,7 +72,7 @@ fn copy_tree(from: &Path, to: &Path) {
         if entry.file_type().unwrap().is_dir() {
             copy_tree(&entry.path(), &target);
         } else {
-            std::fs::copy(entry.path(), &target).unwrap();
+            std::fs::write(&target, std::fs::read(entry.path()).unwrap()).unwrap();
         }
     }
 }
@@ -94,6 +100,17 @@ impl Workspace {
         std::fs::remove_file(self.path().join(relative)).unwrap();
     }
 
+    pub(crate) fn read(&self, relative: &str) -> String {
+        std::fs::read_to_string(self.path().join(relative)).unwrap()
+    }
+
+    /// Replaces the one occurrence of `from` in a file with `to`.
+    pub(crate) fn edit(&self, relative: &str, from: &str, to: &str) {
+        let contents = self.read(relative);
+        assert_eq!(contents.matches(from).count(), 1, "{from:?} in {relative}");
+        self.write(relative, contents.replace(from, to).as_bytes());
+    }
+
     pub(crate) fn write(&self, relative: &str, contents: &[u8]) {
         let target = self.path().join(relative);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -101,7 +118,11 @@ impl Workspace {
     }
 
     /// Runs `xtask <args>` in the workspace with a cleared environment, but
-    /// for the variables that find and run the pinned Cargo toolchain.
+    /// for the variables that find and run the pinned Cargo toolchain. Cargo
+    /// builds offline, into one target folder every test shares, so a
+    /// fixture's dependencies build once. Copies of one fixture crate share
+    /// its artifacts there too, so the tests that build one run one at a
+    /// time (`.config/nextest.toml`, the `fixture-builds` group).
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
         let toolchain = TOOLCHAIN_VARIABLES
             .iter()
@@ -111,11 +132,17 @@ impl Workspace {
             .current_dir(self.path())
             .env_clear()
             .envs(toolchain)
+            .env(
+                "CARGO_TARGET_DIR",
+                Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target"),
+            )
+            .env("CARGO_NET_OFFLINE", "true")
             .output()
             .unwrap();
         Outcome {
             code: output.status.code().unwrap(),
             stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
         }
     }
 }

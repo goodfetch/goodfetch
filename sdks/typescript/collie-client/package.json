@@ -1,0 +1,17 @@
+{
+  "name": "@goodfetch/collie-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Collie client package both Products' TypeScript SDKs build on (ADR 0095).",
+  "type": "module",
+  "exports": {
+    "./generated": "./src/generated/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

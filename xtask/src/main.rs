@@ -6,6 +6,8 @@
 
 mod all_green;
 mod check;
+mod codegen;
+mod containment;
 mod dependency_direction;
 mod fixture_size;
 mod metadata;
@@ -47,6 +49,25 @@ enum Command {
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
+    /// Regenerates every file generated from `goodfetch-protocol`'s types:
+    /// the JSON Schema bundle and catalog file, each Product's projection,
+    /// the names only Foxhound carries, the cargo-deny `wrappers` list and
+    /// each SDK package's `generated/` layer (ADR 0038).
+    Codegen {
+        /// Fails on any committed file that differs from what the types
+        /// generate, without running the TypeScript and Python generators.
+        #[arg(long)]
+        check: bool,
+        /// `json-schema-to-typescript`'s executable.
+        #[arg(long, default_value = "node_modules/.bin/json2ts")]
+        json2ts: PathBuf,
+        /// `datamodel-code-generator`'s executable.
+        #[arg(long, default_value = ".venv/bin/datamodel-codegen")]
+        datamodel_codegen: PathBuf,
+    },
+    /// Fails unless every generated contract of Collie's is in Foxhound's,
+    /// unchanged (ADR 0094).
+    Containment,
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
@@ -98,6 +119,22 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             };
             Ok(check::report(&all_green::check(&root.join(needs), &run)?))
         }
+        Command::Codegen { check: true, .. } => {
+            Ok(check::report(&codegen::check(&environment.cargo, root)?))
+        }
+        Command::Codegen {
+            check: false,
+            json2ts,
+            datamodel_codegen,
+        } => {
+            let generators = codegen::Generators {
+                json2ts,
+                datamodel_codegen,
+            };
+            codegen::write(&environment.cargo, &generators, root)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::DependencyDirection => Ok(check::report(&dependency_direction::check(
             &environment.cargo,
             root,

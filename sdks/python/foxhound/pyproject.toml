@@ -1,0 +1,15 @@
+[project]
+name = "goodfetch-foxhound"
+version = "0.0.0"
+description = "Foxhound's Python SDK, built on the Collie client package (ADR 0095)."
+requires-python = ">=3.11"
+dependencies = ["goodfetch-collie-client"]
+# Nothing is published before the first release (AGENTS.md, Release status).
+classifiers = ["Private :: Do Not Upload"]
+
+[tool.uv.sources]
+goodfetch-collie-client = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

@@ -2,6 +2,8 @@
 [modules]
 all_green = ["check"]
 check = ["output"]
+codegen = ["check"]
+containment = ["check"]
 dependency_direction = ["check", "metadata"]
 fixture_size = ["check"]
 metadata = []

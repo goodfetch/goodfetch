@@ -9,11 +9,13 @@ mod check;
 mod dependency_direction;
 mod egress;
 mod fixture_size;
+mod github;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod output;
 mod self_hosted;
+mod size;
 mod workflow;
 
 use std::ffi::OsString;
@@ -68,6 +70,65 @@ enum Command {
         #[command(subcommand)]
         command: SelfHostedCommand,
     },
+    /// Each Product's Size budget (ADRs 0057 and 0087): measures built files
+    /// and writes one table of their sizes.
+    Size {
+        #[command(subcommand)]
+        mode: SizeMode,
+    },
+}
+
+#[derive(Subcommand)]
+enum SizeMode {
+    /// The pull request's report, compared with `main`'s; never fails.
+    Estimate {
+        #[command(flatten)]
+        files: SizeFiles,
+        /// `main`'s report, when there is one to compare with.
+        #[arg(long)]
+        main_report: Option<PathBuf>,
+        #[arg(long, default_value = "origin/main")]
+        main: String,
+    },
+    /// Fails on a file grown past its increase threshold over `main`'s
+    /// report, unless the pull request accepts it, and on a crate tarball over
+    /// its ceiling.
+    Increase {
+        #[command(flatten)]
+        files: SizeFiles,
+        /// `main`'s report, saved for the tree of `--main`.
+        #[arg(long)]
+        main_report: PathBuf,
+        /// The reference to `main`'s head, whose tree the report must have.
+        #[arg(long, default_value = "origin/main")]
+        main: String,
+        /// The pull request whose "Size increase" section and acceptance
+        /// comment a tripped file needs.
+        #[arg(long, requires = "repository")]
+        pull_request: Option<u64>,
+        /// The repository, as `owner/name`.
+        #[arg(long, requires = "pull_request")]
+        repository: Option<String>,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Fails on a release-profile file over its Product's ceiling.
+    Ceilings {
+        #[command(flatten)]
+        files: SizeFiles,
+    },
+}
+
+#[derive(clap::Args)]
+struct SizeFiles {
+    /// The TOML manifest naming each built file's Product, target, kind and
+    /// path.
+    #[arg(long)]
+    files: PathBuf,
+    /// Saves the measured sizes as a report keyed by the tree of `HEAD`,
+    /// which a later run reads as `main`'s (ADR 0061).
+    #[arg(long)]
+    save: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -215,6 +276,56 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
                 output::line(&self_hosted::export(root)?);
                 Ok(ExitCode::SUCCESS)
             }
+        },
+        Command::Size { mode } => match &mode {
+            SizeMode::Estimate {
+                files,
+                main_report,
+                main,
+            } => {
+                let main = main_report.as_deref().map(|report| size::Main {
+                    report,
+                    reference: main,
+                });
+                size::run(
+                    &size::Mode::Estimate { main },
+                    root,
+                    &files.files,
+                    files.save.as_deref(),
+                )
+            }
+            SizeMode::Increase {
+                files,
+                main_report,
+                main,
+                pull_request,
+                repository,
+                api_url,
+            } => {
+                let main = size::Main {
+                    report: main_report,
+                    reference: main,
+                };
+                let pull_request =
+                    pull_request
+                        .zip(repository.as_deref())
+                        .map(|(number, repository)| size::PullRequest {
+                            api: github::Api {
+                                url: api_url,
+                                token: environment.github_token.as_deref(),
+                            },
+                            repository,
+                            number,
+                        });
+                let mode = size::Mode::Increase { main, pull_request };
+                size::run(&mode, root, &files.files, files.save.as_deref())
+            }
+            SizeMode::Ceilings { files } => size::run(
+                &size::Mode::Ceilings,
+                root,
+                &files.files,
+                files.save.as_deref(),
+            ),
         },
     }
 }

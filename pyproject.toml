@@ -44,7 +44,9 @@ addopts = ["--import-mode=importlib", "--junitxml=target/junit/pytest.xml"]
 # pytest-timeout: killed at 5 min above the Quick suite; `just test quick`
 # passes `--timeout=10`.
 timeout = "300"
-norecursedirs = ["rnd", "ci", "node_modules", "target", ".venv"]
+# Replaces pytest's default list, so hidden folders (other worktrees under
+# `.claude/`) and fixture folders (samples xtask runs on purpose) are named.
+norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "target"]
 
 [tool.ruff]
 extend-exclude = ["rnd", "ci/proofs", "**/generated"]

@@ -109,6 +109,51 @@ impl Workspace {
         std::fs::write(target, contents).unwrap();
     }
 
+    /// Writes a file of exactly `bytes` bytes without writing its contents
+    /// (sparse where the file system allows), for sizes far over the fixture
+    /// limit; only its length is ever read.
+    pub(crate) fn write_sized(&self, relative: &str, bytes: u64) {
+        let target = self.path().join(relative);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::File::create(target)
+            .unwrap()
+            .set_len(bytes)
+            .unwrap();
+    }
+
+    /// Commits the workspace in a new Git repository and returns the
+    /// commit's tree.
+    pub(crate) fn commit(&self) -> String {
+        self.git(&["init", "--quiet"]);
+        self.git(&["add", "--all"]);
+        self.git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "--message",
+            "Fixture",
+        ]);
+        self.git(&["rev-parse", "HEAD^{tree}"]).trim().to_owned()
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(self.path())
+            .env_clear()
+            .envs(std::env::var_os("PATH").map(|path| ("PATH", path)))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {args:?} failed");
+        String::from_utf8(output.stdout).unwrap()
+    }
+
     /// Runs `xtask <args>` in the workspace with a cleared environment, but
     /// for the variables that find and run the pinned Cargo toolchain.
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {

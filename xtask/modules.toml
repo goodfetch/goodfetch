@@ -1,13 +1,30 @@
 # Which of xtask's top-level modules may import which (ADR 0126).
 [modules]
-all_green = ["check"]
+all_green = ["check", "github"]
 check = ["output"]
 dependency_direction = ["check", "metadata"]
 egress = ["check", "workflow"]
 fixture_size = ["check"]
+github = []
 metadata = []
 mocking_lockfile = ["check"]
 modules = ["check", "metadata"]
 output = []
 self_hosted = ["check", "workflow"]
+size = ["check", "github", "output"]
 workflow = []
+
+# Which of `size`'s own modules may import which.
+[submodules.size]
+budget = []
+files = ["budget"]
+pull_request = ["budget"]
+report = ["budget", "files"]
+table = ["budget", "files"]
+
+# Which of `egress`'s own modules may import which.
+[submodules.egress]
+canary = ["endpoints", "rules"]
+declarations = ["endpoints"]
+endpoints = []
+rules = ["endpoints"]

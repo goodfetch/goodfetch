@@ -8,8 +8,8 @@
 //! - any other runner: the class name and the name, joined by a space.
 
 use anyhow::{Context as _, Result};
-use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
+use quick_xml::{Reader, XmlVersion};
 
 /// How a test case ended, as its JUnit file says.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -145,7 +145,11 @@ fn attribute(element: &BytesStart<'_>, name: &str) -> Result<Option<String>> {
     for attribute in element.attributes() {
         let attribute = attribute.context("parsing an attribute")?;
         if attribute.key.local_name().as_ref() == name.as_bytes() {
-            return Ok(Some(attribute.unescape_value()?.into_owned()));
+            return Ok(Some(
+                attribute
+                    .normalized_value(XmlVersion::Implicit1_0)?
+                    .into_owned(),
+            ));
         }
     }
     Ok(None)

@@ -60,6 +60,7 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 - Every ticket carries one of the four milestones, and every later spec's `/to-tickets` assigns one to each ticket it creates.
 - A ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively, so a gate never holds back a ticket that an earlier milestone needs. `/to-tickets` checks this when it assigns milestones, and moves a blocker earlier when it finds one later than what it blocks.
   > Amended by [ADR 0131](0131-a-cross-spec-milestone-inversion-moves-the-dependent-later-unless-pulling-the-blocker-earlier-moves-fewer-tickets.md): this holds within one spec. Across specs, the dependent moves later or is split, unless pulling the blocker earlier changes the milestone of fewer tickets, counted transitively; a tie moves the dependent.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): `/to-tickets` has no milestone step. The invariant holds, and `docs/agents/issue-tracker.md` states it.
 - A milestone is done when it has no open ticket; the earliest milestone with an open ticket is the current one. Each of M1, M2 and M3 holds its testing issue, created with the milestone.
 - The tracker's frontier query takes the earliest open milestone first, then map order (`docs/agents/issue-tracker.md`).
 - Specs keep ADR 0037's order, and each area spans the milestones its tickets fall in.

@@ -111,7 +111,7 @@ Decided in [ADR 0094](docs/adr/0094-both-products-are-released-and-signed-togeth
   _Why:_ a mocked collaborator ties the test to the implementation.
 - **The TypeScript and Python SDKs read their environment from a map an option can replace**, defaulting to the process's own. Tests pass the map instead of patching the environment.
   _Why:_ a patched environment leaks between tests and hides what a call depends on.
-- **A test is never retried.** A flaky test is quarantined the same day, with an issue that comes first and blocks its milestone and every release ([Flaky tests and Live checks](#flaky-tests-and-live-checks)).
+- **A test is never retried.** A flaky test is quarantined the same day, with an issue, and blocks its milestone and every release ([Flaky tests and Live checks](#flaky-tests-and-live-checks)).
   _Why:_ a retry turns a real race into a green run, and people stop trusting red ones.
 
 ## Dependencies in tests
@@ -369,9 +369,8 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 1. CI opens (or reopens) one `flaky-test` issue for it, in the current milestone.
 2. The same day, add the test to the quarantine list with its issue.
 3. If the test or the code it covers changed in the last 7 days, you may also revert that change: revert the product code, and the tests stay quarantined.
-4. `flaky-test` issues come first on the frontier.
-5. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
-6. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.
+4. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
+5. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.
 
 - **The quarantine list is one file in the repository** (upstream Chromium tests the Chromium build gate excludes are not on it: see [Goodfetch Chromium's expected results](#expected-results)). Each entry has a test ID, its open `flaky-test` issue and a date; the Quick suite's check refuses an entry without an open issue or naming a test that no longer exists.
 - **Quarantined tests still run** 50 times a day in the daily test-health job (the 10 oldest entries), into the results store.
@@ -383,7 +382,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067); and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)); and, from ADR 0073, `screen-reader` (nightly, or before each release candidate while the nightly tier is off), blocking nothing directly; and, from ADR 0074, the Chromium patch preview and the Chromium build currency, owned by area 8, which block nothing directly ([Goodfetch Chromium](#goodfetch-chromium)); and, from ADR 0089, `lend-libraries-newest` and `crawler-examples-newest`, owned by area 11 (nightly, or before each release candidate while the nightly tier is off), which block nothing directly ([SDKs](#sdks)); and, from [ADR 0097](docs/adr/0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md), `migration-guides-current`, owned by area 11 (nightly, or before each release candidate while the nightly tier is off), which fails when a migration guide's competitor has a newer major, or a newer minor at `0.y`, or a newer patch at `0.0.z`, than the one pinned (a pin its manifest marks as held is checked within its own major, or its minor at `0.y` and its patch at `0.0.z`, and fails when its reason lapses), and blocks nothing directly.
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
 - **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)).
-- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
+- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
 - **A `live-check` issue closes** once its cause is written down and either fixed or attributed to an external party with a linked upstream report, so an explained vendor outage never holds a milestone gate.
 - **A measurement declares its trials, threshold and statistic before it runs,** and every trial counts. A failed trial is never replaced.
 
@@ -590,7 +589,6 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
   _Why:_ it shows end to end that Foxhound's executable keeps Collie's behaviour, where the other containment checks show only that Collie's definitions are there.
 - **Fill `covers` with Feature IDs** (`row:CO-18` for an ADR 0037 row; every kind is in [Feature coverage](#feature-coverage)).
 - **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
-- **Each area's `/to-spec` adds the Journeys of its stories with `journey = true`** ([Which stories need a Journey](#which-stories-need-a-journey)), and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
 
 ### Data and isolation
 
@@ -1208,7 +1206,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 - **Write a Feature as `<kind>:<id>`.** Declared kinds: `row:` (an ADR 0037 matrix row that is not `excluded`) and `story:<area>-<n>` (a spec's user story). Generated kinds: `operation:`, `error:`, `event:`, `setting:`, `command:`, `exit:`, `format:`, `plugin-kind:`, `block-cause:`, `sink:`, `mcp-profile:`, `skill:`, `adapter:`, `integration:` and `screen:`.
 - **A contract you add is a Feature in the same pull request,** and that pull request adds a test that declares it. The Quick suite fails until it does.
 - **Never renumber or reuse a story ID.** A new story takes its spec's next number; a removed one stays with `status = "retired"` and a `reason`.
-- **Give every declared Feature a milestone** (`/to-tickets` sets it), and every generated Feature an owning area through `features/areas.toml`.
+- **Give every declared Feature a milestone**, and every generated Feature an owning area through `features/areas.toml`.
 
 ### Declaring what a test proves
 

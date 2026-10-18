@@ -130,6 +130,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 ### Mutation testing: read in review, never scored
 
 - **Rust, every pull request that changes Rust code:** cargo-mutants `--in-diff` with nextest on Linux x64, sharded to fit ADR 0061's 15-minute job budget, in a job outside the suites that never fails on a surviving mutant. It is not part of "all green", the one required check (ADR 0061), so a slow shard never delays the merge signal. Its report is attached to the run. While the repository is private, it runs at most four shards of 15 minutes per pull-request run, and it stops at the same 550-minute threshold as the coverage job; a pull request whose job was skipped says so in its Verification section.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the section is the `pr` skill's Evidence section.
 - **The pull request's Verification section lists each mutant that survives in its changed code**, with the test that now kills it or the reason it stays: an equivalent mutant, or one caught only by a doctest, by a Journey in another runner, or by another OS's test (cargo-mutants doesn't read `cfg(target_os)`). The fresh review checks the list.
   > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the section is the `pr` skill's Evidence section, and checking each reason is a review standard the `code-review` skill applies.
 - **Full runs, weekly once the nightly tier is on:** cargo-mutants sharded over the workspace; StrykerJS on the TypeScript SDK's hand-written runtime and the Console's logic; mutmut on the Python SDK's hand-written runtime, on Linux. Stryker uses its `command` runner until a release fixes #6210, then its Vitest runner, and the TypeScript packages then gain the same in-diff pull-request job as Rust.
@@ -146,7 +147,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 - **Generated Features need no one to list them:** they appear with their code, and the Quick check fails until a test declares them.
 - **Each area's `/to-spec`** writes its `features/stories/<area number>.toml` in its `/to-tickets` pull request or the first ticket's, with each story's `journey` flag. **`/to-tickets`** sets each story's and each row's milestone, and names in each ticket the Features it makes tested.
-  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): `/to-tickets` opens no pull request, so the first ticket's pull request writes the file.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no skill writes repository files or ticket fields. The stories file (each story's flags and milestone) and the Journeys of flagged stories must exist before a test declares them; tickets add them like any other work.
 
 ## Considered Options
 
@@ -168,6 +169,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 ## Consequences
 
 - **Adds to ADR 0038**, so ADR 0037's amendment rule carries it to every area's spec: each area's `/to-spec` writes its stories into `features/stories/`, with their `journey` flags; `/to-tickets` sets each story's and row's milestone and names in each ticket the Features it makes tested; story numbers are append-only.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no skill writes repository files or ticket fields. The stories file (each story's flags and milestone) and the Journeys of flagged stories must exist before a test declares them; tickets add them like any other work.
 - **Adds to ADR 0032:** the `features/` folder at the root of the repository; the coverage job and the mutation jobs.
 - **Amends ADR 0032** (a note there records it): while the repository is private, the weekly coverage job and the pull-request in-diff mutation job run too, within ADR 0064's ceiling of included minutes.
 - **Amends ADR 0064's ceiling** (a note there records it): it also counts the coverage job and the in-diff mutation job, which stop once the month's count reaches 550 minutes, so they never take the minutes of ADR 0064's own runs.

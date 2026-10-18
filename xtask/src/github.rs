@@ -1,9 +1,11 @@
-//! GitHub's public REST interface, read with the job's token when it has one;
-//! a test points `url` at a local stand-in (TESTING.md, true externals).
+//! GitHub's public REST interface, read and written with the job's token when
+//! it has one; a test points `url` at a local stand-in (TESTING.md, true
+//! externals).
 
 use anyhow::{Context as _, Result};
 use serde::de::DeserializeOwned;
 
+#[derive(Clone, Copy)]
 pub(crate) struct Api<'a> {
     /// `https://api.github.com`, or a stand-in's address.
     pub(crate) url: &'a str,
@@ -37,5 +39,22 @@ impl Api<'_> {
             Err(ureq::Error::StatusCode(404)) => Ok(None),
             Err(error) => Err(error).with_context(|| format!("reading {url}")),
         }
+    }
+
+    /// POSTs `body` as JSON to `path`; the token needs the matching write
+    /// permission.
+    pub(crate) fn post(&self, path: &str, body: &serde_json::Value) -> Result<()> {
+        let url = format!("{}{path}", self.url.trim_end_matches('/'));
+        let mut request = ureq::post(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "goodfetch-xtask");
+        if let Some(token) = self.token {
+            request = request.header("Authorization", format!("Bearer {token}"));
+        }
+        request
+            .send_json(body)
+            .map(drop)
+            .with_context(|| format!("writing {url}"))
     }
 }

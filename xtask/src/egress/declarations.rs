@@ -15,6 +15,15 @@ const DENY: &str = "ci/egress/egress.sh deny";
 const CANARY: &str = "ci/egress/egress.sh canary";
 const CHECK: &str = "ci/egress/egress.sh check";
 
+/// What a test step after the deny runs its command through, so the command
+/// runs where the deny applies: the job's VM on the owner's machine, or, on a
+/// runner's own system, the deny's network namespace or sandbox.
+const UNDER_DENY: [&str; 3] = [
+    "ci/vm/exec.sh ",
+    "ci/vm/visual.sh ",
+    "ci/egress/under-deny.sh ",
+];
+
 fn runs(step: &Step, script: &str) -> bool {
     step.run.as_deref().map(str::trim) == Some(script)
 }
@@ -105,6 +114,26 @@ fn under_deny(steps: &[Step], deny: Option<usize>, subject: &str) -> Vec<Finding
             "test-before-deny",
             subject,
             "a test step runs before the deny",
+        ));
+    }
+    let outside = |step: &Step| {
+        !step.run.as_deref().is_some_and(|run| {
+            UNDER_DENY
+                .iter()
+                .any(|wrapper| run.trim_start().starts_with(wrapper))
+        })
+    };
+    if steps[deny..]
+        .iter()
+        .any(|step| is_test(step) && outside(step))
+    {
+        findings.push(Finding::new(
+            "test-outside-deny",
+            subject,
+            format!(
+                "a test step after the deny runs its command through one of {}",
+                UNDER_DENY.map(str::trim).join(", ")
+            ),
         ));
     }
     if !steps.get(deny + 1).is_some_and(|step| runs(step, CANARY)) {

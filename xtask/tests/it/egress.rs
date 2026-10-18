@@ -52,6 +52,11 @@ fn job_not_declared_under_or_outside_the_deny_fails() {
     "missing-egress-check",
     "pull-request.yml#quick"
 )]
+#[case::test_step_run_outside_the_deny(
+    "quick-test-outside-deny.yml",
+    "test-outside-deny",
+    "pull-request.yml#quick"
+)]
 #[case::outside_job_running_the_deny(
     "all-green-with-deny.yml",
     "deny-outside-rule",

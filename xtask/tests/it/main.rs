@@ -12,6 +12,7 @@
 mod github;
 mod workspace;
 
+mod affected;
 mod all_green;
 mod dependency_direction;
 mod fixture_size;
@@ -19,4 +20,6 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod quarantine;
+mod screenshots;
 mod self_hosted;
+mod size;

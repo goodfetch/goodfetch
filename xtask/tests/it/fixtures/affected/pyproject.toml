@@ -1,0 +1,9 @@
+[project]
+name = "fixture-workspace"
+version = "0.0.0"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["sdks/python/*"]

@@ -1,6 +1,6 @@
 //! The fixture-size check (ADR 0062): no file under a `fixtures/` folder
-//! exceeds 256 KiB. Reference screenshots live outside `fixtures/` folders
-//! and keep their own limit (ADR 0073); frozen `rnd/` is never read.
+//! exceeds 256 KiB. A Reference screenshot is not a fixture, wherever it
+//! sits, and keeps its own limit (ADR 0073); frozen `rnd/` is never read.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 
 use crate::check::Finding;
+use crate::screenshots::is_reference_screenshot;
 
 /// TESTING.md, Fixtures and data files: 256 KiB.
 const LIMIT_BYTES: u64 = 256 * 1024;
@@ -46,8 +47,10 @@ fn walk(root: &Path, folder: &Path, in_fixtures: bool, findings: &mut Vec<Findin
                 continue;
             }
             walk(root, &path, in_fixtures || name == "fixtures", findings)?;
-        } else if in_fixtures && metadata.len() > LIMIT_BYTES {
-            let relative = path.strip_prefix(root).unwrap_or(&path);
+            continue;
+        }
+        let relative = path.strip_prefix(root).unwrap_or(&path);
+        if in_fixtures && metadata.len() > LIMIT_BYTES && !is_reference_screenshot(relative) {
             findings.push(Finding::new(
                 "oversized-fixture",
                 relative.to_string_lossy().replace('\\', "/"),

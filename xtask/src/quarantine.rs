@@ -167,7 +167,7 @@ pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> 
     let mut findings = Vec::new();
     for entry in &entries {
         let path = format!("/repos/{}/issues/{}", sources.repository, entry.issue);
-        let issue: Option<Issue> = sources.api.get(&path)?;
+        let issue: Option<Issue> = sources.api.find(&path)?;
         let problem = match issue {
             None
             | Some(Issue {

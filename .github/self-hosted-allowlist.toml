@@ -19,7 +19,21 @@ if = "github.event.pull_request.head.repo.full_name == github.repository"
 
 [[job]]
 workflow = "pull-request.yml"
+job = "affected"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+[[job]]
+workflow = "pull-request.yml"
 job = "pre-merge"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON(needs.affected.outputs.jobs), 'pre-merge')"
+
+[[job]]
+workflow = "pull-request.yml"
+job = "visual"
 events = ["pull_request"]
 refs = ["refs/pull/*/merge"]
 if = "github.event.pull_request.head.repo.full_name == github.repository"
@@ -46,6 +60,16 @@ job = "lab"
 events = ["pull_request"]
 refs = ["refs/pull/*/merge"]
 if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+# The only writer of Reference screenshots (ADR 0073), dispatched by hand on a
+# pull request's branch, never on `main`. Only those with write access can
+# dispatch it.
+[[job]]
+workflow = "update-screenshots.yml"
+job = "update"
+events = ["workflow_dispatch"]
+refs = ["refs/heads/*"]
+if = "github.ref != 'refs/heads/main'"
 
 # The cache-warming job, on pushes to `main` (ADR 0135).
 [[job]]

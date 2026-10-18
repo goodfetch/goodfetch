@@ -1,0 +1,15 @@
+---
+source: xtask/tests/it/size.rs
+expression: outcome.stdout
+---
+| Product | Target | File | Size | main | Change | Limit | Verdict |
+|---|---|---|---:|---:|---:|---:|---|
+| Collie | — | goodfetch-collie.crate | 2.50 MB | 2.40 MB | +0.10 MB | 8 MiB | within |
+| Collie | x86_64-unknown-linux-gnu | collie | 75.00 MB | 70.00 MB | +5.00 MB | — | within |
+| Collie | x86_64-unknown-linux-gnu | collie.tgz | 30.90 MB | 30.00 MB | +0.90 MB | +1 MB | within |
+| Collie | x86_64-unknown-linux-gnu | collie.whl | 31.10 MB | 30.00 MB | +1.10 MB | +1 MB | accepted |
+| Foxhound | x86_64-unknown-linux-gnu | foxhound-latest | 83.10 MB | 80.00 MB | +3.10 MB | +3 MB | over |
+| Foxhound | x86_64-unknown-linux-gnu | foxhound.tar.gz | 45.00 MB | — | — | +1 MB | new |
+| Foxhound | x86_64-unknown-linux-gnu | foxhound.whl | 39.80 MB | 40.00 MB | -0.20 MB | +1 MB | within |
+
+error[size-increase] foxhound/x86_64-unknown-linux-gnu/foxhound-latest: grew by +3.10 MB over main's figure, past its threshold of +3 MB; list it with its delta and reason in the pull request's "Size increase" section

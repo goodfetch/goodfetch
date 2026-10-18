@@ -233,40 +233,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             &environment.cargo,
             root,
         )?)),
-        Command::Egress { command } => match command {
-            EgressCommand::Check => Ok(check::report(&egress::check(root)?)),
-            EgressCommand::Endpoints { job } => {
-                for endpoint in egress::allowed(root, &job)? {
-                    output::line(&format!("{} {}", endpoint.host, endpoint.port));
-                }
-                Ok(ExitCode::SUCCESS)
-            }
-            EgressCommand::Rules { job, resolved, uid } => {
-                output::line(egress::rules(root, &job, &root.join(resolved), uid)?.trim_end());
-                Ok(ExitCode::SUCCESS)
-            }
-            EgressCommand::Canary { command } => match command {
-                CanaryCommand::Attempt { outcome } => {
-                    egress::attempt(root, &root.join(outcome))?;
-                    Ok(ExitCode::SUCCESS)
-                }
-                CanaryCommand::Verdict {
-                    outcome,
-                    before,
-                    after,
-                } => Ok(check::report(&egress::verdict(
-                    root,
-                    &root.join(outcome),
-                    &root.join(before),
-                    &root.join(after),
-                )?)),
-            },
-            EgressCommand::Report { counters, log } => Ok(check::report(&egress::report(
-                root,
-                &root.join(counters),
-                &root.join(log),
-            )?)),
-        },
+        Command::Egress { command } => run_egress(command, root),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
@@ -327,6 +294,44 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
                 files.save.as_deref(),
             ),
         },
+    }
+}
+
+/// The `egress` commands (ADR 0043).
+fn run_egress(command: EgressCommand, root: &Path) -> anyhow::Result<ExitCode> {
+    match command {
+        EgressCommand::Check => Ok(check::report(&egress::check(root)?)),
+        EgressCommand::Endpoints { job } => {
+            for endpoint in egress::allowed(root, &job)? {
+                output::line(&format!("{} {}", endpoint.host, endpoint.port));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        EgressCommand::Rules { job, resolved, uid } => {
+            output::line(egress::rules(root, &job, &root.join(resolved), uid)?.trim_end());
+            Ok(ExitCode::SUCCESS)
+        }
+        EgressCommand::Canary { command } => match command {
+            CanaryCommand::Attempt { outcome } => {
+                egress::attempt(root, &root.join(outcome))?;
+                Ok(ExitCode::SUCCESS)
+            }
+            CanaryCommand::Verdict {
+                outcome,
+                before,
+                after,
+            } => Ok(check::report(&egress::verdict(
+                root,
+                &root.join(outcome),
+                &root.join(before),
+                &root.join(after),
+            )?)),
+        },
+        EgressCommand::Report { counters, log } => Ok(check::report(&egress::report(
+            root,
+            &root.join(counters),
+            &root.join(log),
+        )?)),
     }
 }
 

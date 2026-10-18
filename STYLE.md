@@ -82,6 +82,19 @@ References: the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines
 - **Every public async function has a `# Cancel safety` section** saying what is lost if its future is dropped.
 - **Public futures are `Send`**, checked by a compile-time assertion on the main entry points.
 
+### Memory and hot paths
+
+The absolute ceilings and Performance targets these rules serve are in [ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md).
+
+- **Bodies and frames are `Bytes`, read once and sliced, never copied into a `Vec<u8>` or a `String` on the per-request path.** Parse in place; copy only what outlives the request, such as an extracted field.
+  _Why:_ a crawled page may allocate at most twice its body's bytes.
+- **Every channel and every buffer between tasks is bounded,** and a full one makes its sender wait or refuse (backpressure), never grow. `mpsc::unbounded_channel` and unbounded `VecDeque` buffers between tasks are not used.
+  _Why:_ an unbounded channel turns a slow consumer into unbounded memory, which no ceiling then catches until the crash.
+- **No `String` clone per request or per message.** Share a value read by many owners as `Arc<str>` or an ID; borrow where the lifetime allows.
+- **The Frontier keeps in memory only bounded caches.** URLs and the duplicate check live in the run's SQLite file, and the duplicate check is exact: no Bloom, cuckoo or other lossy filter.
+  _Why:_ the Frontier may hold at most 8 heap bytes per URL, and a false positive silently drops a page.
+- **A collection that grows with load has a bound from a setting or the resource governor** (ADR 0040), never from the input alone.
+
 ### Lints, formatting and toolchain
 
 - **Edition 2024, a pinned toolchain in `rust-toolchain.toml`, and the MSRV of ADR 0030 tested in CI.**

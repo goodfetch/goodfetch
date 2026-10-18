@@ -12,6 +12,7 @@ metadata = []
 mocking_lockfile = ["check"]
 modules = ["check", "metadata"]
 output = []
+release_suite = ["check", "github"]
 screenshots = ["check", "output"]
 self_hosted = ["check", "workflow"]
 size = ["check", "github", "output"]
@@ -24,6 +25,14 @@ files = ["budget"]
 pull_request = ["budget"]
 report = ["budget", "files"]
 table = ["budget", "files"]
+
+# Which of `release_suite`'s own modules may import which.
+[submodules.release_suite]
+cells = []
+history = ["cells", "time"]
+plan = ["cells", "history", "time"]
+time = []
+verdict = ["cells", "history"]
 
 # Which of `egress`'s own modules may import which.
 [submodules.egress]

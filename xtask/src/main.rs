@@ -16,6 +16,7 @@ mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod output;
+mod release_suite;
 mod screenshots;
 mod self_hosted;
 mod size;
@@ -83,6 +84,12 @@ enum Command {
     /// `modules.toml` does not allow, and on a long file that does not say
     /// why it is one concern (ADR 0126).
     Modules,
+    /// The Release suite's manual-dispatch runs while the repository is
+    /// private (ADR 0108).
+    ReleaseSuite {
+        #[command(subcommand)]
+        command: ReleaseSuiteCommand,
+    },
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -152,6 +159,51 @@ struct SizeFiles {
     /// which a later run reads as `main`'s (ADR 0061).
     #[arg(long)]
     save: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum ReleaseSuiteCommand {
+    /// The Release workflow's first job: checks the commit, chooses the
+    /// cells to start and holds the hosted ones back when the run would pass
+    /// the month's ceiling of included minutes; writes the job's outputs and
+    /// summary.
+    Plan {
+        /// The repository, as `owner/name`.
+        #[arg(long)]
+        repository: String,
+        /// This run's ID.
+        #[arg(long)]
+        run_id: u64,
+        /// `GITHUB_REF`, the branch the workflow was dispatched on.
+        #[arg(long = "ref")]
+        git_ref: String,
+        /// `all`, or cell names separated by commas.
+        #[arg(long, default_value = "all")]
+        cells: String,
+        /// On `main`, a commit of `main`; its head when empty.
+        #[arg(long)]
+        commit: Option<String>,
+        /// The file of the job's outputs (`GITHUB_OUTPUT`).
+        #[arg(long)]
+        outputs: PathBuf,
+        /// The job's summary (`GITHUB_STEP_SUMMARY`).
+        #[arg(long)]
+        summary: PathBuf,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Fails unless every cell is green on the commit, from one or more
+    /// dispatches; a failed test step in any attempt leaves it red.
+    Verdict {
+        /// The repository, as `owner/name`.
+        #[arg(long)]
+        repository: String,
+        /// The commit of `main` the runs tested.
+        #[arg(long)]
+        commit: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -284,6 +336,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
+        Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
         Command::Screenshots { command } => match command {
             ScreenshotsCommand::Fetch { run } => {
                 Ok(check::report(&screenshots::fetch(root, &root.join(run))?))
@@ -347,6 +400,56 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
                 files.save.as_deref(),
             ),
         },
+    }
+}
+
+/// The `release-suite` commands (ADR 0108).
+fn run_release_suite(
+    command: ReleaseSuiteCommand,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        ReleaseSuiteCommand::Plan {
+            repository,
+            run_id,
+            git_ref,
+            cells,
+            commit,
+            outputs,
+            summary,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            let dispatch = release_suite::Dispatch {
+                repository: &repository,
+                run_id,
+                git_ref: &git_ref,
+                cells: &cells,
+                commit: commit.as_deref(),
+                outputs: &root.join(outputs),
+                summary: &root.join(summary),
+            };
+            Ok(check::report(&release_suite::plan(api, &dispatch)?))
+        }
+        ReleaseSuiteCommand::Verdict {
+            repository,
+            commit,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            Ok(check::report(&release_suite::verdict(
+                api,
+                &repository,
+                &commit,
+            )?))
+        }
     }
 }
 

@@ -100,6 +100,15 @@ impl Workspace {
         std::fs::write(target, contents).unwrap();
     }
 
+    /// Appends `text`, after a line break, to a file of the workspace.
+    pub(crate) fn append(&self, relative: &str, text: &str) {
+        let target = self.path().join(relative);
+        let mut contents = std::fs::read_to_string(&target).unwrap();
+        contents.push('\n');
+        contents.push_str(text);
+        std::fs::write(target, contents).unwrap();
+    }
+
     /// Runs `xtask <args>` in the workspace with a cleared environment, but
     /// for the variables that find and run the pinned Cargo toolchain.
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {

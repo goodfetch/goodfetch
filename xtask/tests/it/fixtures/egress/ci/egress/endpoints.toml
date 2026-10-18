@@ -1,0 +1,19 @@
+canary = "1.1.1.1:443"
+
+[[mirror]]
+kind = "test-v8"
+urls = [
+  "https://github.com/goodfetch/goodfetch/releases/download/",
+  "https://release-assets.githubusercontent.com/",
+]
+
+[[mirror]]
+kind = "browser"
+urls = ["https://storage.googleapis.com/chrome-for-testing-public/"]
+
+[[deny]]
+job = "pull-request.yml#quick"
+
+[[outside]]
+job = "pull-request.yml#all-green"
+reason = "It judges the run through GitHub's API and runs none of the product."

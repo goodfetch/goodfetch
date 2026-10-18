@@ -3,6 +3,7 @@
 all_green = ["check"]
 check = ["output"]
 dependency_direction = ["check", "metadata"]
+egress = ["check", "workflow"]
 fixture_size = ["check"]
 metadata = []
 mocking_lockfile = ["check"]

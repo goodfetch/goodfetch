@@ -7,6 +7,10 @@
 # A step whose name starts with "Test" is a test step: "all green" fails when
 # one failed in an earlier attempt of the run (ADR 0064). Required checks:
 # "all green" and "Chromium build gate" (AGENTS.md, Merging).
+#
+# A job that runs the product denies outbound traffic before its first test
+# step and runs the Egress canary right after (ADR 0043); every job is
+# declared in ci/egress/endpoints.toml, which `xtask egress check` enforces.
 name: pull request
 
 on:
@@ -33,8 +37,17 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
-      - name: "Test: just quick all"
-        run: ci/vm/exec.sh just quick all
+      - name: Lint
+        run: ci/vm/exec.sh just lint
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: just test quick"
+        run: ci/vm/exec.sh just test quick
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
@@ -66,10 +79,17 @@ jobs:
         run: ci/vm/start.sh read-only
       - name: Build with the CI profile
         run: ci/vm/exec.sh just build ci
-      - name: "Test: just test pre-merge"
-        run: ci/vm/exec.sh just test pre-merge
       - name: Prove the static checks on their fixtures
         run: ci/vm/exec.sh just proofs
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: just test pre-merge"
+        run: ci/vm/exec.sh just test pre-merge
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh

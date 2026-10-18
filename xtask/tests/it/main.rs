@@ -14,6 +14,9 @@ mod workspace;
 
 mod all_green;
 mod dependency_direction;
+mod egress;
+mod egress_canary;
+mod egress_rules;
 mod fixture_size;
 mod mocking_lockfile;
 mod modules;

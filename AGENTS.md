@@ -24,7 +24,7 @@ signer; existing commits on `main` are not rewritten for attribution cleanup.
 
 ## Code style
 
-Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): the seams in a spec's Testing Decisions are already agreed, so test there without asking, and name any other seam, with its reason, in the pull request.
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Where `STYLE.md` is silent, use the language skills it names, vendored in [`.agents/skills/`](.agents/skills/README.md); `STYLE.md` wins where they disagree. Tests follow [`TESTING.md`](TESTING.md): the seams in a spec's Testing Decisions are already agreed, so test there without asking, and name any other seam, with its reason, in the pull request.
 
 Traps that break things:
 

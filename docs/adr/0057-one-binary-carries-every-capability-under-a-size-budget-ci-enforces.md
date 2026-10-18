@@ -72,6 +72,7 @@ The `goodfetch` binary keeps every capability built in, V8 and DuckDB included, 
 ### Who moves it
 
 - A pull request that trips the increase check passes when its body has a "Size increase" section with the measured delta per target and its reason, and the fresh review accepts that section explicitly on the pull request's exact head.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the owner accepts the section when merging.
 - A ceiling moves only by changing this ADR, with the owner's approval.
 
 ### PyPI (changes ADR 0030)

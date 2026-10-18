@@ -41,6 +41,7 @@ Decided in [Collie's TLS relay needs BoringSSL, which ADR 0087 bans from Collie]
   The last row shows the BoringSSL is shared, so in Foxhound the relay adds almost nothing.
 - **No ceiling moves.** After the relay and its own code, Collie's projection leaves about 12–19 MB compressed and 26–46 MB raw (with musl, as ADR 0087 counts its 13–20 MB and 27–47 MB) for the engine's own code, under its 50 MB and 120 MB ceilings.
 - **The relay's pull request may stay under the +1 MB increase check.** If its own code pushes it over, it passes as ADR 0057 says: with a "Size increase" section, giving the measured delta per target, that the fresh review accepts on its exact head.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the owner accepts the section when merging.
 - **`btls-sys`'s 5.16 MB `.crate` is its own crate.** It counts against crates.io's limit, not against the 8 MiB ceiling for `goodfetch-collie`'s tarball (ADR 0087).
 
 ## Considered Options

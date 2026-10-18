@@ -47,6 +47,7 @@ Decided in [Performance regression testing](https://github.com/goodfetch/goodfet
 - **`xtask affected` selects** the bench targets of changed crates and of the crates that depend on them.
 - **Threshold: +5%** on instructions and on each heap metric, per benchmark. It is ten times the drift seen across CPUs, and still catches a 5% regression in one change. Improvements are reported, never gated.
 - **Accepting an increase.** A pull request that trips the threshold passes when its body has a **"Performance change"** section listing each tripped benchmark with its measured change and its reason, and the fresh review accepts that section explicitly on the pull request's exact head. This is ADR 0057's rule for a size increase.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the owner accepts the section when merging.
 - The thresholds are constants of `xtask perf` that cite this ADR. They change only by changing it.
 
 ### Counts kept as snapshots

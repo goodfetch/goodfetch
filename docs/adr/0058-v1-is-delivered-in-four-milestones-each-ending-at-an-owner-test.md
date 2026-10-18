@@ -54,6 +54,7 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 - M4 ends at the release gates of ADRs 0030 and 0032.
 - Nothing is published before M4, on any channel; the owner tests from local builds. **Changes ADRs 0030, 0032 and 0057:** the nightly channel (npm `nightly`, GitHub pre-releases, the nightly Python index, the OCI `nightly` tag) and the `0.y` previews start in M4.
 - Between gates, delivery stays autonomous under AGENTS.md.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the autonomous delivery mode is retired ([#1560](https://github.com/goodfetch/goodfetch/pull/1560)); agent work follows the skills as written, and the owner merges.
 
 **Tracking** (adds to ADR 0037).
 - Every ticket carries one of the four milestones, and every later spec's `/to-tickets` assigns one to each ticket it creates.

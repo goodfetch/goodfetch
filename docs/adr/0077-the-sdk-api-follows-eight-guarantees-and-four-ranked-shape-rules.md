@@ -45,6 +45,7 @@ These act as SDK principles and are decided in their own ADRs: one Operation cat
 
 - **Scope.** The principles bind the SDK API of the TypeScript, Python and Rust SDKs, and the naming rules by which the Operation catalog names operations, parameters and Error codes on every surface, so every principle that bears on a name, an input or an error binds CLI flags and MCP tool names as well (among them G3, G6, S1, S2, S3 and T). The CLI's, the Console's, Goodfetch Cloud's HTTP API's and the Framework adapters' own designs are not bound by this ADR.
 - **Use.** A ticket that decides part of the SDK API names, in its resolution, the principles that decided a choice and any departure with its reason, and the decision pull request's fresh review checks the chosen shapes against them. A departure meant to last amends this ADR.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
 
 ## Considered Options
 

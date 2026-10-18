@@ -24,7 +24,7 @@ signer; existing commits on `main` are not rewritten for attribution cleanup.
 
 ## Code style
 
-Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): the seams in a spec's Testing Decisions are already agreed, so test there without asking, and name any other seam, with its reason, in the pull request.
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): the seams in a spec's Testing Decisions are already agreed, so test there without asking.
 
 Traps that break things:
 
@@ -34,8 +34,18 @@ Traps that break things:
 - A capability is a setting, never a Cargo feature, and nothing outside `crates/foxhound/` but `xtask` depends on a crate inside it (ADR 0087).
 - Identifiers use `GLOSSARY.md` terms, never their `_Avoid_` terms.
 
-## Agent workflows
+## Agent skills
 
-For issue work, read [issue tracker](docs/agents/issue-tracker.md); for triage,
-read [label mapping](docs/agents/triage-labels.md). Before changing terminology
-or ADRs, read [domain docs](docs/agents/domain.md).
+Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133).
+
+### Issue tracker
+
+GitHub Issues, with sub-issues, native dependencies and milestones. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The default triage label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/`; `rnd/` is inspiration only. See `docs/agents/domain.md`.

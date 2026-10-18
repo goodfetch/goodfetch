@@ -145,6 +145,7 @@ The online conformance against real vendors still runs on that patch and never b
 ### Size and performance
 
 - **Size:** the gate measures each platform's compressed archive. There is no ceiling. Growth of more than 5 MB over the previous build passes only with ADR 0057's "Size increase" section in the pull request body, accepted by the fresh review on the exact head. Each release's notes list the sizes.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the owner accepts the section when merging.
 - **Performance:** no new gate. The Performance series and the benchmark (ADRs 0071 and 0025) run on the pinned build, and each build change is recorded as an event in the series, so a shift is attributed to it.
 
 ## Considered Options

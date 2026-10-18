@@ -9,6 +9,7 @@ mod all_green;
 mod check;
 mod codegen;
 mod containment;
+mod dco;
 mod dependency_direction;
 mod egress;
 mod fixture_size;
@@ -83,6 +84,16 @@ enum Command {
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
     Containment,
+    /// Fails on a commit from `--base` to `--head`, merges aside, without a
+    /// Developer Certificate of Origin sign-off by its author (ADR 0018).
+    Dco {
+        /// The pull request's base commit.
+        #[arg(long)]
+        base: String,
+        /// The pull request's head commit.
+        #[arg(long)]
+        head: String,
+    },
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
@@ -327,6 +338,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         }
         Command::Codegen(arguments) => run_codegen(arguments, root, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
+        Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
         Command::DependencyDirection => Ok(check::report(&dependency_direction::check(
             &environment.cargo,
             root,

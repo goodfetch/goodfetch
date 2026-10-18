@@ -16,6 +16,7 @@ mod affected;
 mod all_green;
 mod codegen;
 mod containment;
+mod dco;
 mod dependency_direction;
 mod egress;
 mod egress_canary;

@@ -1,0 +1,127 @@
+# The pull-request tier (ADRs 0061, 0064, 0074 and 0135). While the repository
+# is private, every job runs on the owner's machine; whatever builds or runs
+# the repository's code runs in a Linux VM recreated for the job (ci/vm/),
+# whose userland is Linux x86-64 under Rosetta for Linux. Every job is on
+# .github/self-hosted-allowlist.toml with its exact `if:`.
+#
+# A step whose name starts with "Test" is a test step: "all green" fails when
+# one failed in an earlier attempt of the run (ADR 0064). Required checks:
+# "all green" and "Chromium build gate" (AGENTS.md, Merging).
+name: pull request
+
+on:
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: pull-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quick:
+    name: quick
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: "Test: just quick all"
+        run: ci/vm/exec.sh just quick all
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
+      - name: Upload the JUnit files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-quick-pull-request-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
+  pre-merge:
+    name: pre-merge
+    needs: quick
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Build with the CI profile
+        run: ci/vm/exec.sh just build ci
+      - name: "Test: just test pre-merge"
+        run: ci/vm/exec.sh just test pre-merge
+      - name: Prove the static checks on their fixtures
+        run: ci/vm/exec.sh just proofs
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
+      - name: Upload the JUnit files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-pre-merge-pull-request-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
+  # Area 8's gate (ADR 0074). Until its free design (#445) is decided and its
+  # first build lands, it passes and builds nothing, so it needs no VM.
+  chromium-build-gate:
+    name: Chromium build gate
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Pass until the gate's first build lands
+        run: echo "No Goodfetch Chromium build exists yet (#445); the gate passes and builds nothing."
+
+  all-green:
+    name: all green
+    if: always()
+    needs: [quick, pre-merge]
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Write the needed jobs' results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: printf '%s' "$NEEDS" > needs.json
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Judge the run and its earlier attempts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          ci/vm/exec.sh cargo run --quiet -p xtask -- all-green --needs needs.json
+          --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh

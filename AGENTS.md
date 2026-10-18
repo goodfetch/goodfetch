@@ -17,6 +17,10 @@ versioned format readers, upgrade commands and published-version semantics.
 Nightlies and previews count as publication: if any channel is published while
 this status remains pre-release, ask the owner before a breaking change.
 
+## Merging
+
+While the repository is private on GitHub Free, no check can be made required (rulesets and branch protection answer `403`; GitHub Pro bills, so it is declined, ADR 0076). Before merging a pull request, confirm with `gh pr checks <number>` that "all green" and the Chromium build gate are successful on its exact head. Never merge while either is pending or failed; a check that waits for the owner's machine is handled as `TESTING.md`'s "When a check waits for the owner's machine" says (ADR 0135).
+
 ## Authorship
 
 Follow global authorship rules. Sign off every commit (`git commit -s`) as the

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Opt in with `just hooks`: runs the Quick suite before every push (TESTING.md).
+set -euo pipefail
+exec just quick

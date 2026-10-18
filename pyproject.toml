@@ -1,0 +1,70 @@
+# The one uv workspace (ADR 0032; STYLE.md, Python) and the Python tools'
+# settings. Members are listed one by one: each SDK, adapter and Integration
+# joins in the pull request that adds its `pyproject.toml`. `rnd/` is frozen
+# and never read.
+[project]
+name = "goodfetch-workspace"
+version = "0.0.0"
+description = "The root of Goodfetch's uv workspace; never built or published."
+# Every CPython not past its end of life (ADR 0024).
+requires-python = ">=3.11"
+
+[dependency-groups]
+# No rerun plugin and no mocking library (ADRs 0062 and 0064); `xtask
+# mocking-lockfile` checks uv.lock.
+dev = [
+  "anyio>=4.15.1",
+  "goodfetch-test-support",
+  "inline-snapshot>=0.36.1",
+  "mypy>=2.4.0",
+  "pyright>=1.1.414",
+  "pytest>=9.1.1",
+  "pytest-randomly>=5.0.0",
+  "pytest-timeout>=2.4.0",
+  "ruff>=0.17.1",
+]
+
+[tool.uv]
+package = false
+required-version = ">=0.9.28"
+
+[tool.uv.workspace]
+members = ["test-support/python"]
+
+[tool.uv.sources]
+goodfetch-test-support = { workspace = true }
+
+[tool.pytest]
+minversion = "9.0"
+# strict covers strict_markers, strict_config, strict_xfail and strict
+# parametrization IDs; strict_markers is named too, as TESTING.md names it.
+strict = true
+strict_markers = true
+addopts = ["--import-mode=importlib", "--junitxml=target/junit/pytest.xml"]
+# pytest-timeout: killed at 5 min above the Quick suite; `just test quick`
+# passes `--timeout=10`.
+timeout = "300"
+norecursedirs = ["rnd", "ci", "node_modules", "target", ".venv"]
+
+[tool.ruff]
+extend-exclude = ["rnd", "ci/proofs", "**/generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
+ignore = ["D206", "D300"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"unittest.mock".msg = "Mocks owned code (ADR 0062); test through the interface with a local stand-in."
+"pytest.MonkeyPatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
+
+[tool.pyright]
+typeCheckingMode = "strict"
+exclude = ["rnd", "ci/proofs", "**/node_modules", "target", ".venv"]
+
+[tool.mypy]
+strict = true
+enable_error_code = ["deprecated"]
+exclude = ["^rnd/", "^ci/proofs/", "^target/"]

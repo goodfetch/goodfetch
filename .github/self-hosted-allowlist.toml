@@ -1,0 +1,56 @@
+# Every job that may reach a self-hosted runner (ADRs 0108 and 0135), with its
+# workflow (a file name under .github/workflows/), its events, the patterns
+# of GITHUB_REF it runs on (`*` matches any text) and its exact `if:`.
+#
+# `xtask self-hosted check` (Quick suite) refuses any job naming a
+# self-hosted runner off this list or differing from its entry. The owner
+# installs a copy on the machine with `just runner-install <folder>`; the
+# pre-job script checks every job against that copy, and fails a pull-request
+# job whose head is not a branch of this repository.
+repository = "goodfetch/goodfetch"
+
+# The pull-request tier, from branches of this repository only (ADR 0135).
+[[job]]
+workflow = "pull-request.yml"
+job = "quick"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+[[job]]
+workflow = "pull-request.yml"
+job = "pre-merge"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+[[job]]
+workflow = "pull-request.yml"
+job = "chromium-build-gate"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+# "all green" runs even when a job it needs failed or was skipped; the pre-job
+# script still refuses it for a fork.
+[[job]]
+workflow = "pull-request.yml"
+job = "all-green"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "always()"
+
+[[job]]
+workflow = "lab.yml"
+job = "lab"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+# The cache-warming job, on pushes to `main` (ADR 0135).
+[[job]]
+workflow = "cache-warming.yml"
+job = "warm"
+events = ["push"]
+refs = ["refs/heads/main"]
+if = "github.ref == 'refs/heads/main'"

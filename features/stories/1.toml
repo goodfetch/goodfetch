@@ -1,0 +1,978 @@
+# Area 1's user stories (spec #130), the declared `story:1-<id>` Features of
+# ADR 0072. Each story's milestone is that of the ticket that finishes it; a
+# story without a Journey carries ADR 0075's reason (`actor`, `part` or
+# `reach`). The spec's issue keeps the full text; this copy is the one the
+# Feature check reads. Never renumber or reuse an ID: a removed story stays
+# with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a TypeScript developer, I want `npm install @goodfetch/collie` (or `@goodfetch/foxhound`) to install its Product's engine for my platform with no install script, so that `--ignore-scripts` and offline mirrors work."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a Python developer, I want `pip install goodfetch-collie` (or `goodfetch-foxhound`) to give me a `py3-none` platform wheel holding its Product's engine, so that every supported CPython, free-threaded builds included, uses one wheel."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 3
+title = "As a Rust developer, I want `cargo add goodfetch-collie` (or `goodfetch-foxhound`) to give me its Product's embeddable crate at the Product version, so that I use the same release as the SDK users."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 4
+title = "As a Rust developer, I want the crate to fetch its Product's executable of its exact version from the release, pinned by digest, so that the Script sandbox works without V8 in my build."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a user of any surface, I want every package of a release, both Products' included, to carry one Product version, so that I never need a compatibility matrix between the SDK, the executable and the Plugins, nor between Collie and the Foxhound that contains it (ADR 0090)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a macOS user who downloads a release archive in a browser, I want each Product's executable signed with Developer ID and notarized, with no `allow-jit` entitlement, so that Gatekeeper opens it without a quarantine workaround and the engine asks for no more than it needs."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a Windows user with Smart App Control on, I want `goodfetch-collie.exe`, `goodfetch-foxhound.exe`, the filter broker, the Proving ground binary, every first-party Plugin executable and every file of the Goodfetch Chromium signed with Authenticode and timestamped, so that Windows runs them."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a security-minded user, I want each artifact to carry a GitHub artifact attestation and Sigstore signature, so that I can check which workflow built it."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a user of any binary channel (npm, PyPI, OCI, GitHub Release, installers, Homebrew), I want every channel to carry the same signed bytes, so that a digest I checked once holds everywhere."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a security-minded user, I want a CycloneDX SBOM with every release archive and every OCI image tag, so that my scanners see what the release contains."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a Homebrew user, I want `brew install goodfetch/tap/goodfetch-collie` (or `goodfetch-foxhound`) to install a formula updated by the release in the tap `goodfetch/tap`, so that Homebrew stays current without a cask quarantine rule."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a server administrator, I want `curl | sh` and PowerShell installers for each Product (`https://goodfetch.dev/install/collie.sh` and `.ps1`, Foxhound's likewise), so that I can install without a package manager."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a container user, I want `ghcr.io/goodfetch/collie` and `ghcr.io/goodfetch/foxhound` each published as `<v>`, `-slim`, `-full`, `-node` and `-python` tags for amd64 and arm64, on Debian 13 slim, running as a non-root user, each with its SBOM and attestations, so that I pick only the browsers and runtime I need and can pin or follow a version."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a Kubernetes operator, I want each Product's Helm chart (`ghcr.io/goodfetch/charts/collie`, `ghcr.io/goodfetch/charts/foxhound`) published as a signed OCI artifact on GHCR at the Product version, and the seccomp profile published with the release, so that I install the version I verified with a sandbox that works."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a self-hosting operator, I want every deployment target the docs call supported to be deployed by CI with a smoke run, so that the guide I follow is known to work."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a user who wants only what they use (SDK-03, modular install), I want each Product's executable to carry every capability of its Product, Collie's without Foxhound's crates, under its own Size budget CI enforces, and browsers, sink processes and Plugins fetched on demand by digest, so that the install stays small, never grows without a reason, and a user who drives one page never installs the crawler (ADRs 0087 and 0088)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a user, I want each release's notes to list every measured file size of each Product, and to say when Collie has no change of its own (ADR 0094), so that I see the cost of an upgrade."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a user who reports a crash, I want each release to publish each executable's debug symbols beside it, signed and attested, so that a backtrace can be read."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a user who wants early access, I want a beta channel (`x.y.0-rc.N` on npm `next`, PyPI `x.y.0rcN`, crates.io `-rc.N`) a week before each minor, so that I can try it before it reaches stable."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a contributor or adventurous user, I want a nightly channel of both Products from `main` (npm `nightly`, GitHub pre-releases, each image's `nightly` tag, and a Python index at `goodfetch.dev/nightly/simple`, with a project page per Product, that `pip --pre` and uv can use), so that I can test fixes before a release."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a user on pnpm 11 or Yarn 4.15 behind a release-age gate, I want security fixes to come with a GitHub Security Advisory, a CVE and copy-paste exclusion snippets scoped to the Products' packages (`@goodfetch/*` on npm; `goodfetch-collie`, `goodfetch-foxhound` and `goodfetch-collie-client` on PyPI), so that I can let a hotfix through deliberately."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a user behind a release-age gate who needs a fix today, I want the installers, Homebrew, the OCI image and GitHub Releases to carry the fix at once, and `GOODFETCH_COLLIE_ENGINE_PATH` or `GOODFETCH_FOXHOUND_ENGINE_PATH` to point my Product's SDK at it, so that the gate never holds a security fix back."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a user, I want an executable more than three months past its release date to print one line a day on stderr, with no network call and a setting to turn it off, so that I learn about fixes without telemetry."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 24
+title = "As a user, I want each Chrome stable major to reach me in a patch once it passes conformance, the guard, the Chromium build gate and the signed-bundle smoke on every OS (ADR 0074), so that the pinned browser and stealth material stay current."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a user, I want the engine's V8 never more than one Chrome Stable major behind, enforced by a release check, so that scripts run on a JavaScript engine with current security fixes."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a user, I want every patch to refresh the Clean-up rules, with each release publishing its full set and its embedded part as pinned downloads, so that ad and tracker blocking stays current and a resumed run finds the version it recorded."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a user who opts into the Clean-up rules' daily channel, I want each daily set published only after the clean-up suites pass, signed, and kept while my release line is supported, so that a daily update never breaks pages I read."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a user, I want release notes to name every browser build, the Clean-up rules' version and every contract-format version, so that I know what changed underneath me."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a user, I want semver from 1.0 over the SDKs and the Collie client packages, each Rust crate's top-level API, each Product's Operation catalog, CLI commands, flags, `--json` output and exit codes, setting keys, contract formats, webhook payloads, the HTTP listener, Error codes and metric names, so that a minor never breaks me."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a user, I want automated API breakage checks (cargo-semver-checks, API Extractor, `griffe check`, a diff of the catalog, settings schema and metric names), each run against the same Product's previous release (ADR 0094), to block an unannounced break, so that the promise is enforced rather than hoped for."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a user, I want a deprecation to warn in the SDKs, on the CLI's stderr and as `deprecated` in the MCP schema, and to stay at least six months and until the next major, so that I have time to migrate."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a user, I want Experimental items marked in the catalog, docs, tool descriptions and generated types, with a one-time warning per process, so that I know what is outside semver."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a user on the previous major, I want its last minor to receive security and data-loss fixes for 12 months after the next major, published under tags such as `latest-1`, so that `latest` never moves backwards."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a user, I want versions that no longer get fixes marked deprecated on npm, so that my tools tell me."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a user, I want contract formats (protocol, plugin protocol, Plugin manifest and lockfile, run state and Checkpoints, Plans, Recipes, settings schema, Schedules, Datasets and Exports, Usage ledger, known-certificates store, Response cache, the Clean-up rules' manifest, the per-user Politeness file, the Politeness store's key and script layout, and the Daemon group's peer protocol) to carry their own `major.minor` and to be refused with a clear message when too new or too old, so that a file is never misread."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 36
+title = "As a user moving to a new major, I want a migration guide and `upgrade-files`, so that my files and per-user state move over safely."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 37
+title = "As a Rust user, I want the MSRV to be the latest stable minus two, raised only in a minor and announced one minor ahead, so that my toolchain keeps building."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a user, I want one `CHANGELOG.md` that groups each release's entries into changes that reach both Products and changes that reach Foxhound only (ADR 0094), and a hand-written page per minor with highlights, deprecations, browser builds, contract versions and a benchmark link, so that I can judge an upgrade."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a user, I want the docs at `goodfetch.dev`, my Product's in its own section, to show the stable version by default, with `next` from `main` and the last minor of each supported previous major, so that what I read matches what I installed."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a user, I want stable docs to deploy only from release tags, so that they never describe features that are not released yet."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a user, I want \"Added in\" and \"Deprecated in\" badges generated from the catalog, so that I know when an item exists."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a user, I want one reference page per operation, per setting and per metric in each Product's section that carries it, naming the Product it belongs to (ADR 0097), with TypeScript, Python, Rust, CLI and MCP tabs where they apply, generated from `goodfetch-protocol`, so that every language shows its real signature and every metric its real name."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a user, I want every code sample in the docs extracted and run in CI by its surface's own tests against the executable of the commit (Collie's for a page both Products carry, whose Foxhound rendering is checked statically, Foxhound's for a page only Foxhound carries) and a local Proving ground, so that copied examples work (ADRs 0068 and 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a coding agent, I want every page served as `.md`, plus each Product section's `llms.txt` and `llms-full.txt` and the root's pair (ADR 0097), so that I can read the docs efficiently."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a coding agent, I want the installed version's docs of my Product's section embedded in its executable (the `docs` command, MCP resources), so that I read docs that match the engine I drive."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a user, I want framework docs that never present a Goodfetch Cloud-only feature as available, so that I don't chase something the framework lacks."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a user, I want TypeDoc, a Griffe-based Python reference, docs.rs and `clap-markdown` pages too, so that each language has its native reference."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a user, I want broken links caught by a strict docs build and lychee in CI, external links checked nightly, and every page of every kept version loaded in a browser, so that the docs stay navigable (ADR 0068)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a contributor, I want one repository with every surface, so that a feature, its conformance test, its Proving ground page and its docs change in one pull request."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a contributor, I want `just` as the single entry point for build, test, lint, codegen and docs, so that I don't learn three toolchains' commands."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a contributor, I want one required \"all green\" check on my pull request, decided by one change-detection job, with only the Chromium build gate required beside it, passing fast unless my pull request changes the Goodfetch Chromium's inputs (ADR 0074), so that a skipped check never stays pending forever."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a contributor, I want my pull request to run only the SDK, adapter and Sink suites my change touches, and only Foxhound's tests when my change is confined to Foxhound's side (ADR 0094), so that feedback is fast."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a contributor, I want a change to the sink protocol or to shared sink code to run every Sink's suite, so that shared changes are never under-tested."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a contributor, I want the merge queue to run the Release suite, with the full platform, runtime and browser matrix, before merging, so that `main` is always releasable (ADR 0061)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 55
+title = "As a contributor, I want a Linux x64 size estimate of each Product posted on my pull request without blocking it, so that I see a size cost before the merge queue does."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a contributor, I want the merge queue to block a change that grows any target of either Product past its increase threshold (+1 MB per compressed release file, +3 MB per compressed OCI image tag) or a published crate past 8 MiB (ADR 0087), unless my pull request's \"Size increase\" section gives the delta and its reason and the fresh review accepts it on the exact head, so that size grows only by a decision someone can see."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a contributor, I want `xtask codegen` to regenerate the JSON Schema bundle, catalog file, metric names and every SDK's generated code from the Rust types, and CI to fail on drift, so that generated code is never edited by hand."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a contributor, I want the DCO sign-off checked by a bot, with no CLA, so that contributing stays light."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a contributor, I want formatting, Clippy (pedantic, warnings as errors), `cargo-deny`, `cargo-audit`, `cargo-shear`, `cargo-nextest`, `typos`, `zizmor`, the MSRV build and their npm and Python equivalents to run on my pull request, so that style and supply-chain rules are enforced by tools."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a contributor, I want `cargo-hack` to check every feature combination of each Product's published SDK crate (`goodfetch-collie`, `goodfetch-foxhound`, ADR 0087), so that its additive features never break each other."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a contributor, I want Miri to run on pure-Rust `unsafe` code, so that undefined behaviour is caught."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a contributor, I want the notice inventory checked on my pull request, so that a dependency or a Clean-up rules input with a licence outside the allowlist, or a GPL Filter list headed for an executable, is caught before it reaches a release."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a contributor, I want the Rust build cache restored on pull requests but saved only from `main`, so that caches are not poisoned by pull-request code."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a contributor, I want docs builds and example runs to happen only when docs change, so that unrelated pull requests stay fast."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a contributor, I want a flaky test never retried, quarantined the same day with an issue that blocks releases, so that CI results stay meaningful (ADR 0064)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a contributor, I want `rnd/` frozen with an archive banner and its lab CI never a required check, so that R&D history stays without blocking work."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a contributor, I want CI to forbid the Proving ground from depending on engine crates, `goodfetch-conformance` or `goodfetch-protocol`, and `goodfetch-conformance` from depending on anything but `goodfetch-protocol`, so that the oracle stays independent of what it judges and the conformance harness tests only through the interface."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 68
+title = "As the owner, I want every job step that runs Goodfetch's product to deny outbound traffic except to the fixtures and the pinned artifact mirror, and to fail on any other connection, so that CI proves ADR 0043's rule on every OS it covers."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 69
+title = "As the owner, I want checkout, toolchain and dependency installs, pinned images, cache restores and the Clean-up rules' pinned inputs to be fetched before the deny, and jobs that run none of the product (publishing, signing, the Plugin index signature, deploying the docs and the nightly index, deploying the online Proving ground, the watchlist job, the release-gate step that reads Chrome's versions) to be outside it, so that the rule is precise rather than unworkable."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 70
+title = "As the owner, I want only the jobs ADR 0043 names to reach named endpoints, each listing its endpoints, so that every exception is visible: nightly real SaaS sinks, the release-candidate benchmark's online Proving ground (its paid services declined while there is no revenue, ADR 0076), nightly Paid fetch testnets, the online vendor conformance, the nightly build of the Clean-up rules' daily channel, the release-candidate Cloud Run deploy, the model jobs of ADR 0065, the Integration account job and the nightly unpinned-release checks of ADR 0070, and a fixture's licence endpoint named in its job."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 71
+title = "As the owner, I want every Action pinned by SHA, checked in CI, so that a moved tag cannot change what runs."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 72
+title = "As the owner, I want signing credentials reachable only from signing jobs in a `release` environment that admits protected branches only, with build jobs never seeing them, so that pull-request code never touches a key."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 73
+title = "As the owner, I want OIDC trusted publishing on crates.io, npm and PyPI, and Workload Identity Federation for the Cloud Run deploy, with no stored tokens or keys, so that no long-lived registry or cloud secret exists."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 74
+title = "As the owner, I want my machine, standing in for the declined reference host (ADR 0076), registered as a self-hosted runner whose benchmark and Performance series jobs only tag and manual dispatch events and a nightly schedule on `main`'s head reach, running when the machine is on, and which never runs a pull request from a fork, so that pull-request code never runs in a timing (ADRs 0071 and 0076)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 75
+title = "As the owner, I want OpenSSF Scorecard to run nightly, so that supply-chain posture is tracked."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 76
+title = "As the owner, I want LocalStack's auth token (its free open-source licence), the free-tier SaaS sink credentials and the AI Gateway key held as CI secrets used only by the jobs that need them, so that secrets don't reach unrelated jobs (ADR 0076)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a user, I want a `SECURITY.md` with private vulnerability reporting, a three-business-day acknowledgement, coordinated disclosure within 90 days and what counts as a vulnerability (anything that crosses a trust boundary of `TESTING.md`'s table, any memory unsafety, a limit that never fires), so that I know how to report a flaw (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a maintainer, I want `xtask release` to set the Product version in every released manifest of both Products, keep internal `goodfetch-*` crates at `0.0.x`, leave the Zapier and Make apps alone, write the changelog with git-cliff and open a release pull request, so that preparing a release is one command."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a maintainer, I want `xtask release` to pin the latest gated Clean-up rules set of the release line on `release/x.y` when it cuts the branch and when it prepares a patch, and the nightly build to pin `main`'s the same way, so that every release carries rules that passed their suites and nothing writes to the protected `main`."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 80
+title = "As a maintainer, I want merging the release pull request to build both executables of every target once with the release profile, in one job per target, Collie's first (ADR 0094), so that each channel carries identical, optimized bytes."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 81
+title = "As a maintainer, I want the release to run build, then sign and notarize, then compute digests, then attest and Sigstore-sign, then check the ceilings, then publish, in that fixed order, so that signatures, digests and measured sizes agree."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a maintainer, I want one publish job per registry, each publishing both Products (crates.io, npm with platform packages before the root, PyPI, the OCI image tags, the Helm charts, the first-party Plugin artifacts, the GitHub Release made immutable), so that one registry's failure is isolated and retryable."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 83
+title = "As a maintainer, I want a re-run to skip versions already published, reuse the signed artifacts instead of signing again, publish the GitHub Release only once both Products' files are on it, and push the tag only after both Products' npm packages are published (ADR 0094), so that a partial failure can be resumed safely."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a maintainer, I want a release candidate on the beta channel promoted to stable only when its beta week's conformance suites, benchmark and Private component run are green, so that regressions never reach stable."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 85
+title = "As a maintainer, I want a patch to pass conformance, the correctness oracle, the guard, the Chromium build gate and the signed-bundle smoke when it carries a new Chrome major or a Chrome security update (ADR 0074), the Size budget's ceilings and the Private component build before it publishes, so that patches ship fast but safely."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a maintainer, I want the release gate to check Platform signatures on each target OS (`signtool verify /pa` with a timestamp on Windows x64 and arm64; `codesign --verify --strict` and the notarization check for both executables; `codesign --deep`, `spctl` and `stapler validate` for the Goodfetch Chromium), so that a missing signature blocks the release."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a maintainer, I want the release to block, for both Products, on a failure in either Product's files (ADR 0094), red conformance, a benchmark regression beyond Δ without a release-note explanation, an unannounced API break, a disallowed licence, a supply-chain gate, a Platform signature failure, a broken Size budget ceiling, a V8 more than one Chrome Stable major behind, or a docs build or example failure, so that every gate of ADRs 0030, 0051 and 0057 holds."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 88
+title = "As a maintainer, I want a new package name, including each new per-platform npm package, flagged so that it is first published once by hand before trusted publishing takes over, so that registry setup never fails a release by surprise."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 89
+title = "As a maintainer, I want the release job to warn when either Product's PyPI project passes 70% of its quota (ADR 0094), so that the next increase is asked for before a publish can fail."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 90
+title = "As a maintainer, I want the release to attach the Proving ground binary and seed, the Linux `goodfetch-sandbox` helper, the Windows filter broker, the Clean-up rules' full set and embedded part, the debug symbols and the seccomp profile as attested assets, Platform-signed where they run on macOS or Windows, so that each is distributed with the engine."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 91
+title = "As a maintainer, I want the release to publish first-party Plugins, sink processes included, as one attested OCI artifact per platform at the Product version, usable by each Product that carries its Plugin kind (ADR 0094), so that the engine can fetch them on demand by digest."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a maintainer, I want benchmark summaries committed under `bench/results/<version>/` and raw data attached as release assets linked by digest, so that history stays small and reproducible."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 93
+title = "As a maintainer, I want each Goodfetch Chromium build for Windows submitted to Microsoft's security intelligence portal alongside the release without waiting for an answer, so that false positives are caught early without delaying patches."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 94
+title = "As the owner, I want the private repository to build its Private component against public `main` nightly and against every release candidate, stable release and patch, and a red run to block promotion and publishing, so that the challenge solver never silently drops out of a release."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 95
+title = "As the owner, I want public CI never to see private code or secrets, so that the Private component stays private."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 96
+title = "As a maintainer, I want stable docs deployed from the release tag after publishing, so that the docs follow the release."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 97
+title = "As a maintainer, I want the nightly job that builds the Clean-up rules' daily channel to publish a set per supported release line only after its gate passes, and to open an issue for the maintainers when it fails, so that a broken upstream list never reaches users."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 98
+title = "As the owner, I want the repository private until the first release, with the pull-request tier on Linux only, run on my machine in a Linux VM recreated for each job, private fuzzing nightly on my machine, the Release suite on manual dispatch with its macOS cells on my machine and its hosted cells under a ceiling of 600 included minutes a month, the other hosted jobs within the 400 left, and nightly off, so that CI stays within the account's included minutes before launch, paid minutes being declined and going public earlier declined for now (ADRs 0076, 0108 and 0135)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 99
+title = "As the owner, I want the repository moved into the `goodfetch` GitHub organization as `goodfetch/goodfetch` (ADR 0090) before the first release and made public when the first release pull request merges, before it is built, so that the merge queue, trusted publishers and artifact attestations work."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 100
+title = "As the owner, I want `MIT OR Apache-2.0` licence files naming \"The Goodfetch contributors\" and a trademark policy published with them, so that the code is permissive while the name is protected."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 101
+title = "As the owner, I want every third-party input of the Goodfetch Chromium build, the variations seed included, and every input of the Clean-up rules listed in the notice inventory, so that redistribution is accounted for."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 102
+title = "As a user, I want release notes to list every counted performance figure that changed by more than 1% since the previous minor, so that I see what an upgrade costs in speed and memory as I see its size (ADR 0071)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 103
+title = "As a user of an older SDK, CLI, MCP server or Plugin, I want every merge tested against every released minor of my major, so that upgrading the Daemon never breaks my Client (ADR 0066)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 104
+title = "As a user, I want every file an earlier release wrote kept in a frozen Compatibility corpus and read by every later build, so that an upgrade never misreads my files (ADR 0066)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 105
+title = "As a contributor, I want one `just` command per suite (`just quick`, `just pre-merge`, `just release`) that runs locally what CI runs over what I changed, and lists what it could not run on my host, so that I can check a change before I push it (ADR 0061)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 106
+title = "As a contributor, I want every new or changed test of my pull request run 20 times in random order before it merges, so that a flaky test is caught before it lands (ADR 0064)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 107
+title = "As a contributor, I want mocking libraries for owned code refused by `cargo-deny`, oxlint and ruff, fixtures kept under 256 KiB and snapshots never written by CI, so that tests stay on public interfaces and their data stays reviewable (ADR 0062)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 108
+title = "As a contributor, I want a change that adds 5% instructions or allocations to a benchmark blocked unless my pull request explains it and the fresh review accepts it, so that performance only regresses by a visible decision (ADR 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 109
+title = "As a contributor, I want a check that every Feature in the Feature inventory has a declaring test, and my pull request's surviving mutants reported in changed code, so that coverage means every feature is tested, not a percentage (ADR 0072)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 110
+title = "As a contributor, I want a format change without a version bump, or a Compatibility corpus that differs from what the writers produce, to fail the Quick suite, so that formats never drift silently (ADR 0066)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 111
+title = "As the owner, I want fuzzing to run only in a private repository, with each crash in a private advisory and an open crash holding the next minor's promotion, so that no crash is public before its fix (ADR 0067)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 112
+title = "As the owner, I want every CI job's logs, reports and artifacts scanned for secrets before they upload, commits scanned, and every container image a workflow runs pinned by digest, so that CI never leaks a secret or runs a moved image (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 113
+title = "As the owner, I want every test run's results kept in a results store, flaky tests detected from it, and test health running from M1 within the free plan's included minutes, so that test health is visible while the repository is private (ADR 0064)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 114
+title = "As a maintainer, I want `xtask release` to refuse a release while a test is quarantined or a Feature present in the release is untested, and the promotion of a minor while a `live-check` issue's cause is unstated after two business days or a fuzz crash is open, so that no release ships over a known gap (ADRs 0064, 0067 and 0072)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 115
+title = "As a maintainer, I want each stable release and patch to freeze its formats' Compatibility corpus from the release tag and record its artifacts in `compat/releases.toml` in its pull request to `main`, and a patch refused when it changes a format, so that later builds are tested against what shipped (ADR 0066)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 116
+title = "As a user with a disability, I want the docs to publish an accessibility statement (the WCAG 2.2 AA target, known exceptions and how to report a barrier), linked from every page's footer, and every docs page checked with axe, so that I know what to expect and where to report a barrier (ADR 0073, pending the owner's confirmation of the statement)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 117
+title = "As a Rust user, I want `cargo binstall goodfetch-collie` (or `goodfetch-foxhound`) to install the signed archive of the GitHub Release of the same version, and `cargo install goodfetch-collie --locked --features executable` to build the executable from source, with the docs saying that this builds V8 from source (often 30 minutes, needing Python 3, curl and libclang) and gives an executable with no Platform signature, so that both Cargo routes work as documented (ADR 0094)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 118
+title = "As a user of either Product, I want every release to publish both Products at one Product version, or neither, so that the Foxhound I install always contains a published Collie of the same version (ADRs 0090 and 0094)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 119
+title = "As a reader of one Product's docs, I want its section, `/docs/collie/` or `/docs/foxhound/`, rendered with that Product's names, a header switcher to the other Product, and search that returns my section and the root pages only, so that I never copy the other Product's executable, package or import (ADR 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 120
+title = "As a contributor, I want CI to fail when a crate outside `crates/foxhound/` other than `xtask` depends on a crate inside it, when Collie's executable would ship one of Foxhound's crates or a third-party crate only Foxhound's capabilities use, when Collie's Console build imports Foxhound's screens, or when an npm or PyPI package depends on a package of the other Product other than the Collie client package, so that Collie stays installable without Foxhound (ADRs 0084, 0087, 0088 and 0095)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 121
+title = "As a contributor, I want a Quick check that every generated contract of Collie's is in Foxhound's unchanged, so that Foxhound's containing Collie is proved where its executable is composed, not by running Collie's tests twice (ADR 0094)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 122
+title = "As a contributor, I want `xtask wording` in the Quick suite to fail on a term of ADR 0035's wording list in any text published about either Product, so that no text leads with access and none drifts as agents write docs (ADR 0097)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"

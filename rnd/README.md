@@ -1,3 +1,5 @@
+> **Archived.** `rnd/` is frozen R&D material, kept for inspiration only (ADR 0032). Nothing in it is an adopted term or decision, only broken links are ever edited, and its lab CI (`pnpm lab ci`) runs only when `rnd/` changes and is never a required check. The Products' decisions live in `docs/adr/`.
+
 # Goodfetch — final R&D report
 
 **Date:** October 10, 2026. **Status:** post-test report. **Final decision:** project owner.

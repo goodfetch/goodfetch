@@ -342,7 +342,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **No workflow step retries a test:** no retry action, no shell loop, no `continue-on-error` on a test step.
 - **No test loops until it passes.** Wait on a condition with a deadline (auto-waiting, `expect.poll`, a CDP event, a state you can name); never repeat the action under test until it succeeds.
 - **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`; Chromium's `--test-launcher-retry-limit` other than 0, a gtest run without it, and `--num-retries`; wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`; typ's `--retry-limit` and `--isolated-script-test-launcher-retry-limit` other than 0, `--retry-only-retry-on-failure-tests`, and a `RetryOnFailure` expectation). Downloads before the deny of ADR 0043 may retry: they test nothing.
-- **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step.
+- **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step. **Name every step that runs a suite or a test runner starting with `Test`** (`Test: just quick all`): that prefix is how "all green" tells a test step.
 - **Never assert elapsed real time, a rate or a duration.** Those are measurements.
 
 ### Before merge

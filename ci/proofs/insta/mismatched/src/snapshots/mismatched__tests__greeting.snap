@@ -1,0 +1,5 @@
+---
+source: mismatched/src/lib.rs
+expression: "\"goodbye\""
+---
+goodbye

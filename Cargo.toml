@@ -1,0 +1,108 @@
+# The virtual root manifest of Goodfetch's one Cargo workspace (STYLE.md, ADR 0087).
+#
+# Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound
+# links) and `crates/foxhound/sinks/` (the sink processes), plus `xtask/`.
+# Every crate's folder is named after the crate, `goodfetch-*`, so the globs
+# never match the grouping folders `crates/foxhound` and
+# `crates/foxhound/sinks`, which hold no manifest. (Cargo's `exclude` cannot
+# drop them: it excludes every path under an excluded folder, members of a
+# glob included.) `proving-ground/` joins `members` in the pull request that
+# adds its crate (area 2): a member path without a manifest makes
+# `cargo metadata` fail.
+[workspace]
+resolver = "3"
+members = [
+  "crates/goodfetch-*",
+  "crates/foxhound/goodfetch-*",
+  "crates/foxhound/sinks/goodfetch-*",
+  "xtask",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+# ADR 0030: the MSRV is the latest stable minus two; #133 builds it in CI.
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/goodfetch/goodfetch"
+publish = false
+
+# Every shared dependency sits here with `default-features = false`; each
+# crate turns on what it uses (STYLE.md, Dependencies).
+[workspace.dependencies]
+anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
+quote = { version = "1.0.47", default-features = false }
+rstest = { version = "0.27.0", default-features = false }
+serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
+serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
+serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
+tempfile = { version = "3.27.0", default-features = false }
+toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
+
+# STYLE.md, Lints, formatting and toolchain; `unsafe`; Async and concurrency.
+# `missing_docs` warns on `goodfetch-collie-client`, `goodfetch-collie`,
+# `goodfetch-foxhound` and `goodfetch-protocol`: Cargo cannot add a lint to
+# `lints.workspace = true`, so each of those crates opens its `lib.rs` with
+# `#![warn(missing_docs)]` when it is added.
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unreachable_pub = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# The short allow-list of `pedantic` (never `too_many_lines` or
+# `too_many_arguments`, ADR 0126).
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+clone_on_ref_ptr = "deny"
+exit = "deny"
+iter_over_hash_type = "deny"
+undocumented_unsafe_blocks = "deny"
+
+# Build profiles (ADRs 0057, 0061 and 0071). `dev` and `test` stay Cargo's.
+#
+# Release: fat LTO, one codegen unit, unwinding on panic, debug information
+# split out beside each executable (`.dwp` on Linux, `.dSYM` on macOS, `.pdb`
+# on Windows) and stripped from the executable itself.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# Pull-request and merge-queue builds: the release profile with thin LTO.
+[profile.ci]
+inherits = "release"
+lto = "thin"
+
+# CI test builds: `test` with line tables only, so backtraces keep file and line.
+[profile.ci-test]
+inherits = "test"
+debug = "line-tables-only"
+
+# Benchmarks (gungraun needs the line tables in the binary): the release
+# settings with thin LTO and nothing split out or stripped.
+[profile.bench]
+lto = "thin"
+debug = "line-tables-only"
+split-debuginfo = "off"
+strip = "none"

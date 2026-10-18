@@ -1,0 +1,5 @@
+# A workspace whose crate takes each mocking crate cargo-deny bans (ADR 0062),
+# as local stand-ins of the same names, so the proof needs no network.
+[workspace]
+resolver = "3"
+members = ["uses-mocks", "mockall", "mockito", "wiremock", "faux", "mry"]

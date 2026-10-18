@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Destroys the job's VM (ADR 0135). Every job runs it, pass or fail; the
+# post-job and pre-job scripts destroy a VM a cancelled job left behind.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=ci/vm/common.sh
+source "$here/common.sh"
+
+limactl delete --force "$VM_NAME" >/dev/null 2>&1 || true
+rm -f "$VM_STATE"

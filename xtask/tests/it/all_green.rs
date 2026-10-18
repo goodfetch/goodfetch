@@ -1,0 +1,119 @@
+//! "all green": the pull request's required check passes only when every job
+//! of the tier succeeded and no earlier attempt of its run had a failed test
+//! step (ADRs 0061 and 0064).
+//! Covers: story:1-51
+
+use rstest::rstest;
+
+use crate::github::GitHub;
+use crate::workspace::{Outcome, Workspace, finding};
+
+const PASSED_NEEDS: &str = r#"{
+  "quick": { "result": "success", "outputs": {} },
+  "pre-merge": { "result": "success", "outputs": {} }
+}"#;
+
+const ATTEMPT_1_JOBS: &str =
+    "/repos/goodfetch/goodfetch/actions/runs/42/attempts/1/jobs?per_page=100&page=1";
+
+fn all_green(workspace: &Workspace, needs: &str, attempt: &str, api: &str) -> Outcome {
+    workspace.write("needs.json", needs.as_bytes());
+    workspace.xtask(&[
+        "all-green",
+        "--needs",
+        "needs.json",
+        "--repository",
+        "goodfetch/goodfetch",
+        "--run-id",
+        "42",
+        "--attempt",
+        attempt,
+        "--api-url",
+        api,
+    ])
+}
+
+#[test]
+fn first_attempt_whose_jobs_all_succeeded_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[]);
+
+    let outcome = all_green(&workspace, PASSED_NEEDS, "1", github.url());
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[rstest]
+#[case::failed("failure")]
+#[case::cancelled("cancelled")]
+#[case::skipped("skipped")]
+fn job_that_did_not_succeed_fails(#[case] result: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[]);
+    let needs = format!(
+        r#"{{ "quick": {{ "result": "success" }}, "pre-merge": {{ "result": "{result}" }} }}"#
+    );
+
+    let outcome = all_green(&workspace, &needs, "1", github.url());
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("job-not-successful", "pre-merge")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn rerun_after_a_failed_test_step_fails() {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[(
+        ATTEMPT_1_JOBS,
+        r#"{ "total_count": 2, "jobs": [
+          { "name": "quick", "conclusion": "success",
+            "steps": [ { "name": "Test: just quick all", "conclusion": "success" } ] },
+          { "name": "pre-merge", "conclusion": "failure",
+            "steps": [ { "name": "Start the VM", "conclusion": "success" },
+                       { "name": "Test: just test pre-merge", "conclusion": "failure" } ] }
+        ] }"#,
+    )]);
+
+    let outcome = all_green(&workspace, PASSED_NEEDS, "2", github.url());
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "failed-test-step-in-earlier-attempt",
+            "attempt-1/pre-merge"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn rerun_after_a_failure_outside_test_steps_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[(
+        ATTEMPT_1_JOBS,
+        r#"{ "total_count": 1, "jobs": [
+          { "name": "pre-merge", "conclusion": "failure",
+            "steps": [ { "name": "Start the VM", "conclusion": "failure" },
+                       { "name": "Test: just test pre-merge", "conclusion": "skipped" } ] }
+        ] }"#,
+    )]);
+
+    let outcome = all_green(&workspace, PASSED_NEEDS, "2", github.url());
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn unreadable_earlier_attempt_is_an_error_never_a_pass() {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[]);
+
+    let outcome = all_green(&workspace, PASSED_NEEDS, "2", github.url());
+
+    assert_eq!(outcome.code, 2);
+}

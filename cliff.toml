@@ -1,0 +1,39 @@
+# git-cliff, which `xtask release` runs to write CHANGELOG.md from Conventional
+# Commits (spec #130). `xtask release` splits each release's entries into
+# changes that reach both Products and changes that reach Foxhound only, by
+# the paths each commit changes (ADR 0094).
+
+[changelog]
+header = "# Changelog\n"
+body = """
+{% if version %}\
+## {{ version | trim_start_matches(pat="v") }} ({{ timestamp | date(format="%Y-%m-%d") }})
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = true
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Added" },
+  { message = "^fix", group = "<!-- 1 -->Fixed" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^doc", group = "<!-- 3 -->Documentation" },
+  { message = "^refactor", group = "<!-- 4 -->Changed" },
+  { message = "^revert", group = "<!-- 5 -->Reverted" },
+  { message = "^(build|chore|ci|style|test)", skip = true },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"

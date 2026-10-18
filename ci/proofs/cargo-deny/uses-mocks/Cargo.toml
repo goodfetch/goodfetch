@@ -1,0 +1,12 @@
+[package]
+name = "uses-mocks"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+faux = { path = "../faux" }
+mockall = { path = "../mockall" }
+mockito = { path = "../mockito" }
+mry = { path = "../mry" }
+wiremock = { path = "../wiremock" }

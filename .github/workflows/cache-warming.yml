@@ -1,7 +1,8 @@
 # The cache-warming job (ADRs 0061, 0071 and 0135): after each push to
 # `main`, it builds the pull-request tier's dependencies, tests and benchmark
 # targets with the tier's profiles, without running them, and saves the build
-# cache, the pnpm store and uv's cache into the cache folder on the owner's
+# cache, the pnpm store, uv's cache, the CI image and the pinned Playwright
+# image (ADR 0073) into the cache folder on the owner's
 # machine. It is the only job that mounts that folder writable; pull-request
 # VMs read it. One run at a time: a newer waiting run replaces an older one.
 name: cache warming
@@ -30,7 +31,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Start the VM with the cache folder writable
-        run: ci/vm/start.sh writable
+        run: ci/vm/start.sh writable ci playwright
       - name: Build the tier's targets and save the cache
         run: ci/vm/exec.sh just warm
       - name: Destroy the VM

@@ -100,6 +100,10 @@ impl Workspace {
         std::fs::write(target, contents).unwrap();
     }
 
+    pub(crate) fn read(&self, relative: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.path().join(relative)).ok()
+    }
+
     /// Writes a file of exactly `bytes` bytes without writing its contents
     /// (sparse where the file system allows), for sizes far over the fixture
     /// limit; only its length is ever read.
@@ -112,13 +116,39 @@ impl Workspace {
             .unwrap();
     }
 
-    /// Commits the workspace in a new Git repository and returns the
+    /// Commits the workspace in its own Git repository and returns the
     /// commit's tree.
     pub(crate) fn commit(&self) -> String {
+        self.commit_workspace();
+        self.git(&["rev-parse", "HEAD^{tree}"]).trim().to_owned()
+    }
+
+    /// Commits the workspace in its own Git repository and returns the new
+    /// head commit.
+    pub(crate) fn commit_all(&self) -> String {
+        self.commit_workspace();
+        self.git(&["rev-parse", "HEAD"]).trim().to_owned()
+    }
+
+    /// Makes the repository on the first call (`git init` again is harmless),
+    /// then commits everything in the workspace.
+    fn commit_workspace(&self) {
         self.git(&["init", "--quiet"]);
         self.git(&["add", "--all"]);
-        self.git(&["commit", "--quiet", "--allow-empty", "--message", "Fixture"]);
-        self.git(&["rev-parse", "HEAD^{tree}"]).trim().to_owned()
+        self.git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "--no-verify",
+            "--allow-empty",
+            "--message",
+            "Fixture",
+        ]);
     }
 
     /// Runs `git <args>` in the workspace, with no user or system

@@ -14,8 +14,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=ci/vm/common.sh
 source "$here/common.sh"
 
-# Playwright's image for the catalog's version; #322 pins it by digest.
-playwright_image=mcr.microsoft.com/playwright:v1.64.1-noble
+# The pinned Playwright image, by digest (ci/visual/image.toml).
+playwright_image=$PLAYWRIGHT_IMAGE
 
 GOODFETCH_CACHE_FOLDER=$(mktemp -d)
 export GOODFETCH_CACHE_FOLDER

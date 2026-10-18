@@ -1,0 +1,49 @@
+# The only writer of Reference screenshots (ADR 0073). Dispatched by hand on a
+# pull request's branch (`gh workflow run update-screenshots.yml --ref
+# <branch>`), it rewrites the changed and missing references in the Playwright
+# image pinned in ci/visual/image.toml, then uploads them as the
+# `reference-screenshots` artifact with the image's digest, the commit it ran
+# on and its run ID. It commits nothing: the author runs
+# `just screenshots-fetch <run>`, which refuses another image or a commit that
+# is not the branch's head, and commits the screenshots with their own
+# sign-off, naming the run. It is not a suite job and is no required check.
+name: update screenshots
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: update-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: update
+    if: github.ref != 'refs/heads/main'
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start the VM with the pinned Playwright image
+        run: ci/vm/start.sh read-only playwright
+      - name: Rewrite the changed Reference screenshots in the pinned image
+        run: ci/vm/visual.sh update
+      - name: Collect them with the image digest and the commit
+        run: ci/visual/collect.sh target/update-screenshots
+      - name: Upload the Reference screenshots
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reference-screenshots
+          path: target/update-screenshots/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh

@@ -935,7 +935,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
 
 ## Performance budgets
 
-Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-and-time-is-measured-on-the-reference-host.md).
+Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-and-time-is-measured-on-the-reference-host.md) and [ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md).
 
 ### What gates a change
 
@@ -960,6 +960,19 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 - **A tripped pull request passes only with a "Performance change" section** in its body, listing each tripped figure with its measured change and reason, accepted explicitly by the owner when merging ([ADR 0133](docs/adr/0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md)).
 - **Run `just perf` before pushing a change to code a benchmark covers.** It uses CI's thresholds; off Linux it runs in the CI image through a container engine, or lists itself as skipped.
 
+### Absolute ceilings
+
+- **`xtask perf` also checks absolute ceilings,** in the same job as the comparison with the base. A "Performance change" section never passes a change over one; only the owner moves a ceiling.
+- **The fixed ceilings:** at most **8 heap bytes per URL in the Frontier** at 100,000 URLs (DHAT's bytes at the global maximum, less the same scenario with no URL, over the URL count), and at most **twice its body's bytes allocated per crawled page**, in a crawl fed by an in-memory fixture.
+- **The tuned ceilings:** instructions, allocations and bytes allocated per dispatched JSON-RPC message, each at 1.10 times its figure after M1's optimization pass, approved by the owner.
+- **The ceilings are constants of `xtask perf`** that cite ADR 0134, like the thresholds.
+
+### Performance targets
+
+- **A Performance target is measured on the owner's machine and never fails a change.** Startup to `hello` at most 10 ms (median); an idle Attached engine at most 8 MiB and an idle Daemon at most 16 MiB of resident memory, for each Product; the 1,000-page HTTP crawl at most 32 MiB at its peak, and at least as many pages per second as Spider in the same `just compare-spider` run.
+- **`just targets` writes the targets report:** each target, its measured figure and, for a miss, the gap. Each milestone's owner test links it under Reports, with `just compare-spider`'s report, labelled `local-controlled` and never published (ADR 0076).
+- **A target is not a test.** No test asserts it, and `just compare-spider` is not a Live check.
+
 ### Counts as snapshots
 
 - **Protocol counts are snapshots:** for each named scenario of a surface, the requests sent, the answers and events received, and their bytes after the shared redactions. Rust against the real binary in `tests/it`; TypeScript and Python against the Scripted engine of ADR 0069 in unit tests.
@@ -975,6 +988,20 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 - **Resident memory stays under its ceiling per OS** for an Attached engine idle after `hello`, an idle Daemon, and a 1,000-page HTTP crawl of the local Proving ground. The check runs in the Release suite.
 - **Each Product's executable has its own startup benchmarks and its own ceilings** for an idle Attached engine and an idle Daemon; the 1,000-page crawl runs on Foxhound's.
 - **The Console's JS heap after 10,000 streamed events,** after a forced garbage collection, is within 10% of its value after 1,000.
+- **Resident-memory ceilings are measured on the tuned build,** after M1's optimization pass. A ceiling may sit above its target.
+
+### Memory at scale
+
+- **The Frontier at scale:** one process enqueues 100,000 synthetic URLs, then 1,000,000, with no network. Peak resident memory at 1,000,000 is at most 1.5 times its peak at 100,000.
+- **The Daemon soak:** one Daemon runs 20 consecutive 1,000-page Proving ground crawls. Its resident memory after the 20th is within 10% of its value after the 3rd. If the 20 crawls take more than about two minutes, lower the pages per crawl, never the crawl count.
+- **Both pin the resource governor's memory allowance far above the expected peak,** so neither measures load shedding (ADR 0040).
+  _Why:_ a ratio gives one verdict on any machine, as the Console's leak check does, and both fit the five-minute cap per test.
+
+### Profiling
+
+- **CPU: samply,** on macOS and Linux (`samply setup` once on macOS).
+- **Heap: gungraun's DHAT and heaptrack, on Linux,** with the gnu build and the system allocator `benches/heap.rs` uses; on the owner's machine, in the Lima VM. Instruments' Allocations on macOS when a question needs it.
+- **Async: the ops listener's metrics and Tokio's stable runtime metrics,** through `tracing`. tokio-console is not used: it needs `tokio_unstable`, its own thread and its own TCP listener (ADR 0060).
 
 ### Where they run
 
@@ -984,6 +1011,9 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 | Count snapshots against the binary, render and DOM counts, the Console leak check, the Python import set | Pre-merge (Linux x64); Release on every cell |
 | `xtask perf` against the base, and benchmark admission | Pre-merge (Linux x64); Release adds Linux arm64 |
 | Resident-memory ceilings | Release, every OS |
+| Absolute ceilings | with `xtask perf` |
+| The Frontier at scale and the Daemon soak | Release, every OS |
+| Performance targets and the Spider comparison | the owner's machine, before each owner test; never a suite |
 | Drift check against the last release | the daily test-health job |
 | Performance series | a nightly Live check on the owner's machine when it is on, labelled with that machine; the rented reference host is declined while there is no revenue (ADR 0076) |
 

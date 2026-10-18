@@ -21,6 +21,7 @@ Decided in [Performance regression testing](https://github.com/goodfetch/goodfet
   - protocol messages, answers, events and their bytes per scenario, for every surface;
   - React commits and DOM elements per Console action;
   - bytes of the Console's and the TypeScript packages' entry points, brotli-compressed.
+  > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): counted figures per dispatched message, per URL in the Frontier and per crawled page also have absolute ceilings, which no "Performance change" section passes; wall time and resident memory have Performance targets, reported at each owner test and never failing a change.
 - **Resident memory has ceilings,** not per-change thresholds.
 
 ### Instruction and heap benchmarks
@@ -46,6 +47,7 @@ Decided in [Performance regression testing](https://github.com/goodfetch/goodfet
 - **The base build reuses `main`'s cache.** The cache-warming job of ADR 0061 also builds the benchmark targets on every push to `main`, with `Swatinem/rust-cache`'s `cache-workspace-crates` on, since by default it caches only dependencies and the base's own crates would be rebuilt in the job.
 - **`xtask affected` selects** the bench targets of changed crates and of the crates that depend on them.
 - **Threshold: +5%** on instructions and on each heap metric, per benchmark. It is ten times the drift seen across CPUs, and still catches a 5% regression in one change. Improvements are reported, never gated.
+  > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): the absolute ceilings are checked beside this threshold, in the same job.
 - **Accepting an increase.** A pull request that trips the threshold passes when its body has a **"Performance change"** section listing each tripped benchmark with its measured change and its reason, and the fresh review accepts that section explicitly on the pull request's exact head. This is ADR 0057's rule for a size increase.
   > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the owner accepts the section when merging.
 - The thresholds are constants of `xtask perf` that cite this ADR. They change only by changing it.
@@ -77,7 +79,9 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 
   Each OS has its own ceiling per scenario. The ticket that builds the check sets it at 1.5 times the highest peak of 20 runs, rounded up, with the owner's approval, and only the owner moves it. The 50% margin is far above run-to-run spread (rustc-perf calls max RSS "much more variable than instruction count"), so the check gives one verdict for one build.
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product has its own ceilings for an idle Attached engine and an idle Daemon, and the 1,000-page crawl is Foxhound's. The Performance series measures both executables and each Console build.
+  > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): the ceilings are measured on the build after M1's optimization pass and committed in M1, for the OSes the private-period matrix runs; macOS Intel and Windows arm64 follow in M4.
 - **The Console's leak check:** a served Playwright test (ADR 0068) streams 10,000 events into the Runs screen. The JS heap after a forced garbage collection, read over CDP, is within 10% of its value after the first 1,000 events. A ratio, so the machine does not matter.
+  > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): two more ratio checks join the Release suite: the Frontier at 1,000,000 URLs within 1.5× its peak at 100,000, and a Daemon's RSS after 20 crawls within 10% of its RSS after 3.
 
 ### The Performance series
 
@@ -104,6 +108,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 
 - **ADR 0025 is unchanged.** Counts and the series are early signals. They never relax or replace a family's Δ, and no count alone blocks a release. The startup and binding overhead family keeps its release-gate claim for the round trip.
 - **Drift check.** With the daily test-health job (ADR 0064), a check compares `main`'s head with the last release's counted figures in the results store. A figure up more than 10% since that release, or a resident-memory peak within 10% of its ceiling, opens or updates one `needs-triage` issue per figure. It catches many accepted steps under 5%. It only reads the results store, so it fits the test-health job's 15-minute timeout and its ceiling of included minutes. It compares nothing before the first release; until then the figures of `main`'s head are stored by the manual-dispatch Release runs, and then by the merge queue.
+  > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): before the first release, the absolute ceilings anchor the counted figures that this check cannot.
 - **Release notes** list each counted figure that changed by more than 1% since the previous minor, as ADR 0057 lists sizes.
 
 ### Suites and commands

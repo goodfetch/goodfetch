@@ -625,8 +625,12 @@ A committed image of a screen or component in one state, which a visual test com
 _Avoid_: baseline, golden image, snapshot (alone)
 
 **Performance budget**:
-The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the ceilings resident memory and the Console may never pass.
+The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the absolute ceilings that those costs, resident memory and the Console may never pass.
 _Avoid_: perf test, speed limit, benchmark (for a budget)
+
+**Performance target**:
+An absolute figure of time or resident memory that Goodfetch's engine is meant to meet, measured on the owner's machine and reported at each owner test, never failing a single change.
+_Avoid_: SLO, goal, budget (for a target)
 
 **Performance series**:
 The timed measurements of Goodfetch's latest code taken every night on the reference host, read for lasting shifts and never used to fail a single change.

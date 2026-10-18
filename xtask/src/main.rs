@@ -19,10 +19,12 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod output;
+mod package_dependencies;
 mod quarantine;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod tree;
 mod workflow;
 
 use std::ffi::OsString;
@@ -98,6 +100,10 @@ enum Command {
     /// Fails on any setting, flag, variable or workflow pattern that retries a
     /// test (ADRs 0064 and 0074).
     NoRetry,
+    /// Fails when an npm or PyPI package under `sdks/`, `adapters/` or
+    /// `integrations/` depends on a package of the other Product, or on a
+    /// Product's package when it is the Collie client package (ADR 0095).
+    PackageDependencies,
     /// The test quarantine list, `quarantine.toml` (ADR 0064).
     Quarantine {
         #[command(subcommand)]
@@ -326,6 +332,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
+        Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::Screenshots { command } => run_screenshots(command, root),
         Command::SelfHosted { command } => match command {

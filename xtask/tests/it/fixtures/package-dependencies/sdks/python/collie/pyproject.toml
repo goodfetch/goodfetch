@@ -1,0 +1,5 @@
+[project]
+name = "goodfetch-collie"
+version = "0.0.0"
+description = "Collie's Python SDK."
+dependencies = ["goodfetch-collie-client"]

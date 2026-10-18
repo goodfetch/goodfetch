@@ -15,10 +15,12 @@ mocking_lockfile = ["check"]
 modules = ["check", "metadata"]
 no_retry = ["check"]
 output = []
+package_dependencies = ["check", "tree"]
 quarantine = ["check", "github"]
 screenshots = ["check", "output"]
 self_hosted = ["check", "workflow"]
 size = ["check", "github", "output"]
+tree = []
 workflow = []
 
 # Which of `size`'s own modules may import which.

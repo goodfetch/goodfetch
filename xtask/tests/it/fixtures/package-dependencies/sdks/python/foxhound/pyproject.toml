@@ -1,0 +1,8 @@
+[project]
+name = "goodfetch-foxhound"
+version = "0.0.0"
+description = "Foxhound's Python SDK."
+dependencies = ["goodfetch_collie_client>=0.0.0"]
+
+[dependency-groups]
+dev = ["goodfetch-collie"]

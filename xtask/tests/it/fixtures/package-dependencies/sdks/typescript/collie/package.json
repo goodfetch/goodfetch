@@ -1,0 +1,11 @@
+{
+  "name": "@goodfetch/collie",
+  "version": "0.0.0",
+  "description": "Collie's TypeScript SDK.",
+  "dependencies": {
+    "@goodfetch/collie-client": "workspace:*"
+  },
+  "optionalDependencies": {
+    "@goodfetch/collie-linux-x64": "workspace:*"
+  }
+}

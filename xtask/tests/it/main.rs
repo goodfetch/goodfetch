@@ -24,6 +24,7 @@ mod fixture_size;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
+mod package_dependencies;
 mod quarantine;
 mod screenshots;
 mod self_hosted;

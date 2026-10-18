@@ -633,7 +633,7 @@ An absolute figure of time or resident memory that Goodfetch's engine is meant t
 _Avoid_: SLO, goal, budget (for a target)
 
 **Performance series**:
-The timed measurements of Goodfetch's latest code taken every night on the reference host, read for lasting shifts and never used to fail a single change.
+The timed measurements of Goodfetch's latest code taken every night on one controlled machine, read for lasting shifts and never used to fail a single change.
 _Avoid_: nightly benchmark, perf dashboard
 
 **Quick suite**:

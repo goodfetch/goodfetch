@@ -7,6 +7,8 @@
 mod affected;
 mod all_green;
 mod check;
+mod codegen;
+mod containment;
 mod dependency_direction;
 mod egress;
 mod fixture_size;
@@ -15,7 +17,9 @@ mod github;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
+mod no_retry;
 mod output;
+mod quarantine;
 mod release_suite;
 mod screenshots;
 mod self_hosted;
@@ -26,7 +30,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Goodfetch's release and CI tool")]
@@ -69,6 +73,14 @@ enum Command {
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
+    /// Regenerates every file generated from `goodfetch-protocol`'s types:
+    /// the JSON Schema bundle and catalog file, each Product's projection,
+    /// the names only Foxhound carries, the cargo-deny `wrappers` list and
+    /// each SDK package's `generated/` layer (ADR 0038).
+    Codegen(CodegenArguments),
+    /// Fails unless every generated contract of Collie's is in Foxhound's,
+    /// unchanged (ADR 0094).
+    Containment,
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
@@ -84,6 +96,14 @@ enum Command {
     /// `modules.toml` does not allow, and on a long file that does not say
     /// why it is one concern (ADR 0126).
     Modules,
+    /// Fails on any setting, flag, variable or workflow pattern that retries a
+    /// test (ADRs 0064 and 0074).
+    NoRetry,
+    /// The test quarantine list, `quarantine.toml` (ADR 0064).
+    Quarantine {
+        #[command(subcommand)]
+        command: QuarantineCommand,
+    },
     /// The Release suite's manual-dispatch runs while the repository is
     /// private (ADR 0108).
     ReleaseSuite {
@@ -228,6 +248,25 @@ enum SelfHostedCommand {
 }
 
 #[derive(Subcommand)]
+enum QuarantineCommand {
+    /// Fails on an entry whose issue is not an open `flaky-test` issue, or
+    /// whose test its runner no longer lists.
+    Check {
+        /// The repository whose issues the entries name, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+        /// The Cargo profile nextest builds its listing with.
+        #[arg(long)]
+        cargo_profile: Option<String>,
+    },
+    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
+    /// runner skip the listed tests.
+    Exclude,
+}
+
+#[derive(Subcommand)]
 enum EgressCommand {
     /// Fails on a workflow job not declared in `ci/egress/endpoints.toml`,
     /// and on a job under the deny whose steps do not deny before its tests,
@@ -345,6 +384,8 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             };
             Ok(check::report(&all_green::check(&root.join(needs), &run)?))
         }
+        Command::Codegen(arguments) => run_codegen(arguments, root, environment),
+        Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::DependencyDirection => Ok(check::report(&dependency_direction::check(
             &environment.cargo,
             root,
@@ -353,13 +394,10 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
+        Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
+        Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
-        Command::Screenshots { command } => match command {
-            ScreenshotsCommand::Fetch { run } => {
-                Ok(check::report(&screenshots::fetch(root, &root.join(run))?))
-            }
-            ScreenshotsCommand::Orphans => Ok(check::report(&screenshots::orphans(root)?)),
-        },
+        Command::Screenshots { command } => run_screenshots(command, root),
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
             SelfHostedCommand::Export => {
@@ -367,56 +405,134 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
                 Ok(ExitCode::SUCCESS)
             }
         },
-        Command::Size { mode } => match &mode {
-            SizeMode::Estimate {
-                files,
-                main_report,
-                main,
-            } => {
-                let main = main_report.as_deref().map(|report| size::Main {
-                    report,
-                    reference: main,
-                });
-                size::run(
-                    &size::Mode::Estimate { main },
-                    root,
-                    &files.files,
-                    files.save.as_deref(),
-                )
-            }
-            SizeMode::Increase {
-                files,
-                main_report,
-                main,
-                pull_request,
-                repository,
-                api_url,
-            } => {
-                let main = size::Main {
-                    report: main_report,
-                    reference: main,
-                };
-                let pull_request =
-                    pull_request
-                        .zip(repository.as_deref())
-                        .map(|(number, repository)| size::PullRequest {
-                            api: github::Api {
-                                url: api_url,
-                                token: environment.github_token.as_deref(),
-                            },
-                            repository,
-                            number,
-                        });
-                let mode = size::Mode::Increase { main, pull_request };
-                size::run(&mode, root, &files.files, files.save.as_deref())
-            }
-            SizeMode::Ceilings { files } => size::run(
-                &size::Mode::Ceilings,
+        Command::Size { mode } => run_size(&mode, root, environment),
+    }
+}
+
+/// The `size` modes (ADRs 0057 and 0087).
+fn run_size(mode: &SizeMode, root: &Path, environment: &Environment) -> anyhow::Result<ExitCode> {
+    match mode {
+        SizeMode::Estimate {
+            files,
+            main_report,
+            main,
+        } => {
+            let main = main_report.as_deref().map(|report| size::Main {
+                report,
+                reference: main,
+            });
+            size::run(
+                &size::Mode::Estimate { main },
                 root,
                 &files.files,
                 files.save.as_deref(),
-            ),
-        },
+            )
+        }
+        SizeMode::Increase {
+            files,
+            main_report,
+            main,
+            pull_request,
+            repository,
+            api_url,
+        } => {
+            let main = size::Main {
+                report: main_report,
+                reference: main,
+            };
+            let pull_request =
+                pull_request
+                    .zip(repository.as_deref())
+                    .map(|(number, repository)| size::PullRequest {
+                        api: github::Api {
+                            url: api_url,
+                            token: environment.github_token.as_deref(),
+                        },
+                        repository,
+                        number,
+                    });
+            let mode = size::Mode::Increase { main, pull_request };
+            size::run(&mode, root, &files.files, files.save.as_deref())
+        }
+        SizeMode::Ceilings { files } => size::run(
+            &size::Mode::Ceilings,
+            root,
+            &files.files,
+            files.save.as_deref(),
+        ),
+    }
+}
+
+#[derive(Args)]
+struct CodegenArguments {
+    /// Fails on any committed file that differs from what the types
+    /// generate, without running the TypeScript and Python generators.
+    #[arg(long)]
+    check: bool,
+    /// `json-schema-to-typescript`'s executable.
+    #[arg(long, default_value = "node_modules/.bin/json2ts")]
+    json2ts: PathBuf,
+    /// `datamodel-code-generator`'s executable.
+    #[arg(long, default_value = ".venv/bin/datamodel-codegen")]
+    datamodel_codegen: PathBuf,
+}
+
+/// `codegen` and its `--check` (ADR 0038).
+fn run_codegen(
+    arguments: CodegenArguments,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    if arguments.check {
+        return Ok(check::report(&codegen::check(&environment.cargo, root)?));
+    }
+    let generators = codegen::Generators {
+        json2ts: arguments.json2ts,
+        datamodel_codegen: arguments.datamodel_codegen,
+    };
+    codegen::write(&environment.cargo, &generators, root)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The `screenshots` commands (ADR 0073).
+fn run_screenshots(command: ScreenshotsCommand, root: &Path) -> anyhow::Result<ExitCode> {
+    match command {
+        ScreenshotsCommand::Fetch { run } => {
+            Ok(check::report(&screenshots::fetch(root, &root.join(run))?))
+        }
+        ScreenshotsCommand::Orphans => Ok(check::report(&screenshots::orphans(root)?)),
+    }
+}
+
+/// The `quarantine` commands (ADR 0064).
+fn run_quarantine(
+    command: QuarantineCommand,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        QuarantineCommand::Check {
+            repository,
+            api_url,
+            cargo_profile,
+        } => {
+            let sources = quarantine::Sources {
+                api: github::Api {
+                    url: &api_url,
+                    token: environment.github_token.as_deref(),
+                },
+                repository: &repository,
+                cargo: &environment.cargo,
+                cargo_profile: cargo_profile.as_deref(),
+            };
+            Ok(check::report(&quarantine::check(root, &sources)?))
+        }
+        QuarantineCommand::Exclude => {
+            for (runner, argument) in quarantine::exclusions(root)? {
+                output::line(&format!("{runner}\t{argument}"));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 

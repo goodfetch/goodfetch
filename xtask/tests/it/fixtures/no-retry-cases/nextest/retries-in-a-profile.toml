@@ -1,0 +1,7 @@
+[profile.default]
+retries = 0
+flaky-result = "fail"
+
+[profile.ci]
+retries = 2
+flaky-result = "fail"

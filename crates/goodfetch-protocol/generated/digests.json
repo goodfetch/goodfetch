@@ -1,0 +1,18 @@
+{
+  "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
+    "input": "0cd7745ad2276f1705db47078a886b199dde45ce85d67f1af5ec0d9e647e1c5a",
+    "output": "f2dff4cd1abe98f8804909faa2e02f3c7be10bcecda9ffdf514faa9dce2e4f61"
+  },
+  "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
+    "input": "ae7b49b8c2b1c0bb5998734bcea824750b36c022db86f36b5e821d5ff9b43863",
+    "output": "ff5c71a1943895594a1f919d917a9db06a3ce4b189f4697379ff50841023f5f4"
+  },
+  "sdks/typescript/collie-client/src/generated/types.ts": {
+    "input": "0cd7745ad2276f1705db47078a886b199dde45ce85d67f1af5ec0d9e647e1c5a",
+    "output": "16df5bf4cc6104b8eddafd5b85fa4219529c52c97ee6bd1f13dfe6a6270b0516"
+  },
+  "sdks/typescript/foxhound/src/generated/types.ts": {
+    "input": "a7664f2c99afe6d6fd04200ef0daa37aa93a8f3230eb5064bf2c317c8de63faa",
+    "output": "1e29569f75d3e30f0926bbc97cd8c1a6eed96f757a0ea1acb8ae368211065aec"
+  }
+}

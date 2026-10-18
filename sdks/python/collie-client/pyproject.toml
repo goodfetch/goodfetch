@@ -1,0 +1,12 @@
+[project]
+name = "goodfetch-collie-client"
+version = "0.0.0"
+description = "The Collie client package both Products' Python SDKs build on (ADR 0095)."
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.14.1", "typing-extensions>=4.16.0"]
+# Nothing is published before the first release (AGENTS.md, Release status).
+classifiers = ["Private :: Do Not Upload"]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

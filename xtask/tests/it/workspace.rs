@@ -18,6 +18,9 @@ pub(crate) struct Finding {
 pub(crate) struct Outcome {
     pub(crate) code: i32,
     pub(crate) stdout: String,
+    /// What went wrong when the command could not reach a verdict; shown
+    /// when an assertion on the exit code fails.
+    pub(crate) stderr: String,
 }
 
 impl Outcome {
@@ -58,6 +61,9 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures")
 }
 
+/// Copies a tree, each file written anew rather than cloned (as macOS clones
+/// with `std::fs::copy`), so its modification time is the copy's and Cargo
+/// rebuilds a fixture crate whose artifacts another copy left.
 fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
@@ -66,7 +72,7 @@ fn copy_tree(from: &Path, to: &Path) {
         if entry.file_type().unwrap().is_dir() {
             copy_tree(&entry.path(), &target);
         } else {
-            std::fs::copy(entry.path(), &target).unwrap();
+            std::fs::write(&target, std::fs::read(entry.path()).unwrap()).unwrap();
         }
     }
 }
@@ -90,8 +96,38 @@ impl Workspace {
         std::fs::copy(fixtures().join(fixture), target).unwrap();
     }
 
+    /// Links the repository's installed npm packages and Python environment
+    /// into the workspace, so its runners run there as they do at the root.
+    pub(crate) fn link_installed_runners(&self) {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for folder in ["node_modules", ".venv"] {
+            let target = repository.join(folder);
+            assert!(
+                target.is_dir(),
+                "{} is missing: run `pnpm install` and `uv sync`",
+                target.display()
+            );
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, self.path().join(folder)).unwrap();
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&target, self.path().join(folder)).unwrap();
+        }
+    }
+
     pub(crate) fn remove(&self, relative: &str) {
         std::fs::remove_file(self.path().join(relative)).unwrap();
+    }
+
+    /// A text file of the workspace, which must exist.
+    pub(crate) fn read_text(&self, relative: &str) -> String {
+        std::fs::read_to_string(self.path().join(relative)).unwrap()
+    }
+
+    /// Replaces the one occurrence of `from` in a file with `to`.
+    pub(crate) fn edit(&self, relative: &str, from: &str, to: &str) {
+        let contents = self.read_text(relative);
+        assert_eq!(contents.matches(from).count(), 1, "{from:?} in {relative}");
+        self.write(relative, contents.replace(from, to).as_bytes());
     }
 
     pub(crate) fn write(&self, relative: &str, contents: &[u8]) {
@@ -185,22 +221,37 @@ impl Workspace {
         String::from_utf8(output.stdout).unwrap()
     }
 
-    /// Runs `xtask <args>` in the workspace with a cleared environment, but
-    /// for the variables that find and run the pinned Cargo toolchain.
-    pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
+    /// A command run in the workspace with a cleared environment, but for the
+    /// variables that find and run the pinned Cargo toolchain.
+    pub(crate) fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
         let toolchain = TOOLCHAIN_VARIABLES
             .iter()
             .filter_map(|name| std::env::var_os(name).map(|value| (*name, value)));
-        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        let mut command = Command::new(program);
+        command.current_dir(self.path()).env_clear().envs(toolchain);
+        command
+    }
+
+    /// Runs `xtask <args>` in the workspace. Cargo builds offline, into one
+    /// target folder every test shares, so a fixture's dependencies build
+    /// once. Copies of one fixture crate share its artifacts there too, so
+    /// the tests that build one run one at a time (`.config/nextest.toml`,
+    /// the `fixture-builds` group).
+    pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
+        let output = self
+            .command(env!("CARGO_BIN_EXE_xtask"))
             .args(args)
-            .current_dir(self.path())
-            .env_clear()
-            .envs(toolchain)
+            .env(
+                "CARGO_TARGET_DIR",
+                Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target"),
+            )
+            .env("CARGO_NET_OFFLINE", "true")
             .output()
             .unwrap();
         Outcome {
             code: output.status.code().unwrap(),
             stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
         }
     }
 }

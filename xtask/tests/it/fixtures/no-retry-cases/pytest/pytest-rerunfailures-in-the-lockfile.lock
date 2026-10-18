@@ -1,0 +1,23 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "pytest"
+version = "9.1.1"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pytest-timeout"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "sample"
+version = "0.0.0"
+source = { virtual = "." }
+
+[[package]]
+name = "pytest-rerunfailures"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }

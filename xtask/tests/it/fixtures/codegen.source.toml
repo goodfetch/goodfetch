@@ -1,0 +1,16 @@
+# The codegen fixture's generated files (TESTING.md, Fixtures and data files):
+# `deny.toml`'s marked region and every file under the `generated/` folders
+# are `xtask codegen`'s output for the fixture's `goodfetch-protocol`, and the
+# rest is written by hand. Regenerate them after changing the fixture's types
+# or `xtask codegen` itself, from the repository root after `just codegen`
+# installed the generators.
+generator = "xtask codegen"
+generators = ["json-schema-to-typescript 16.0.0", "datamodel-code-generator 0.86.0"]
+date = "2026-10-18"
+command = """
+cargo build -p xtask && (cd xtask/tests/it/fixtures/codegen && \
+  CARGO_TARGET_DIR="$PWD/../../../../../target/fixture-codegen" \
+  ../../../../../target/debug/xtask codegen \
+    --json2ts "$PWD/../../../../../node_modules/.bin/json2ts" \
+    --datamodel-codegen "$PWD/../../../../../.venv/bin/datamodel-codegen")
+"""

@@ -57,8 +57,13 @@ fn set(name: &str, kind: &str, elements: &[String]) -> String {
     text
 }
 
-pub(crate) fn rules(root: &Path, job: &JobKey, resolved: &Path, uid: Uid) -> Result<String> {
-    let endpoints = Endpoints::read(root)?;
+/// The job's allowed endpoints at the addresses resolved before the deny,
+/// refusing any line that names another endpoint or the canary.
+pub(crate) fn resolved_addresses(
+    endpoints: &Endpoints,
+    job: &JobKey,
+    resolved: &Path,
+) -> Result<BTreeSet<(IpAddr, u16)>> {
     let allowed = endpoints.allowed(job)?;
     let text = std::fs::read_to_string(resolved)
         .with_context(|| format!("reading {}", resolved.display()))?;
@@ -69,6 +74,12 @@ pub(crate) fn rules(root: &Path, job: &JobKey, resolved: &Path, uid: Uid) -> Res
                 .with_context(|| format!("reading {}", resolved.display()))?,
         );
     }
+    Ok(addresses)
+}
+
+pub(crate) fn rules(root: &Path, job: &JobKey, resolved: &Path, uid: Uid) -> Result<String> {
+    let endpoints = Endpoints::read(root)?;
+    let addresses = resolved_addresses(&endpoints, job, resolved)?;
     let element = |(address, port): &(IpAddr, u16)| format!("{address} . {port}");
     let ipv4: Vec<String> = addresses
         .iter()

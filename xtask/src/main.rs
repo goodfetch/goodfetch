@@ -242,16 +242,22 @@ enum EgressCommand {
     },
     /// Prints the nftables ruleset that denies a job's outbound traffic but
     /// to its allowed endpoints, at the addresses resolved before the deny.
+    /// With `--windows`, prints the Windows Firewall block rules instead, one
+    /// `<protocol> <remote addresses> <remote ports>` line each.
+    #[command(group(clap::ArgGroup::new("enforcer").required(true).args(["uid", "windows"])))]
     Rules {
         /// The job, as `<workflow file>#<job id>`.
         #[arg(long)]
         job: String,
-        /// A file of `<host> <port> <address>` lines, resolved in the VM.
+        /// A file of `<host> <port> <address>` lines, resolved before the deny.
         #[arg(long)]
         resolved: PathBuf,
-        /// The VM user that runs the job's container, so the product.
+        /// The user that runs the product, in the job's VM or network namespace.
         #[arg(long)]
-        uid: u32,
+        uid: Option<u32>,
+        /// The rules of the Windows cell's firewall.
+        #[arg(long)]
+        windows: bool,
     },
     /// The Egress canary: a forbidden connection that must be refused.
     Canary {
@@ -260,13 +266,17 @@ enum EgressCommand {
     },
     /// Fails on every connection the deny refused but the canary's, read
     /// from the deny's counters and its kernel log at the job's end.
+    #[command(group(clap::ArgGroup::new("refusals").required(true).args(["counters", "firewall_log"])))]
     Report {
         /// The output of `nft --json list counters table inet goodfetch_egress`.
+        #[arg(long, requires = "log")]
+        counters: Option<PathBuf>,
+        /// The kernel log of the deny's VM or runner.
+        #[arg(long, requires = "counters")]
+        log: Option<PathBuf>,
+        /// The Windows firewall's log of dropped packets.
         #[arg(long)]
-        counters: PathBuf,
-        /// The VM's kernel log.
-        #[arg(long)]
-        log: PathBuf,
+        firewall_log: Option<PathBuf>,
     },
 }
 
@@ -277,17 +287,24 @@ enum CanaryCommand {
         #[arg(long)]
         outcome: PathBuf,
     },
-    /// Passes when the attempt did not connect and the deny counted it.
+    /// Passes when the attempt did not connect and the deny recorded it.
+    #[command(group(clap::ArgGroup::new("record").required(true).args(["before", "firewall_log", "sandbox"])))]
     Verdict {
         /// The file `attempt` wrote.
         #[arg(long)]
         outcome: PathBuf,
         /// The deny's counters before the attempt, as `nft --json` lists them.
-        #[arg(long)]
-        before: PathBuf,
+        #[arg(long, requires = "after")]
+        before: Option<PathBuf>,
         /// The deny's counters after the attempt.
+        #[arg(long, requires = "before")]
+        after: Option<PathBuf>,
+        /// The Windows firewall's log of dropped packets.
         #[arg(long)]
-        after: PathBuf,
+        firewall_log: Option<PathBuf>,
+        /// The attempt ran under macOS's sandbox, whose refusal is its record.
+        #[arg(long)]
+        sandbox: bool,
     },
 }
 
@@ -463,8 +480,19 @@ fn run_egress(command: EgressCommand, root: &Path) -> anyhow::Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        EgressCommand::Rules { job, resolved, uid } => {
-            output::line(egress::rules(root, &job, &root.join(resolved), uid)?.trim_end());
+        EgressCommand::Rules {
+            job,
+            resolved,
+            uid,
+            windows,
+        } => {
+            // clap requires `--uid` or `--windows`.
+            let enforcer = match (uid, windows) {
+                (_, true) => egress::Enforcer::WindowsFirewall,
+                (Some(uid), false) => egress::Enforcer::Nftables { uid },
+                (None, false) => anyhow::bail!("give --uid or --windows"),
+            };
+            output::line(egress::rules(root, &job, &root.join(resolved), &enforcer)?.trim_end());
             Ok(ExitCode::SUCCESS)
         }
         EgressCommand::Canary { command } => match command {
@@ -476,18 +504,44 @@ fn run_egress(command: EgressCommand, root: &Path) -> anyhow::Result<ExitCode> {
                 outcome,
                 before,
                 after,
-            } => Ok(check::report(&egress::verdict(
-                root,
-                &root.join(outcome),
-                &root.join(before),
-                &root.join(after),
-            )?)),
+                firewall_log,
+                sandbox,
+            } => {
+                let (before, after) = (
+                    before.map(|path| root.join(path)),
+                    after.map(|path| root.join(path)),
+                );
+                let firewall_log = firewall_log.map(|path| root.join(path));
+                // clap requires one record, and `--before` with `--after`.
+                let record = match (&before, &after, &firewall_log, sandbox) {
+                    (Some(before), Some(after), _, _) => egress::Record::Counters { before, after },
+                    (_, _, Some(log), _) => egress::Record::FirewallLog(log),
+                    (_, _, _, true) => egress::Record::Sandbox,
+                    _ => anyhow::bail!("give --before and --after, --firewall-log or --sandbox"),
+                };
+                Ok(check::report(&egress::verdict(
+                    root,
+                    &root.join(outcome),
+                    &record,
+                )?))
+            }
         },
-        EgressCommand::Report { counters, log } => Ok(check::report(&egress::report(
-            root,
-            &root.join(counters),
-            &root.join(log),
-        )?)),
+        EgressCommand::Report {
+            counters,
+            log,
+            firewall_log,
+        } => {
+            let counters = counters.map(|path| root.join(path));
+            let log = log.map(|path| root.join(path));
+            let firewall_log = firewall_log.map(|path| root.join(path));
+            // clap requires `--counters` with `--log`, or `--firewall-log`.
+            let refusals = match (&counters, &log, &firewall_log) {
+                (Some(counters), Some(log), _) => egress::Refusals::Nftables { counters, log },
+                (_, _, Some(log)) => egress::Refusals::FirewallLog(log),
+                _ => anyhow::bail!("give --counters and --log, or --firewall-log"),
+            };
+            Ok(check::report(&egress::report(root, &refusals)?))
+        }
     }
 }
 

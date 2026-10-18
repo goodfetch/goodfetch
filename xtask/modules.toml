@@ -36,7 +36,8 @@ verdict = ["cells", "history"]
 
 # Which of `egress`'s own modules may import which.
 [submodules.egress]
-canary = ["endpoints", "rules"]
+canary = ["endpoints", "rules", "windows"]
 declarations = ["endpoints"]
 endpoints = []
 rules = ["endpoints"]
+windows = []

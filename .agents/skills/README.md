@@ -1,11 +1,11 @@
 # Vendored skills
 
-Third-party agent skills from the Language skills table of [`AGENTS.md`](../../AGENTS.md), copied unchanged at the commits below so every agent and contributor reads the same version. `STYLE.md` wins wherever a skill disagrees. Codex reads this folder; Claude Code reads the same skills through the links in `.claude/skills/`. A personal skill with the same name takes precedence on that machine.
+Third-party agent skills from the Language skills table of [`AGENTS.md`](../../AGENTS.md), copied unchanged at the commits below so every agent and contributor reads the same version. `STYLE.md` and `TESTING.md` win wherever a skill disagrees. Codex reads this folder; Claude Code reads the same skills through the links in `.claude/skills/`. A personal skill with the same name takes precedence on that machine.
 
 | Skill | Language | Source | Commit | License |
 |---|---|---|---|---|
 | `typescript-best-practices` | TypeScript | [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude/tree/046341e3aaf2405083973a37f860d0d2ea98e18a/plugins/pstack/skills/typescript-best-practices) | `046341e` | MIT |
-| `principle-type-system-discipline` | TypeScript (named by `typescript-best-practices`) | [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude/tree/046341e3aaf2405083973a37f860d0d2ea98e18a/plugins/pstack/skills/principle-type-system-discipline) | `046341e` | MIT |
+| `principle-type-system-discipline` | Any typed code: Rust, TypeScript, Python (also named by `typescript-best-practices`) | [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude/tree/046341e3aaf2405083973a37f860d0d2ea98e18a/plugins/pstack/skills/principle-type-system-discipline) | `046341e` | MIT |
 | `principle-boundary-discipline` | TypeScript (named by the two above) | [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude/tree/046341e3aaf2405083973a37f860d0d2ea98e18a/plugins/pstack/skills/principle-boundary-discipline) | `046341e` | MIT |
 | `principle-encode-lessons-in-structure` | TypeScript (named by `principle-type-system-discipline`) | [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude/tree/046341e3aaf2405083973a37f860d0d2ea98e18a/plugins/pstack/skills/principle-encode-lessons-in-structure) | `046341e` | MIT |
 | `ruff` | Python | [astral-sh/claude-code-plugins](https://github.com/astral-sh/claude-code-plugins/tree/f3ce88a7ba830f53afd6d944c1d0278ed318e142/plugins/astral/skills/ruff) | `f3ce88a` | MIT or Apache-2.0 |

@@ -1,0 +1,267 @@
+//! `xtask perf`: each change's Performance budget (ADR 0071, as amended by
+//! ADRs 0087, 0094, 0133 and 0134). Only counted figures gate a change:
+//! instructions and heap metrics per benchmark, measured by gungraun under
+//! Callgrind and DHAT, and the brotli bytes of each size-limit entry. The
+//! base and the head are measured in one job on one runner, so the runner's
+//! CPU cancels out; `compare` then holds each figure to its threshold over
+//! the base's and to its ceiling, and writes one table.
+
+mod admission;
+mod budget;
+mod bundle;
+mod compare;
+mod drift;
+mod figure;
+mod figures;
+mod gungraun;
+mod measure;
+mod pull_request;
+mod table;
+
+use std::ffi::OsStr;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use anyhow::{Context as _, Result};
+use clap::{Args, Subcommand};
+
+use crate::check::{self, Finding};
+use crate::output;
+
+use compare::{Row, Verdict};
+
+#[derive(Subcommand)]
+pub(crate) enum Command {
+    /// Before the deny: checks the base out under target/perf/ and builds
+    /// the base's and the head's (the workspace's) selected bench targets.
+    Build {
+        /// The base: the merge base locally, the base branch's head in the
+        /// pull-request tier, the group's base in the merge queue.
+        #[arg(long)]
+        base: String,
+        /// `<crate>/<bench target>`s, separated by spaces, as `xtask
+        /// affected` prints them in `bench-targets`.
+        #[arg(long, default_value = "")]
+        bench_targets: String,
+    },
+    /// Under the deny: measures the base, then the head, as `build`
+    /// planned, then compares them like `compare`, saving the head's figures
+    /// and every report into target/junit/.
+    Run {
+        /// The pull request's acceptance, as `pull-request` saved it.
+        #[arg(long)]
+        pull_request: Option<PathBuf>,
+        /// The job's summary page (`GITHUB_STEP_SUMMARY`).
+        #[arg(long)]
+        summary: Option<PathBuf>,
+    },
+    /// Holds the measured figures to their thresholds over the base's and to
+    /// their ceilings, and writes the table.
+    Compare(Reports),
+    /// Saves what a pull request's "Performance change" section and its
+    /// acceptance comments accept, for a later `compare` under the deny.
+    #[command(group(clap::ArgGroup::new("pull").required(true).args(["number", "commit"])))]
+    PullRequest {
+        /// The pull request's number.
+        #[arg(long)]
+        number: Option<u64>,
+        /// A commit of `main`: the pull request that merged it.
+        #[arg(long)]
+        commit: Option<String>,
+        /// The repository, as `owner/name`.
+        #[arg(long)]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+        #[arg(long)]
+        save: PathBuf,
+    },
+    /// Compares `main`'s latest figures in the results store with the last
+    /// release's, and opens or updates one `needs-triage` issue per figure
+    /// that drifted.
+    Drift {
+        /// The results store's checkout.
+        #[arg(long)]
+        store: PathBuf,
+        /// The repository, as `owner/name`.
+        #[arg(long)]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+}
+
+/// What `compare` reads, each path relative to the workspace.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("reports").required(true).multiple(true).args(["gungraun", "size_head"])))]
+pub(crate) struct Reports {
+    /// gungraun's JSON summaries of the head, run with `--baseline=base`
+    /// (repeatable).
+    #[arg(long)]
+    gungraun: Vec<PathBuf>,
+    /// size-limit's `--json` report of the base.
+    #[arg(long, requires = "size_head")]
+    size_base: Option<PathBuf>,
+    /// size-limit's `--json` report of the head.
+    #[arg(long)]
+    size_head: Option<PathBuf>,
+    /// The folder of the new benchmarks' admission runs, one gungraun
+    /// report (`*.jsonl`) per run of one build.
+    #[arg(long)]
+    admission: Option<PathBuf>,
+    /// The pull request's acceptance, as `pull-request` saved it; with
+    /// none, every tripped figure fails.
+    #[arg(long)]
+    pull_request: Option<PathBuf>,
+    /// The job's summary page (`GITHUB_STEP_SUMMARY`), which gets the
+    /// table too.
+    #[arg(long)]
+    summary: Option<PathBuf>,
+    /// Where to save the head's figures for the results store
+    /// (`perf-figures.json` in the job's JUnit folder).
+    #[arg(long)]
+    save: Option<PathBuf>,
+}
+
+pub(crate) fn run(
+    command: Command,
+    root: &Path,
+    cargo: &OsStr,
+    token: Option<&str>,
+) -> Result<ExitCode> {
+    match command {
+        Command::Build {
+            base,
+            bench_targets,
+        } => {
+            let targets: Vec<String> = bench_targets
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
+            measure::build(cargo, root, &base, &targets)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Run {
+            pull_request,
+            summary,
+        } => {
+            let measured = measure::run(cargo, root)?;
+            let reports = Reports {
+                gungraun: vec![measured.head],
+                size_base: measured.size_base,
+                size_head: measured.size_head,
+                admission: measured.admission,
+                pull_request,
+                summary,
+                save: Some(PathBuf::from("target/junit").join(figures::FILE_NAME)),
+            };
+            compare(root, &reports)
+        }
+        Command::Compare(reports) => compare(root, &reports),
+        Command::PullRequest {
+            number,
+            commit,
+            repository,
+            api_url,
+            save,
+        } => {
+            // clap requires one of `--number` and `--commit`.
+            let source = match (number, commit.as_deref()) {
+                (Some(number), _) => pull_request::Source::Number(number),
+                (None, Some(commit)) => pull_request::Source::MergedCommit(commit),
+                (None, None) => anyhow::bail!("give --number or --commit"),
+            };
+            let api = crate::github::Api {
+                url: &api_url,
+                token,
+            };
+            pull_request::save(api, &repository, &source, &root.join(save))?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Drift {
+            store,
+            repository,
+            api_url,
+        } => drift::check(
+            &crate::github::Api {
+                url: &api_url,
+                token,
+            },
+            &repository,
+            &root.join(store),
+        ),
+    }
+}
+
+fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
+    let paths: Vec<PathBuf> = reports
+        .gungraun
+        .iter()
+        .map(|path| root.join(path))
+        .collect();
+    let paths: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    let mut measured = gungraun::read(&paths)?;
+    if let Some(head) = &reports.size_head {
+        let base = reports.size_base.as_ref().map(|path| root.join(path));
+        measured.extend(bundle::read(base.as_deref(), &root.join(head))?);
+    }
+    let mut rows: Vec<Row> = measured.into_iter().map(compare::row).collect();
+    rows.sort_by_key(|row| row.measured.id());
+    if let Some(path) = &reports.pull_request {
+        pull_request::accept(&mut rows, &pull_request::read(&root.join(path))?);
+    }
+    if let Some(save) = &reports.save {
+        figures::save(&root.join(save), &rows)?;
+    }
+    let admissions = match &reports.admission {
+        Some(folder) => admission::read(&rows, &root.join(folder))?,
+        None => Vec::new(),
+    };
+    let mut text = format!("### Performance budget\n\n{}", table::render(&rows));
+    if !admissions.is_empty() {
+        let _ = write!(
+            text,
+            "\n#### Admission of the new benchmarks\n\n{}",
+            admission::render(&admissions)
+        );
+    }
+    let text = text.trim_end();
+    output::line(text);
+    if let Some(summary) = &reports.summary {
+        append(&root.join(summary), text)?;
+    }
+    let mut findings: Vec<Finding> = rows.iter().filter_map(finding).collect();
+    findings.extend(admission::findings(&admissions));
+    Ok(check::report(&findings))
+}
+
+fn finding(row: &Row) -> Option<Finding> {
+    let id = row.measured.id();
+    match row.verdict {
+        Verdict::Tripped => Some(Finding::new(
+            "performance-change",
+            id,
+            format!(
+                "changed by {} over the base, past its threshold; list it with its change and reason in the pull request's \"Performance change\" section",
+                table::change(row).unwrap_or_default()
+            ),
+        )),
+        Verdict::OverCeiling => Some(Finding::new(
+            "over-ceiling",
+            id,
+            "is over its ceiling, which only the owner moves",
+        )),
+        Verdict::Within | Verdict::Improved | Verdict::New | Verdict::Accepted => None,
+    }
+}
+
+fn append(path: &Path, text: &str) -> Result<()> {
+    use std::io::Write as _;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    writeln!(file, "{text}").with_context(|| format!("writing {}", path.display()))
+}

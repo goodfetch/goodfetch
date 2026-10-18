@@ -3,9 +3,9 @@
 #
 # - the daily test-health job, on `main`'s head, 15 minutes in all: the 10
 #   oldest quarantined tests 50 times each (`quarantined`), then the scan of
-#   the results store and the Allure Report 3 build from it (`report`). The
-#   drift check of `xtask perf` (ADR 0071) and the Feature report (ADR 0072)
-#   join `report` with their tickets.
+#   the results store, the drift check of `xtask perf` (ADR 0071) and the
+#   Allure Report 3 build from it (`report`). The Feature report (ADR 0072)
+#   joins `report` with its ticket.
 # - the constrained test-health run, weekly and after each manual-dispatch
 #   Release run: the Pre-merge suite under a cgroup that halves the runner's
 #   CPU and memory, with a fresh order seed and Vitest's `detectAsyncLeaks`,
@@ -104,7 +104,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      # The scan opens and reopens flaky-test and live-check issues.
+      # The scan opens and reopens flaky-test and live-check issues, and the
+      # drift check needs-triage ones.
       issues: write
     steps:
       - name: Check out main's head
@@ -128,6 +129,15 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
           cargo run --quiet --locked -p xtask -- results scan --store test-results
+          --repository "$GITHUB_REPOSITORY"
+      # ADR 0071: main's latest counted figures against the last release's;
+      # before the first release it compares none with a release.
+      - name: Check the store's performance figures for drift
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- perf drift --store test-results
           --repository "$GITHUB_REPOSITORY"
       - name: Build the Allure report from the store
         if: always()

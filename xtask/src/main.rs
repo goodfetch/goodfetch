@@ -7,6 +7,7 @@
 //! Size: one concern, the command line: every command's `clap` definition and
 //! the plumbing that hands its arguments to the module that does the work.
 
+mod acceptance;
 mod affected;
 mod all_green;
 mod allure;
@@ -21,6 +22,7 @@ mod egress;
 mod fixture_size;
 mod foxhound_side;
 mod github;
+mod issues;
 mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
@@ -29,6 +31,7 @@ mod no_retry;
 mod notices;
 mod output;
 mod package_dependencies;
+mod perf;
 mod quarantine;
 mod release_suite;
 mod repeat;
@@ -156,6 +159,12 @@ enum Command {
     ReleaseSuite {
         #[command(subcommand)]
         command: ReleaseSuiteCommand,
+    },
+    /// The Performance budget of a change (ADR 0071): counted figures against
+    /// the base, measured in one job.
+    Perf {
+        #[command(subcommand)]
+        command: perf::Command,
     },
     /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
     /// runner run the chosen tests `--count` times, whatever each run's
@@ -625,6 +634,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             )?))
         }
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
+        Command::Perf { command } => run_perf(command, root, environment),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
         Command::Repeat {
@@ -644,6 +654,16 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::Size { mode } => run_size(&mode, root, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
+}
+
+/// The `perf` commands (ADR 0071), whose arguments `perf` defines.
+fn run_perf(
+    command: perf::Command,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    let token = environment.github_token.as_deref();
+    perf::run(command, root, &environment.cargo, token)
 }
 
 /// The `size` modes (ADRs 0057 and 0087).

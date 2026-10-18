@@ -10,4 +10,6 @@ mod junit;
 mod store;
 
 pub(crate) use ingest::{Platform, Source, failed, ingest, pending};
-pub(crate) use store::{JobRun, Outcome, TestRun, read_all, read_month_and_previous};
+pub(crate) use store::{
+    JobRun, Kept, Outcome, TestRun, read_all, read_kept, read_month_and_previous,
+};

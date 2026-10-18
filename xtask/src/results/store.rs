@@ -16,6 +16,8 @@ use jiff::Timestamp;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use super::artifact;
+
 /// How one test run ended. A Live check's inconclusive result (its external
 /// side was unavailable) is never a pass (ADR 0064).
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -269,6 +271,59 @@ fn read(path: &Path) -> Result<Attempt> {
         test_runs,
         jobs,
     })
+}
+
+/// One file an attempt kept in a JUnit artifact, beside its JUnit files.
+pub(crate) struct Kept {
+    pub(crate) run: RunAttempt,
+    /// The configuration the artifact's name gives.
+    pub(crate) configuration: artifact::Configuration,
+    pub(crate) contents: Vec<u8>,
+}
+
+/// Every file named `name` that an attempt of the store at `root` kept in
+/// one of its JUnit artifacts, in the order of the attempts' paths.
+pub(crate) fn read_kept(root: &Path, name: &str) -> Result<Vec<Kept>> {
+    let mut files = Vec::new();
+    collect(&root.join("runs"), &mut files)?;
+    files.sort();
+    let mut kept = Vec::new();
+    for path in &files {
+        let file =
+            std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+        let mut run: Option<RunAttempt> = None;
+        let mut found = Vec::new();
+        for entry in archive
+            .entries()
+            .with_context(|| format!("reading {}", path.display()))?
+        {
+            let mut entry = entry.with_context(|| format!("reading {}", path.display()))?;
+            let entry_path = entry.path()?.to_string_lossy().into_owned();
+            if entry_path == "run.json" {
+                let mut text = String::new();
+                entry.read_to_string(&mut text)?;
+                run =
+                    Some(serde_json::from_str(&text).with_context(|| context(path, &entry_path))?);
+            } else if let Some(rest) = entry_path.strip_prefix("junit/")
+                && let Some((artifact_name, file)) = rest.split_once('/')
+                && file.rsplit('/').next() == Some(name)
+            {
+                let mut contents = Vec::new();
+                entry.read_to_end(&mut contents)?;
+                found.push((artifact::parse(artifact_name)?, contents));
+            }
+        }
+        let Some(run) = run else {
+            bail!("{} lacks run.json", path.display());
+        };
+        kept.extend(found.into_iter().map(|(configuration, contents)| Kept {
+            run: run.clone(),
+            configuration,
+            contents,
+        }));
+    }
+    Ok(kept)
 }
 
 fn context(path: &Path, name: &str) -> String {

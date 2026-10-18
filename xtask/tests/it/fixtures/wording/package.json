@@ -1,0 +1,5 @@
+{
+  "name": "@goodfetch/collie",
+  "description": "Browser automation that runs on your machine.",
+  "keywords": ["browser", "automation", "playwright"]
+}

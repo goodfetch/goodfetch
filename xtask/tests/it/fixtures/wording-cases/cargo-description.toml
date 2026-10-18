@@ -1,0 +1,6 @@
+[package]
+name = "goodfetch-collie"
+version = "0.0.0"
+edition = "2024"
+description = "Bypass checks, stay undetectable and undetected, and solve any CAPTCHA."
+keywords = ["browser"]

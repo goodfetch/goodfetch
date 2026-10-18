@@ -25,6 +25,7 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod tree;
+mod wording;
 mod workflow;
 
 use std::ffi::OsString;
@@ -125,6 +126,9 @@ enum Command {
         #[command(subcommand)]
         mode: SizeMode,
     },
+    /// Fails on a term of `wording.toml` in the prose of any text published
+    /// about either Product (ADRs 0035 and 0097).
+    Wording,
 }
 
 #[derive(Subcommand)]
@@ -343,6 +347,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             }
         },
         Command::Size { mode } => run_size(&mode, root, environment),
+        Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }
 

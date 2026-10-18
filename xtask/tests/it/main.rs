@@ -29,3 +29,4 @@ mod quarantine;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod wording;

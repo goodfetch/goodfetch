@@ -1,0 +1,14 @@
+{
+  "error_codes": [
+    {
+      "description": "The sample operation refused the text.",
+      "name": "sample_refused"
+    }
+  ],
+  "operations": [
+    {
+      "description": "Repeats a text.",
+      "name": "sample.echo"
+    }
+  ]
+}

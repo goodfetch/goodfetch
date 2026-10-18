@@ -21,6 +21,7 @@ screenshots = ["check", "output"]
 self_hosted = ["check", "workflow"]
 size = ["check", "github", "output"]
 tree = []
+wording = ["check", "tree"]
 workflow = []
 
 # Which of `size`'s own modules may import which.

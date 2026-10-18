@@ -27,6 +27,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 
 - **One canonical name per entry.**
   - Every operation, parameter, result field, event, Error code and setting key has one name in `goodfetch-protocol`: snake_case ASCII words, each `[a-z][a-z0-9]*`. Word boundaries are thus explicit, as ADR 0038's wire and ADR 0083's keys already are.
+    > Amended by [ADR 0132](0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md): `_meta`, the Trace context every request's params may hold, is an envelope field, not a catalog parameter: its underscore is outside this rule, and no generator gives it a member.
   - Every surface derives its spelling from these words by its own rule.
   - No entry has a per-language override (S1). When a rule gives a bad result, the canonical name changes for every surface, as ADR 0079 does for a class name that would shadow a built-in.
 - **An operation is `<namespace>.<member>`.**

@@ -19,7 +19,7 @@ const PERMISSIVE_DIST: &str =
 /// The fixture's installed packages, as `pnpm install` and `uv sync` leave
 /// them, each `(fixture file, path in the workspace)`. The platform package
 /// is for AIX, and the Windows-only distribution is not installed either.
-const INSTALLED: [(&str, &str); 7] = [
+const INSTALLED: [(&str, &str); 8] = [
     (
         "notices-installed/permissive-package.json",
         PERMISSIVE_PACKAGE,
@@ -47,6 +47,10 @@ const INSTALLED: [(&str, &str); 7] = [
     (
         "notices-installed/dev_only_dist-5.0.0.METADATA",
         ".venv/lib/python3.14/site-packages/dev_only_dist-5.0.0.dist-info/METADATA",
+    ),
+    (
+        "notices-installed/typing_extensions-4.16.0.METADATA",
+        ".venv/lib/python3.14/site-packages/typing_extensions-4.16.0.dist-info/METADATA",
     ),
 ];
 
@@ -248,6 +252,31 @@ fn modified_mpl_file_fails() {
         vec![finding(
             "license-modified-file",
             "clean-up-rules Mozilla's web-compatibility shims@150.0"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// PSF-2.0 is allowed for typing-extensions alone (the owner's decision of
+/// 2026-10-19), which the fixture ships beside this distribution.
+#[test]
+fn license_allowed_for_one_package_fails_on_another() {
+    let workspace = installed_workspace();
+    workspace.edit(
+        PERMISSIVE_DIST,
+        "License-Expression: BSD-3-Clause",
+        "License-Expression: PSF-2.0",
+    );
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "license-not-allowed",
+            "python permissive-dist@1.0.0"
         )],
         "{}",
         outcome.stderr

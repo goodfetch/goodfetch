@@ -9,7 +9,7 @@
 //! - in `deny.toml`, the licenses of ADR 0018's allowlist that a crate may
 //!   carry, from `license-allowlist.toml`, the one list every license check
 //!   reads: all but those allowed only for compiled Filter lists, which no
-//!   crate's code may carry (ADR 0047).
+//!   crate's code may carry (ADR 0047), or only for one npm or Python package.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -20,7 +20,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use crate::license_allowlist;
+use crate::license_allowlist::{self, Only, Use};
 
 /// Where each region begins; each ends at the first `END` after it.
 const WRAPPERS_BEGIN: &str = "# xtask codegen: begin, the crates under crates/foxhound/ (ADR 0087). Never edit by hand; run `xtask codegen`.";
@@ -63,7 +63,10 @@ pub(super) fn foxhound_crates(root: &Path) -> Result<Vec<String>> {
 pub(super) fn crate_licenses(root: &Path) -> Result<Vec<String>> {
     Ok(license_allowlist::read(root)?
         .into_iter()
-        .filter(|license| license.only != Some(license_allowlist::Use::CompiledFilterLists))
+        .filter(|license| match &license.only {
+            None | Some(Only::Use(Use::UnmodifiedFiles)) => true,
+            Some(Only::Use(Use::CompiledFilterLists) | Only::Package(_)) => false,
+        })
         .map(|license| license.id)
         .collect())
 }

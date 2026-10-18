@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: typing_extensions
+Version: 4.16.0
+License-Expression: PSF-2.0
+
+Backported and experimental type hints, the one package PSF-2.0 is allowed for.

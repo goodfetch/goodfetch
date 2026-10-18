@@ -6,13 +6,29 @@ use std::path::Path;
 use rstest::rstest;
 
 use super::{Allowlist, Refusal, Verdict};
-use crate::notices::entry::Usage;
+use crate::notices::entry::{Ecosystem, Entry, Usage};
 
 fn allowlist() -> Allowlist {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("invariant: xtask sits in the repository's root");
     Allowlist::read(root).unwrap()
+}
+
+/// The verdict on a crate that states `stated`, used as `usage`.
+fn judge(stated: Option<&str>, usage: Usage) -> Verdict {
+    judge_package(Ecosystem::Cargo, "example", stated, usage)
+}
+
+fn judge_package(ecosystem: Ecosystem, name: &str, stated: Option<&str>, usage: Usage) -> Verdict {
+    allowlist().judge(&Entry {
+        ecosystem,
+        name: name.to_owned(),
+        version: "1.0.0".to_owned(),
+        license: stated.map(str::to_owned),
+        source: "https://example.invalid".to_owned(),
+        usage,
+    })
 }
 
 fn allowed(license: &str) -> Verdict {
@@ -40,7 +56,7 @@ fn allowed(license: &str) -> Verdict {
 #[case::operator_alone("OR", Verdict::Refused(Refusal::Unknown))]
 #[case::empty("", Verdict::Refused(Refusal::Unknown))]
 fn shipped_unmodified(#[case] stated: &str, #[case] verdict: Verdict) {
-    assert_eq!(allowlist().judge(Some(stated), Usage::Unmodified), verdict);
+    assert_eq!(judge(Some(stated), Usage::Unmodified), verdict);
 }
 
 #[rstest]
@@ -50,10 +66,7 @@ fn shipped_unmodified(#[case] stated: &str, #[case] verdict: Verdict) {
 #[case::gpl_only("GPL-3.0-only", Verdict::Refused(Refusal::GplEmbedded))]
 #[case::non_commercial("CC-BY-NC-SA-4.0", Verdict::Refused(Refusal::NotAllowed))]
 fn compiled_filter_list(#[case] stated: &str, #[case] verdict: Verdict) {
-    assert_eq!(
-        allowlist().judge(Some(stated), Usage::CompiledFilterList),
-        verdict
-    );
+    assert_eq!(judge(Some(stated), Usage::CompiledFilterList), verdict);
 }
 
 #[rstest]
@@ -61,23 +74,50 @@ fn compiled_filter_list(#[case] stated: &str, #[case] verdict: Verdict) {
 #[case::cc_by_sa("CC-BY-SA-4.0", allowed("CC-BY-SA-4.0"))]
 #[case::non_commercial("CC-BY-NC-SA-4.0", Verdict::Refused(Refusal::NotAllowed))]
 fn download_only(#[case] stated: &str, #[case] verdict: Verdict) {
-    assert_eq!(
-        allowlist().judge(Some(stated), Usage::DownloadOnly),
-        verdict
-    );
+    assert_eq!(judge(Some(stated), Usage::DownloadOnly), verdict);
 }
 
 #[rstest]
 #[case::mpl("MPL-2.0", Verdict::Refused(Refusal::Modified))]
 #[case::permissive("BSD-3-Clause", allowed("BSD-3-Clause"))]
 fn modified(#[case] stated: &str, #[case] verdict: Verdict) {
-    assert_eq!(allowlist().judge(Some(stated), Usage::Modified), verdict);
+    assert_eq!(judge(Some(stated), Usage::Modified), verdict);
 }
 
 #[test]
 fn nothing_stated_is_unknown() {
     assert_eq!(
-        allowlist().judge(None, Usage::Unmodified),
+        judge(None, Usage::Unmodified),
         Verdict::Refused(Refusal::Unknown)
+    );
+}
+
+/// PSF-2.0 is allowed for typing-extensions from PyPI alone (the owner's
+/// decision of 2026-10-19).
+#[rstest]
+#[case::the_package(Ecosystem::Python, "typing-extensions", allowed("PSF-2.0"))]
+#[case::another_package(
+    Ecosystem::Python,
+    "typing-inspection",
+    Verdict::Refused(Refusal::NotAllowed)
+)]
+#[case::same_name_on_npm(
+    Ecosystem::Npm,
+    "typing-extensions",
+    Verdict::Refused(Refusal::NotAllowed)
+)]
+#[case::same_name_as_a_crate(
+    Ecosystem::Cargo,
+    "typing-extensions",
+    Verdict::Refused(Refusal::NotAllowed)
+)]
+fn license_allowed_for_one_package(
+    #[case] ecosystem: Ecosystem,
+    #[case] name: &str,
+    #[case] verdict: Verdict,
+) {
+    assert_eq!(
+        judge_package(ecosystem, name, Some("PSF-2.0"), Usage::Unmodified),
+        verdict
     );
 }

@@ -19,6 +19,7 @@ version = "0.0.0"
 source = { editable = "sdks/python/collie" }
 dependencies = [
     { name = "permissive-dist", extra = ["speed"] },
+    { name = "typing-extensions" },
 ]
 
 [[package]]
@@ -48,6 +49,11 @@ speed = [
 [[package]]
 name = "speed-dist"
 version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "typing-extensions"
+version = "4.16.0"
 source = { registry = "https://pypi.org/simple" }
 
 [[package]]

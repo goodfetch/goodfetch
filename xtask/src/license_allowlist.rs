@@ -26,8 +26,33 @@ pub(crate) struct License {
     /// An SPDX license identifier, with its exception when it has one
     /// (`Apache-2.0 WITH LLVM-exception`).
     pub(crate) id: String,
-    /// The one use the license is allowed for, when it is not allowed for all.
-    pub(crate) only: Option<Use>,
+    /// The one use or package the license is allowed for, when it is not
+    /// allowed for all.
+    pub(crate) only: Option<Only>,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(untagged)]
+pub(crate) enum Only {
+    Use(Use),
+    Package(Package),
+}
+
+/// One npm or Python package, the only one the license is allowed for. No
+/// crate can be one: cargo-deny reads the list's unscoped entries.
+#[derive(Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Package {
+    pub(crate) ecosystem: PackageEcosystem,
+    /// Its name, as its registry and lockfile spell it.
+    pub(crate) package: String,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PackageEcosystem {
+    Npm,
+    Python,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]

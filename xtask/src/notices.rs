@@ -69,7 +69,7 @@ pub(crate) fn check(
     let mut findings = Vec::new();
     let mut notices = Vec::new();
     for entry in &entries {
-        let license = match allowlist.judge(entry.license.as_deref(), entry.usage) {
+        let license = match allowlist.judge(entry) {
             Verdict::Allowed(license) => license,
             Verdict::Refused(refusal) => {
                 findings.push(Finding::new(

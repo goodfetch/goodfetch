@@ -4,7 +4,7 @@
 //! - An `OR` is allowed when one of its options is, the first such option
 //!   chosen; an `AND` when all its parts are. Cargo's legacy `/` is an `OR`.
 //! - An MPL-2.0 file must be unmodified (ADR 0018); the allowlist's `only`
-//!   says which licenses are allowed for one use alone.
+//!   says which licenses are allowed for one use or one package alone.
 //! - The compiled form of a Filter list is an adaptation, recorded under the
 //!   allowlist's CC BY-SA: a CC BY-SA option of the list's, or a CC BY one,
 //!   the stricter CC BY-SA then (ADR 0047). CC BY 3.0 and later allow any
@@ -16,8 +16,8 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::entry::Usage;
-use crate::license_allowlist::{self, Use};
+use super::entry::{Ecosystem, Entry, Usage};
+use crate::license_allowlist::{self, Only, PackageEcosystem, Use};
 
 /// The license under which an embedded, compiled Filter list is recorded.
 const COMPILED_FILTER_LISTS: &str = "CC-BY-SA-4.0";
@@ -89,8 +89,9 @@ impl Allowlist {
         })
     }
 
-    /// The verdict on what states `stated`, used as `usage`.
-    pub(crate) fn judge(&self, stated: Option<&str>, usage: Usage) -> Verdict {
+    /// The verdict on the license `entry` states, for its use.
+    pub(crate) fn judge(&self, entry: &Entry) -> Verdict {
+        let (stated, usage) = (entry.license.as_deref(), entry.usage);
         let Some(options) = stated.and_then(options) else {
             return Verdict::Refused(Refusal::Unknown);
         };
@@ -98,7 +99,7 @@ impl Allowlist {
         for option in &options {
             match option
                 .iter()
-                .map(|id| self.leaf(id, usage))
+                .map(|id| self.leaf(id, entry))
                 .collect::<Result<Vec<_>, _>>()
             {
                 Ok(recorded) if usage == Usage::CompiledFilterList => {
@@ -116,7 +117,8 @@ impl Allowlist {
     }
 
     /// The license one identifier is recorded under, or why it is refused.
-    fn leaf(&self, id: &str, usage: Usage) -> Result<String, Refusal> {
+    fn leaf(&self, id: &str, entry: &Entry) -> Result<String, Refusal> {
+        let usage = entry.usage;
         let id = if usage == Usage::CompiledFilterList
             && ADAPTABLE.iter().any(|license| same(license, id))
         {
@@ -136,10 +138,21 @@ impl Allowlist {
                 (false, _) => Err(Refusal::NotAllowed),
             };
         };
-        match (license.only, usage) {
-            (Some(Use::UnmodifiedFiles), Usage::Modified) => Err(Refusal::Modified),
-            (Some(Use::CompiledFilterLists), Usage::Unmodified | Usage::Modified) => {
+        match (&license.only, usage) {
+            (Some(Only::Use(Use::UnmodifiedFiles)), Usage::Modified) => Err(Refusal::Modified),
+            (Some(Only::Use(Use::CompiledFilterLists)), Usage::Unmodified | Usage::Modified) => {
                 Err(Refusal::NotAllowed)
+            }
+            (Some(Only::Package(package)), _) => {
+                let ecosystem = match package.ecosystem {
+                    PackageEcosystem::Npm => Ecosystem::Npm,
+                    PackageEcosystem::Python => Ecosystem::Python,
+                };
+                if entry.ecosystem == ecosystem && entry.name == package.package {
+                    Ok(license.id.clone())
+                } else {
+                    Err(Refusal::NotAllowed)
+                }
             }
             _ => Ok(license.id.clone()),
         }

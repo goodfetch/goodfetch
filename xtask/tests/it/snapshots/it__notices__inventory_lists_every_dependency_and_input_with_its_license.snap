@@ -61,6 +61,14 @@ expression: "workspace.read_text(\"target/notices.json\")"
       "use": "unmodified"
     },
     {
+      "ecosystem": "python",
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "license": "PSF-2.0",
+      "source": "https://pypi.org/project/typing-extensions/4.16.0/",
+      "use": "unmodified"
+    },
+    {
       "ecosystem": "console-assets",
       "name": "Lucide icons",
       "version": "0.900.0",

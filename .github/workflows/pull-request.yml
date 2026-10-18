@@ -36,6 +36,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      # The quarantine-list check reads each entry's issue (ADR 0064).
+      issues: read
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,7 +45,10 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      # Before the deny: the quarantine-list check reads GitHub's issues.
       - name: Lint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ci/vm/exec.sh just lint
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny

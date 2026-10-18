@@ -1,0 +1,17 @@
+[profile.default]
+retries = 0
+flaky-result = "fail"
+leak-timeout = { period = "200ms", result = "fail" }
+
+[profile.ci]
+retries = 0
+flaky-result = "fail"
+slow-timeout = { period = "30s", terminate-after = 10 }
+
+[[profile.ci.overrides]]
+filter = "test(=slow::case)"
+slow-timeout = "60s"
+
+# Inherits both locks from the default profile.
+[profile.quick]
+default-filter = "kind(lib)"

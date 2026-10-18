@@ -49,7 +49,7 @@ timeout = "300"
 norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "target"]
 
 [tool.ruff]
-extend-exclude = ["rnd", "ci/proofs", "**/generated"]
+extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
@@ -64,9 +64,9 @@ convention = "google"
 
 [tool.pyright]
 typeCheckingMode = "strict"
-exclude = ["rnd", "ci/proofs", "**/node_modules", "target", ".venv"]
+exclude = ["rnd", "ci/proofs", "**/node_modules", "target", ".venv", "**/fixtures"]
 
 [tool.mypy]
 strict = true
 enable_error_code = ["deprecated"]
-exclude = ["^rnd/", "^ci/proofs/", "^target/"]
+exclude = ["^rnd/", "^ci/proofs/", "^target/", "/fixtures/"]

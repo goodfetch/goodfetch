@@ -13,6 +13,13 @@ pub(crate) struct Api<'a> {
 impl Api<'_> {
     /// GETs `path` (from `/`, with its query string) and parses its JSON body.
     pub(crate) fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        self.find(path)?
+            .with_context(|| format!("reading {path}: GitHub answered 404"))
+    }
+
+    /// As [`Api::get`], but `None` when GitHub answers 404: the document does
+    /// not exist, or the token cannot see it.
+    pub(crate) fn find<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>> {
         let url = format!("{}{path}", self.url.trim_end_matches('/'));
         let mut request = ureq::get(&url)
             .header("Accept", "application/vnd.github+json")
@@ -21,9 +28,14 @@ impl Api<'_> {
         if let Some(token) = self.token {
             request = request.header("Authorization", format!("Bearer {token}"));
         }
-        request
-            .call()
-            .and_then(|mut response| response.body_mut().read_json())
-            .with_context(|| format!("reading {url}"))
+        match request.call() {
+            Ok(mut response) => response
+                .body_mut()
+                .read_json()
+                .map(Some)
+                .with_context(|| format!("reading {url}")),
+            Err(ureq::Error::StatusCode(404)) => Ok(None),
+            Err(error) => Err(error).with_context(|| format!("reading {url}")),
+        }
     }
 }

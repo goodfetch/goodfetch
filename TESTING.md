@@ -145,6 +145,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 
 - **Fixtures live in a `fixtures/` folder beside the tests that read them.** Data several languages read lives once, in `test-support/fixtures/`.
 - **A test copies a fixture into its temporary folder before changing it.**
+- **A fixture is data, never code the repository runs or lints:** Vitest, Playwright, pytest, ruff, pyright and mypy skip every `fixtures/` folder, so a fixture workspace may hold tests and settings that break the rules on purpose.
 - **No fixture file exceeds 256 KiB.** Larger or repetitive data is generated from a seed, by the Proving ground or a generator in test support. No Git LFS.
 - **A generated fixture or a recorded exchange has a `<name>.source.toml` file beside it,** naming the generator or recording job, its version, the seed or recording date, and the command that regenerates it. Secrets are redacted from recordings.
   _Why:_ a fixture nobody can regenerate becomes untouchable.
@@ -341,7 +342,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Runners keep zero retries with every lock on:** nextest `retries = 0` and `flaky-result = "fail"` in every profile, with no per-test override; Vitest `retry: 0` with no per-test `retry`; Playwright `retries: 0` and `failOnFlakyTests: true`; no pytest rerun plugin and no `flaky` marker.
 - **No workflow step retries a test:** no retry action, no shell loop, no `continue-on-error` on a test step.
 - **No test loops until it passes.** Wait on a condition with a deadline (auto-waiting, `expect.poll`, a CDP event, a state you can name); never repeat the action under test until it succeeds.
-- **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`; Chromium's `--test-launcher-retry-limit` other than 0, a gtest run without it, and `--num-retries`; wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`; typ's `--retry-limit` and `--isolated-script-test-launcher-retry-limit` other than 0, `--retry-only-retry-on-failure-tests`, and a `RetryOnFailure` expectation). Downloads before the deny of ADR 0043 may retry: they test nothing.
+- **The no-retry check in the Quick suite (`xtask no-retry`) refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`; Chromium's `--test-launcher-retry-limit` other than 0, a gtest run without it, and `--num-retries`; wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`; typ's `--retry-limit` and `--isolated-script-test-launcher-retry-limit` other than 0, `--retry-only-retry-on-failure-tests`, and a `RetryOnFailure` expectation). Downloads before the deny of ADR 0043 may retry: they test nothing.
 - **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step. **Name every step that runs a suite or a test runner starting with `Test`** (`Test: just quick all`): that prefix is how "all green" tells a test step.
 - **Never assert elapsed real time, a rate or a duration.** Those are measurements.
 
@@ -372,7 +373,11 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 4. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
 5. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.
 
-- **The quarantine list is one file in the repository** (upstream Chromium tests the Chromium build gate excludes are not on it: see [Goodfetch Chromium's expected results](#expected-results)). Each entry has a test ID, its open `flaky-test` issue and a date; the Quick suite's check refuses an entry without an open issue or naming a test that no longer exists.
+- **The quarantine list is one file in the repository**, `quarantine.toml` at the root (upstream Chromium tests the Chromium build gate excludes are not on it: see [Goodfetch Chromium's expected results](#expected-results)). Each entry has a test ID, its open `flaky-test` issue and a date; the Quick suite's check (`xtask quarantine check`) refuses an entry without an open issue or naming a test that no longer exists. Every suite command skips the listed tests through its runner's own filter (`xtask quarantine exclude`). An entry is a `[[test]]` table:
+  - `runner`: `nextest`, `vitest`, `playwright` or `pytest`;
+  - `id`: the test's ID as its runner lists it: nextest's `<binary ID> <test name>` (`goodfetch-engine::it dispatch::route_waits`), Vitest's full name with its suites joined by ` > `, Playwright's file, suites and title joined by ` › `, pytest's node ID. nextest skips by name, so a name that is part of another test's name is refused;
+  - `issue`: the number of its open `flaky-test` issue;
+  - `date`: the day it was quarantined (`2026-10-18`).
 - **Quarantined tests still run** 50 times a day in the daily test-health job (the 10 oldest entries), into the results store.
 - **A quarantined test blocks** (unlike an upstream exclusion of [Goodfetch Chromium's expected results](#expected-results)) its milestone's gate, every release (`xtask release` refuses while the list is not empty), and counts its feature as untested.
 - **A flaky test is never removed or weakened to make a suite pass:** quarantine it, fix it, or replace it with a test covering the same behaviour (for example by moving its unpinned part to a Live check).

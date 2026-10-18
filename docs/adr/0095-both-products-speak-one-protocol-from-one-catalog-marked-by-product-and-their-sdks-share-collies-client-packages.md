@@ -73,7 +73,7 @@ Decided in [Protocol, Operation catalog and SDKs across two products](https://gi
 
 ### What hangs from each connection
 
-- **The connection is the Product:** `Collie` or `Foxhound` (ADR 0090), with no `collie` or `foxhound` property. ADR 0078's `gf.collie.start(…)` becomes `collie.start(…)`; the verbs are [The Run in code](https://github.com/goodfetch/goodfetch/issues/478)'s.
+- **The connection is the Product:** `Collie` or `Foxhound` (ADR 0090), with no `collie` or `foxhound` property. ADR 0078's `gf.collie.start(…)` becomes `collie.start(…)`; the verbs are [The Run in code](https://github.com/goodfetch/goodfetch/issues/478)'s (ADR 0102).
 - **A Foxhound connection carries every member of a Collie connection under the same names,** plus Foxhound's own, so moving a program from Collie to Foxhound changes its import and its connection type only.
 - **The members both connections share are declared once, in the client package,** as the type a function takes to accept either connection: an interface in TypeScript, a base class in Python, a trait in Rust. `Foxhound` cannot extend a `Collie` that lives in Collie's own package. The type's name is [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471)'s.
   > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): the type is `Connection`: a TypeScript interface, Python's `Connection` and `AsyncConnection` base classes, and Rust's `trait Connection` and `blocking::Connection`.
@@ -97,7 +97,7 @@ Decided in [Protocol, Operation catalog and SDKs across two products](https://gi
 - **Integrations** (ADR 0027):
   - each workflow tool (n8n, Zapier, Make, Pipedream, Activepieces, Power Automate) gets one Integration per Product, n8n's named `@goodfetch/n8n-nodes-<product>` (ADR 0090). Collie's start runs and Recipes and return their results, with Notifications as triggers; Foxhound's add crawls, Records and the record-range triggers;
   - the Airbyte source and the LangChain and LlamaIndex Dataset loaders read Datasets, so they are Foxhound's only; the LangChain loader sits in Foxhound's LangChain package (ADR 0070).
-- **Reference pages mark each operation's Product.** How the docs site presents two Products is [Docs site and positioning of two Products](https://github.com/goodfetch/goodfetch/issues/499)'s.
+- **Reference pages mark each operation's Product.** How the docs site presents two Products is [Docs site and positioning of two Products](https://github.com/goodfetch/goodfetch/issues/499)'s (ADR 0097).
 
 ### Where the packages live
 
@@ -148,7 +148,7 @@ Decided in [Protocol, Operation catalog and SDKs across two products](https://gi
   - Area 3 (Engine runtime) builds the Product mark in `goodfetch-protocol` and the Product check of `hello` and of the peer protocol.
   - Area 11 (Client surfaces) builds the three packages per language, the connection types, and every surface per Product.
 - **Downstream.**
-  - [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486) decides what an SDK does when the Daemon it finds refuses its Product, as ADR 0024 restarts an idle Daemon on a refused version.
-  - [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471) names the shared connection type.
+  - [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486) (ADR 0098) decides what an SDK does when the Daemon it finds refuses its Product, as ADR 0024 restarts an idle Daemon on a refused version.
+  - [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471) (ADR 0099) names the shared connection type.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483) replaces the sketch's `goodfetch` placeholder with the three packages per language.
   - [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/goodfetch/issues/460) carries this into the specs and tickets.

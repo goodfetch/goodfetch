@@ -129,6 +129,7 @@ A run whose source is `profile_directory` launches a browser on that directory:
 - *Chromium family:* the installed browser that wrote it, by channel or path (ADR 0024), or the Chromium build that created it (Chrome for Testing or the Goodfetch build, ADRs 0024 and 0035).
 - *Firefox:* Playwright's Firefox or Camoufox, only at the major version the profile's `compatibility.ini` records, which is the only part Firefox's downgrade check compares ([nsAppRunner.cpp](https://github.com/mozilla-firefox/firefox/blob/main/toolkit/xre/nsAppRunner.cpp)). Firefox cookies are not encrypted, so that build keeps them; Provenance records that the build differs from the one that wrote the profile.
 - *WebKit:* only a directory WebKit created.
+  > Amended by [ADR 0121](0121-service-workers-run-under-the-engines-interception-the-back-forward-cache-is-off-locators-reach-closed-shadow-roots-and-a-read-never-scrolls-a-list.md): a WebKit directory that holds a service worker registration is refused when its Session opens, with `capability_unavailable` naming `state_file`, since WebKit's `browser.service_workers: block` cannot keep that service worker from running and its requests would escape interception (ADR 0014). The same holds in any browser whose `block` cannot.
 
 The rules for an in-place launch:
 - **Lock and version.** The engine takes the browser's own lock and checks the directory's version before launching:

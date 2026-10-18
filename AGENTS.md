@@ -2,10 +2,6 @@
 
 The repository of Goodfetch's two Products: Collie, for browser automation, and Foxhound, for crawling, which contains Collie (ADR 0084). `rnd/` holds the R&D material (pre-test proposals, plan, proposed ADRs, sourced research, comparative lab and its report), kept for inspiration only: nothing in it is an adopted term or decision, and it sets no process. The executable lab is `rnd/lab/` (see `rnd/lab/README.md`); its commands are run from that folder. `docs/` is reserved for the Products' final documentation.
 
-## Delivery
-
-Delivery mode: autonomous. Agents merge their own pull requests after a fresh review recorded on the pull request's exact head and green required checks. Deploying to production, running production migrations and resetting a running service's data still need the owner's explicit request. Production means running services (the online Proving ground, Goodfetch Cloud); a release through the gated pipeline of ADRs 0030 and 0032 is not a production deploy, nor are the docs site's deploys from `main` (ADR 0030); neither needs a separate request.
-
 ## Money
 
 Goodfetch has no revenue: no paid resource until the owner says so ([ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)). Never create, enable or propose as pending anything that bills (runners, credits, accounts, services, assessments); choose the free tier or a local alternative, and record the paid option as declined. Live model calls go through the Vercel AI Gateway's free tier. Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`.
@@ -28,7 +24,9 @@ signer; existing commits on `main` are not rewritten for attribution cleanup.
 
 ## Code style
 
-Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Traps that break things:
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): the seams in a spec's Testing Decisions are already agreed, so test there without asking, and name any other seam, with its reason, in the pull request.
+
+Traps that break things:
 
 - Only the protocol transport, the CLI's output writer and the `tracing` subscriber's writer touch stdout or stderr: when the binary is an Attached engine started by an SDK, or the stdio MCP server, stdout is the JSON-RPC channel. Everything else logs through `tracing`.
 - Never edit generated code (`generated/` folders, the committed JSON Schema bundle and catalog file): change the Rust types in `goodfetch-protocol` and run `xtask codegen`.

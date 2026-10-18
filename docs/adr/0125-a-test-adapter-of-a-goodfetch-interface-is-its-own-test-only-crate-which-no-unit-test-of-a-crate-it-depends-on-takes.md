@@ -1,0 +1,58 @@
+# A test adapter of a Goodfetch interface is its own test-only crate, which no unit test of a crate it depends on takes
+
+A **test adapter** is a double written at a seam (ADR 0062). One that implements an interface a Goodfetch crate defines gets a crate of its own. The crate is never published and is taken only as a dev-dependency. Each Product's executable bans it, and no unit test of a crate it depends on takes it. CI checks all four. When code that calls the interface is unit-tested on the adapter, the interface sits in a crate apart from that code. This generalizes the one exception ADR 0087 made for turmoil's network adapter. It covers that adapter (`goodfetch-simulation`), the engine-side Scripted model (`goodfetch-scripted-model`), and any later adapter, which the pull request that adds it names.
+
+ADR 0062 puts every shared Rust test helper in `goodfetch-test-support`, which depends on no Goodfetch crate. ADR 0087 let one more test-only crate hold turmoil's adapter, and kept "every other shared helper" in `goodfetch-test-support`. ADR 0065 makes the Scripted model "a test adapter of the engine's Model provider interface (ADR 0012), never compiled into the binary", and runs in-process AI logic on it in the Quick suite. The Test infrastructure spec ([part 3, #327](https://github.com/goodfetch/goodfetch/issues/327)) made it its own crate at area 9's Model provider interface. So it depends on a Goodfetch crate and cannot live in `goodfetch-test-support`, and ADR 0062 as amended allowed no second exception. The facts, checked on 2026-10-16:
+- **`cfg(test)` reaches only the crate's own unit tests.** The Rust Reference sets `test` only "when compiling the test harness" ([conditional compilation](https://doc.rust-lang.org/reference/conditional-compilation.html#test)). Integration tests and other crates link the library built normally ([Cargo Book, integration tests](https://doc.rust-lang.org/cargo/reference/cargo-targets.html#integration-tests)).
+- **Two copies of a crate appear only in a dev-dependency cycle.** When a crate's unit tests take a dev-dependency that depends on that crate, "there are actually two copies of the library linked into the final test binary", and their types are not compatible ([Cargo Book, dev-dependency cycles](https://doc.rust-lang.org/cargo/reference/resolver.html#dev-dependency-cycles)). A crate outside the adapter's dependencies links one copy of everything.
+- **Cargo cannot limit a dev-dependency to some test targets.** Per-target dependencies are still an open request ([cargo#1982](https://github.com/rust-lang/cargo/issues/1982)), so only a check can hold such a rule.
+- **An interface crate apart from the code that calls it keeps the stand-in out of the cycle.** tower's `Service` trait is alone in `tower-service`, which has no dependencies. The mock `Service` is in `tower-test`, which depends on `tower-service`, not on `tower`, so `tower` takes it as a dev-dependency with one copy of every type ([tower-test/Cargo.toml](https://github.com/tower-rs/tower/blob/master/tower-test/Cargo.toml), [tower/Cargo.toml](https://github.com/tower-rs/tower/blob/master/tower/Cargo.toml)).
+- **A test-support crate per seam is the practice in comparable workspaces.** Codex's `core_test_support` depends on `codex-core` and serves its tests, beside `app_test_support`, `codex-exec-server-test-support` and `codex-windows-sandbox-test-support` ([codex-rs/Cargo.toml](https://github.com/openai/codex/blob/main/codex-rs/Cargo.toml)).
+
+Decided in [The Scripted model needs a test-only crate, which ADR 0062 allows only for turmoil's adapter](https://github.com/goodfetch/goodfetch/issues/567) ([grilling record](https://github.com/goodfetch/goodfetch/issues/567#issuecomment-6211968479)), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). The orchestrator decided the rule, and the agent decided its details, both on the owner's delegation of 2026-10-16. No SDK API changes, so ADR 0077's principles do not apply.
+
+## Decision
+
+- **A test adapter that implements a Goodfetch interface is its own test-only crate.**
+  - It implements one interface, which a Goodfetch crate defines, and depends on that crate.
+  - It holds that adapter and the helpers that drive it: `goodfetch-simulation` keeps its Simulation harness beside turmoil's adapter.
+  - It is named `goodfetch-<glossary term>` (`STYLE.md`).
+  - It lives on the side of the crate graph its interface is on (ADR 0087): under `crates/`, or under `crates/foxhound/` for a Foxhound crate's interface.
+  - Helpers that work on values only stay in `goodfetch-test-support`, which still depends on no Goodfetch crate (ADR 0062).
+- **It has `publish = false`, and every crate takes it only under `[dev-dependencies]`.**
+- **Each Product's executable bans it.** It joins the test-only crates that each Product's cargo-deny check bans from what the Product ships (ADR 0087). That check runs with `--all-features`, so the published SDK crates' testing kits behind `test-util` (ADR 0069) cannot take it either. This is how ADR 0065's "never compiled into the binary" holds.
+- **No unit test of a crate it depends on, directly or through other crates, takes it.** That crate's integration tests (`tests/it`) may. Any other crate's unit tests may too, since they link one copy of every type.
+  - The Scripted model depends on the crate that defines the Model provider interface, not on the crates that call it. The unit tests of area 9's crates that hold Repair, the Agent loop and Code mode therefore take it and stay in the Quick suite, as ADR 0065 places them; ADR 0061's Quick suite runs only unit tests.
+  - The unit tests of the interface's own crate cannot take it. So its built-in adapters' wire formats are tested against Model recordings, as ADR 0065 already does.
+- **When code that calls an interface is unit-tested on its adapter, the interface lives in a crate that holds none of that code**, as tower keeps `Service` in `tower-service`. The adapter then depends only on the interface's crate, and the calling code's own crate takes the adapter in its unit tests.
+  - The Model provider interface is such a case. ADR 0065 runs JSON repair, the bounded retry and Usage on the Scripted model in the Quick suite, and ADR 0012 puts the repair and the retry above the three formats, outside each adapter. So the crate that defines the interface holds neither them nor any other code ADR 0065 tests on the Scripted model. Area 9's spec chooses the crates on either side of that line.
+  - Code that only implements the interface, such as a built-in adapter, may stay with it.
+  - turmoil's adapter is unchanged in practice. Simulation scenarios are integration tests (ADRs 0060 and 0087), and the crate compiles only under `cfg(tokio_unstable)`.
+- **CI checks the rule against one list of test adapter crates.** The list starts with `goodfetch-simulation` and `goodfetch-scripted-model`. The pull request that adds a crate adds it to the list, and the fresh review checks it, as ADR 0087 adds a crate only Foxhound uses to Collie's bans. The dependency check of ADR 0062 ([Workspace skeleton and the "all green" pull-request check](https://github.com/goodfetch/goodfetch/issues/132)) also fails:
+  - when a listed crate appears outside `[dev-dependencies]` or lacks `publish = false`;
+  - when a crate among a listed crate's dependencies (from `cargo metadata`) names it in a file under its own `src/`.
+
+  Each Product's cargo-deny ban list includes every listed crate.
+
+## Considered Options
+
+- **Integration tests only, in every crate** (ADR 0087's rule for turmoil's adapter): rejected. The Quick suite runs no `tests/it` (ADR 0061), so the Scripted model's tests of AI logic would move to Pre-merge, against ADR 0065. The cycle that rule guards against arises only in the crates the adapter depends on.
+- **A `#[cfg(test)]` module in the interface's crate:** rejected. Other crates' tests and the crate's own `tests/it` cannot see it, and it is a `#[cfg(test)]` branch in product code, which ADR 0062 forbids.
+- **A public type in the interface's crate, built by a named constructor** as `Clock::paused` is (ADR 0062): rejected. It is a `pub` item added for tests, and each Product's executable would compile it, against ADR 0065. `Clock::paused` adds no code that only a test uses.
+- **The Scripted model inside `goodfetch-simulation`:** rejected. It mixes two seams in one crate, and `goodfetch-simulation` compiles only under `cfg(tokio_unstable)`, in its own job (ADR 0060, #325), so the Quick suite could not take it.
+- **A Cargo feature on the interface's crate:** rejected. Features exist only on the published SDK crates (ADR 0038, as amended by ADR 0087), and Cargo unifies a feature into every build that compiles a test in the same invocation ([Cargo Book, resolver](https://doc.rust-lang.org/cargo/reference/resolver.html)).
+- **`goodfetch-test-support` depending on the interface's crate:** rejected. Every crate takes test support, so every crate the interface's crate depends on would see two copies of its own types in its unit tests. That cycle is what ADR 0062's rule prevents.
+- **The testing kit's Scripted model** (the SDK-handler form, ADR 0069) **for engine tests:** rejected. Engine tests would cross the protocol and depend on a published SDK crate. ADR 0065 tests AI logic in process, at the interface.
+- **Testing the code in the interface's crate through a calling crate's unit tests:** rejected. A unit test tests one module through its own interface (ADR 0062), so a failure would point at the wrong crate.
+- **A copy of the Scripted model in each crate's tests:** rejected. ADR 0062 moves a helper written twice into test support.
+- **One more exception for each new adapter, ADR by ADR:** rejected. Each would repeat this rule.
+
+## Consequences
+
+- **Amends ADR 0062.** It carries a note at ADR 0087's note under the rule that one crate holds every shared helper: every test adapter of a Goodfetch interface is a test-only crate under this ADR.
+- **Amends ADR 0065.** It carries a note where it leaves the Scripted model's crate to the Test infrastructure spec: the crate is `goodfetch-scripted-model`, under this ADR.
+- **Amends ADR 0087.** It carries notes at its bullet on turmoil's adapter and at check 2's list of test-only crates. The rule is this ADR's, and every listed crate is banned.
+- **`STYLE.md`.** Crate reason 2 states the rule for test adapter crates.
+- **`TESTING.md`.** The Shared helpers section states the rule and names the two crates. Review checklist item 10 also checks that a new test adapter crate is on the list.
+- **ADR 0037.** Area 1 (Repository, CI and release) lists this ADR: it builds the checks and the crates, as its row already carries the Test infrastructure ADRs. Area 9 (AI and agent) lists it too: it places the Model provider interface in a crate apart from the code ADR 0065 tests on the Scripted model.
+- **The Test infrastructure spec** ([part 1, #325](https://github.com/goodfetch/goodfetch/issues/325); [part 3, #327](https://github.com/goodfetch/goodfetch/issues/327)) builds `goodfetch-simulation` and `goodfetch-scripted-model` under this rule. [Workspace skeleton and the "all green" pull-request check](https://github.com/goodfetch/goodfetch/issues/132) builds the checks with the list.

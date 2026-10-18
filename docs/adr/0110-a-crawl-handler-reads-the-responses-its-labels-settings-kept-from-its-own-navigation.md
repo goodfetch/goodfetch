@@ -12,6 +12,7 @@ It answers pain rows P30 and P49 of the [pain coverage matrix](https://github.co
 ### The setting
 
 - **`fetch.kept_responses.urls`:** a list of URL patterns (globs and regular expressions, matched in the engine at its interception, ADR 0081), empty by default. The responses whose URL matches one are kept for the handler. A predicate cannot be a setting, since a setting crosses as JSON and the engine matches at interception with no round trip to the program; a handler filters what was kept with one instead (below).
+  > Amended by [ADR 0121](0121-service-workers-run-under-the-engines-interception-the-back-forward-cache-is-off-locators-reach-closed-shadow-roots-and-a-read-never-scrolls-a-list.md): the patterns match the responses the engine observes through the browser protocol's network events, not only those its interception pauses, so a response a service worker's fetch handler supplied is kept too, marked by `fromServiceWorker()`.
 - **`fetch.kept_responses.max_size`:** the bytes of kept bodies one attempt holds, 16 MiB by default, a finite default as ADR 0080 gives every phase. A matching response past it is still kept and listed, but reading its body raises `body_unavailable` (ADR 0085), whose fix names this setting, and the Run trace records it (G6).
 - **Where it is set.** On a crawl's Run and on its Labels, where nearest scope wins (ADR 0083). It is Foxhound's, as every `fetch.*` key: a Collie engine refuses it with `not_in_product`, and a Collie Run on a Foxhound engine with `setting_not_applicable` (ADR 0093). The Label is where it belongs: the crawl states there, before any navigation, what its handler's page must have loaded, beside the Label's tier and Payload schema.
 - **Nothing is kept unless named,** so ADR 0085's rule that no page keeps a buffer of its traffic holds for every other page, a Collie page included (G2). A Collie program navigates its own page and arms its waiter before its own `goto` (ADRs 0080, 0104).
@@ -19,7 +20,7 @@ It answers pain rows P30 and P49 of the [pain coverage matrix](https://github.co
 ### What is kept
 
 - **The window:** from the start of the crawl request's navigation (its redirects included) until its attempt ends, on the request's own page and its frames. A popup and a page the handler opens keep nothing. A `reload` or `goto` inside the handler keeps adding to it. `ctx.response`, the main document's response (ADR 0093), is not among them.
-- **A response is kept once its body has arrived,** with the body, so a kept response's body never fails, as a response obtained through `waitForRequestFinished` never does (ADR 0085). A request that failed is no response and is not kept, as `waitForResponse` ignores it.
+- **A response is kept once its body has arrived,** with the body, so a kept response's body below the cap never fails, as a response obtained through `waitForRequestFinished` never does (ADR 0085). A request that failed is no response and is not kept, as `waitForResponse` ignores it.
 - **Kept responses belong to the attempt:** never persisted, never in the Run's state, and gone when the attempt ends. A retry or an escalation navigates again and keeps afresh. They fetch nothing, so no Politeness permit and no Usage beyond what the page loaded anyway.
 
 ### What a handler reads

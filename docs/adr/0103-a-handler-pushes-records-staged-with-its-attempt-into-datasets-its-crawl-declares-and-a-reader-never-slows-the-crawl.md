@@ -137,6 +137,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 - **Wherever the engine runs.** A path on the engine's own machine would break on a Daemon or in Goodfetch Cloud (ADR 0001; the research's "works locally but not on the Apify Platform").
   > Amended by [ADR 0116](0116-a-saved-file-is-written-whole-or-not-at-all-and-a-failed-write-says-whether-its-path-or-its-storage-failed.md): `run.export` returns an `Export` only once its file is complete, and fails with `file_write_failed` (an `UnavailableError`, side `engine`) when the engine cannot write it. `saveAs` writes a hidden temporary file beside the path and renames it over the path, so the path holds the whole Export or what it held before. It creates missing parent folders and replaces an existing file, as Playwright's does, and fails with `path_not_writable` (a `ProgramError`) when the program's path cannot be written, or `file_write_failed` (side `program`) when its storage is full or fails. Neither code is retryable.
 - **The format is named, never inferred** from a file name, as Crawlee's `exportData` infers it, so a typo is a type error (G3). Each format's options are `export.*` settings, named by area 6.
+  > Amended by [ADR 0119](0119-every-fetch-tier-decodes-a-crawls-document-as-the-browser-does-a-label-names-the-content-types-its-handler-takes-and-exports-are-utf-8.md): every text format is UTF-8, and CSV's BOM is the setting `export.csv.bom`, off by default.
 
 ### The Key-value store
 
@@ -234,7 +235,7 @@ Nothing is added to the SDK API.
   - **Area 11 (Client surfaces):** `crawl.dataset`, `ctx.push`, `records`, `rejectedRecords`, `export`, the Key-value store, and each language's error classes.
 - **Other tickets of the map.**
   - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) reads outcomes with their Record counts, each Sink's delivery status, and opens a past Run by ID.
-  - [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481) shapes the "Record before commit" Hook and SDK-handler Sinks.
+  - [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481) (ADR 0104) shapes the "Record before commit" Hook and SDK-handler Sinks.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) records what a test handler pushed.
     > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): `runHandler`'s `AttemptResult.records(dataset)` returns each Record the attempt pushed, as its Dataset's schema parses it, even when a crawl would discard the attempt; a Record's committed form and what Hooks drop or reject are read with `run.records()` and `run.rejectedRecords()` from a crawl started on a Response recording.
 - **The `prototype/sdk-api` sketch** holds these signatures in its `output` files for each language, with their snippets.

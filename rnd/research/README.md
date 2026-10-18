@@ -12,7 +12,7 @@
 - [Audit of public benchmarks](2026-10-07-benchmark-audit-followup.md): how existing figures were produced.
 - [Performance and evidence protocol](2026-10-07-benchmark-and-runtime.md): the proposed comparison protocol.
 
-The current product proposals are in the [consolidated report](../proposals/proposition-automan.md) and the [R&D plan](../plan/rd-plan.md). They build on this research, without turning its conclusions into already demonstrated performance.
+The current product proposals are in the [consolidated report](../proposals/proposition-goodfetch.md) and the [R&D plan](../plan/rd-plan.md). They build on this research, without turning its conclusions into already demonstrated performance.
 
 ## 2. Market and competitor families
 
@@ -22,7 +22,7 @@ The current product proposals are in the [consolidated report](../proposals/prop
 | [Browser and agent frameworks](2026-10-07-browser-frameworks.md) | Stagehand, Browser Use, Skyvern, Magnitude, AgentQL, agent-browser, recorder/replay and alternatives; versions, architectures, licenses and limitations |
 | [Crawl engines](2026-10-07-crawl-engines.md) | Crawlee, Spider, Scrapy, Colly, Crawl4AI, Firecrawl, Scrapling and other engines; HTTP/browser, scheduling, workers, persistence and extraction |
 | [Platforms and services](2026-10-07-product-platform-options.md) | React/shadcn console, Vite/Next, native macOS, daemon/SDK/MCP, local/cloud and operations/monetization; Apify, Browserbase, Spider and Firecrawl references |
-| [Initially consolidated research and direction](2026-10-07-direction-automan.md) | Synthesis of the market investigations and mechanisms adopted; extended by the current design dossier |
+| [Initially consolidated research and direction](2026-10-07-direction-goodfetch.md) | Synthesis of the market investigations and mechanisms adopted; extended by the current design dossier |
 
 **Scope:** broad coverage, with no claim to worldwide exhaustiveness nor an audit of every option of every repository. Not all the players listed were examined to the same depth. The features of a commercial service are not presumed to be present in its public repository.
 
@@ -66,7 +66,7 @@ The current product proposals are in the [consolidated report](../proposals/prop
 
 ## 6. Currency of the conclusions
 
-The first market and framework notes kept a small-team/release-in-3–6-months hypothesis. Their opening notice specifies that this constraint has been removed. The [consolidated dossier](../proposals/proposition-automan.md), the [architecture](../proposals/architecture.md) and the [R&D plan](../plan/rd-plan.md) are more recent; the initial documents remain useful for sources and historical reasoning.
+The first market and framework notes kept a small-team/release-in-3–6-months hypothesis. Their opening notice specifies that this constraint has been removed. The [consolidated dossier](../proposals/proposition-goodfetch.md), the [architecture](../proposals/architecture.md) and the [R&D plan](../plan/rd-plan.md) are more recent; the initial documents remain useful for sources and historical reasoning.
 
 Price data, versions and offerings are dated as of the survey; a later decision must revalidate items likely to have changed. The `sources_reviewed` counters refer to requested search results, including duplicates/discarded items, and are not a number of independent, experimentally validated sources.
 

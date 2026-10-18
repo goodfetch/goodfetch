@@ -27,6 +27,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 
 - **One canonical name per entry.**
   - Every operation, parameter, result field, event, Error code and setting key has one name in `goodfetch-protocol`: snake_case ASCII words, each `[a-z][a-z0-9]*`. Word boundaries are thus explicit, as ADR 0038's wire and ADR 0083's keys already are.
+    > Amended by [ADR 0132](0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md): `_meta`, the Trace context every request's params may hold, is an envelope field, not a catalog parameter: its underscore is outside this rule, and no generator gives it a member.
   - Every surface derives its spelling from these words by its own rule.
   - No entry has a per-language override (S1). When a rule gives a bad result, the canonical name changes for every surface, as ADR 0079 does for a class name that would shadow a built-in.
 - **An operation is `<namespace>.<member>`.**
@@ -323,6 +324,6 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - Area 12 (Console) shows each call in its Client's form.
 - **Other tickets.**
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483) applies the remaining renames: initialisms (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes), TypeScript reads on handles as methods (`run.id()`, `run.startedAs()`), Rust's open `ErrorCode` and `details::<D>()`, `call` on every handle, ADR 0089's lending helpers by the names above, and ADR 0090's package and import names in place of the sketch's placeholder `goodfetch`.
-  - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) spells its TypeScript reads as methods (`run.id()`, `run.startedAs()`).
+  - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) (ADR 0102) spells its TypeScript reads as methods (`run.id()`, `run.startedAs()`).
   - [Agent-writability check](https://github.com/goodfetch/goodfetch/issues/484) runs pyright strict, mypy with `--enable-error-code deprecated` and oxlint's `no-deprecated`.
 - **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `catalog` files for each language ([`b9eaed1`](https://github.com/goodfetch/goodfetch/commit/b9eaed1), [`251bda0`](https://github.com/goodfetch/goodfetch/commit/251bda0), [`042feed`](https://github.com/goodfetch/goodfetch/commit/042feed), [`98b3482`](https://github.com/goodfetch/goodfetch/commit/98b3482), [`943382c`](https://github.com/goodfetch/goodfetch/commit/943382c), [`e0d11d2`](https://github.com/goodfetch/goodfetch/commit/e0d11d2), [`5258b15`](https://github.com/goodfetch/goodfetch/commit/5258b15)). The pain coverage matrix closes P07, P33, P43 and K06 as API.

@@ -49,6 +49,7 @@ Evidence from the competitor survey made for that ticket:
   1. **The real window.** When the browser is headful on the person's own desktop, "Take control" can bring that window to the front.
   2. **CDP screencast** everywhere else, the default for headless browsers. It sends JPEG frames sized by `devicePixelRatio` under acknowledgement-based flow control. For remote viewers, the screencast is relayed over WebRTC as video, and falls back to JPEG frames over the WebSocket when WebRTC cannot connect.
   3. **WebRTC H.264.** Where the browser runs headful in a virtual display (Linux containers, the OCI image, a Browser host, Goodfetch Cloud), the engine captures that display at about 25 fps, and falls back to tier 2 when capture fails or WebRTC cannot connect. Steel moved from screencast ("4-12fps, unstable") to this.
+     > Amended by [ADR 0130](0130-the-live-views-webrtc-video-is-vp8-encoded-with-libvpx-not-h264.md): every WebRTC video of the Live view, this tier's and tier 2's relay, is VP8 encoded with libvpx; H.264 is declined because it needs a patent licence.
   
   Input goes through CDP (`Input.dispatch*`, `Input.insertText`, `Input.imeSetComposition`).
 - **The Session, not one tab.**
@@ -82,6 +83,7 @@ Evidence from the competitor survey made for that ticket:
 - **Retention.**
   - **Kept by default** for runs that are `failed`, `rejected` or `needs-review`, or that had a takeover or an Effect. A takeover is always recorded.
   - **Size cap.** Each run keeps up to 1 GB of trace by default. Past it, the oldest video goes first, while snapshots and the HAR are kept.
+    > Amended by [ADR 0122](0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md): at the `low` storage level a Run trace stops recording video, and at `critical` or when a trace write fails it stops, with the "no trace" mark. "Needs you" also lists a filesystem at `low` or `critical`, with its folder, and a Run stopped by storage.
   - **Erasure.** Traces are erased with their run.
 - **Cost.** Traces are a costly control (ADR 0023). Its switch is the trace setting; its mark is "no trace" on the run report and on the Timeline.
 - **The main world.** By default, on Chromium, nothing stays in the page, and the engine's only calls there are ADR 0048's calls into a consent vendor's own API. The opt-in exceptions are those ADR 0019 lists, and ADR 0047's on-demand hiding on Firefox and WebKit leaves a visible `<style>` element, marked in Provenance.

@@ -30,6 +30,7 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 
 **Never cached.**
 - Responses with any Block cause (`challenge`, `captcha`, `rate_limit`, `ip_block`, `decoy`, `payment_required`, `consent_required`; ADRs 0035, 0045 and 0048), responses the Decision provider classes as a soft block (ADR 0021), and responses whose Page check fails.
+  > Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): nor a cut response, whose body ended before its length, its last chunk or its stream's end.
 - Requests the Effect journal records as Effects (ADR 0010), Paid fetches (ADR 0045), and requests carrying a resolved secret (ADR 0016).
 - Responses fetched under a certificate exception (`trusted_cas`, `client_certificates` or `accept_invalid_certs`; ADR 0042), so a run that verifies a host normally is never served what another run accepted without verification.
 
@@ -37,6 +38,7 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 - **Changes ADR 0002:** reusable responses live outside run state, in a SQLite index, using the SQLite the engine already bundles, over content-addressed files, kept per user and per product major, as saved identities are (ADR 0035), so an upgrade starts with an empty cache. **Changes ADR 0030:** within a major, an engine that finds a cache format newer than it reads runs without the cache, neither reading nor writing it, so two minors never wipe each other's entries.
 - Each entry records the run that fetched it. Resetting or discarding a run deletes the entries it fetched, so the cache keeps ADR 0001's rule. Deleting a saved identity deletes its partition. In a Daemon group, the Lead Daemon broadcasts these deletions to every Group member's cache (ADR 0055).
 - `cache.max_size` defaults to 10 GB per user, with least-recently-used eviction. `cache.max_age_ceiling` defaults to 30 days and deletes older entries in every mode. Operator policy can cap or lock both.
+  > Amended by [ADR 0122](0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md): while its filesystem is at the `low` or `critical` storage level, the cache stores no new entry and evicts nothing beyond its own cap.
 - `goodfetch cache stats`, `goodfetch cache clear` (everything, or by domain, run or partition) and `goodfetch cache verify`, with the same information in the Console under Engine & settings.
 - **Changes ADR 0016:** its erasure operation also removes matching cache entries.
 

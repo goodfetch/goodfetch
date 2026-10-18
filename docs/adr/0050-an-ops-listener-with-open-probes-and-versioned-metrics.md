@@ -17,6 +17,7 @@ Browserless users asked for a health check that needs no token, for Kubernetes p
 **Ops listener** (changes ADRs 0016 and 0017: the probe paths are the only endpoints without a token).
 - `/livez` succeeds while the Tokio runtime and the run-state writer respond.
 - `/readyz` succeeds while the Daemon can accept a new run: run state is writable, the browsers its configuration uses are available, it is not draining, and the governor has not reached its last-resort stage, where runs stop as `resources_exhausted` (ADR 0040). In a Daemon group, readiness ignores the Lead Daemon's reachability; new runs that need a slice, and `partitions` above 1, are then refused with `lead_unreachable` (ADR 0055).
+  > Amended by [ADR 0122](0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md): `/readyz` also fails while the filesystem holding run state is at the `critical` storage level, and the metrics gain each sampled filesystem's free space and storage level, labelled by what it holds.
 - Neither returns a body, a version or run information.
 - `/metrics` takes a scoped read-only token as a bearer token.
 - `goodfetch daemon health` answers the same questions for `exec` probes and systemd.
@@ -24,6 +25,7 @@ Browserless users asked for a health check that needs no token, for Kubernetes p
 **Metrics** (adds to ADR 0030).
 - Names follow OpenTelemetry conventions under `goodfetch.*`, rendered `goodfetch_*` for Prometheus, and are generated from `goodfetch-protocol` into the reference, as the Operation catalog is (ADR 0038).
 - Each metric is Stable or Experimental under ADR 0030's semver scope.
+  > Amended by [ADR 0132](0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md): metric names stay a versioned contract; span names and span fields do not, and are Experimental.
 - The initial set: runs active by Lifecycle and finished by Verdict and Completeness (ADR 0029); work items queued, leased and retried; requests by tier and outcome, Block causes, and latency histograms by tier; browsers running, recycled and their memory; the governor's concurrency target and pressure source; Sink delivery lag and failures by Guarantee class (ADR 0026); model calls, tokens and latency by provider under the GenAI conventions; connected Clients and drain state.
 - Labels take values from bounded sets only, such as tier, Block cause, Error code, browser kind and Guarantee class.
 - Usage stays journaled and is never derived from metrics or traces.

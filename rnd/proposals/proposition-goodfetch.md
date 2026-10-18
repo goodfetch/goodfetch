@@ -76,7 +76,7 @@ The decisions are detailed in [the architecture](architecture.md) and the [sourc
 
 The API provides short usage for one-off extraction and precise controls for production: same session, same run, same traces. A URL, a schema and a policy are enough for the simple case; a versioned workflow fixes discovery, steps, validation and budgets for the recurring case. Natural-language instructions remain an explicit option, not a condition of every operation.
 
-The console makes it possible to create, test, run and diagnose before opening the advanced settings. Its central object is the **run with its timeline, its data and its evidence**. Pools and workers have dedicated operations views; the driver's internals are not shown in the creation flow. [API contracts and examples](api.md), [interface design](product-design.md), [interactive mockup](design/automan-console.html).
+The console makes it possible to create, test, run and diagnose before opening the advanced settings. Its central object is the **run with its timeline, its data and its evidence**. Pools and workers have dedicated operations views; the driver's internals are not shown in the creation flow. [API contracts and examples](api.md), [interface design](product-design.md), [interactive mockup](design/goodfetch-console.html).
 
 The [glossary](../GLOSSARY.md) notably avoids confusing workflow, run, agent, pool and session.
 

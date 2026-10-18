@@ -14,7 +14,7 @@ const FOXHOUND: &str = "crates/goodfetch-protocol/generated/foxhound.json";
 /// Collie's, with Foxhound's projection changed by `change`.
 fn with_foxhound_projection(change: impl FnOnce(&mut Value)) -> Workspace {
     let workspace = Workspace::from_fixture("codegen");
-    let mut projection: Value = serde_json::from_str(&workspace.read(FOXHOUND)).unwrap();
+    let mut projection: Value = serde_json::from_str(&workspace.read_text(FOXHOUND)).unwrap();
     change(&mut projection);
     workspace.write(
         FOXHOUND,

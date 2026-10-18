@@ -100,13 +100,14 @@ impl Workspace {
         std::fs::remove_file(self.path().join(relative)).unwrap();
     }
 
-    pub(crate) fn read(&self, relative: &str) -> String {
+    /// A text file of the workspace, which must exist.
+    pub(crate) fn read_text(&self, relative: &str) -> String {
         std::fs::read_to_string(self.path().join(relative)).unwrap()
     }
 
     /// Replaces the one occurrence of `from` in a file with `to`.
     pub(crate) fn edit(&self, relative: &str, from: &str, to: &str) {
-        let contents = self.read(relative);
+        let contents = self.read_text(relative);
         assert_eq!(contents.matches(from).count(), 1, "{from:?} in {relative}");
         self.write(relative, contents.replace(from, to).as_bytes());
     }

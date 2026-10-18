@@ -44,7 +44,7 @@ fn names_and_products(catalog: &Value, section: &str) -> Vec<(String, String)> {
 
 /// Every file `xtask codegen` writes, with its contents.
 fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
-    let mut files = vec![("deny.toml".to_owned(), workspace.read("deny.toml"))];
+    let mut files = vec![("deny.toml".to_owned(), workspace.read_text("deny.toml"))];
     for folder in GENERATED_FOLDERS {
         let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
             .unwrap()
@@ -53,7 +53,7 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
         paths.sort();
         for name in paths {
             let path = format!("{folder}/{name}");
-            let contents = workspace.read(&path);
+            let contents = workspace.read_text(&path);
             files.push((path, contents));
         }
     }
@@ -151,7 +151,7 @@ fn check_fails_after_a_type_change_that_was_not_regenerated(
 #[case::catalog("crates/goodfetch-protocol/generated/catalog.json", "drift")]
 fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("codegen");
-    let edited = format!("{}\n", workspace.read(path));
+    let edited = format!("{}\n", workspace.read_text(path));
     workspace.write(path, edited.as_bytes());
 
     let outcome = workspace.xtask(&["codegen", "--check"]);
@@ -188,7 +188,7 @@ fn catalog_marks_each_entry_with_the_product_whose_module_defines_it() {
 
     codegen(&workspace);
 
-    let catalog: Value = serde_json::from_str(&workspace.read(CATALOG)).unwrap();
+    let catalog: Value = serde_json::from_str(&workspace.read_text(CATALOG)).unwrap();
     assert_eq!(
         names_and_products(&catalog, "operations"),
         vec![
@@ -228,7 +228,7 @@ fn each_sdk_package_generates_only_its_products_operations(
 
     codegen(&workspace);
 
-    let operations = workspace.read(path);
+    let operations = workspace.read_text(path);
     assert!(operations.contains(own_operation), "{operations}");
     assert!(!operations.contains(other_operation), "{operations}");
 }
@@ -283,7 +283,7 @@ fn wrappers_list_follows_the_folders_under_crates_foxhound() {
     .map(str::to_owned)
     .to_vec();
     assert_eq!(
-        wrapped_crates(&workspace.read("deny.toml")),
+        wrapped_crates(&workspace.read_text("deny.toml")),
         vec![
             ("goodfetch-frontier".to_owned(), wrappers.clone()),
             ("goodfetch-politeness".to_owned(), wrappers.clone()),

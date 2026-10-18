@@ -6,6 +6,7 @@
 
 mod affected;
 mod all_green;
+mod ceiling;
 mod check;
 mod dependency_direction;
 mod egress;
@@ -18,6 +19,7 @@ mod modules;
 mod no_retry;
 mod output;
 mod quarantine;
+mod repeat;
 mod results;
 mod scan;
 mod screenshots;
@@ -94,6 +96,20 @@ enum Command {
     Quarantine {
         #[command(subcommand)]
         command: QuarantineCommand,
+    },
+    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
+    /// runner run the chosen tests `--count` times, whatever each run's
+    /// result (ADR 0064): the diagnostic runs and the daily test-health job.
+    #[command(group(clap::ArgGroup::new("tests").required(true).args(["test", "quarantined"])))]
+    Repeat {
+        #[arg(long)]
+        count: std::num::NonZeroU32,
+        /// A test, as `<runner>=<test ID>` (the quarantine list's IDs).
+        #[arg(long)]
+        test: Vec<String>,
+        /// The quarantine list's oldest entries, at most this many.
+        #[arg(long)]
+        quarantined: Option<usize>,
     },
     /// The results store, `test-results` (ADR 0064).
     Results {
@@ -213,6 +229,39 @@ enum QuarantineCommand {
 
 #[derive(Subcommand)]
 enum ResultsCommand {
+    /// Prints `minutes=<n>` (the month's Linux-equivalent minutes of the
+    /// test-health ceiling) and `admitted=<true|false>` for a run about to
+    /// start, and writes a skip to `--summary` (ADRs 0064, 0072 and 0108).
+    Ceiling {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long, value_enum)]
+        run: ceiling::Run,
+        /// Today's date in UTC, `YYYY-MM-DD`, whose month is counted.
+        #[arg(long)]
+        today: jiff::civil::Date,
+        /// The job summary, `$GITHUB_STEP_SUMMARY`.
+        #[arg(long)]
+        summary: Option<PathBuf>,
+    },
+    /// Prints the tests that failed in a run attempt, for its diagnostic
+    /// runs (ADR 0064): `matrix=<JSON>`, one entry each, at most 20, and
+    /// `left_out=<n>`, the failed tests past those.
+    Failed {
+        /// The repository of the run, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long)]
+        run_id: u64,
+        #[arg(long)]
+        attempt: u32,
+        /// The folder the run's artifacts were downloaded into, one folder each.
+        #[arg(long)]
+        artifacts: PathBuf,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
     /// Writes one run attempt into the store: its JUnit files as written,
     /// one record per test run and one per job.
     Ingest {
@@ -229,6 +278,21 @@ enum ResultsCommand {
         /// A checkout of the results store.
         #[arg(long)]
         store: PathBuf,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Prints `<run> <attempt>` for every attempt of the runs that finished
+    /// since `--since` and that the store lacks, for the daily ingest (ADR 0135).
+    Pending {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The first day, UTC, `YYYY-MM-DD`.
+        #[arg(long)]
+        since: jiff::civil::Date,
+        /// The repository of the runs, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
@@ -359,6 +423,11 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
+        Command::Repeat {
+            count,
+            test,
+            quarantined,
+        } => run_repeat(root, count, &test, quarantined),
         Command::Results { command } => run_results(command, root, environment),
         Command::Screenshots { command } => run_screenshots(command, root),
         Command::SelfHosted { command } => match command {
@@ -368,56 +437,61 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
                 Ok(ExitCode::SUCCESS)
             }
         },
-        Command::Size { mode } => match &mode {
-            SizeMode::Estimate {
-                files,
-                main_report,
-                main,
-            } => {
-                let main = main_report.as_deref().map(|report| size::Main {
-                    report,
-                    reference: main,
-                });
-                size::run(
-                    &size::Mode::Estimate { main },
-                    root,
-                    &files.files,
-                    files.save.as_deref(),
-                )
-            }
-            SizeMode::Increase {
-                files,
-                main_report,
-                main,
-                pull_request,
-                repository,
-                api_url,
-            } => {
-                let main = size::Main {
-                    report: main_report,
-                    reference: main,
-                };
-                let pull_request =
-                    pull_request
-                        .zip(repository.as_deref())
-                        .map(|(number, repository)| size::PullRequest {
-                            api: github::Api {
-                                url: api_url,
-                                token: environment.github_token.as_deref(),
-                            },
-                            repository,
-                            number,
-                        });
-                let mode = size::Mode::Increase { main, pull_request };
-                size::run(&mode, root, &files.files, files.save.as_deref())
-            }
-            SizeMode::Ceilings { files } => size::run(
-                &size::Mode::Ceilings,
+        Command::Size { mode } => run_size(&mode, root, environment),
+    }
+}
+
+/// The `size` modes (ADRs 0057 and 0087).
+fn run_size(mode: &SizeMode, root: &Path, environment: &Environment) -> anyhow::Result<ExitCode> {
+    match mode {
+        SizeMode::Estimate {
+            files,
+            main_report,
+            main,
+        } => {
+            let main = main_report.as_deref().map(|report| size::Main {
+                report,
+                reference: main,
+            });
+            size::run(
+                &size::Mode::Estimate { main },
                 root,
                 &files.files,
                 files.save.as_deref(),
-            ),
-        },
+            )
+        }
+        SizeMode::Increase {
+            files,
+            main_report,
+            main,
+            pull_request,
+            repository,
+            api_url,
+        } => {
+            let main = size::Main {
+                report: main_report,
+                reference: main,
+            };
+            let pull_request =
+                pull_request
+                    .zip(repository.as_deref())
+                    .map(|(number, repository)| size::PullRequest {
+                        api: github::Api {
+                            url: api_url,
+                            token: environment.github_token.as_deref(),
+                        },
+                        repository,
+                        number,
+                    });
+            let mode = size::Mode::Increase { main, pull_request };
+            size::run(&mode, root, &files.files, files.save.as_deref())
+        }
+        SizeMode::Ceilings { files } => size::run(
+            &size::Mode::Ceilings,
+            root,
+            &files.files,
+            files.save.as_deref(),
+        ),
     }
 }
 
@@ -463,6 +537,28 @@ fn run_quarantine(
     }
 }
 
+/// The `repeat` command (ADR 0064).
+fn run_repeat(
+    root: &Path,
+    count: std::num::NonZeroU32,
+    tests: &[String],
+    quarantined: Option<usize>,
+) -> anyhow::Result<ExitCode> {
+    let selection = match quarantined {
+        Some(limit) => repeat::Selection::Quarantined(limit),
+        None => repeat::Selection::Tests(
+            tests
+                .iter()
+                .map(|value| repeat::parse_test(value))
+                .collect::<anyhow::Result<_>>()?,
+        ),
+    };
+    for (runner, argument) in repeat::arguments(root, selection, count)? {
+        output::line(&format!("{runner}\t{argument}"));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 /// The `results` commands (ADR 0064).
 fn run_results(
     command: ResultsCommand,
@@ -470,6 +566,43 @@ fn run_results(
     environment: &Environment,
 ) -> anyhow::Result<ExitCode> {
     match command {
+        ResultsCommand::Ceiling {
+            store,
+            run,
+            today,
+            summary,
+        } => {
+            let summary = summary.map(|summary| root.join(summary));
+            ceiling::check(&root.join(store), run, today, summary.as_deref())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::Failed {
+            repository,
+            run_id,
+            attempt,
+            artifacts,
+            api_url,
+        } => {
+            // A run with more failures than this is broken, not flaky; the
+            // rest are named in the job summary instead.
+            const DIAGNOSED_AT_MOST: usize = 20;
+            let source = results::Source {
+                api: github::Api {
+                    url: &api_url,
+                    token: environment.github_token.as_deref(),
+                },
+                repository: &repository,
+                run: run_id,
+                attempt,
+                artifacts: &root.join(artifacts),
+            };
+            let mut failed = results::failed(&source)?;
+            let left_out = failed.split_off(failed.len().min(DIAGNOSED_AT_MOST));
+            let matrix = serde_json::json!({ "include": failed });
+            output::line(&format!("matrix={matrix}"));
+            output::line(&format!("left_out={}", left_out.len()));
+            Ok(ExitCode::SUCCESS)
+        }
         ResultsCommand::Ingest {
             repository,
             run_id,
@@ -490,6 +623,21 @@ fn run_results(
             };
             let path = results::ingest(&source, &root.join(store))?;
             output::line(&format!("wrote {}", path.display()));
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::Pending {
+            store,
+            since,
+            repository,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            for (run, attempt) in results::pending(&api, &repository, &root.join(store), since)? {
+                output::line(&format!("{run} {attempt}"));
+            }
             Ok(ExitCode::SUCCESS)
         }
         ResultsCommand::Scan {

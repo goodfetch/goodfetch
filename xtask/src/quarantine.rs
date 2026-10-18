@@ -43,7 +43,14 @@ pub(crate) enum Runner {
 }
 
 impl Runner {
-    fn name(self) -> &'static str {
+    /// The runner of `name`, as the list writes it.
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
+        [Self::Nextest, Self::Vitest, Self::Playwright, Self::Pytest]
+            .into_iter()
+            .find(|runner| runner.name() == name)
+    }
+
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Nextest => "nextest",
             Self::Vitest => "vitest",
@@ -62,9 +69,29 @@ impl Runner {
 pub(crate) struct TestId(String);
 
 impl TestId {
+    /// The ID of a test of `runner`; a nextest ID names its binary and its test.
+    pub(crate) fn parse(runner: Runner, id: &str) -> Result<Self> {
+        if id.trim().is_empty() {
+            bail!("a test ID is empty");
+        }
+        if runner == Runner::Nextest && !id.contains(' ') {
+            bail!("nextest test `{id}` is not `<binary ID> <test name>`");
+        }
+        Ok(Self(id.to_owned()))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+
     /// The test's name within its binary, which nextest's `--skip` matches.
-    fn nextest_name(&self) -> &str {
+    pub(crate) fn nextest_name(&self) -> &str {
         self.0.split_once(' ').map_or(&self.0, |(_, name)| name)
+    }
+
+    /// The nextest binary's ID, the part before the first space.
+    pub(crate) fn nextest_binary(&self) -> &str {
+        self.0.split_once(' ').map_or(&self.0, |(binary, _)| binary)
     }
 }
 
@@ -289,7 +316,7 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
 }
 
 /// The texts as a JavaScript regular expression's alternatives, each literal.
-fn alternation(texts: impl Iterator<Item = String>) -> String {
+pub(crate) fn alternation(texts: impl Iterator<Item = String>) -> String {
     texts
         .map(|text| {
             text.chars()

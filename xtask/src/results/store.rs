@@ -7,6 +7,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+use std::collections::BTreeSet;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -171,8 +172,44 @@ fn json_lines<T: Serialize>(values: &[T]) -> Result<Vec<u8>> {
 
 /// Every attempt of the store at `root`, in the order of their paths.
 pub(crate) fn read_all(root: &Path) -> Result<Vec<Attempt>> {
+    read_folder(&root.join("runs"))
+}
+
+/// The `(run, attempt)` of every file of the store at `root`, from its name.
+pub(crate) fn stored(root: &Path) -> Result<BTreeSet<(u64, u32)>> {
     let mut files = Vec::new();
     collect(&root.join("runs"), &mut files)?;
+    Ok(files
+        .iter()
+        .filter_map(|file| {
+            let name = file.file_name()?.to_str()?.strip_suffix(".tar.gz")?;
+            let (run, attempt) = name.split_once('-')?;
+            Some((run.parse().ok()?, attempt.parse().ok()?))
+        })
+        .collect())
+}
+
+/// The attempts that started in the month of `date`, or in the month before.
+pub(crate) fn read_month_and_previous(
+    root: &Path,
+    date: jiff::civil::Date,
+) -> Result<Vec<Attempt>> {
+    let first = date.first_of_month();
+    let previous = first.yesterday()?;
+    let mut attempts = Vec::new();
+    for month in [previous, first] {
+        let folder = root
+            .join("runs")
+            .join(month.year().to_string())
+            .join(format!("{:02}", month.month()));
+        attempts.extend(read_folder(&folder)?);
+    }
+    Ok(attempts)
+}
+
+fn read_folder(folder: &Path) -> Result<Vec<Attempt>> {
+    let mut files = Vec::new();
+    collect(folder, &mut files)?;
     files.sort();
     files.iter().map(|file| read(file)).collect()
 }

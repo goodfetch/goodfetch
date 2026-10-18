@@ -57,6 +57,21 @@ pub(crate) fn test_run(test: &str, outcome: &str, tree: &str) -> Value {
     })
 }
 
+/// One job of a fixture attempt that ran `seconds` on runners with `labels`,
+/// starting at `started_at`.
+pub(crate) fn job(labels: &[&str], seconds: u64, started_at: &str) -> Value {
+    json!({
+        "job": "fixture",
+        "labels": labels,
+        "runner_os": "linux",
+        "self_hosted": labels.contains(&"self-hosted"),
+        "started_at": started_at,
+        "completed_at": started_at,
+        "duration_seconds": seconds,
+        "conclusion": "success",
+    })
+}
+
 /// `value` with `field` replaced.
 pub(crate) fn with(mut value: Value, field: &str, replacement: Value) -> Value {
     value[field] = replacement;

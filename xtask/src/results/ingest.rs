@@ -10,14 +10,16 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+use std::collections::BTreeSet;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use jiff::Timestamp;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::artifact;
-use super::junit::{self, Ending};
+use super::junit::{self, Ending, TestCase};
 use super::store::{self, Attempt, JobRun, KeptFile, Outcome, RunAttempt, TestRun};
 use crate::github::Api;
 
@@ -87,10 +89,93 @@ struct Context {
     job: String,
     order_seed: Option<String>,
     entropy_seed: Option<String>,
+    /// How many times the job ran each test it ran (`xtask repeat`).
+    #[serde(default)]
+    repeat: Option<NonZeroU32>,
 }
 
 /// Writes the attempt's file into the store at `store` and returns its path.
 pub(crate) fn ingest(source: &Source<'_>, store: &Path) -> Result<PathBuf> {
+    let (attempt, kept) = read(source)?;
+    store::write(store, &attempt, &kept)
+}
+
+#[derive(Deserialize)]
+struct ApiRuns {
+    workflow_runs: Vec<ApiRun>,
+}
+
+#[derive(Deserialize)]
+struct ApiRun {
+    id: u64,
+    run_attempt: u32,
+}
+
+/// Every attempt of the runs that finished since `since` (a day, UTC) that
+/// the store at `store` lacks, for the daily ingest (ADR 0135): the runs no
+/// per-run ingest follows, such as the pull-request tier's, and any a
+/// per-run ingest missed.
+pub(crate) fn pending(
+    api: &Api<'_>,
+    repository: &str,
+    store: &Path,
+    since: jiff::civil::Date,
+) -> Result<Vec<(u64, u32)>> {
+    let stored = store::stored(store)?;
+    let mut pending = BTreeSet::new();
+    for page in 1.. {
+        let listed: ApiRuns = api.get(&format!(
+            "/repos/{repository}/actions/runs?status=completed&created=%3E%3D{since}&per_page={PAGE}&page={page}"
+        ))?;
+        let full = listed.workflow_runs.len() == PAGE;
+        for run in listed.workflow_runs {
+            for attempt in 1..=run.run_attempt {
+                if !stored.contains(&(run.id, attempt)) {
+                    pending.insert((run.id, attempt));
+                }
+            }
+        }
+        if !full {
+            break;
+        }
+    }
+    Ok(pending.into_iter().collect())
+}
+
+/// A test that failed in the attempt, with where it ran.
+#[derive(Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Failed {
+    /// `<runner>=<test ID>`, as `xtask repeat --test` takes it.
+    test: String,
+    suite: String,
+    tier: String,
+    os: String,
+    arch: String,
+    runtime: Option<String>,
+}
+
+/// The tests that failed in the attempt, once each per configuration, of
+/// the runners `xtask repeat` repeats; never a Live check's.
+pub(crate) fn failed(source: &Source<'_>) -> Result<Vec<Failed>> {
+    let (attempt, _) = read(source)?;
+    let failed: BTreeSet<Failed> = attempt
+        .test_runs
+        .into_iter()
+        .filter(|run| run.outcome == Outcome::Failed && run.tier != LIVE_TIER)
+        .filter(|run| ["nextest", "vitest", "playwright", "pytest"].contains(&run.runner.as_str()))
+        .map(|run| Failed {
+            test: format!("{}={}", run.runner, run.test),
+            suite: run.suite,
+            tier: run.tier,
+            os: run.os,
+            arch: run.arch,
+            runtime: run.runtime,
+        })
+        .collect();
+    Ok(failed.into_iter().collect())
+}
+
+fn read(source: &Source<'_>) -> Result<(Attempt, Vec<KeptFile>)> {
     let base = format!("/repos/{}/actions/runs/{}", source.repository, source.run);
     let attempt_path = format!("{base}/attempts/{}", source.attempt);
     let api_attempt: ApiAttempt = source.api.get(&attempt_path)?;
@@ -152,15 +237,14 @@ pub(crate) fn ingest(source: &Source<'_>, store: &Path) -> Result<PathBuf> {
         test_runs.extend(runs);
         kept.extend(files);
     }
-    store::write(
-        store,
-        &Attempt {
+    Ok((
+        Attempt {
             run,
             test_runs,
             jobs,
         },
-        &kept,
-    )
+        kept,
+    ))
 }
 
 fn read_artifact(
@@ -197,15 +281,13 @@ fn read_artifact(
                 .with_context(|| format!("{} is not UTF-8", path.display()))?;
             let cases = junit::test_cases(runner, text)
                 .with_context(|| format!("reading {}", path.display()))?;
-            for case in cases {
-                let outcome = match case.ending {
-                    Ending::Passed => Outcome::Passed,
-                    Ending::Failed => Outcome::Failed,
-                    Ending::Skipped if configuration.tier == LIVE_TIER => Outcome::Inconclusive,
-                    Ending::Skipped => Outcome::Skipped,
-                };
+            let live = configuration.tier == LIVE_TIER;
+            for (test, outcome, duration_seconds) in cases
+                .into_iter()
+                .flat_map(|case| runs_of(case, runner, context.repeat, live))
+            {
                 test_runs.push(TestRun {
-                    test: case.test,
+                    test,
                     runner: runner.to_owned(),
                     suite: configuration.suite.clone(),
                     tier: configuration.tier.clone(),
@@ -221,7 +303,7 @@ fn read_artifact(
                     attempt: run.attempt,
                     started_at: run.started_at,
                     outcome,
-                    duration_seconds: case.duration_seconds,
+                    duration_seconds,
                     order_seed: context.order_seed.clone(),
                     entropy_seed: context.entropy_seed.clone(),
                 });
@@ -233,6 +315,55 @@ fn read_artifact(
         });
     }
     Ok((test_runs, kept))
+}
+
+/// The test runs one JUnit test case records. A test the job repeated
+/// (`repeat` in its context) is reported once per run by nextest,
+/// Playwright and pytest, whose pytest-repeat adds `[<run>-<count>]` to the
+/// name, but once in all by Vitest, with one failure per failed run: those
+/// become the failed runs, then the passed ones, sharing its time.
+fn runs_of(
+    case: TestCase,
+    runner: &str,
+    repeat: Option<NonZeroU32>,
+    live: bool,
+) -> Vec<(String, Outcome, f64)> {
+    let outcome = match case.ending {
+        Ending::Passed => Outcome::Passed,
+        Ending::Failed => Outcome::Failed,
+        Ending::Skipped if live => Outcome::Inconclusive,
+        Ending::Skipped => Outcome::Skipped,
+    };
+    let Some(count) = repeat else {
+        return vec![(case.test, outcome, case.duration_seconds)];
+    };
+    match runner {
+        "vitest" if case.ending != Ending::Skipped => {
+            let failed = case.failures.min(count.get());
+            let each = case.duration_seconds / f64::from(count.get());
+            (0..count.get())
+                .map(|run| {
+                    let outcome = if run < failed {
+                        Outcome::Failed
+                    } else {
+                        Outcome::Passed
+                    };
+                    (case.test.clone(), outcome, each)
+                })
+                .collect()
+        }
+        "pytest" => {
+            let suffix = format!("-{count}]");
+            let test = case
+                .test
+                .strip_suffix(&suffix)
+                .and_then(|rest| rest.rsplit_once('['))
+                .filter(|(_, run)| !run.is_empty() && run.bytes().all(|byte| byte.is_ascii_digit()))
+                .map_or(case.test.clone(), |(test, _)| test.to_owned());
+            vec![(test, outcome, case.duration_seconds)]
+        }
+        _ => vec![(case.test, outcome, case.duration_seconds)],
+    }
 }
 
 /// Every file under `folder`, relative to `root`.

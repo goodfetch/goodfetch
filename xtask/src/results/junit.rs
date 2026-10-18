@@ -23,6 +23,9 @@ pub(crate) enum Ending {
 pub(crate) struct TestCase {
     pub(crate) test: String,
     pub(crate) ending: Ending,
+    /// Its `<failure>` and `<error>` elements: one per failed run of a test
+    /// Vitest repeated.
+    pub(crate) failures: u32,
     pub(crate) duration_seconds: f64,
 }
 
@@ -56,7 +59,10 @@ pub(crate) fn test_cases(runner: &str, text: &str) -> Result<Vec<TestCase>> {
             Event::Start(element) | Event::Empty(element) => {
                 if let Some(case) = open.as_mut() {
                     match element.local_name().as_ref() {
-                        b"failure" | b"error" => case.ending = Ending::Failed,
+                        b"failure" | b"error" => {
+                            case.ending = Ending::Failed;
+                            case.failures += 1;
+                        }
                         b"skipped" if case.ending == Ending::Passed => {
                             case.ending = Ending::Skipped;
                         }
@@ -94,6 +100,7 @@ fn test_case(runner: &str, suite: &str, element: &BytesStart<'_>) -> Result<Test
     Ok(TestCase {
         test,
         ending: Ending::Passed,
+        failures: 0,
         duration_seconds,
     })
 }

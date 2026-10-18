@@ -7,7 +7,7 @@
 use serde_json::{Value, json};
 
 use crate::github::GitHub;
-use crate::store::{STORE, read_store_file};
+use crate::store::{Attempt, STORE, read_store_file, write_store};
 use crate::workspace::{Outcome, Workspace};
 
 const ATTEMPT: &str = "/repos/goodfetch/goodfetch/actions/runs/42/attempts/2";
@@ -92,11 +92,30 @@ fn ingest_a_passing_third_attempt(workspace: &Workspace) {
             r#"<failure type="test failure">thread 'tests::flaky' panicked</failure>"#,
             "",
         );
-    let folder = "third/junit-pre-merge-test-health-linux-x64-1";
-    workspace.write(&format!("{folder}/nextest-ci.xml"), passing.as_bytes());
-    workspace.write(
-        &format!("{folder}/context.json"),
-        br#"{ "job": "quarantined", "order_seed": "99", "entropy_seed": null }"#,
+    let outcome = ingest_third_attempt(
+        workspace,
+        "junit-pre-merge-test-health-linux-x64-1",
+        &[
+            ("nextest-ci.xml", passing.as_bytes()),
+            (
+                "context.json",
+                br#"{ "job": "quarantined", "order_seed": "99", "entropy_seed": null }"#,
+            ),
+        ],
+    );
+    assert_eq!(outcome.code, 0);
+}
+
+/// Ingests attempt 3 of the run, started two hours after attempt 2, whose
+/// one artifact `name` holds `files`.
+fn ingest_third_attempt(workspace: &Workspace, name: &str, files: &[(&str, &[u8])]) -> Outcome {
+    for (file, contents) in files {
+        workspace.write(&format!("third/{name}/{file}"), contents);
+    }
+    let artifacts = format!(
+        r#"{{ "total_count": 1, "artifacts": [
+          {{ "name": "{name}", "created_at": "2026-10-18T05:02:00Z", "expired": false }}
+        ] }}"#
     );
     let github = GitHub::serving(&[
         (
@@ -109,14 +128,9 @@ fn ingest_a_passing_third_attempt(workspace: &Workspace) {
             "/repos/goodfetch/goodfetch/actions/runs/42/attempts/3/jobs?per_page=100&page=1",
             ATTEMPT_JOBS,
         ),
-        (
-            ARTIFACTS,
-            r#"{ "total_count": 1, "artifacts": [
-              { "name": "junit-pre-merge-test-health-linux-x64-1", "created_at": "2026-10-18T05:02:00Z", "expired": false }
-            ] }"#,
-        ),
+        (ARTIFACTS, &artifacts),
     ]);
-    let outcome = workspace.xtask(&[
+    workspace.xtask(&[
         "results",
         "ingest",
         "--run-id",
@@ -129,8 +143,99 @@ fn ingest_a_passing_third_attempt(workspace: &Workspace) {
         STORE,
         "--api-url",
         github.url(),
+    ])
+}
+
+/// The daily ingest (ADR 0135) takes every finished run attempt of the past
+/// day that the store lacks, such as the pull-request tier's, which no
+/// per-run ingest follows.
+#[test]
+fn daily_ingest_lists_the_finished_attempts_the_store_lacks() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[
+            Attempt::new(50, "2026-10-17T09:00:00Z"),
+            Attempt::new(51, "2026-10-17T10:00:00Z"),
+        ],
+    );
+    let github = GitHub::serving(&[(
+        "/repos/goodfetch/goodfetch/actions/runs?status=completed&created=%3E%3D2026-10-17&per_page=100&page=1",
+        r#"{ "total_count": 3, "workflow_runs": [
+          { "id": 50, "run_attempt": 2 },
+          { "id": 51, "run_attempt": 1 },
+          { "id": 52, "run_attempt": 1 }
+        ] }"#,
+    )]);
+
+    let outcome = workspace.xtask(&[
+        "results",
+        "pending",
+        "--store",
+        STORE,
+        "--since",
+        "2026-10-17",
+        "--api-url",
+        github.url(),
     ]);
+
     assert_eq!(outcome.code, 0);
+    assert_eq!(outcome.stdout, "50 2\n52 1\n");
+}
+
+#[test]
+fn repeated_runs_become_one_record_each() {
+    let workspace = Workspace::from_fixture("results-ingest");
+    let vitest = r#"<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0.3">
+  <testsuite name="web/sample.test.ts" tests="1" failures="1" errors="0" skipped="0" time="0.3">
+    <testcase classname="web/sample.test.ts" name="sample &gt; flaky" time="0.3">
+      <failure message="expected 1 to be 2">AssertionError</failure>
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+    let pytest = r#"<testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="0.3">
+<testcase classname="tests.test_sample" name="test_flaky[1-3]" time="0.1" />
+<testcase classname="tests.test_sample" name="test_flaky[2-3]" time="0.1"><failure message="boom">boom</failure></testcase>
+<testcase classname="tests.test_sample" name="test_flaky[3-3]" time="0.1" />
+</testsuite></testsuites>"#;
+
+    let outcome = ingest_third_attempt(
+        &workspace,
+        "junit-pre-merge-diagnostic-linux-x64-1",
+        &[
+            (
+                "context.json",
+                br#"{ "job": "rerun", "order_seed": null, "entropy_seed": null, "repeat": 3 }"#,
+            ),
+            ("pytest.xml", pytest.as_bytes()),
+            ("vitest.xml", vitest.as_bytes()),
+        ],
+    );
+
+    assert_eq!(outcome.code, 0);
+    let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/10/42-3.tar.gz"));
+    let runs: Vec<(String, String)> = file
+        .test_runs
+        .iter()
+        .map(|run| {
+            (
+                run["test"].as_str().unwrap().to_owned(),
+                run["outcome"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let run = |test: &str, outcome: &str| (test.to_owned(), outcome.to_owned());
+    assert_eq!(
+        runs,
+        vec![
+            run("tests/test_sample.py::test_flaky", "passed"),
+            run("tests/test_sample.py::test_flaky", "failed"),
+            run("tests/test_sample.py::test_flaky", "passed"),
+            run("sample > flaky", "failed"),
+            run("sample > flaky", "passed"),
+            run("sample > flaky", "passed"),
+        ]
+    );
 }
 
 #[test]

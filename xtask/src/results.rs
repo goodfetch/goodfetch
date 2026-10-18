@@ -9,5 +9,5 @@ mod ingest;
 mod junit;
 mod store;
 
-pub(crate) use ingest::{Source, ingest};
-pub(crate) use store::{Outcome, TestRun, read_all};
+pub(crate) use ingest::{Source, failed, ingest, pending};
+pub(crate) use store::{JobRun, Outcome, TestRun, read_all, read_month_and_previous};

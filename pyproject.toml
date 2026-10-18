@@ -11,9 +11,13 @@ requires-python = ">=3.11"
 
 [dependency-groups]
 # No rerun plugin and no mocking library (ADRs 0062 and 0064); `xtask
-# mocking-lockfile` checks uv.lock.
+# mocking-lockfile` checks uv.lock. datamodel-code-generator is pinned
+# exactly: `xtask codegen`'s committed output depends on its version.
 dev = [
   "anyio>=4.15.1",
+  "datamodel-code-generator==0.86.0",
+  "goodfetch-collie-client",
+  "goodfetch-foxhound",
   "goodfetch-test-support",
   "inline-snapshot>=0.36.1",
   "mypy>=2.4.0",
@@ -22,6 +26,7 @@ dev = [
   "pytest-randomly>=5.0.0",
   "pytest-repeat>=0.9.4",
   "pytest-timeout>=2.4.0",
+  "pytest-xdist>=3.8.0",
   "ruff>=0.17.1",
 ]
 
@@ -30,9 +35,11 @@ package = false
 required-version = ">=0.9.28"
 
 [tool.uv.workspace]
-members = ["test-support/python"]
+members = ["sdks/python/collie-client", "sdks/python/foxhound", "test-support/python"]
 
 [tool.uv.sources]
+goodfetch-collie-client = { workspace = true }
+goodfetch-foxhound = { workspace = true }
 goodfetch-test-support = { workspace = true }
 
 [tool.pytest]

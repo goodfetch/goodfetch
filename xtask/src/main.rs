@@ -9,6 +9,8 @@ mod all_green;
 mod allure;
 mod ceiling;
 mod check;
+mod codegen;
+mod containment;
 mod dependency_direction;
 mod egress;
 mod fixture_size;
@@ -20,6 +22,7 @@ mod modules;
 mod no_retry;
 mod output;
 mod quarantine;
+mod release_suite;
 mod repeat;
 mod results;
 mod scan;
@@ -32,7 +35,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Goodfetch's release and CI tool")]
@@ -75,6 +78,14 @@ enum Command {
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
+    /// Regenerates every file generated from `goodfetch-protocol`'s types:
+    /// the JSON Schema bundle and catalog file, each Product's projection,
+    /// the names only Foxhound carries, the cargo-deny `wrappers` list and
+    /// each SDK package's `generated/` layer (ADR 0038).
+    Codegen(CodegenArguments),
+    /// Fails unless every generated contract of Collie's is in Foxhound's,
+    /// unchanged (ADR 0094).
+    Containment,
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
@@ -97,6 +108,12 @@ enum Command {
     Quarantine {
         #[command(subcommand)]
         command: QuarantineCommand,
+    },
+    /// The Release suite's manual-dispatch runs while the repository is
+    /// private (ADR 0108).
+    ReleaseSuite {
+        #[command(subcommand)]
+        command: ReleaseSuiteCommand,
     },
     /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
     /// runner run the chosen tests `--count` times, whatever each run's
@@ -189,6 +206,51 @@ struct SizeFiles {
 }
 
 #[derive(Subcommand)]
+enum ReleaseSuiteCommand {
+    /// The Release workflow's first job: checks the commit, chooses the
+    /// cells to start and holds the hosted ones back when the run would pass
+    /// the month's ceiling of included minutes; writes the job's outputs and
+    /// summary.
+    Plan {
+        /// The repository, as `owner/name`.
+        #[arg(long)]
+        repository: String,
+        /// This run's ID.
+        #[arg(long)]
+        run_id: u64,
+        /// `GITHUB_REF`, the branch the workflow was dispatched on.
+        #[arg(long = "ref")]
+        git_ref: String,
+        /// `all`, or cell names separated by commas.
+        #[arg(long, default_value = "all")]
+        cells: String,
+        /// On `main`, a commit of `main`; its head when empty.
+        #[arg(long)]
+        commit: Option<String>,
+        /// The file of the job's outputs (`GITHUB_OUTPUT`).
+        #[arg(long)]
+        outputs: PathBuf,
+        /// The job's summary (`GITHUB_STEP_SUMMARY`).
+        #[arg(long)]
+        summary: PathBuf,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Fails unless every cell is green on the commit, from one or more
+    /// dispatches; a failed test step in any attempt leaves it red.
+    Verdict {
+        /// The repository, as `owner/name`.
+        #[arg(long)]
+        repository: String,
+        /// The commit of `main` the runs tested.
+        #[arg(long)]
+        commit: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum ScreenshotsCommand {
     /// Applies the screenshots of a downloaded `update-screenshots` run, or
     /// fails when it was not made in the pinned image on the head.
@@ -275,6 +337,9 @@ enum ResultsCommand {
         /// Only the tests that failed on this OS (`linux`, `macos`, `windows`).
         #[arg(long)]
         os: Option<String>,
+        /// Only the tests that failed on this architecture (`x64`, `arm64`).
+        #[arg(long)]
+        arch: Option<String>,
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
@@ -343,16 +408,22 @@ enum EgressCommand {
     },
     /// Prints the nftables ruleset that denies a job's outbound traffic but
     /// to its allowed endpoints, at the addresses resolved before the deny.
+    /// With `--windows`, prints the Windows Firewall block rules instead, one
+    /// `<protocol> <remote addresses> <remote ports>` line each.
+    #[command(group(clap::ArgGroup::new("enforcer").required(true).args(["uid", "windows"])))]
     Rules {
         /// The job, as `<workflow file>#<job id>`.
         #[arg(long)]
         job: String,
-        /// A file of `<host> <port> <address>` lines, resolved in the VM.
+        /// A file of `<host> <port> <address>` lines, resolved before the deny.
         #[arg(long)]
         resolved: PathBuf,
-        /// The VM user that runs the job's container, so the product.
+        /// The user that runs the product, in the job's VM or network namespace.
         #[arg(long)]
-        uid: u32,
+        uid: Option<u32>,
+        /// The rules of the Windows cell's firewall.
+        #[arg(long)]
+        windows: bool,
     },
     /// The Egress canary: a forbidden connection that must be refused.
     Canary {
@@ -361,13 +432,17 @@ enum EgressCommand {
     },
     /// Fails on every connection the deny refused but the canary's, read
     /// from the deny's counters and its kernel log at the job's end.
+    #[command(group(clap::ArgGroup::new("refusals").required(true).args(["counters", "firewall_log"])))]
     Report {
         /// The output of `nft --json list counters table inet goodfetch_egress`.
+        #[arg(long, requires = "log")]
+        counters: Option<PathBuf>,
+        /// The kernel log of the deny's VM or runner.
+        #[arg(long, requires = "counters")]
+        log: Option<PathBuf>,
+        /// The Windows firewall's log of dropped packets.
         #[arg(long)]
-        counters: PathBuf,
-        /// The VM's kernel log.
-        #[arg(long)]
-        log: PathBuf,
+        firewall_log: Option<PathBuf>,
     },
 }
 
@@ -378,17 +453,24 @@ enum CanaryCommand {
         #[arg(long)]
         outcome: PathBuf,
     },
-    /// Passes when the attempt did not connect and the deny counted it.
+    /// Passes when the attempt did not connect and the deny recorded it.
+    #[command(group(clap::ArgGroup::new("record").required(true).args(["before", "firewall_log", "sandbox"])))]
     Verdict {
         /// The file `attempt` wrote.
         #[arg(long)]
         outcome: PathBuf,
         /// The deny's counters before the attempt, as `nft --json` lists them.
-        #[arg(long)]
-        before: PathBuf,
+        #[arg(long, requires = "after")]
+        before: Option<PathBuf>,
         /// The deny's counters after the attempt.
+        #[arg(long, requires = "before")]
+        after: Option<PathBuf>,
+        /// The Windows firewall's log of dropped packets.
         #[arg(long)]
-        after: PathBuf,
+        firewall_log: Option<PathBuf>,
+        /// The attempt ran under macOS's sandbox, whose refusal is its record.
+        #[arg(long)]
+        sandbox: bool,
     },
 }
 
@@ -429,6 +511,8 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             };
             Ok(check::report(&all_green::check(&root.join(needs), &run)?))
         }
+        Command::Codegen(arguments) => run_codegen(arguments, root, environment),
+        Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::DependencyDirection => Ok(check::report(&dependency_direction::check(
             &environment.cargo,
             root,
@@ -439,6 +523,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
+        Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
         Command::Repeat {
             count,
             test,
@@ -509,6 +594,37 @@ fn run_size(mode: &SizeMode, root: &Path, environment: &Environment) -> anyhow::
             files.save.as_deref(),
         ),
     }
+}
+
+#[derive(Args)]
+struct CodegenArguments {
+    /// Fails on any committed file that differs from what the types
+    /// generate, without running the TypeScript and Python generators.
+    #[arg(long)]
+    check: bool,
+    /// `json-schema-to-typescript`'s executable.
+    #[arg(long, default_value = "node_modules/.bin/json2ts")]
+    json2ts: PathBuf,
+    /// `datamodel-code-generator`'s executable.
+    #[arg(long, default_value = ".venv/bin/datamodel-codegen")]
+    datamodel_codegen: PathBuf,
+}
+
+/// `codegen` and its `--check` (ADR 0038).
+fn run_codegen(
+    arguments: CodegenArguments,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    if arguments.check {
+        return Ok(check::report(&codegen::check(&environment.cargo, root)?));
+    }
+    let generators = codegen::Generators {
+        json2ts: arguments.json2ts,
+        datamodel_codegen: arguments.datamodel_codegen,
+    };
+    codegen::write(&environment.cargo, &generators, root)?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// The `screenshots` commands (ADR 0073).
@@ -602,11 +718,9 @@ fn run_results(
             attempt,
             artifacts,
             os,
+            arch,
             api_url,
         } => {
-            // A run with more failures than this is broken, not flaky; the
-            // rest are only counted, for the job summary.
-            const DIAGNOSED_AT_MOST: usize = 20;
             let source = results::Source {
                 api: github::Api {
                     url: &api_url,
@@ -617,15 +731,11 @@ fn run_results(
                 attempt,
                 artifacts: &root.join(artifacts),
             };
-            let mut failed = results::failed(&source, os.as_deref())?;
-            let left_out = failed.split_off(failed.len().min(DIAGNOSED_AT_MOST));
-            output::line(&format!("count={}", failed.len()));
-            output::line(&format!(
-                "matrix={}",
-                serde_json::json!({ "include": failed })
-            ));
-            output::line(&format!("left_out={}", left_out.len()));
-            Ok(ExitCode::SUCCESS)
+            let platform = results::Platform {
+                os: os.as_deref(),
+                arch: arch.as_deref(),
+            };
+            print_failed(&source, &platform)
         }
         ResultsCommand::Ingest {
             repository,
@@ -683,6 +793,75 @@ fn run_results(
     }
 }
 
+/// Prints a failed attempt's tests as a diagnostic job matrix (ADR 0064).
+fn print_failed(
+    source: &results::Source<'_>,
+    platform: &results::Platform<'_>,
+) -> anyhow::Result<ExitCode> {
+    // A run with more failures than this is broken, not flaky; the rest are
+    // only counted, for the job summary.
+    const DIAGNOSED_AT_MOST: usize = 20;
+    let mut failed = results::failed(source, platform)?;
+    let left_out = failed.split_off(failed.len().min(DIAGNOSED_AT_MOST));
+    output::line(&format!("count={}", failed.len()));
+    output::line(&format!(
+        "matrix={}",
+        serde_json::json!({ "include": failed })
+    ));
+    output::line(&format!("left_out={}", left_out.len()));
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The `release-suite` commands (ADR 0108).
+fn run_release_suite(
+    command: ReleaseSuiteCommand,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        ReleaseSuiteCommand::Plan {
+            repository,
+            run_id,
+            git_ref,
+            cells,
+            commit,
+            outputs,
+            summary,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            let dispatch = release_suite::Dispatch {
+                repository: &repository,
+                run_id,
+                git_ref: &git_ref,
+                cells: &cells,
+                commit: commit.as_deref(),
+                outputs: &root.join(outputs),
+                summary: &root.join(summary),
+            };
+            Ok(check::report(&release_suite::plan(api, &dispatch)?))
+        }
+        ReleaseSuiteCommand::Verdict {
+            repository,
+            commit,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            Ok(check::report(&release_suite::verdict(
+                api,
+                &repository,
+                &commit,
+            )?))
+        }
+    }
+}
+
 /// The `egress` commands (ADR 0043).
 fn run_egress(command: EgressCommand, root: &Path) -> anyhow::Result<ExitCode> {
     match command {
@@ -693,8 +872,19 @@ fn run_egress(command: EgressCommand, root: &Path) -> anyhow::Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        EgressCommand::Rules { job, resolved, uid } => {
-            output::line(egress::rules(root, &job, &root.join(resolved), uid)?.trim_end());
+        EgressCommand::Rules {
+            job,
+            resolved,
+            uid,
+            windows,
+        } => {
+            // clap requires `--uid` or `--windows`.
+            let enforcer = match (uid, windows) {
+                (_, true) => egress::Enforcer::WindowsFirewall,
+                (Some(uid), false) => egress::Enforcer::Nftables { uid },
+                (None, false) => anyhow::bail!("give --uid or --windows"),
+            };
+            output::line(egress::rules(root, &job, &root.join(resolved), &enforcer)?.trim_end());
             Ok(ExitCode::SUCCESS)
         }
         EgressCommand::Canary { command } => match command {
@@ -706,18 +896,44 @@ fn run_egress(command: EgressCommand, root: &Path) -> anyhow::Result<ExitCode> {
                 outcome,
                 before,
                 after,
-            } => Ok(check::report(&egress::verdict(
-                root,
-                &root.join(outcome),
-                &root.join(before),
-                &root.join(after),
-            )?)),
+                firewall_log,
+                sandbox,
+            } => {
+                let (before, after) = (
+                    before.map(|path| root.join(path)),
+                    after.map(|path| root.join(path)),
+                );
+                let firewall_log = firewall_log.map(|path| root.join(path));
+                // clap requires one record, and `--before` with `--after`.
+                let record = match (&before, &after, &firewall_log, sandbox) {
+                    (Some(before), Some(after), _, _) => egress::Record::Counters { before, after },
+                    (_, _, Some(log), _) => egress::Record::FirewallLog(log),
+                    (_, _, _, true) => egress::Record::Sandbox,
+                    _ => anyhow::bail!("give --before and --after, --firewall-log or --sandbox"),
+                };
+                Ok(check::report(&egress::verdict(
+                    root,
+                    &root.join(outcome),
+                    &record,
+                )?))
+            }
         },
-        EgressCommand::Report { counters, log } => Ok(check::report(&egress::report(
-            root,
-            &root.join(counters),
-            &root.join(log),
-        )?)),
+        EgressCommand::Report {
+            counters,
+            log,
+            firewall_log,
+        } => {
+            let counters = counters.map(|path| root.join(path));
+            let log = log.map(|path| root.join(path));
+            let firewall_log = firewall_log.map(|path| root.join(path));
+            // clap requires `--counters` with `--log`, or `--firewall-log`.
+            let refusals = match (&counters, &log, &firewall_log) {
+                (Some(counters), Some(log), _) => egress::Refusals::Nftables { counters, log },
+                (_, _, Some(log)) => egress::Refusals::FirewallLog(log),
+                _ => anyhow::bail!("give --counters and --log, or --firewall-log"),
+            };
+            Ok(check::report(&egress::report(root, &refusals)?))
+        }
     }
 }
 

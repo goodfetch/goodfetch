@@ -8,7 +8,7 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::github::{GitHub, Write};
+use crate::github::{GitHub, Request};
 use crate::store::{Attempt, STORE, test_run, with, write_store};
 use crate::workspace::{Outcome, Workspace, finding};
 
@@ -49,12 +49,16 @@ fn serving(flaky_test_issues: &str, live_check_issues: &str) -> GitHub {
             "POST /repos/goodfetch/goodfetch/issues",
             r#"{ "number": 1700 }"#,
         ),
+        (
+            "PATCH /repos/goodfetch/goodfetch/issues/1601",
+            r#"{ "number": 1601 }"#,
+        ),
     ])
 }
 
 /// The fields of a write the scan sets, without the body's text.
-fn summary(write: &Write) -> (String, String, Value) {
-    let mut fields = write.body.clone();
+fn summary(write: &Request) -> (String, String, Value) {
+    let mut fields: Value = serde_json::from_str(&write.body).unwrap();
     if let Some(fields) = fields.as_object_mut() {
         fields.remove("body");
     }

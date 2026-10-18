@@ -6,3 +6,9 @@ rules:
     config:
       policies:
         "*": hash-pin
+  # The Release suite's cells call the composite action of the commit they
+  # check out (`./.github/actions/host-tools`). GitHub's `$/` self-repository
+  # syntax would also do, but actionlint 1.7.12 refuses it as an action
+  # without a ref, and both linters run in `just lint`.
+  self-repository:
+    disable: true

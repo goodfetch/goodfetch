@@ -326,7 +326,7 @@ fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_in
     let opened: Vec<Value> = issues
         .writes()
         .into_iter()
-        .map(|write| write.body["title"].clone())
+        .map(|write| serde_json::from_str::<Value>(&write.body).unwrap()["title"].clone())
         .collect();
     assert_eq!(
         opened,

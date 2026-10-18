@@ -1,0 +1,315 @@
+//! What a catalog entry declares: an operation, an event, an Error code, a
+//! Plugin kind or a metric, with the markers and versions ADRs 0030, 0038,
+//! 0050 and 0095 give it. Each module that defines entries lists them in one
+//! `Entries` value, which the emitter reads.
+
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+
+/// The protocol's version, `major.minor` (ADR 0030).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProtocolVersion {
+    /// Raised by a breaking change.
+    pub major: u16,
+    /// Raised by an additive change.
+    pub minor: u16,
+}
+
+/// The version this crate speaks.
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+
+/// One of Goodfetch's two Products (ADR 0084).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Product {
+    /// Browser automation; Foxhound contains it.
+    Collie,
+    /// Crawling, which contains Collie.
+    Foxhound,
+}
+
+impl Product {
+    /// The smallest Product that carries an entry defined in `module`, a
+    /// `module_path!()`: Foxhound for an item of the `foxhound` module, Collie
+    /// for any other (ADR 0099).
+    pub fn of_module(module: &str) -> Self {
+        if module.split("::").any(|segment| segment == "foxhound") {
+            Self::Foxhound
+        } else {
+            Self::Collie
+        }
+    }
+
+    /// The mark as the catalog writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Collie => "collie",
+            Self::Foxhound => "foxhound",
+        }
+    }
+}
+
+/// What calling an operation does (ADR 0011).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperationClass {
+    /// Changes nothing.
+    Read,
+    /// Changes state, and calling it again changes nothing more.
+    IdempotentWrite,
+    /// Acts on the world, and is never treated as undone (ADR 0010).
+    Effect,
+}
+
+/// Whether an entry is under semver's promise (ADR 0030).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stability {
+    /// Under semver.
+    Stable,
+    /// Outside semver until it is promoted.
+    Experimental,
+}
+
+/// An entry's deprecation (ADR 0030).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Deprecation {
+    /// The version that deprecated it.
+    pub since: ProtocolVersion,
+    /// What to use instead, or why it goes.
+    pub note: &'static str,
+}
+
+/// Registers a type's JSON Schema with the bundle's generator and returns
+/// the reference to it.
+pub type SchemaOf = fn(&mut SchemaGenerator) -> Schema;
+
+/// The [`SchemaOf`] of `T`.
+pub fn schema_of<T: JsonSchema>(generator: &mut SchemaGenerator) -> Schema {
+    generator.subschema_for::<T>()
+}
+
+/// An operation of the Operation catalog (ADR 0038).
+pub struct Operation {
+    /// `<namespace>.<member>` in `snake_case` words (ADR 0099).
+    pub name: &'static str,
+    /// The `module_path!()` of the module that defines it, which gives its
+    /// Product (ADR 0099).
+    pub defined_in: &'static str,
+    /// The one text of its SDK docstrings, MCP tool description and
+    /// reference page.
+    pub description: &'static str,
+    /// What calling it does.
+    pub class: OperationClass,
+    /// The type of its params.
+    pub params: SchemaOf,
+    /// The type of its result.
+    pub result: SchemaOf,
+    /// The names of the events a call may send.
+    pub events: &'static [&'static str],
+    /// Whether a Client may cancel a call in flight.
+    pub cancellable: bool,
+    /// Its semver status.
+    pub stability: Stability,
+    /// Its deprecation, if any.
+    pub deprecated: Option<Deprecation>,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
+/// An event the engine sends.
+pub struct Event {
+    /// Its `snake_case` name, dotted by namespace.
+    pub name: &'static str,
+    /// The `module_path!()` of the module that defines it.
+    pub defined_in: &'static str,
+    /// What it reports.
+    pub description: &'static str,
+    /// The type of its payload.
+    pub payload: SchemaOf,
+    /// Its semver status.
+    pub stability: Stability,
+    /// Its deprecation, if any.
+    pub deprecated: Option<Deprecation>,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
+/// The seven groups of Error codes, named for their remedy (ADR 0079).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ErrorGroup {
+    /// The program is wrong.
+    Program,
+    /// A policy, a Limit, a lock or a person refused.
+    Refused,
+    /// The page or site never reached the state the call needed.
+    Page,
+    /// The Model provider's answer was unusable.
+    Model,
+    /// The deadline passed.
+    DeadlineExceeded,
+    /// Something Goodfetch depends on is unreachable or gone.
+    Unavailable,
+    /// A bug in Goodfetch.
+    Internal,
+}
+
+impl ErrorGroup {
+    /// Every group, in the order ADR 0079 lists them.
+    pub const ALL: [Self; 7] = [
+        Self::Program,
+        Self::Refused,
+        Self::Page,
+        Self::Model,
+        Self::DeadlineExceeded,
+        Self::Unavailable,
+        Self::Internal,
+    ];
+
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Program => "program",
+            Self::Refused => "refused",
+            Self::Page => "page",
+            Self::Model => "model",
+            Self::DeadlineExceeded => "deadline_exceeded",
+            Self::Unavailable => "unavailable",
+            Self::Internal => "internal",
+        }
+    }
+
+    /// Its JSON-RPC numeric class, in the range JSON-RPC 2.0 leaves to
+    /// servers (ADRs 0038 and 0079).
+    pub fn json_rpc_class(self) -> i32 {
+        match self {
+            Self::Program => -32001,
+            Self::Refused => -32002,
+            Self::Page => -32003,
+            Self::Model => -32004,
+            Self::DeadlineExceeded => -32005,
+            Self::Unavailable => -32006,
+            Self::Internal => -32007,
+        }
+    }
+
+    /// What it means, for the generated error classes' docs.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Program => {
+                "The program is wrong: its call, its settings or its own handler code. Fix the program."
+            }
+            Self::Refused => {
+                "A policy, a Limit, a lock or a person refused. Change a setting, raise the Limit or ask the operator."
+            }
+            Self::Page => {
+                "The page or site never reached the state the call needed. Read the Run trace; change the step, the wait or the Access mode."
+            }
+            Self::Model => {
+                "The Model provider's answer was unusable. Change the model or the strategy."
+            }
+            Self::DeadlineExceeded => "The deadline passed. Raise it, or wait for the right thing.",
+            Self::Unavailable => {
+                "Something Goodfetch depends on is unreachable or gone. Retry, or fix the setup."
+            }
+            Self::Internal => "A bug in Goodfetch. Report it.",
+        }
+    }
+}
+
+/// An Error code (ADR 0038).
+pub struct ErrorCodeDefinition {
+    /// The code's `snake_case` string.
+    pub name: &'static str,
+    /// The `module_path!()` of the module that defines it.
+    pub defined_in: &'static str,
+    /// What went wrong.
+    pub description: &'static str,
+    /// Its group, whose numeric class the wire carries.
+    pub group: ErrorGroup,
+    /// Whether the same call may succeed when made again.
+    pub retryable: bool,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
+/// One request the engine sends to an implementation of a Plugin kind.
+pub struct PluginMethod {
+    /// Its `snake_case` name.
+    pub name: &'static str,
+    /// What the implementation does.
+    pub description: &'static str,
+    /// The type of its params.
+    pub params: SchemaOf,
+    /// The type of its result.
+    pub result: SchemaOf,
+}
+
+/// A Plugin kind (ADR 0033), whose SDK handlers get a generated base class.
+pub struct PluginKind {
+    /// Its `snake_case` name.
+    pub name: &'static str,
+    /// The `module_path!()` of the module that defines it.
+    pub defined_in: &'static str,
+    /// What its implementations do.
+    pub description: &'static str,
+    /// The requests the engine sends to an implementation.
+    pub methods: &'static [PluginMethod],
+    /// Its semver status.
+    pub stability: Stability,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
+/// The kind of OpenTelemetry instrument a metric is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Instrument {
+    /// A sum that only grows.
+    Counter,
+    /// A sum that grows and shrinks.
+    UpDownCounter,
+    /// A distribution of measurements.
+    Histogram,
+    /// A value sampled when read.
+    Gauge,
+}
+
+impl Instrument {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Counter => "counter",
+            Self::UpDownCounter => "up_down_counter",
+            Self::Histogram => "histogram",
+            Self::Gauge => "gauge",
+        }
+    }
+}
+
+/// A metric, whose name is a versioned contract (ADR 0050).
+pub struct Metric {
+    /// Its OpenTelemetry name under `goodfetch.`.
+    pub name: &'static str,
+    /// The `module_path!()` of the module that defines it.
+    pub defined_in: &'static str,
+    /// What it measures.
+    pub description: &'static str,
+    /// Its instrument.
+    pub instrument: Instrument,
+    /// Its UCUM unit, such as `s` or `{request}`.
+    pub unit: &'static str,
+    /// Its semver status.
+    pub stability: Stability,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
+/// Every entry one module defines.
+pub struct Entries {
+    /// Its operations.
+    pub operations: &'static [Operation],
+    /// Its events.
+    pub events: &'static [Event],
+    /// Its Error codes.
+    pub error_codes: &'static [ErrorCodeDefinition],
+    /// Its Plugin kinds.
+    pub plugin_kinds: &'static [PluginKind],
+    /// Its metrics.
+    pub metrics: &'static [Metric],
+}

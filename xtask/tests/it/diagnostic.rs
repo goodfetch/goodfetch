@@ -4,6 +4,7 @@
 //! artifacts are a downloaded run's folders.
 //! Covers: story:1-113
 
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::github::GitHub;
@@ -70,13 +71,15 @@ fn failed(workspace: &Workspace, github: &GitHub, extra: &[&str]) -> crate::work
 }
 
 /// A failed cell on the owner's machine is diagnosed there (ADR 0108), so
-/// each runner's jobs take the tests of their own OS.
-#[test]
-fn failed_tests_of_another_os_get_no_job_here() {
+/// each runner's jobs take the tests of their own OS and architecture.
+#[rstest]
+#[case::os(&["--os", "macos"])]
+#[case::architecture(&["--os", "linux", "--arch", "arm64"])]
+fn failed_tests_of_another_platform_get_no_job_here(#[case] platform: &[&str]) {
     let workspace = Workspace::from_fixture("results-ingest");
     let github = serving();
 
-    let outcome = failed(&workspace, &github, &["--os", "macos"]);
+    let outcome = failed(&workspace, &github, platform);
 
     assert_eq!(outcome.code, 0);
     assert_eq!(value(&outcome.stdout, "count"), json!(0));

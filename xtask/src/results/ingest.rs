@@ -154,15 +154,22 @@ pub(crate) struct Failed {
     runtime: Option<String>,
 }
 
-/// The tests that failed in the attempt, on `os` when given, once each per
+/// The OS and architecture a diagnostic job runs on, each `None` for any.
+pub(crate) struct Platform<'a> {
+    pub(crate) os: Option<&'a str>,
+    pub(crate) arch: Option<&'a str>,
+}
+
+/// The tests that failed in the attempt on `platform`, once each per
 /// configuration, of the runners `xtask repeat` repeats; never a Live check's.
-pub(crate) fn failed(source: &Source<'_>, os: Option<&str>) -> Result<Vec<Failed>> {
+pub(crate) fn failed(source: &Source<'_>, platform: &Platform<'_>) -> Result<Vec<Failed>> {
     let (attempt, _) = read(source)?;
     let failed: BTreeSet<Failed> = attempt
         .test_runs
         .into_iter()
         .filter(|run| run.outcome == Outcome::Failed && run.tier != LIVE_TIER)
-        .filter(|run| os.is_none_or(|os| run.os == os))
+        .filter(|run| platform.os.is_none_or(|os| run.os == os))
+        .filter(|run| platform.arch.is_none_or(|arch| run.arch == arch))
         .filter(|run| ["nextest", "vitest", "playwright", "pytest"].contains(&run.runner.as_str()))
         .map(|run| Failed {
             test: format!("{}={}", run.runner, run.test),

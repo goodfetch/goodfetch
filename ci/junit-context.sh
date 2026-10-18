@@ -11,11 +11,16 @@ set -euo pipefail
 repeat=${1:-}
 
 mkdir -p target/junit
-for report in target/nextest/*/junit.xml; do
-  [[ -f "$report" ]] || continue
-  profile=$(basename "$(dirname "$report")")
-  cp "$report" "target/junit/nextest-$profile.xml"
-done
+# A job that copied nextest's file itself (the VM, ci/release/cell.sh) keeps
+# its copy, so no test run is counted twice.
+copied=(target/junit/nextest-*.xml)
+if [[ ! -f "${copied[0]}" ]]; then
+  for report in target/nextest/*/junit.xml; do
+    [[ -f "$report" ]] || continue
+    profile=$(basename "$(dirname "$report")")
+    cp "$report" "target/junit/nextest-$profile.xml"
+  done
+fi
 
 jq --null-input \
   --arg job "${GITHUB_JOB:?the runner sets GITHUB_JOB}" \

@@ -39,9 +39,11 @@ proc-macro2 = { version = "1.0.107", default-features = false, features = ["span
 quick-xml = { version = "0.39.4", default-features = false }
 quote = { version = "1.0.47", default-features = false }
 rstest = { version = "0.27.0", default-features = false }
+schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+sha2 = { version = "0.10.9", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
 tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }

@@ -1,0 +1,309 @@
+//! `xtask codegen` and its drift check (ADRs 0038, 0087 and 0095): the
+//! committed bundle, catalog and per-Product outputs, each SDK package's
+//! generated layer, and the lists only `xtask codegen` writes.
+//! Covers: story:1-57
+
+use rstest::rstest;
+use serde_json::Value;
+
+use crate::workspace::{Finding, Outcome, Workspace, finding};
+
+const JSON2TS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../node_modules/.bin/json2ts");
+const DATAMODEL_CODEGEN: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../.venv/bin/datamodel-codegen"
+);
+
+const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
+
+fn codegen(workspace: &Workspace) -> Outcome {
+    let outcome = workspace.xtask(&[
+        "codegen",
+        "--json2ts",
+        JSON2TS,
+        "--datamodel-codegen",
+        DATAMODEL_CODEGEN,
+    ]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    outcome
+}
+
+fn names_and_products(catalog: &Value, section: &str) -> Vec<(String, String)> {
+    catalog[section]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["name"].as_str().unwrap().to_owned(),
+                entry["product"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// Every file `xtask codegen` writes, with its contents.
+fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
+    let mut files = vec![("deny.toml".to_owned(), workspace.read_text("deny.toml"))];
+    for folder in GENERATED_FOLDERS {
+        let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        paths.sort();
+        for name in paths {
+            let path = format!("{folder}/{name}");
+            let contents = workspace.read_text(&path);
+            files.push((path, contents));
+        }
+    }
+    files
+}
+
+const GENERATED_FOLDERS: [&str; 5] = [
+    "crates/goodfetch-protocol/generated",
+    "sdks/typescript/collie-client/src/generated",
+    "sdks/typescript/foxhound/src/generated",
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated",
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated",
+];
+
+#[test]
+fn regenerating_twice_gives_identical_output() {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    let first = generated_files(&workspace);
+
+    codegen(&workspace);
+
+    assert_eq!(generated_files(&workspace), first);
+}
+
+#[test]
+fn check_passes_on_a_clean_tree() {
+    let workspace = Workspace::from_fixture("codegen");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
+const SAMPLE: &str = "crates/goodfetch-protocol/src/sample.rs";
+const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
+
+#[rstest]
+#[case::field_added_to_a_collie_type(
+    SAMPLE,
+    "    /// The text to repeat.\n    pub text: String,\n",
+    "    /// The text to repeat.\n    pub text: String,\n    /// How many times to repeat it.\n    pub times: u32,\n",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/collie.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
+        finding("stale", "sdks/typescript/collie-client/src/generated/types.ts"),
+        finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
+    ],
+)]
+#[case::metric_renamed(
+    SAMPLE,
+    "\"goodfetch.sample.echoes\"",
+    "\"goodfetch.sample.repeats\"",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/catalog.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/collie.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
+    ],
+)]
+#[case::foxhound_operation_renamed(
+    FOXHOUND,
+    "\"sample.crawl\"",
+    "\"sample.visit\"",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/catalog.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/foxhound_names.rs"),
+        finding("drift", "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py"),
+        finding("drift", "sdks/typescript/foxhound/src/generated/operations.ts"),
+    ],
+)]
+fn check_fails_after_a_type_change_that_was_not_regenerated(
+    #[case] source: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(source, from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}
+
+#[rstest]
+#[case::generator_output("sdks/typescript/collie-client/src/generated/types.ts", "edited")]
+#[case::method_layer(
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py",
+    "drift"
+)]
+#[case::catalog("crates/goodfetch-protocol/generated/catalog.json", "drift")]
+fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
+    let workspace = Workspace::from_fixture("codegen");
+    let edited = format!("{}\n", workspace.read_text(path));
+    workspace.write(path, edited.as_bytes());
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(kind, path)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn check_detects_a_file_added_under_generated() {
+    let workspace = Workspace::from_fixture("codegen");
+    let path = "sdks/typescript/foxhound/src/generated/helpers.ts";
+    workspace.write(path, b"export const helper = 1;\n");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("unexpected", path)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn catalog_marks_each_entry_with_the_product_whose_module_defines_it() {
+    let workspace = Workspace::from_fixture("codegen");
+
+    codegen(&workspace);
+
+    let catalog: Value = serde_json::from_str(&workspace.read_text(CATALOG)).unwrap();
+    assert_eq!(
+        names_and_products(&catalog, "operations"),
+        vec![
+            ("sample.crawl".to_owned(), "foxhound".to_owned()),
+            ("sample.echo".to_owned(), "collie".to_owned()),
+        ]
+    );
+}
+
+#[rstest]
+#[case::typescript_collie_client(
+    "sdks/typescript/collie-client/src/generated/operations.ts",
+    "\"sample.echo\"",
+    "\"sample.crawl\""
+)]
+#[case::typescript_foxhound(
+    "sdks/typescript/foxhound/src/generated/operations.ts",
+    "\"sample.crawl\"",
+    "\"sample.echo\""
+)]
+#[case::python_collie_client(
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py",
+    "\"sample.echo\"",
+    "\"sample.crawl\""
+)]
+#[case::python_foxhound(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py",
+    "\"sample.crawl\"",
+    "\"sample.echo\""
+)]
+fn each_sdk_package_generates_only_its_products_operations(
+    #[case] path: &str,
+    #[case] own_operation: &str,
+    #[case] other_operation: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+
+    codegen(&workspace);
+
+    let operations = workspace.read_text(path);
+    assert!(operations.contains(own_operation), "{operations}");
+    assert!(!operations.contains(other_operation), "{operations}");
+}
+
+const POLITENESS_MANIFEST: &str = "crates/foxhound/goodfetch-politeness/Cargo.toml";
+const POLITENESS_LIB: &str = "crates/foxhound/goodfetch-politeness/src/lib.rs";
+
+fn add_politeness_crate(workspace: &Workspace) {
+    workspace.write(
+        POLITENESS_MANIFEST,
+        b"[package]\nname = \"goodfetch-politeness\"\nversion.workspace = true\nedition.workspace = true\npublish.workspace = true\n",
+    );
+    workspace.write(
+        POLITENESS_LIB,
+        b"//! A Foxhound crate added to the fixture.\n",
+    );
+}
+
+/// Each crate cargo-deny bans with `wrappers`, and those wrappers.
+fn wrapped_crates(deny: &str) -> Vec<(String, Vec<String>)> {
+    let deny: toml::Table = deny.parse().unwrap();
+    deny["bans"]["deny"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| {
+            let wrappers = entry.get("wrappers")?.as_array()?;
+            Some((
+                entry["crate"].as_str().unwrap().to_owned(),
+                wrappers
+                    .iter()
+                    .map(|wrapper| wrapper.as_str().unwrap().to_owned())
+                    .collect(),
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn wrappers_list_follows_the_folders_under_crates_foxhound() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_politeness_crate(&workspace);
+
+    codegen(&workspace);
+
+    let wrappers: Vec<String> = [
+        "goodfetch-frontier",
+        "goodfetch-politeness",
+        "goodfetch-sink",
+        "xtask",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    assert_eq!(
+        wrapped_crates(&workspace.read_text("deny.toml")),
+        vec![
+            ("goodfetch-frontier".to_owned(), wrappers.clone()),
+            ("goodfetch-politeness".to_owned(), wrappers.clone()),
+            ("goodfetch-sink".to_owned(), wrappers),
+        ]
+    );
+}
+
+#[test]
+fn check_fails_on_a_stale_wrappers_list() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_politeness_crate(&workspace);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", "deny.toml")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}

@@ -11,7 +11,9 @@
 # While the repository is private, a hosted diagnostic run counts toward test
 # health's 1,000 minutes and is skipped once the month leaves no room for its
 # 10 (ADRs 0064 and 0108); a cell of the owner's machine is diagnosed there
-# and counts nothing.
+# and counts nothing. Failures of the Release suite's Linux arm64 and Windows
+# cells get no diagnostic job yet, and a hosted rerun takes the host-tools
+# action's default runtimes, not a musl cell's or each Node.js line's.
 name: diagnostic
 
 # `workflow_run` is what follows a finished run. The runs it follows start only
@@ -60,7 +62,7 @@ jobs:
         run: >-
           gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --dir target/artifacts --pattern 'junit-*'
           || echo "The run uploaded no JUnit file."
-      - name: Choose the failed tests of hosted Linux
+      - name: Choose the failed tests of hosted Linux x64
         id: hosted
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -68,7 +70,7 @@ jobs:
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: >-
           cargo run --quiet --locked -p xtask -- results failed --repository "$GITHUB_REPOSITORY"
-          --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os linux
+          --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os linux --arch x64
           | tee -a "$GITHUB_OUTPUT"
       - name: Choose the failed tests of the owner's machine
         id: owner-machine

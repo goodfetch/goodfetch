@@ -1,0 +1,53 @@
+# Features no pinned test proves (ADR 0072; TESTING.md, Exceptions): each is
+# excepted, never tested, with its evidence (`manual`, `live`, `check` or
+# `none`), the reason, and a link to where it is checked. A `check` exception
+# is a story met by repository configuration and checked by a named CI job;
+# its link names the workflow file and the job id.
+
+[[exception]]
+feature = "story:1-49"
+evidence = "check"
+reason = "One repository holding every surface is its layout; the Quick job's lints and cargo metadata run over the whole workspace on every pull request."
+link = ".github/workflows/pull-request.yml#quick"
+
+[[exception]]
+feature = "story:1-50"
+evidence = "check"
+reason = "`just` is the entry point CI calls: every job of the pull-request tier runs a `just` recipe."
+link = ".github/workflows/pull-request.yml#quick"
+
+[[exception]]
+feature = "story:1-63"
+evidence = "check"
+reason = "Only the cache-warming job on `main` mounts the cache folder writable; pull-request jobs mount it read-only (ADR 0135)."
+link = ".github/workflows/cache-warming.yml#warm"
+
+[[exception]]
+feature = "story:1-66"
+evidence = "check"
+reason = "rnd/README.md carries the archive banner, and the lab job runs only when rnd/ changes and is not among the required checks."
+link = ".github/workflows/lab.yml#lab"
+
+[[exception]]
+feature = "story:1-71"
+evidence = "check"
+reason = "zizmor's hash-pin policy runs on every workflow in the Quick job, and the Pre-merge job proves it refuses an Action pinned by tag."
+link = ".github/workflows/pull-request.yml#pre-merge"
+
+[[exception]]
+feature = "story:1-77"
+evidence = "check"
+reason = "ci/repository-files.sh, in the Quick job's lints, checks SECURITY.md's required sections and terms."
+link = ".github/workflows/pull-request.yml#quick"
+
+[[exception]]
+feature = "story:1-100"
+evidence = "check"
+reason = "ci/repository-files.sh, in the Quick job's lints, checks that both licence files name the Goodfetch contributors and the trademark policy exists."
+link = ".github/workflows/pull-request.yml#quick"
+
+[[exception]]
+feature = "story:1-105"
+evidence = "check"
+reason = "`just quick`, `just pre-merge` and `just release` are the commands CI runs, and each lists the parts it skipped on its host."
+link = ".github/workflows/pull-request.yml#quick"

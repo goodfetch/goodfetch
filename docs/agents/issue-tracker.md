@@ -41,7 +41,7 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --label wayfinder:map`.
 - **Child ticket**: an issue linked to the map as a GitHub sub-issue (see **Make an issue a sub-issue of a parent**). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
 - **Blocking**: GitHub's **native issue dependencies**, the canonical, UI-visible representation. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only, the live gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins. Skip `ready-for-human` issues: a person takes those.
+- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
 
@@ -57,13 +57,7 @@ V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surf
 
 ## Implementation loop
 
-The owner builds V1 with `/implement-spec` (owner, 2026-10-17). It is user-invoked, so the owner starts each run.
-
-- **Scope**: one spec's tickets of the current milestone that are unblocked, unassigned and not `ready-for-human`. Tickets close only when the run's pull request merges, so within a run a ticket counts as unblocked when each of its open blockers is either built on this run's integration branch or already closed. Start it as `/implement-spec #<spec>, only tickets in milestone "<full milestone title>" that the Scope bullet of the Implementation loop in docs/agents/issue-tracker.md admits`.
-- **Next spec**: the one holding the first unblocked ticket in the **Frontier** order above; within one area, the spec with the lower issue number comes first. A spec with none is skipped, not waited on. Before any run, open `flaky-test` and then `live-check` issues are worked first with `/implement` (ADR 0064). A `live-check` issue attributed to an external party has nothing to commit: it closes as **Test health labels** below says.
-- **Claim**: an implementer claims its ticket with the Wayfinding **Claim** command (`gh issue edit <n> --add-assignee @me`) before starting it, so another run skips it. Before it ends, a run unassigns each ticket it claimed but did not build (`gh issue edit <n> --remove-assignee @me`).
-- **End**: a run ends when its spec has nothing left it can build. When no spec has an unblocked ticket and tickets remain open, the owner decides.
-- **Delivery**: a run's integration branch goes up as one pull request with `Closes #<n>` for each ticket it built, never for the spec. Review and handoff are the skill's own steps 7 and 8 (`code-review`, then ready for review); the merge closes those tickets. GitHub does not close a parent issue when its sub-issues close: once a merge closes a spec's last ticket, the owner closes the spec with `gh issue close <spec>`.
+The owner builds V1 with `/implement-spec` (owner, 2026-10-17), one spec at a time, on the current milestone's tickets (**Frontier** above, ADR 0133). Start it as `/implement-spec #<spec>, only tickets in milestone "<full milestone title>"`.
 
 ## Test health labels
 

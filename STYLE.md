@@ -2,7 +2,7 @@
 
 How code is shaped in Goodfetch: the engine, its crates, the SDKs, the Console and the tools around them. Every rule comes with its reason, so that an exception can be judged against it. The hard-to-reverse rules (contracts, errors on the wire, cancellation, casing, concurrency, Cargo features) are decided in [ADR 0038](docs/adr/0038-contracts-from-rust-types-one-error-cancellation-and-concurrency-model.md); this file restates them only as far as code needs them. Rules a tool can check also live in the tool's configuration, which wins when the two disagree, and this file is then corrected.
 
-Where this file is silent, each language section names its references; this file wins where they disagree. The skills among them are vendored at pinned commits in [`.agents/skills/`](.agents/skills/README.md).
+Where this file is silent, the Rust section names its references and `AGENTS.md`'s Language skills lists the skills for each language; this file wins where they disagree.
 
 ## Design
 
@@ -164,7 +164,7 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 
 ## TypeScript
 
-Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/` and the docs site's `website/` in the pnpm workspace. References: the `typescript-best-practices` skill and the principle skills it names.
+Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/` and the docs site's `website/` in the pnpm workspace.
 
 - **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc, Twoslash) until TypeScript 7 provides one.
 - **Optional fields are written `?: T | undefined`.**
@@ -186,7 +186,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/`
 
 ## Python
 
-Applies to `sdks/python`, the Python adapters and the uv workspace. Supported versions follow ADR 0024: every CPython not past end of life, including free-threaded builds. References: the `ruff` and `uv` skills.
+Applies to `sdks/python`, the Python adapters and the uv workspace. Supported versions follow ADR 0024: every CPython not past end of life, including free-threaded builds.
 
 - **pyright in strict mode gates CI**, and mypy `--strict`, with the `deprecated` error code on, checks the generated code and the type tests that exercise the public API (`TESTING.md`, ADRs 0069 and 0099).
   _Why:_ pyright is what most editors show; the mypy check keeps the types right for mypy users too.

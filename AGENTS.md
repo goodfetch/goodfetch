@@ -24,7 +24,7 @@ signer; existing commits on `main` are not rewritten for attribution cleanup.
 
 ## Code style
 
-Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Where `STYLE.md` is silent, use the language skills it names, vendored in [`.agents/skills/`](.agents/skills/README.md); `STYLE.md` wins where they disagree. Tests follow [`TESTING.md`](TESTING.md): the seams in a spec's Testing Decisions are already agreed, so test there without asking, and name any other seam, with its reason, in the pull request.
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): the seams in a spec's Testing Decisions are already agreed, so test there without asking.
 
 Traps that break things:
 
@@ -34,8 +34,32 @@ Traps that break things:
 - A capability is a setting, never a Cargo feature, and nothing outside `crates/foxhound/` but `xtask` depends on a crate inside it (ADR 0087).
 - Identifiers use `GLOSSARY.md` terms, never their `_Avoid_` terms.
 
-## Agent workflows
+## Language skills
 
-For issue work, read [issue tracker](docs/agents/issue-tracker.md); for triage,
-read [label mapping](docs/agents/triage-labels.md). Before changing terminology
-or ADRs, read [domain docs](docs/agents/domain.md).
+Before writing or reviewing code in a language below, load its skills when your host has them. Those in bold are vendored at pinned commits in [`.agents/skills/`](.agents/skills/README.md), so every agent has them. `STYLE.md` and `TESTING.md` win where a skill differs: for example, the SDKs accept Standard Schema instead of depending on a schema library, and engine responses are not validated at runtime beyond the protocol version check.
+
+| Code | Skills |
+|---|---|
+| Any typed code: Rust, TypeScript, Python | **`principle-type-system-discipline`** |
+| TypeScript (`.ts`, `.tsx`) | **`typescript-best-practices`** |
+| Python | **`ruff`**, **`uv`** |
+| The Console and the React wrappers (React, shadcn on Base UI, Vite) | `vercel-react-best-practices` (its React rules, not its Next.js ones), `vercel-composition-patterns`, `react-mnne`, `shadcn` |
+| The PostgreSQL and Supabase Sinks | `postgres`, `supabase-postgres-best-practices` |
+
+Rust has no language skill: its section of `STYLE.md` and the references it names are the guide.
+
+## Agent skills
+
+Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133).
+
+### Issue tracker
+
+GitHub Issues, with sub-issues, native dependencies and milestones. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The default triage label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/`; `rnd/` is inspiration only. See `docs/agents/domain.md`.

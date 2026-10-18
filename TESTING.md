@@ -389,18 +389,17 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ## Test-first process
 
-- **An agent implementing a ticket follows the `tdd` skill.** The seams named in the spec's Testing Decisions are the seams agreed in advance. A test at another seam needs the pull request to name that seam and the reason, and the fresh review to accept it.
-- **Every behaviour lands red, then green.** The pull request's Verification section lists each new test with the failure it showed before the code existed. Commits stay green. The Verification section is the **Evidence** section of the pull-request template of the `pr` skill (one of the Matt Pocock skills agents use): its Before is each test's red failure and its After the same test passing; surviving mutants and a skipped mutants job are listed there after those pairs.
+- **An agent implementing a ticket follows the `tdd` skill.** The seams named in the spec's Testing Decisions are the seams agreed in advance ([ADR 0133](docs/adr/0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md)).
+- **Every behaviour lands red, then green.** The pull request's Evidence section (the `pr` skill's) lists each new test with the failure it showed before the code existed as its Before, and the same test passing as its After. Commits stay green.
   _Why:_ a test never seen failing may test nothing, and green commits keep `git bisect` and the "all green" check working.
 - **A bug fix starts with a test that reproduces the bug**, named by the behaviour, not the issue.
-- **Refactoring is not part of the red-green loop;** it happens in review.
 
 ## Review checklist
 
-The fresh review of a pull request checks its tests against this list:
+A pull request's tests meet this list, a standard the `code-review` skill applies:
 
-1. Each test sits at a seam the spec names, or the pull request justifies the new seam.
-2. The Verification section lists each new test with its red failure.
+1. Each test sits at a seam the spec names.
+2. The Evidence section lists each new test with its red failure.
 3. One behaviour per test, named as a behaviour in glossary terms, in the right place for its level.
 4. Through the interface: no private call, no `#[cfg(test)]` in product code, no `pub` added for tests, no mock of owned code.
 5. Expected values come from an independent source; failures are matched on Error codes.
@@ -411,7 +410,7 @@ The fresh review of a pull request checks its tests against this list:
 10. No helper is duplicated; shared setup is in test support, and a new test adapter crate is on CI's list ([Shared helpers](#shared-helpers)).
 11. A new decoder, listener, Plugin kind, widening setting, Secret kind or output has its tests under [Security](#security).
 12. Each declared Feature is one the test asserts ([Feature coverage](#feature-coverage)).
-13. Each mutant that survives in changed code is killed, or the Verification section explains it.
+13. Each mutant that survives in changed code is killed, or the Evidence section explains it.
 14. Each new exception names evidence no pinned test can replace.
 15. A spec change and its `features/stories/` file agree.
 16. A new Console string is in the catalog, a new component state has its Storybook story, and every changed Reference screenshot is intended ([Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)).
@@ -960,7 +959,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 - **`xtask perf` measures the base and the head in the same job, on the same runner:** the merge base on a pull request, the group's base in the merge queue. Never a stored figure from another machine.
 - **The gate trips at +5%** on instructions, total allocations, total bytes or bytes at the global maximum of any benchmark, and at **+5 kB brotli** on any size-limit entry.
-- **A tripped pull request passes only with a "Performance change" section** in its body, listing each tripped figure with its measured change and reason, accepted explicitly by the fresh review on the exact head.
+- **A tripped pull request passes only with a "Performance change" section** in its body, listing each tripped figure with its measured change and reason, accepted explicitly by the owner when merging ([ADR 0133](docs/adr/0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md)).
 - **Run `just perf` before pushing a change to code a benchmark covers.** It uses CI's thresholds; off Linux it runs in the CI image through a container engine, or lists itself as skipped.
 
 ### Counts as snapshots
@@ -1221,7 +1220,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
   - Playwright Test: an annotation `{ type: "covers", description: "<feature id>" }` per Feature;
   - Journeys, conformance cases and Client conformance cases: their `covers` list.
 - **A test that drives the protocol and declares an `operation:`, `error:`, `event:`, `command:` or `exit:` Feature must reach it.** The exercise audit reads `rpc`'s dispatch records (the engine's structured log for the binary, the test `tracing` subscriber for in-process tests over the in-memory transport) and test support's command record, and fails a declaring test that never called the operation, received the Error code or event, ran the command or saw the exit code.
-- **A unit test that never reaches `rpc` may declare the `error:` or `event:` Feature it asserts,** but must assert the Error code or the event itself. The audit can't see it; the review checks it.
+- **A unit test that never reaches `rpc` may declare the `error:` or `event:` Feature it asserts,** but must assert the Error code or the event itself. The audit can't see it, so it is a review standard.
 
 ### What counts as tested
 
@@ -1253,8 +1252,8 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 - **Never gate on a percentage:** no `--fail-under-*`, no coverage or mutation score in any check, badge or pull request, and no coverage service.
 - **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. While the repository is private, it has a 60-minute timeout and runs only while the month's count toward the ceiling of [Flaky tests and Live checks](#flaky-tests-and-live-checks) is below 550 minutes. Its results never decide a Feature's status. Run `just coverage` locally.
 - **Read coverage for gaps.** A function no test executes that hides a behaviour with no Feature gets a story, a Feature or a test.
-- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and stops at the same 550 minutes; the Verification section then says it was skipped.
-- **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
+- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and stops at the same 550 minutes; the Evidence section then says it was skipped.
+- **List each surviving mutant of your changed code in the Evidence section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
 - **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.
 
 ## Accessibility, localization and visual regression
@@ -1347,7 +1346,7 @@ Decided in [ADR 0075](docs/adr/0075-a-user-story-needs-a-journey-only-when-it-is
   1. **`actor`:** the actor is a person using a shipped surface (a user, a developer writing code against an SDK or the CLI, an operator, a Recipe author or user, a Plugin author, a Console user, the person behind an agent). Contributors, maintainers, the owner as releaser, areas, test support, Clients and Client authors, coding agents, Goodfetch Cloud, site owners and readers of the benchmark fail it.
   2. **`part`:** the story states a whole goal, a task the person sets out to do or see. It fails when its "I want" is one setting's effect, one Error code or a refusal of a wrong input, version, environment or configuration, one event, field or operation detail, or how the engine works. A stop at a Limit the person set, and the failure a person must see during a goal, pass it.
   3. **`reach`:** the outcome shows through a surface of [Journeys](#journeys), in an isolated variant on one host, with the Proving ground and the services test support gives every variant, and only a person's means (start, stop or kill a process, change a setting, run a command, add or remove a Daemon). It fails when the outcome needs an injected fault, an old released binary, an external account or service, Kubernetes, state outside the variant's Goodfetch home and processes, or the release pipeline's artifacts or channels. An older-format file from the Compatibility corpus is allowed.
-- **Write the result in `features/stories/<area>.toml`:** `journey`, and `not_journey = "actor"`, `"part"` or `"reach"` when it is `false`. The Feature check fails on a missing, unknown or extra reason. The review checks each reason against the story's words.
+- **Write the result in `features/stories/<area>.toml`:** `journey`, and `not_journey = "actor"`, `"part"` or `"reach"` when it is `false`. The Feature check fails on a missing, unknown or extra reason. Each reason must match the story's words, a review standard.
 
 ### Evidence
 
@@ -1394,7 +1393,7 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 - **web-platform-tests:** `./wpt run chrome` at the pinned WPT commit (the commit of wpt.fyi's first Chrome Stable run on the first day the adopted major's version ran there; security updates keep it), with the chromedriver built from the same tree, on the directories `chromium/surfaces.toml` names, in `--chunk-type hash` chunks. wpt.fyi's results never gate.
 - **Launch the browser as the engine does:** the `engine` Fingerprint method's arguments with a fixed Identity profile seed, from the file `xtask codegen` writes from the engine's code.
 - **WebGL:** Khronos' `webgl1_conformance` and `webgl2_conformance` through Chromium's `run_gpu_integration_test.py` with `--browser=exact` and typ's `--retry-limit=0`, on SwiftShader with `--enable-unsafe-swiftshader`.
-- **Size:** each platform's compressed archive. Growth of more than 5 MB over the previous build needs ADR 0057's "Size increase" section in the pull request body, accepted by the fresh review on the exact head.
+- **Size:** each platform's compressed archive. Growth of more than 5 MB over the previous build needs ADR 0057's "Size increase" section in the pull request body, accepted by the owner when merging ([ADR 0133](docs/adr/0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md)).
 
 ### Expected results
 

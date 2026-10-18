@@ -98,9 +98,12 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 ### Test-first process
 
 - **An agent implementing a ticket follows the `tdd` skill.** The seams the spec names in its Testing Decisions are the seams agreed in advance. A test at a seam the spec does not name is allowed only when the pull request names that seam and the reason, and the fresh review accepts it.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): there is no such exception: tests sit only at seams agreed as `tdd` says, and the seams in the spec's Testing Decisions count as agreed.
 - **Every behaviour lands red, then green.** The pull request's Verification section lists each new test with the failure it showed before the code existed. Commits stay green, so `git bisect` and the "all green" check work on each one.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the section is the `pr` skill's Evidence section.
 - **A bug fix starts with a test that reproduces the bug.**
 - **The fresh review checks the pull request against the checklist in `TESTING.md`.**
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the checklist is a review standard the `code-review` skill applies.
 
 ## Considered Options
 

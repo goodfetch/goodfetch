@@ -94,6 +94,22 @@ fn property_value<'a>(code: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
+/// A `RetryOnFailure` result in a typ or web-test expectation (ADR 0074).
+pub(super) fn check_expectations(file: &File, findings: &mut Vec<Finding>) {
+    for line in file.text.lines() {
+        if super::commands::words(line)
+            .iter()
+            .any(|word| word == "RetryOnFailure")
+        {
+            findings.push(Finding::new(
+                "retry-expectation",
+                &file.path,
+                format!("`{}` retries a failed test (ADR 0074)", line.trim()),
+            ));
+        }
+    }
+}
+
 /// pytest's `flaky` marker, and the `flaky` plugin's decorator.
 pub(super) fn check_python(file: &File, findings: &mut Vec<Finding>) {
     for line in file.text.lines() {

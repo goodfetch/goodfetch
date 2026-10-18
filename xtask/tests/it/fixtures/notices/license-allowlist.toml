@@ -1,0 +1,84 @@
+# ADR 0018's license allowlist, as SPDX identifiers: the one list every
+# license check reads. The owner set it on 2026-10-18 (spec #130, #133).
+#
+# - cargo-deny reads its copy in deny.toml, which `xtask codegen` writes from
+#   this file (`xtask codegen --check` fails when they differ): every entry
+#   but those allowed only for compiled Filter lists or for one npm or Python
+#   package.
+# - The third-party notice inventory, `xtask notices`, checks every
+#   ecosystem against this file, the npm and Python packages included.
+#
+# Every license not listed is denied: the GPL family (GPL, LGPL, AGPL), SSPL,
+# BUSL and any other. GPL Filter lists and uBlock Origin's GPL resources are
+# downloaded only, never embedded or compiled into an executable (ADRs 0018
+# and 0047).
+#
+# `only` limits an entry to one use:
+# - `unmodified-files`: files used as their authors published them, such as
+#   adblock-rust, autoconsent and Mozilla's web-compatibility shims (MPL-2.0,
+#   ADR 0018). A crate or package fetched from its registry is unmodified.
+# - `compiled-filter-lists`: the compiled form of Filter lists the executable
+#   embeds (CC BY-SA, ADRs 0018 and 0047); never code.
+# - `{ ecosystem = "npm" | "python", package = "<name>" }`: that one package,
+#   and no other package under the same license.
+
+[[license]]
+id = "MIT"
+
+[[license]]
+id = "Apache-2.0"
+
+[[license]]
+id = "Apache-2.0 WITH LLVM-exception"
+
+[[license]]
+id = "BSD-2-Clause"
+
+[[license]]
+id = "BSD-3-Clause"
+
+[[license]]
+id = "ISC"
+
+[[license]]
+id = "Zlib"
+
+[[license]]
+id = "0BSD"
+
+[[license]]
+id = "BSL-1.0"
+
+[[license]]
+id = "Unicode-3.0"
+
+[[license]]
+id = "Unicode-DFS-2016"
+
+[[license]]
+id = "CC0-1.0"
+
+[[license]]
+id = "Unlicense"
+
+[[license]]
+id = "CDLA-Permissive-2.0"
+
+# BoringSSL's legacy part (ADR 0124).
+[[license]]
+id = "OpenSSL"
+
+# typing-extensions alone (ADR 0018; the owner's decision of 2026-10-19):
+# PSF-2.0 is permissive, and typing-extensions ships unmodified, needed by
+# pydantic and the generated Python client.
+[[license]]
+id = "PSF-2.0"
+only = { ecosystem = "python", package = "typing-extensions" }
+
+[[license]]
+id = "MPL-2.0"
+only = "unmodified-files"
+
+[[license]]
+id = "CC-BY-SA-4.0"
+only = "compiled-filter-lists"

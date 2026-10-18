@@ -374,6 +374,24 @@ fn cargo_deny_allows_the_allowlists_licenses_but_those_for_filter_lists_only() {
     );
 }
 
+/// A license allowed for one npm or Python package alone, as PSF-2.0 is for
+/// typing-extensions, is no license cargo-deny may allow for every crate.
+#[test]
+fn cargo_deny_never_allows_a_license_allowed_for_one_package() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.append(
+        ALLOWLIST,
+        "[[license]]\nid = \"PSF-2.0\"\nonly = { ecosystem = \"python\", package = \"typing-extensions\" }\n",
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        allowed_licenses(&workspace.read_text("deny.toml")),
+        ["MIT", "Apache-2.0", "MPL-2.0"]
+    );
+}
+
 #[test]
 fn check_fails_on_a_stale_license_list() {
     let workspace = Workspace::from_fixture("codegen");

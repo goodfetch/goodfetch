@@ -78,7 +78,7 @@ codegen:
 fetch:
     cargo fetch --locked
     pnpm install --frozen-lockfile
-    uv sync --frozen
+    uv sync --frozen --all-extras
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":
@@ -318,9 +318,17 @@ screenshots-fetch run:
 
 # The pull-request tier's supply-chain job (#133), each part also a recipe:
 # the advisories of every lockfile, the MSRV build, cargo-hack over each
-# Product's SDK crate and Miri. The audits read public advisory databases, so
-# CI runs this before any egress deny.
-supply-chain: audit msrv feature-combinations miri
+# Product's SDK crate, Miri and the notice inventory's license check. The
+# audits read public advisory databases, so CI runs this before any egress
+# deny.
+supply-chain: audit msrv feature-combinations miri notices
+
+# The third-party notice inventory (ADRs 0018 and 0047): fails on a
+# dependency of any ecosystem, or an input a `third-party.toml` declares, whose
+# license ADR 0018's allowlist refuses for its use. `--out <file>` writes the
+# inventory, and `--inputs <file>` adds a file of inputs.
+notices *arguments:
+    cargo run --quiet -p xtask -- notices {{ arguments }}
 
 # The security advisories of the Cargo, pnpm and uv lockfiles: cargo-deny's
 # and cargo-audit's (RustSec), pnpm audit's and pip-audit's (ci/audit.sh).

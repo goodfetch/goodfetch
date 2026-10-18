@@ -1,0 +1,89 @@
+---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.9.1
+        version: 12.9.1
+
+packages:
+
+  pnpm@12.9.1:
+    resolution: {integrity: sha512-AAAA}
+
+snapshots:
+
+  pnpm@12.9.1: {}
+
+---
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      dev-only-tool:
+        specifier: 1.0.0
+        version: 1.0.0
+
+  sdks/typescript/collie:
+    dependencies:
+      '@goodfetch/collie-client':
+        specifier: workspace:*
+        version: link:../collie-client
+      permissive-package:
+        specifier: ^1.0.0
+        version: 1.0.0(peer-package@4.0.0)
+    devDependencies:
+      dev-only-tool:
+        specifier: 1.0.0
+        version: 1.0.0
+
+  sdks/typescript/collie-client: {}
+
+packages:
+
+  '@scoped/transitive-package@2.0.0':
+    resolution: {integrity: sha512-BBBB}
+
+  dev-only-tool@1.0.0:
+    resolution: {integrity: sha512-CCCC}
+
+  peer-package@4.0.0:
+    resolution: {integrity: sha512-DDDD}
+
+  permissive-package@1.0.0:
+    resolution: {integrity: sha512-EEEE}
+    peerDependencies:
+      peer-package: ^4.0.0
+
+  platform-package@3.0.0:
+    resolution: {integrity: sha512-FFFF}
+    cpu: [ppc64]
+    os: [aix]
+
+snapshots:
+
+  '@scoped/transitive-package@2.0.0': {}
+
+  dev-only-tool@1.0.0: {}
+
+  peer-package@4.0.0: {}
+
+  permissive-package@1.0.0(peer-package@4.0.0):
+    dependencies:
+      '@scoped/transitive-package': 2.0.0
+      peer-package: 4.0.0
+    optionalDependencies:
+      platform-package: 3.0.0
+
+  platform-package@3.0.0:
+    optional: true

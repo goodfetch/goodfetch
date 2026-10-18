@@ -20,6 +20,13 @@ pub(crate) struct Attempt {
     pub(crate) started_at: &'static str,
     pub(crate) test_runs: Vec<Value>,
     pub(crate) jobs: Vec<Value>,
+    /// The commit the attempt tested, and the branch and event of its run.
+    pub(crate) commit: &'static str,
+    pub(crate) branch: Option<&'static str>,
+    pub(crate) event: &'static str,
+    /// Files kept beside the JUnit files: `(<artifact>/<file>, contents)`,
+    /// under `junit/`.
+    pub(crate) kept: Vec<(String, Vec<u8>)>,
 }
 
 impl Attempt {
@@ -31,6 +38,10 @@ impl Attempt {
             started_at,
             test_runs: Vec::new(),
             jobs: Vec::new(),
+            commit: "c0",
+            branch: Some("main"),
+            event: "schedule",
+            kept: Vec::new(),
         }
     }
 }
@@ -91,9 +102,9 @@ pub(crate) fn write_store(workspace: &Workspace, attempts: &[Attempt]) {
             "workflow": attempt.workflow,
             "run": attempt.run,
             "attempt": attempt.number,
-            "event": "schedule",
-            "branch": "main",
-            "commit": "c0",
+            "event": attempt.event,
+            "branch": attempt.branch,
+            "commit": attempt.commit,
             "tree": "0",
             "started_at": attempt.started_at,
         });
@@ -116,6 +127,9 @@ pub(crate) fn write_store(workspace: &Workspace, attempts: &[Attempt]) {
         add(&mut archive, "run.json", run.to_string().as_bytes());
         add(&mut archive, "test-runs.jsonl", &lines(&test_runs));
         add(&mut archive, "jobs.jsonl", &lines(&attempt.jobs));
+        for (path, contents) in &attempt.kept {
+            add(&mut archive, &format!("junit/{path}"), contents);
+        }
         let bytes = archive.into_inner().unwrap().finish().unwrap();
         workspace.write(&name, &bytes);
     }

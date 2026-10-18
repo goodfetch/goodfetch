@@ -7,6 +7,7 @@
 //! Size: one concern, the command line: every command's `clap` definition and
 //! the plumbing that hands its arguments to the module that does the work.
 
+mod acceptance;
 mod affected;
 mod all_green;
 mod allure;
@@ -21,12 +22,14 @@ mod egress;
 mod fixture_size;
 mod foxhound_side;
 mod github;
+mod issues;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod output;
 mod package_dependencies;
+mod perf;
 mod quarantine;
 mod release_suite;
 mod repeat;
@@ -141,6 +144,12 @@ enum Command {
     ReleaseSuite {
         #[command(subcommand)]
         command: ReleaseSuiteCommand,
+    },
+    /// The Performance budget of a change (ADR 0071): counted figures against
+    /// the base, measured in one job.
+    Perf {
+        #[command(subcommand)]
+        command: perf::Command,
     },
     /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
     /// runner run the chosen tests `--count` times, whatever each run's
@@ -597,6 +606,12 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
+        Command::Perf { command } => perf::run(
+            command,
+            root,
+            &environment.cargo,
+            environment.github_token.as_deref(),
+        ),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
         Command::Repeat {

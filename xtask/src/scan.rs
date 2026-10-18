@@ -11,8 +11,6 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-mod issues;
-
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::num::NonZeroU8;
@@ -23,9 +21,9 @@ use serde::Deserialize;
 
 use crate::check::Finding;
 use crate::github::Api;
+use crate::issues::{Issues, Label};
 use crate::output;
 use crate::results::{self, Outcome, TestRun};
-use issues::{Issues, Label};
 
 /// The tier Live checks report under (ADR 0064).
 const LIVE_TIER: &str = "live";

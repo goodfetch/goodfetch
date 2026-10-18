@@ -167,13 +167,13 @@ fn accept(rows: &mut [Row], pull_request: &PullRequest<'_>) -> Result<()> {
     if !rows.iter().any(tripped) {
         return Ok(());
     }
-    let acceptance = pull_request.read()?;
+    let acceptance = pull_request::read(pull_request)?;
     for row in rows.iter_mut().filter(|row| tripped(row)) {
         let change = row
             .change()
             .and_then(|change| u64::try_from(change).ok())
             .map(Bytes);
-        if change.is_some_and(|change| acceptance.accepts(&row.file.id(), change)) {
+        if change.is_some_and(|change| pull_request::accepts(&acceptance, &row.file.id(), change)) {
             row.verdict = Verdict::Accepted;
         }
     }

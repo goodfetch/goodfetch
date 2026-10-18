@@ -1,5 +1,7 @@
-//! The scan's issues: one per flaky test or Live check, found again by a
-//! marker line in its body, so its title can be edited. A new one goes to
+//! The issues the results store's readers keep: one per flaky test or Live
+//! check (`xtask results scan`) and one per drifting performance figure
+//! (`xtask perf drift`), found again by a marker line in its body, so its
+//! title can be edited. A new one goes to
 //! the current milestone, the earliest open milestone with an open issue
 //! (docs/agents/issue-tracker.md, Frontier); an open one gets the current
 //! results; a closed one reopens only for a result after it closed.
@@ -15,9 +17,10 @@ use crate::github::{Api, Write};
 const PAGE: usize = 100;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Label {
+pub(crate) enum Label {
     FlakyTest,
     LiveCheck,
+    NeedsTriage,
 }
 
 impl Label {
@@ -25,6 +28,7 @@ impl Label {
         match self {
             Self::FlakyTest => "flaky-test",
             Self::LiveCheck => "live-check",
+            Self::NeedsTriage => "needs-triage",
         }
     }
 }
@@ -58,7 +62,7 @@ struct Created {
     number: u64,
 }
 
-pub(super) struct Issues<'a> {
+pub(crate) struct Issues<'a> {
     api: &'a Api<'a>,
     repository: &'a str,
     /// Each label's issues, read once.
@@ -76,7 +80,7 @@ enum CurrentMilestone {
 }
 
 impl<'a> Issues<'a> {
-    pub(super) fn new(api: &'a Api<'a>, repository: &'a str) -> Self {
+    pub(crate) fn new(api: &'a Api<'a>, repository: &'a str) -> Self {
         Self {
             api,
             repository,
@@ -87,13 +91,13 @@ impl<'a> Issues<'a> {
     }
 
     /// What the scan did, one line each.
-    pub(super) fn actions(&self) -> &[String] {
+    pub(crate) fn actions(&self) -> &[String] {
         &self.actions
     }
 
     /// Opens the issue of `key` under `label`, updates its body while it is
     /// open, or reopens it when `latest` came after it closed.
-    pub(super) fn keep(
+    pub(crate) fn keep(
         &mut self,
         label: Label,
         key: &str,

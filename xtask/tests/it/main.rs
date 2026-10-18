@@ -33,6 +33,8 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod package_dependencies;
+mod perf;
+mod perf_drift;
 mod quarantine;
 mod release_suite;
 mod repeat;

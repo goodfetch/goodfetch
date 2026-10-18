@@ -100,7 +100,33 @@ impl PullRequest<'_> {
     }
 }
 
+#[derive(Deserialize)]
+struct CommitPull {
+    number: u64,
+    merge_commit_sha: Option<String>,
+}
+
+/// The pull request that merged `commit` into its branch, when one did: the
+/// commit's pull request whose merge commit it is.
+pub(crate) fn merged_by(api: &Api<'_>, repository: &str, commit: &str) -> Result<Option<u64>> {
+    let pulls: Vec<CommitPull> = api
+        .get(&format!("/repos/{repository}/commits/{commit}/pulls"))
+        .with_context(|| format!("reading the pull requests of {commit}"))?;
+    Ok(pulls
+        .into_iter()
+        .find(|pull| pull.merge_commit_sha.as_deref() == Some(commit))
+        .map(|pull| pull.number))
+}
+
 impl Acceptance {
+    /// What a change no pull request merged accepts: nothing.
+    pub(crate) fn nothing() -> Self {
+        Self {
+            section: Vec::new(),
+            accepted_on_head: false,
+        }
+    }
+
     /// Whether the item `id`, grown by `change`, is accepted: `listed`
     /// reads a change from the start of a text, and the first `+` after the
     /// identifier on a line of the section that gives one counts.

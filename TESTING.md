@@ -986,7 +986,11 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 - **`xtask perf` measures the base and the head in the same job, on the same runner:** the merge base on a pull request, the group's base in the merge queue. Never a stored figure from another machine.
 - **The gate trips at +5%** on instructions, total allocations, total bytes or bytes at the global maximum of any benchmark, and at **+5 kB brotli** on any size-limit entry.
 - **A tripped pull request passes only with a "Performance change" section** in its body, listing each tripped figure with its measured change and reason, accepted explicitly by the owner when merging ([ADR 0133](docs/adr/0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md)).
+  - Each line names the figure as the table does, with a change at least the measured one: `- goodfetch-frontier/instructions::frontier::queue_unique/thousand_urls instructions: +5.10%, <reason>`, or `- size-limit/<entry> brotli: +6.20 kB, <reason>`.
+  - The owner accepts with a comment saying "Performance change accepted" and naming the head SHA, then re-runs the `perf` job. Its steps are not test steps: the figures repeat exactly, so the re-run measures the same change.
+  - No section passes a ceiling: each Product's whole Console build is the size-limit entry `collie-console` or `foxhound-console` of `.size-limit.json`, held under 1 MB brotli.
 - **Run `just perf` before pushing a change to code a benchmark covers.** It uses CI's thresholds; off Linux it runs in the CI image through a container engine, or lists itself as skipped.
+- **The figures reach the results store** as `perf-figures.json` in the job's JUnit artifact, beside gungraun's and size-limit's reports. The daily test-health job's drift check reads them from there: `main`'s latest per platform against the last release's.
 
 ### Absolute ceilings
 

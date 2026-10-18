@@ -85,6 +85,7 @@ jobs:
       contents: read
     outputs:
       jobs: ${{ steps.select.outputs.jobs }}
+      bench-targets: ${{ steps.select.outputs.bench-targets }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -148,6 +149,76 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-pre-merge-pull-request-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
+  # The counted performance gates (ADR 0071): the base branch's head, then
+  # the merge commit, measured in this one job (`xtask perf`), against +5%
+  # per benchmark figure, +5 kB brotli per size-limit entry and each Console
+  # build's 1 MB ceiling. Its steps are not test steps: a tripped figure
+  # passes on a re-run of this job once the owner has accepted the pull
+  # request's "Performance change" section on the head, since the figures
+  # repeat exactly. It reads that section before the deny.
+  perf:
+    name: perf
+    needs: [quick, affected]
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && contains(fromJSON(needs.affected.outputs.jobs), 'perf')
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The "Performance change" section and its acceptance comment.
+      pull-requests: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Build the base's and the head's benchmarks
+        env:
+          BENCH_TARGETS: ${{ needs.affected.outputs.bench-targets }}
+        run: >-
+          ci/vm/exec.sh cargo run --quiet -p xtask -- perf build --base HEAD^1
+          --bench-targets "$BENCH_TARGETS"
+      - name: Read the pull request's Performance change section
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: >-
+          ci/vm/exec.sh cargo run --quiet -p xtask -- perf pull-request --number "$NUMBER"
+          --repository "$GITHUB_REPOSITORY" --save target/perf-pull-request.json
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: Measure the base, then the head, against the Performance budget
+        run: >-
+          ci/vm/exec.sh cargo run --quiet -p xtask -- perf run
+          --pull-request target/perf-pull-request.json --summary target/perf-summary.md
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Write the table to the job's summary page
+        if: always()
+        run: if [[ -f target/perf-summary.md ]]; then cat target/perf-summary.md >>"$GITHUB_STEP_SUMMARY"; fi
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      # gungraun's and size-limit's reports (target/junit/perf/) and the
+      # head's figures (perf-figures.json) go with the JUnit files.
+      - name: Upload the JUnit files and the performance reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-perf-pull-request-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Destroy the VM
@@ -262,7 +333,7 @@ jobs:
   all-green:
     name: all green
     if: always()
-    needs: [quick, affected, pre-merge, visual, supply-chain]
+    needs: [quick, affected, pre-merge, perf, visual, supply-chain]
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 20
     permissions:

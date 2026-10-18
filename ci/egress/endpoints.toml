@@ -39,6 +39,12 @@ job = "pull-request.yml#quick"
 [[deny]]
 job = "pull-request.yml#pre-merge"
 
+# The counted performance gates (ADR 0071): the base's and the head's
+# benchmarks build, and the pull request's acceptance is read, before the
+# deny; the benchmarks run under it.
+[[deny]]
+job = "pull-request.yml#perf"
+
 # The visual projects, in the pinned Playwright image (ADR 0073). The job also
 # loads the CI image, whose container runs the deny's xtask commands.
 [[deny]]
@@ -104,7 +110,7 @@ job = "test-health.yml#constrained"
 
 [[outside]]
 job = "test-health.yml#report"
-reason = "It scans the results store, keeps the flaky-test and live-check issues and builds the Allure report; it runs none of the product (ADR 0064)."
+reason = "It scans the results store, keeps the flaky-test and live-check issues, checks the performance figures for drift and builds the Allure report; it runs none of the product (ADRs 0064 and 0071)."
 
 [[outside]]
 job = "test-health.yml#budget"

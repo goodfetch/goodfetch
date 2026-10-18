@@ -5,6 +5,7 @@
 //! pull request does not accept, and on a Console build over its ceiling.
 //! The reports here are written the way gungraun (summary format 7) and
 //! size-limit write them.
+//! Covers: story:1-108
 
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -138,6 +139,35 @@ fn figure_up_5_1_percent_on_its_base_fails(#[case] key: &str, #[case] figure: &s
             "performance-change",
             &format!("{BENCHMARK} {figure}")
         )]
+    );
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+}
+
+/// gungraun 0.20's own report of the Frontier's fixture benchmark, run
+/// with `--baseline=base` by `xtask perf run` after a change that lengthened
+/// every URL (Linux arm64, in a container).
+#[test]
+fn real_gungraun_report_of_a_lengthened_url_trips_three_figures() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.add_fixture_file("perf/gungraun-head.jsonl", "perf/head.jsonl");
+
+    let outcome = compare(&workspace, &[]);
+
+    let heap = "goodfetch-frontier/heap::frontier::queue_unique/thousand_urls";
+    let instructions = "goodfetch-frontier/instructions::frontier::queue_unique/thousand_urls";
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding(
+                "performance-change",
+                &format!("{heap} global-maximum-bytes")
+            ),
+            finding("performance-change", &format!("{heap} total-bytes")),
+            finding(
+                "performance-change",
+                &format!("{instructions} instructions")
+            ),
+        ]
     );
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
 }
@@ -542,6 +572,85 @@ fn table_is_written_to_the_jobs_summary_page_too() {
         workspace.read_text("summary.md"),
         format!("## Earlier step\n{table}\n")
     );
+}
+
+const MERGE_COMMIT: &str = "abababababababababababababababababababab";
+
+/// GitHub's pull requests of `MERGE_COMMIT`: `pulls` as it lists them, and
+/// pull request 7 with the accepted section.
+fn merged_pull_request(pulls: &str) -> GitHub {
+    let pull_request = format!(
+        r#"{{ "number": 7, "body": {}, "head": {{ "sha": "{HEAD_SHA}" }} }}"#,
+        serde_json::to_string(SECTION).unwrap()
+    );
+    let comments = format!(
+        r#"[ {{ "body": "Performance change accepted for {HEAD_SHA}.", "author_association": "OWNER" }} ]"#
+    );
+    let commit_pulls = format!("/repos/goodfetch/goodfetch/commits/{MERGE_COMMIT}/pulls");
+    GitHub::serving(&[
+        (&commit_pulls, pulls),
+        (PULL_REQUEST, &pull_request),
+        (COMMENTS, &comments),
+    ])
+}
+
+/// Saves the acceptance of the pull request that merged `MERGE_COMMIT`, as a
+/// Release suite cell does on `main`, then compares with it.
+fn compare_for_merge_commit(workspace: &Workspace, github: &GitHub) -> Outcome {
+    let saved = workspace.xtask(&[
+        "perf",
+        "pull-request",
+        "--commit",
+        MERGE_COMMIT,
+        "--repository",
+        "goodfetch/goodfetch",
+        "--api-url",
+        github.url(),
+        "--save",
+        "perf/pull-request.json",
+    ]);
+    assert_eq!(saved.code, 0, "{}", saved.stderr);
+    compare(workspace, &["--pull-request", "perf/pull-request.json"])
+}
+
+#[test]
+fn tripped_figure_accepted_in_the_pull_request_that_merged_the_commit_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    write_gungraun(
+        &workspace,
+        &[metric("Ir", Some(1_000_000), Some(1_051_000))],
+    );
+    let github = merged_pull_request(&format!(
+        r#"[ {{ "number": 7, "merge_commit_sha": "{MERGE_COMMIT}" }} ]"#
+    ));
+
+    let outcome = compare_for_merge_commit(&workspace, &github);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+#[test]
+fn tripped_figure_of_a_commit_no_pull_request_merged_fails() {
+    let workspace = Workspace::from_fixture("empty");
+    write_gungraun(
+        &workspace,
+        &[metric("Ir", Some(1_000_000), Some(1_051_000))],
+    );
+    let github = merged_pull_request(&format!(
+        r#"[ {{ "number": 7, "merge_commit_sha": "{OTHER_SHA}" }} ]"#
+    ));
+
+    let outcome = compare_for_merge_commit(&workspace, &github);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "performance-change",
+            &format!("{BENCHMARK} instructions")
+        )]
+    );
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
 }
 
 #[test]

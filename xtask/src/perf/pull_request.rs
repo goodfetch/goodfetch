@@ -24,6 +24,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 
 use crate::acceptance::{self, Acceptance, PullRequest, Rule};
+use crate::github::Api;
 
 use super::compare::{Increase, Row, Verdict};
 
@@ -35,9 +36,30 @@ const RULE: Rule = Rule {
 /// A listed change has two decimals: hundredths of a percent, or of a kB.
 const DECIMALS: usize = 2;
 
+/// Which pull request's acceptance to read.
+pub(crate) enum Source<'a> {
+    /// The pull-request tier's own pull request.
+    Number(u64),
+    /// The pull request that merged a commit of `main`, for the Release
+    /// suite's run of it; a commit no pull request merged accepts nothing.
+    MergedCommit(&'a str),
+}
+
 /// Reads the pull request's acceptance and saves it at `save`.
-pub(crate) fn save(pull_request: &PullRequest<'_>, save: &Path) -> Result<()> {
-    let acceptance = pull_request.read(&RULE)?;
+pub(crate) fn save(api: Api<'_>, repository: &str, source: &Source<'_>, save: &Path) -> Result<()> {
+    let number = match source {
+        Source::Number(number) => Some(*number),
+        Source::MergedCommit(commit) => acceptance::merged_by(&api, repository, commit)?,
+    };
+    let acceptance = match number {
+        Some(number) => PullRequest {
+            api,
+            repository,
+            number,
+        }
+        .read(&RULE)?,
+        None => Acceptance::nothing(),
+    };
     if let Some(folder) = save.parent() {
         std::fs::create_dir_all(folder)
             .with_context(|| format!("creating {}", folder.display()))?;

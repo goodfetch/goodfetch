@@ -61,9 +61,14 @@ pub(crate) enum Command {
     Compare(Reports),
     /// Saves what a pull request's "Performance change" section and its
     /// acceptance comments accept, for a later `compare` under the deny.
+    #[command(group(clap::ArgGroup::new("pull").required(true).args(["number", "commit"])))]
     PullRequest {
+        /// The pull request's number.
         #[arg(long)]
-        number: u64,
+        number: Option<u64>,
+        /// A commit of `main`: the pull request that merged it.
+        #[arg(long)]
+        commit: Option<String>,
         /// The repository, as `owner/name`.
         #[arg(long)]
         repository: String,
@@ -156,19 +161,22 @@ pub(crate) fn run(
         Command::Compare(reports) => compare(root, &reports),
         Command::PullRequest {
             number,
+            commit,
             repository,
             api_url,
             save,
         } => {
-            let pull_request = crate::acceptance::PullRequest {
-                api: crate::github::Api {
-                    url: &api_url,
-                    token,
-                },
-                repository: &repository,
-                number,
+            // clap requires one of `--number` and `--commit`.
+            let source = match (number, commit.as_deref()) {
+                (Some(number), _) => pull_request::Source::Number(number),
+                (None, Some(commit)) => pull_request::Source::MergedCommit(commit),
+                (None, None) => anyhow::bail!("give --number or --commit"),
             };
-            pull_request::save(&pull_request, &root.join(save))?;
+            let api = crate::github::Api {
+                url: &api_url,
+                token,
+            };
+            pull_request::save(api, &repository, &source, &root.join(save))?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Drift {

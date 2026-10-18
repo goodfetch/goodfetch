@@ -224,7 +224,7 @@ quick *all: _skips-reset lint (_suite "quick" all) _skips-report
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
-pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco _visual-elsewhere _skips-report
+pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco perf _visual-elsewhere _skips-report
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
@@ -283,8 +283,17 @@ release-ci cells="all" commit="":
     fi
     exit "$status"
 
+# The counted performance figures of what changed, against `base` (the merge
+# base with `origin/main` by default), with CI's thresholds (ADR 0071):
+# natively on Linux, in the pinned CI image through Docker or Podman
+# elsewhere, and listed as skipped without either (ci/perf.sh).
+perf base="":
+    ci/perf.sh {{ base }}
+
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
-# dependencies, tests and benchmark targets with its profiles, run by nothing.
+# dependencies, tests and benchmark targets with its profiles, run by nothing;
+# the benchmark targets twice, the second time into the target folder's
+# perf-base/, where `xtask perf build` builds the base.
 warm:
     pnpm exec tsc -p tsconfig.json
     cargo clippy --workspace --all-targets --all-features
@@ -292,6 +301,7 @@ warm:
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
     cargo build --workspace --profile ci
     cargo bench --workspace --no-run
+    CARGO_TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/perf-base" cargo bench --workspace --no-run
     ci/msrv.sh
 
 # Applies the Reference screenshots of an `update-screenshots` run of this

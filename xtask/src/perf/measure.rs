@@ -41,6 +41,8 @@ pub(crate) const OUT: &str = "target/perf";
 const JUNIT: &str = "target/junit";
 /// The size-limit configuration whose presence turns size-limit on.
 const SIZE_LIMIT_CONFIG: &str = ".size-limit.json";
+/// The base's target folder, inside the workspace's.
+pub(crate) const BASE_TARGET: &str = "perf-base";
 /// The gungraun baseline the base is saved as.
 const BASELINE: &str = "base";
 
@@ -55,6 +57,17 @@ struct Plan {
     /// The selected targets the base has too.
     base_targets: Vec<String>,
     target_directory: PathBuf,
+}
+
+impl Plan {
+    /// The base's own target folder. Cargo names a workspace member's
+    /// artifacts by its path relative to the workspace root, so the base's
+    /// and the head's would overwrite each other in one folder, and a head
+    /// file older than the base's build would be taken as built. The
+    /// cache-warming job builds the bench targets here too (`just warm`).
+    fn base_target_directory(&self) -> PathBuf {
+        self.target_directory.join(BASE_TARGET)
+    }
 }
 
 /// The reports `run` wrote, relative to the workspace.
@@ -94,6 +107,7 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
         &[&tree.to_string_lossy(), &commit],
     )?;
     let target_directory = metadata::target_directory(cargo, root)?;
+    let base_target_directory = target_directory.join(BASE_TARGET);
     let base_targets: Vec<String> = if targets.is_empty() {
         Vec::new()
     } else {
@@ -105,12 +119,12 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
             .collect()
     };
     if !base_targets.is_empty() {
-        cargo_command(cargo, &tree, &target_directory)
+        cargo_command(cargo, &tree, &base_target_directory)
             .args(["fetch", "--locked"])
             .status_checked("cargo fetch in the base")?;
     }
     for target in &base_targets {
-        cargo_bench(cargo, &tree, &target_directory, target)
+        cargo_bench(cargo, &tree, &base_target_directory, target)
             .arg("--no-run")
             .status_checked(&format!("building the base's {target}"))?;
     }
@@ -139,14 +153,16 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
     )
     .context("parsing target/perf/plan.json")?;
     let tree = base_tree(root);
-    let gungraun_home = out.join("gungraun");
+    // Absolute, since the base's targets run in the base's tree.
+    let gungraun_home =
+        std::path::absolute(out.join("gungraun")).context("resolving gungraun's folder")?;
     let base_report = out.join("base.jsonl");
     let head_report = out.join("head.jsonl");
     File::create(&base_report).context("creating base.jsonl")?;
     File::create(&head_report).context("creating head.jsonl")?;
     for target in &plan.base_targets {
         measure(
-            cargo_bench(cargo, &tree, &plan.target_directory, target)
+            cargo_bench(cargo, &tree, &plan.base_target_directory(), target)
                 .env("GUNGRAUN_HOME", &gungraun_home)
                 .args(["--", &format!("--save-baseline={BASELINE}")]),
             &base_report,
@@ -204,7 +220,8 @@ fn admit(cargo: &OsStr, root: &Path, plan: &Plan, head_report: &Path) -> Result<
     }
     let folder = out(root).join("admission");
     std::fs::create_dir_all(&folder).context("creating the admission folder")?;
-    let gungraun_home = out(root).join("admission-gungraun");
+    let gungraun_home = std::path::absolute(out(root).join("admission-gungraun"))
+        .context("resolving gungraun's admission folder")?;
     for run in 1..=budget::ADMISSION_RUNS {
         let report = folder.join(format!("run-{run:02}.jsonl"));
         File::create(&report).context("creating an admission report")?;
@@ -279,6 +296,10 @@ fn copy_reports(root: &Path) -> Result<()> {
 
 /// The workspace's `<crate>/<bench target>`s at `root`.
 fn bench_targets(cargo: &OsStr, root: &Path) -> Result<BTreeSet<String>> {
+    // A base from before the workspace existed has no bench target.
+    if !root.join("Cargo.toml").is_file() {
+        return Ok(BTreeSet::new());
+    }
     Ok(metadata::packages(cargo, root)?
         .into_iter()
         .flat_map(|package| {
@@ -330,6 +351,11 @@ fn measure(command: &mut Command, report: &Path, what: &str) -> Result<()> {
     command
         .env("GUNGRAUN_OUTPUT_FORMAT", "json")
         .env("GUNGRAUN_NOSUMMARY", "true")
+        // A container's default seccomp profile refuses the personality
+        // call that turns ASLR off, which only Callgrind's cache simulation
+        // is sensitive to; no gated figure uses it, and admission catches
+        // any spread.
+        .env("GUNGRAUN_ALLOW_ASLR", "yes")
         .stdout(file)
         .status_checked(what)
 }

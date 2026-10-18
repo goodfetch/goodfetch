@@ -2,6 +2,7 @@
 [modules]
 affected = ["foxhound_side", "metadata"]
 all_green = ["affected", "check", "github"]
+allure = ["results"]
 ceiling = ["output", "results"]
 check = ["output"]
 dependency_direction = ["check", "metadata"]

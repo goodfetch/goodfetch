@@ -15,6 +15,7 @@ mod workspace;
 
 mod affected;
 mod all_green;
+mod allure;
 mod dependency_direction;
 mod diagnostic;
 mod egress;

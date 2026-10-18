@@ -6,6 +6,7 @@
 
 mod affected;
 mod all_green;
+mod allure;
 mod ceiling;
 mod check;
 mod dependency_direction;
@@ -229,6 +230,18 @@ enum QuarantineCommand {
 
 #[derive(Subcommand)]
 enum ResultsCommand {
+    /// Writes the inputs of the Allure Report 3 build from the store: each
+    /// test's latest result, one history point per run attempt and the
+    /// report's configuration (ADR 0064).
+    Allure {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The folder to write, emptied first; run `allure generate results
+        /// --config allurerc.json` in it.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Prints `minutes=<n>` (the month's Linux-equivalent minutes of the
     /// test-health ceiling) and `admitted=<true|false>` for a run about to
     /// start, and writes a skip to `--summary` (ADRs 0064, 0072 and 0108).
@@ -566,6 +579,10 @@ fn run_results(
     environment: &Environment,
 ) -> anyhow::Result<ExitCode> {
     match command {
+        ResultsCommand::Allure { store, out } => {
+            allure::write(&root.join(store), &root.join(out))?;
+            Ok(ExitCode::SUCCESS)
+        }
         ResultsCommand::Ceiling {
             store,
             run,

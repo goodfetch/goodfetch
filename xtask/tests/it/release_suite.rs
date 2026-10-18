@@ -166,7 +166,7 @@ fn serve(branch: &str, earlier: Vec<Run>, extra: &[(&str, &str)]) -> GitHub {
     let mut routes = vec![
         (format!("{REPOSITORY}/actions/runs/7"), runs[0].json()),
         (
-            format!("{REPOSITORY}/actions/workflows/release.yml/runs?per_page=100&page=1"),
+            format!("{REPOSITORY}/actions/workflows/release-suite.yml/runs?per_page=100&page=1"),
             format!(
                 r#"{{"total_count": {}, "workflow_runs": [{}]}}"#,
                 runs.len(),
@@ -513,7 +513,7 @@ fn serve_commit(runs: &[Run]) -> GitHub {
     let listed: Vec<String> = runs.iter().map(Run::json).collect();
     let mut routes = vec![(
         format!(
-            "{REPOSITORY}/actions/workflows/release.yml/runs?head_sha={HEAD}&per_page=100&page=1"
+            "{REPOSITORY}/actions/workflows/release-suite.yml/runs?head_sha={HEAD}&per_page=100&page=1"
         ),
         format!(
             r#"{{"total_count": {}, "workflow_runs": [{}]}}"#,

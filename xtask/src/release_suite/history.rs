@@ -13,7 +13,7 @@ use super::time::{Month, Timestamp};
 use crate::github::Api;
 
 /// The Release suite's workflow file.
-pub(crate) const WORKFLOW: &str = "release.yml";
+pub(crate) const WORKFLOW: &str = "release-suite.yml";
 
 /// GitHub's largest page.
 const PAGE_SIZE: usize = 100;

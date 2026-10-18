@@ -49,6 +49,9 @@ lint: fmt-check
     cargo run --quiet -p xtask -- fixture-size
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- mocking-lockfile
+    cargo run --quiet -p xtask -- no-retry
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
     cargo run --quiet -p xtask -- containment
@@ -100,6 +103,18 @@ test suite *packages:
     else
       packages=(--workspace)
     fi
+    # Each runner skips the tests on the test quarantine list through its own
+    # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
+    skip_nextest=() skip_vitest=() skip_playwright=() skip_pytest=()
+    exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
+    while IFS=$'\t' read -r runner argument; do
+      case "$runner" in
+        nextest) skip_nextest+=("$argument") ;;
+        vitest) skip_vitest+=("$argument") ;;
+        playwright) skip_playwright+=("$argument") ;;
+        pytest) skip_pytest+=("$argument") ;;
+      esac
+    done <<< "$exclusions"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
     case "{{ suite }}" in
@@ -110,31 +125,31 @@ test suite *packages:
         if $rust; then
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check \
             --test-runner nextest --nextest-profile quick --profile {{ test_profile }} \
-            --disable-nextest-doctest
+            --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
         fi
         if $typescript; then
-          pnpm exec vitest run --project unit --slowTestThreshold=1000 ${vitest[@]+"${vitest[@]}"}
+          pnpm exec vitest run --project unit --slowTestThreshold=1000 ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
         if $rust; then
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced reject \
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
-            --disable-nextest-doctest
+            --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
           # nextest runs no doctests; cargo-insta's own doctest pass would take
           # nextest's profile flag, which `cargo test` refuses.
           cargo test "${packages[@]}" --doc --profile {{ test_profile }}
         fi
         if $typescript; then
-          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"}
-          pnpm exec playwright test --pass-with-no-tests ${vitest[@]+"${vitest[@]}"}
+          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+          pnpm exec playwright test --pass-with-no-tests ${vitest[@]+"${vitest[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
-          uv run pytest ${pytest[@]+"${pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)

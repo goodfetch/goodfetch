@@ -17,7 +17,9 @@ mod github;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
+mod no_retry;
 mod output;
+mod quarantine;
 mod screenshots;
 mod self_hosted;
 mod size;
@@ -93,6 +95,14 @@ enum Command {
     /// `modules.toml` does not allow, and on a long file that does not say
     /// why it is one concern (ADR 0126).
     Modules,
+    /// Fails on any setting, flag, variable or workflow pattern that retries a
+    /// test (ADRs 0064 and 0074).
+    NoRetry,
+    /// The test quarantine list, `quarantine.toml` (ADR 0064).
+    Quarantine {
+        #[command(subcommand)]
+        command: QuarantineCommand,
+    },
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -183,6 +193,25 @@ enum SelfHostedCommand {
     Check,
     /// Prints the flat copy of the allowlist that the pre-job script reads.
     Export,
+}
+
+#[derive(Subcommand)]
+enum QuarantineCommand {
+    /// Fails on an entry whose issue is not an open `flaky-test` issue, or
+    /// whose test its runner no longer lists.
+    Check {
+        /// The repository whose issues the entries name, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+        /// The Cargo profile nextest builds its listing with.
+        #[arg(long)]
+        cargo_profile: Option<String>,
+    },
+    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
+    /// runner skip the listed tests.
+    Exclude,
 }
 
 #[derive(Subcommand)]
@@ -296,12 +325,9 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
-        Command::Screenshots { command } => match command {
-            ScreenshotsCommand::Fetch { run } => {
-                Ok(check::report(&screenshots::fetch(root, &root.join(run))?))
-            }
-            ScreenshotsCommand::Orphans => Ok(check::report(&screenshots::orphans(root)?)),
-        },
+        Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
+        Command::Quarantine { command } => run_quarantine(command, root, environment),
+        Command::Screenshots { command } => run_screenshots(command, root),
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
             SelfHostedCommand::Export => {
@@ -396,6 +422,48 @@ fn run_codegen(
     };
     codegen::write(&environment.cargo, &generators, root)?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// The `screenshots` commands (ADR 0073).
+fn run_screenshots(command: ScreenshotsCommand, root: &Path) -> anyhow::Result<ExitCode> {
+    match command {
+        ScreenshotsCommand::Fetch { run } => {
+            Ok(check::report(&screenshots::fetch(root, &root.join(run))?))
+        }
+        ScreenshotsCommand::Orphans => Ok(check::report(&screenshots::orphans(root)?)),
+    }
+}
+
+/// The `quarantine` commands (ADR 0064).
+fn run_quarantine(
+    command: QuarantineCommand,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        QuarantineCommand::Check {
+            repository,
+            api_url,
+            cargo_profile,
+        } => {
+            let sources = quarantine::Sources {
+                api: github::Api {
+                    url: &api_url,
+                    token: environment.github_token.as_deref(),
+                },
+                repository: &repository,
+                cargo: &environment.cargo,
+                cargo_profile: cargo_profile.as_deref(),
+            };
+            Ok(check::report(&quarantine::check(root, &sources)?))
+        }
+        QuarantineCommand::Exclude => {
+            for (runner, argument) in quarantine::exclusions(root)? {
+                output::line(&format!("{runner}\t{argument}"));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
 }
 
 /// The `egress` commands (ADR 0043).

@@ -96,6 +96,24 @@ impl Workspace {
         std::fs::copy(fixtures().join(fixture), target).unwrap();
     }
 
+    /// Links the repository's installed npm packages and Python environment
+    /// into the workspace, so its runners run there as they do at the root.
+    pub(crate) fn link_installed_runners(&self) {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for folder in ["node_modules", ".venv"] {
+            let target = repository.join(folder);
+            assert!(
+                target.is_dir(),
+                "{} is missing: run `pnpm install` and `uv sync`",
+                target.display()
+            );
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, self.path().join(folder)).unwrap();
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&target, self.path().join(folder)).unwrap();
+        }
+    }
+
     pub(crate) fn remove(&self, relative: &str) {
         std::fs::remove_file(self.path().join(relative)).unwrap();
     }
@@ -203,21 +221,26 @@ impl Workspace {
         String::from_utf8(output.stdout).unwrap()
     }
 
-    /// Runs `xtask <args>` in the workspace with a cleared environment, but
-    /// for the variables that find and run the pinned Cargo toolchain. Cargo
-    /// builds offline, into one target folder every test shares, so a
-    /// fixture's dependencies build once. Copies of one fixture crate share
-    /// its artifacts there too, so the tests that build one run one at a
-    /// time (`.config/nextest.toml`, the `fixture-builds` group).
-    pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
+    /// A command run in the workspace with a cleared environment, but for the
+    /// variables that find and run the pinned Cargo toolchain.
+    pub(crate) fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
         let toolchain = TOOLCHAIN_VARIABLES
             .iter()
             .filter_map(|name| std::env::var_os(name).map(|value| (*name, value)));
-        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        let mut command = Command::new(program);
+        command.current_dir(self.path()).env_clear().envs(toolchain);
+        command
+    }
+
+    /// Runs `xtask <args>` in the workspace. Cargo builds offline, into one
+    /// target folder every test shares, so a fixture's dependencies build
+    /// once. Copies of one fixture crate share its artifacts there too, so
+    /// the tests that build one run one at a time (`.config/nextest.toml`,
+    /// the `fixture-builds` group).
+    pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
+        let output = self
+            .command(env!("CARGO_BIN_EXE_xtask"))
             .args(args)
-            .current_dir(self.path())
-            .env_clear()
-            .envs(toolchain)
             .env(
                 "CARGO_TARGET_DIR",
                 Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target"),

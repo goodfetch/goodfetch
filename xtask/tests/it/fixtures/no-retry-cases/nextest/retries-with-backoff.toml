@@ -1,0 +1,6 @@
+[profile.default]
+retries = 0
+flaky-result = "fail"
+
+[profile.ci]
+retries = { backoff = "fixed", count = 2, delay = "1s" }

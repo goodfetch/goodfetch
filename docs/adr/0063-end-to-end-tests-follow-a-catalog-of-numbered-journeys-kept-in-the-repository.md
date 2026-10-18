@@ -108,7 +108,9 @@ The report lists each variant's latest outcome on `main` by milestone and area. 
 
 - **Each area's `/to-spec` adds the Journeys of its user stories** to the catalog, in its `/to-tickets` pull request or the first ticket's, and `/to-tickets` names, in each ticket, the variants that ticket makes `proved`. A variant without a test is `unproved` until then.
   > Amended by [ADR 0075](0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md): `/to-spec` adds Journeys only for its stories with `journey = true`.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): `/to-tickets` opens no pull request, so the first ticket's pull request adds them.
 - **Catalog changes are reviewed like code** in the pull request that makes them; the fresh review checks that no goal changed under an existing ID.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
 
 ### Owner tests
 

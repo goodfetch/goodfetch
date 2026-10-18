@@ -34,6 +34,7 @@ Decided in [Which user stories need a Journey](https://github.com/goodfetch/good
    An older-format file from the Compatibility corpus is allowed, as ADR 0063 allows for upgrade Journeys.
 
 - **The tests are read from the story's own words** ("I want" and "so that"). Two people applying them get the same result, and the fresh review checks each reason.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
 - **The reason is recorded.** In `features/stories/<area>.toml`, a story with `journey = false` carries `not_journey = "actor" | "part" | "reach"`, and a story with `journey = true` carries none. The Feature check fails on a missing, unknown or extra reason.
 - **A new surface widens `reach`** only through an ADR that amends ADR 0063's list of surfaces.
 

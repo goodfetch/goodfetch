@@ -23,6 +23,8 @@ An item is **covered** when either:
 
 Only a real trade-off still unmade is `open`, and it becomes a grilling ticket on the map. A decision recorded only in a ticket's resolution stays there and is cited from the matrix, unless it contradicts an ADR's text, which is then amended. The matrix is [`0037-v1-scope-matrix.md`](0037-v1-scope-matrix.md), with one status per row (`decided`, `spec`, `excluded`, `open → #N`). A pull request that resolves a ticket changes that ticket's rows, and its fresh review checks it. The map is done when no row reads `open` and the map has no open ticket, since a ticket such as platform code signing holds no matrix row. Decided in [V1 scope sign-off: parity and pain coverage](https://github.com/goodfetch/goodfetch/issues/81).
 
+> Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
+
 ## Order of `/to-spec`
 
 One spec per area. An area goes to `/to-spec` only after every area whose contracts it consumes, except between areas that use each other's contracts (below), and after every ticket that holds one of its `open` rows in the matrix; the "Waits on" column is derived from those rows, and a pull request that changes them updates it:
@@ -46,7 +48,11 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 
 Every area also follows ADR 0038, which sets the contracts and code conventions, ADR 0126, which sets how a crate's modules divide their concerns, ADR 0127, which sets where a failure from a party Goodfetch did not write becomes a typed error, and ADR 0129, which sets where the behaviour that several implementations of a contract share lives. Each area's `/to-spec` also reads every ADR that amends ADR 0038, 0126, 0127 or 0129 or one of the ADRs listed in its row, however the amendment is worded ("Changes ADR", "adds to ADR", "amends", "extends", "narrows", "replaces", "an exception to ADR"), so a later decision reaches every area whose ADR it amends without being listed there. This applies to ADRs 0038, 0126, 0127 and 0129 and the ADRs listed in the row, not again to the amending ADRs. A row lists the ADRs whose main decisions that area builds: the pull request that records a new ADR adds it to the rows of the areas that build its main decisions, and its fresh review checks it; the amendment rule brings it to the areas whose listed ADRs it amends, and to every area when it amends ADR 0038, 0126, 0127 or 0129.
 
+> Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
+
 The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036). Where two areas use each other's contracts, as Scheduling uses the Console's Run index and the Notification events of Client surfaces (ADRs 0031 and 0027), the ADRs already fix the shared contract, and the earlier area's spec builds against it while the later area's spec implements it. Across areas, `/to-issues` blocks each issue on the issues that build the contracts it consumes, whichever area they belong to; when those issues do not exist yet, the later area's `/to-issues` adds the links to the issues already created.
+
+> Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the skill is now `/to-tickets`, and it blocks each ticket.
 
 ## Considered Options
 
@@ -57,6 +63,7 @@ The Proving ground comes second because it is the oracle every later area's conf
 - **Every API detail as its own decision:** rejected. It would add about 40 tickets to settle what `/to-spec` settles better with the whole area in view.
 - **A final re-audit ticket after the new tickets:** rejected. A matrix kept current by each ticket makes the end condition checkable without a second pass.
 - **Ordering specs by user value** (AI first) **or one spec for all:** rejected. `/to-issues` needs blockers built before what they block.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the skill is now `/to-tickets`.
 
 ## Consequences
 

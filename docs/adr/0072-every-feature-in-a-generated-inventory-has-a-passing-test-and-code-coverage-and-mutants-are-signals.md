@@ -71,6 +71,7 @@ Decided in [Feature coverage and traceability](https://github.com/goodfetch/good
   - **Conformance suites and the Client conformance cases of `conformance/clients/` (ADR 0069):** a `covers` list on each case, beside its capability.
 - **The exercise audit** checks the declarations a log can confirm, for tests that drive the protocol. For `operation:`, `error:` and `event:`, the records are those of `rpc`'s dispatch: each request's method and the Error code of its reply, and each event sent to a Client. Tests of the binary get them from the engine's JSON structured log (RT-17), which test support turns on into the test's Goodfetch home. In-process tests that send requests through the in-memory transport get them from the test `tracing` subscriber. For `command:` and `exit:`, test support's command helper records the command path and exit code. A protocol-driving test that declares one of these Features and never reached it fails the audit. No build of `goodfetch` gains a test switch (ADR 0059).
 - **A unit test that never reaches `rpc`** (a module's own error or event, asserted through its interface) may still declare the `error:` or `event:` Feature it asserts. The audit doesn't see it, so that test must assert the Error code or the event itself, as `TESTING.md` requires for every failure, and the fresh review checks that it does.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
 
 ### What counts as tested
 
@@ -99,6 +100,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
   - `check`: met by repository configuration and checked by a named CI job, not by a product test (an area 1 story such as `cargo-hack` checking every feature combination); links the job;
   - `none`: no test in this repository reaches it, such as an Error code only Goodfetch Cloud returns; links where it is tested.
 - **An exception is never counted as tested:** its Feature is excepted, a status of its own, and the report shows each evidence kind apart. It is never allowed for a Feature a pinned test can reach; the fresh review checks the reason.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
 - **No pending list.** ADR 0064's quarantine already covers a test that exists but can't be trusted yet.
 
 ### The checks
@@ -129,6 +131,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 - **Rust, every pull request that changes Rust code:** cargo-mutants `--in-diff` with nextest on Linux x64, sharded to fit ADR 0061's 15-minute job budget, in a job outside the suites that never fails on a surviving mutant. It is not part of "all green", the one required check (ADR 0061), so a slow shard never delays the merge signal. Its report is attached to the run. While the repository is private, it runs at most four shards of 15 minutes per pull-request run, and it stops at the same 550-minute threshold as the coverage job; a pull request whose job was skipped says so in its Verification section.
 - **The pull request's Verification section lists each mutant that survives in its changed code**, with the test that now kills it or the reason it stays: an equivalent mutant, or one caught only by a doctest, by a Journey in another runner, or by another OS's test (cargo-mutants doesn't read `cfg(target_os)`). The fresh review checks the list.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the section is the `pr` skill's Evidence section, and checking each reason is a review standard the `code-review` skill applies.
 - **Full runs, weekly once the nightly tier is on:** cargo-mutants sharded over the workspace; StrykerJS on the TypeScript SDK's hand-written runtime and the Console's logic; mutmut on the Python SDK's hand-written runtime, on Linux. Stryker uses its `command` runner until a release fixes #6210, then its Vitest runner, and the TypeScript packages then gain the same in-diff pull-request job as Rust.
 - **No mutation score is published or gated.** A full run's survivors are a list, read at each milestone gate.
 
@@ -143,6 +146,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 - **Generated Features need no one to list them:** they appear with their code, and the Quick check fails until a test declares them.
 - **Each area's `/to-spec`** writes its `features/stories/<area number>.toml` in its `/to-tickets` pull request or the first ticket's, with each story's `journey` flag. **`/to-tickets`** sets each story's and each row's milestone, and names in each ticket the Features it makes tested.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): `/to-tickets` opens no pull request, so the first ticket's pull request writes the file.
 
 ## Considered Options
 

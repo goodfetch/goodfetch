@@ -94,8 +94,8 @@ Both scenarios run in the Release suite on every OS, are checked by a ratio so t
 - **`STYLE.md`** gains its memory rules under Rust; **`TESTING.md`**'s Performance budgets section gains the ceilings, the targets, the scenarios at scale and the profiling tools.
 - **`GLOSSARY.md`** widens **Performance budget** to the absolute ceilings and adds **Performance target**.
 - **New tickets:**
-  - in M1: the optimization pass; the Frontier and fetch benchmarks for the fixed ceilings; the Frontier scenario at scale; the Daemon soak; `just compare-spider`; `just targets`, the Performance targets report linked from the owner test;
-  - in M4: the resident-memory ceilings for macOS Intel and Windows arm64.
+  - in M1: the optimization pass ([#1577](https://github.com/goodfetch/goodfetch/issues/1577)); the absolute ceilings in `xtask perf` ([#1570](https://github.com/goodfetch/goodfetch/issues/1570)); the Frontier's heap benchmark and its scenario at scale ([#1571](https://github.com/goodfetch/goodfetch/issues/1571)); bytes per crawled page ([#1572](https://github.com/goodfetch/goodfetch/issues/1572)); the Daemon soak ([#1573](https://github.com/goodfetch/goodfetch/issues/1573)); `just compare-spider` ([#1574](https://github.com/goodfetch/goodfetch/issues/1574)); `just targets`, the Performance targets report linked from the owner test ([#1575](https://github.com/goodfetch/goodfetch/issues/1575));
+  - in M4: the resident-memory ceilings for macOS Intel and Windows arm64 ([#1576](https://github.com/goodfetch/goodfetch/issues/1576)).
 - **Changed tickets:** [#440](https://github.com/goodfetch/goodfetch/issues/440) moves to M1 and is blocked by the optimization pass; [#390](https://github.com/goodfetch/goodfetch/issues/390) also reports each idle and crawl figure against its target; [#289](https://github.com/goodfetch/goodfetch/issues/289)'s Reports line names the targets report and the Spider comparison.
 - **Owner approvals:** every 1.10× ceiling and every resident-memory ceiling, after the pass.
 - **A design constraint for the Frontier's tickets:** they must meet 8 bytes per URL in the Frontier and the 1.5× ratio, with an exact duplicate check.

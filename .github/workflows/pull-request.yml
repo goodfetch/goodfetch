@@ -202,6 +202,42 @@ jobs:
         if: always()
         run: ci/vm/stop.sh
 
+  # The supply-chain gates (#133): the advisories of every lockfile, the MSRV
+  # build, cargo-hack over each Product's SDK crate, Miri on opted-in
+  # `unsafe`, and the DCO sign-off of every commit the pull request adds. The
+  # licenses, bans, sources and boundary checks run in the Quick job's lints.
+  # The audits read public advisory databases and the job runs none of the
+  # product, so it runs outside the egress deny (ci/egress/endpoints.toml).
+  supply-chain:
+    name: supply-chain
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Every commit the pull request adds, for the DCO check.
+          fetch-depth: 0
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Check every commit's sign-off
+        run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
+      - name: Audit the locked dependencies
+        run: ci/vm/exec.sh just audit
+      - name: Build on the MSRV
+        run: ci/vm/exec.sh just msrv
+      - name: Check every feature combination
+        run: ci/vm/exec.sh just feature-combinations
+      - name: Run Miri on opted-in unsafe code
+        run: ci/vm/exec.sh just miri
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
   # Area 8's gate (ADR 0074). Until its free design (#445) is decided and its
   # first build lands, it passes and builds nothing, so it needs no VM.
   chromium-build-gate:
@@ -217,7 +253,7 @@ jobs:
   all-green:
     name: all green
     if: always()
-    needs: [quick, affected, pre-merge, visual]
+    needs: [quick, affected, pre-merge, visual, supply-chain]
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 20
     permissions:

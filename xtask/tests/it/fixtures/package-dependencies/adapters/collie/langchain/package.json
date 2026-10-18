@@ -1,0 +1,8 @@
+{
+  "name": "@goodfetch/collie-langchain",
+  "version": "0.0.0",
+  "description": "Collie's LangChain adapter.",
+  "peerDependencies": {
+    "@goodfetch/collie": "workspace:*"
+  }
+}

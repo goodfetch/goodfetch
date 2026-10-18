@@ -40,6 +40,13 @@ if = "github.event.pull_request.head.repo.full_name == github.repository"
 
 [[job]]
 workflow = "pull-request.yml"
+job = "supply-chain"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+[[job]]
+workflow = "pull-request.yml"
 job = "chromium-build-gate"
 events = ["pull_request"]
 refs = ["refs/pull/*/merge"]
@@ -78,3 +85,28 @@ job = "warm"
 events = ["push"]
 refs = ["refs/heads/main"]
 if = "github.ref == 'refs/heads/main'"
+
+# The Release suite's macOS cells and the visual projects beside them, on a
+# manual dispatch on `main` only, testing a commit of `main` (ADR 0108). They
+# run even when the ceiling held the hosted cells back, so their `if:` starts
+# with `!cancelled()`. Their diagnostic jobs (ADR 0064) join with #318.
+[[job]]
+workflow = "release-suite.yml"
+job = "macos-arm64"
+events = ["workflow_dispatch"]
+refs = ["refs/heads/main"]
+if = "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.plan.outputs.commit != '' && contains(fromJSON(needs.plan.outputs.cells), 'macos-arm64')"
+
+[[job]]
+workflow = "release-suite.yml"
+job = "macos-x64"
+events = ["workflow_dispatch"]
+refs = ["refs/heads/main"]
+if = "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.plan.outputs.commit != '' && contains(fromJSON(needs.plan.outputs.cells), 'macos-x64')"
+
+[[job]]
+workflow = "release-suite.yml"
+job = "visual"
+events = ["workflow_dispatch"]
+refs = ["refs/heads/main"]
+if = "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.plan.outputs.commit != '' && contains(fromJSON(needs.plan.outputs.cells), 'macos-arm64')"

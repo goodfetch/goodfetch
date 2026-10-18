@@ -1,0 +1,8 @@
+[project]
+name = "goodfetch-foxhound-airflow"
+version = "0.0.0"
+description = "Foxhound's Airflow provider."
+dependencies = ["goodfetch-foxhound", "apache-airflow>=3"]
+
+[project.optional-dependencies]
+docs = ["mkdocs"]

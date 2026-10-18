@@ -1,0 +1,8 @@
+# The fixture of the MSRV build's proof (just proofs): code using an API
+# stabilized after the workspace's rust-version.
+[workspace]
+resolver = "3"
+members = ["uses-a-newer-api"]
+
+[workspace.package]
+rust-version = "1.97"

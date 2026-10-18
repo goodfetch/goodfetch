@@ -1,0 +1,13 @@
+# The fixture of the Rust advisories' proof (just proofs): a crate taking a
+# version of smallvec with published RustSec advisories.
+[package]
+name = "uses-an-advised-version"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+smallvec = "=0.6.13"
+
+[workspace]

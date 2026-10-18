@@ -35,11 +35,15 @@ RUN curl -fsSLo /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/rele
  && tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint \
  && rm /tmp/actionlint.tar.gz
 
-# rust-toolchain.toml's components, and the Cargo tools at pinned versions.
+# rust-toolchain.toml's components, the MSRV's toolchain (the workspace's
+# `rust-version`, ADR 0030; raise both together), and the Cargo tools at
+# pinned versions.
 RUN rustup component add rustfmt clippy \
+ && rustup toolchain install 1.97 --profile minimal \
  && cargo install --locked --root /usr/local \
       just@1.46.0 cargo-nextest@0.9.146 cargo-deny@0.20.2 cargo-insta@1.49.0 \
       cargo-shear@1.14.0 typos-cli@1.50.3 zizmor@1.30.1 \
+      cargo-audit@0.22.0 cargo-hack@0.6.45 \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
 ENV CI=true

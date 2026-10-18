@@ -39,15 +39,17 @@ lint: fmt-check
     uv run pyright
     uv run mypy .
     ci/tool.sh typos typos
-    ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows
+    ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
-    ci/tool.sh cargo-deny cargo deny check bans
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
+    ci/tool.sh cargo-deny ci/deny/products.sh
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- fixture-size
     cargo run --quiet -p xtask -- dependency-direction
+    cargo run --quiet -p xtask -- package-dependencies
     cargo run --quiet -p xtask -- mocking-lockfile
     cargo run --quiet -p xtask -- no-retry
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
@@ -55,6 +57,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
     cargo run --quiet -p xtask -- compat check
+    cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
 
@@ -185,28 +188,64 @@ quick *all: _skips-reset lint (_suite "quick" all) _skips-report
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
-pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs _visual-elsewhere _skips-report
+pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco _visual-elsewhere _skips-report
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
 release: _skips-reset lint (test "quick") (test "release") proofs _visual-elsewhere _skips-report
     @echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
-# Dispatches the Release suite's workflow on the pushed branch and follows it;
-# the exit code is the run's verdict (ADRs 0061 and 0108). The workflow comes
-# with #145.
-release-ci:
+# Dispatches the Release suite's workflow on the current branch and follows
+# it; the exit code is the run's verdict (ADRs 0061 and 0108). `cells` is
+# `all` or cell names separated by commas: linux-x64-gnu, linux-x64-musl,
+# linux-arm64-gnu, linux-arm64-musl, windows-x64, macos-arm64, macos-x64. On
+# `main`, `commit` is a commit of `main` to test, its head by default, and the
+# macOS cells run on the owner's machine; off `main` the run tests the
+# branch's pushed head with the hosted cells alone. On `main`, the commit's
+# verdict across all its dispatches follows the run's.
+release-ci cells="all" commit="":
     #!/usr/bin/env bash
     set -euo pipefail
+    workflow=release-suite.yml
     branch=$(git rev-parse --abbrev-ref HEAD)
-    if ! gh workflow view release.yml >/dev/null 2>&1; then
-      echo "error: the Release workflow (release.yml) does not exist yet; #145 adds it" >&2
+    commit="{{ commit }}"
+    if [[ "$branch" != main && -n "$commit" ]]; then
+      echo "error: a commit can be chosen only on main; off main the run tests the branch's pushed head" >&2
       exit 2
     fi
-    gh workflow run release.yml --ref "$branch"
-    sleep 5
-    run=$(gh run list --workflow release.yml --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
-    gh run watch "$run" --exit-status
+    git fetch --quiet origin "$branch"
+    if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$branch")" ]]; then
+      echo "error: HEAD is not origin/$branch's head; push it first, since the run tests the pushed head" >&2
+      exit 2
+    fi
+    repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+    before=$(gh run list --workflow "$workflow" --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+    gh workflow run "$workflow" --ref "$branch" -f cells="{{ cells }}" -f commit="$commit"
+    run=$before
+    for _ in $(seq 60); do
+      sleep 2
+      run=$(gh run list --workflow "$workflow" --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+      [[ "$run" != "$before" ]] && break
+    done
+    if [[ "$run" == "$before" ]]; then
+      echo "error: the dispatched run did not appear within two minutes" >&2
+      exit 2
+    fi
+    echo "Release run $run on $branch, cells {{ cells }}."
+    if [[ "$branch" == main ]]; then
+      echo "The macOS cells wait for the owner's machine (owner-machine); while it is off, they stay queued and fail after 24 hours."
+    else
+      echo "Off main, the macOS cells do not run (ADR 0108)."
+    fi
+    status=0
+    gh run watch "$run" --exit-status || status=$?
+    if [[ "$branch" == main ]]; then
+      [[ -n "$commit" ]] || commit=$(gh run view "$run" --json headSha --jq .headSha)
+      echo "Commit $commit across its dispatches:"
+      GITHUB_TOKEN=$(gh auth token) cargo run --quiet -p xtask -- release-suite verdict \
+        --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
+    fi
+    exit "$status"
 
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
 # dependencies, tests and benchmark targets with its profiles, run by nothing.
@@ -217,6 +256,7 @@ warm:
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
     cargo build --workspace --profile ci
     cargo bench --workspace --no-run
+    ci/msrv.sh
 
 # Applies the Reference screenshots of an `update-screenshots` run of this
 # branch (ADR 0073), refusing a run made in another image than the pinned one
@@ -229,6 +269,54 @@ screenshots-fetch run:
     trap 'rm -rf "$folder"' EXIT
     gh run download "{{ run }}" --name reference-screenshots --dir "$folder"
     cargo run --quiet -p xtask -- screenshots fetch "$folder"
+
+# The pull-request tier's supply-chain job (#133), each part also a recipe:
+# the advisories of every lockfile, the MSRV build, cargo-hack over each
+# Product's SDK crate and Miri. The audits read public advisory databases, so
+# CI runs this before any egress deny.
+supply-chain: audit msrv feature-combinations miri
+
+# The security advisories of the Cargo, pnpm and uv lockfiles: cargo-deny's
+# and cargo-audit's (RustSec), pnpm audit's and pip-audit's (ci/audit.sh).
+audit:
+    ci/tool.sh cargo-audit ci/audit.sh rust
+    ci/audit.sh npm
+    ci/audit.sh python
+
+# Builds the workspace with the toolchain of its `rust-version`, the MSRV of
+# ADR 0030 (latest stable minus two).
+msrv:
+    ci/msrv.sh
+
+# cargo-hack over every feature combination of each Product's SDK crate
+# (ADR 0087).
+feature-combinations:
+    ci/tool.sh cargo-hack ci/feature-combinations.sh
+
+# Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
+# (STYLE.md, `unsafe`); none does yet, so it runs nothing.
+miri:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read_list() { uv run --frozen --quiet python -c "import tomllib; miri = tomllib.load(open('ci/miri.toml', 'rb')); $1"; }
+    modules=$(read_list 'print("\n".join(m["crate"] + "\t" + m["filter"] for m in miri["module"]))')
+    if [[ -z "$modules" ]]; then
+      echo "Miri: no module opts in yet (ci/miri.toml)"
+      exit 0
+    fi
+    toolchain=$(read_list 'print(miri["toolchain"])')
+    while IFS=$'\t' read -r crate filter; do
+      cargo "+$toolchain" miri test --package "$crate" --lib -- "$filter"
+    done <<< "$modules"
+
+# Checks that every commit from `base` to `head`, merges aside, is signed off
+# by its author (ADR 0018). Locally: since the merge base with `origin/main`.
+dco base="" head="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
+    cargo run --quiet -p xtask -- dco --base "$base" --head "{{ head }}"
 
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.

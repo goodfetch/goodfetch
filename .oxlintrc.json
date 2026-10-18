@@ -26,5 +26,13 @@
       }
     ]
   },
+  "overrides": [
+    {
+      "files": ["console/**"],
+      "rules": {
+        "import/no-relative-parent-imports": "error"
+      }
+    }
+  ],
   "ignorePatterns": ["rnd/**", "**/generated/**", "ci/proofs/**"]
 }

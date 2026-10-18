@@ -1,0 +1,14 @@
+{
+  "error_codes": [
+    {
+      "description": "The check was not BYPASSED: the page stayed Undetectable, undetected or asked to solve any captcha.",
+      "name": "sample_refused"
+    }
+  ],
+  "operations": [
+    {
+      "description": "Repeats a text.",
+      "name": "sample.echo"
+    }
+  ]
+}

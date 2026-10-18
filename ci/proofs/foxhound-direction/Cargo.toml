@@ -1,0 +1,5 @@
+# The fixture of the workspace-wide direction rule's proof (just proofs): the
+# root deny.toml's `wrappers` rule on stand-ins named as Foxhound's crates.
+[workspace]
+resolver = "3"
+members = ["*"]

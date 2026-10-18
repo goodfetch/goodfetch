@@ -1,0 +1,8 @@
+{
+  "name": "@goodfetch/collie-client",
+  "version": "0.0.0",
+  "description": "The Collie client package.",
+  "optionalDependencies": {
+    "@goodfetch/collie-linux-x64": "workspace:*"
+  }
+}

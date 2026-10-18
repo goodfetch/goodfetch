@@ -2,8 +2,8 @@
 //! `emit` example, which writes the JSON Schema bundle and catalog file
 //! through schemars, and writes from them every generated file: each
 //! Product's projection, the names only Foxhound carries, the cargo-deny
-//! `wrappers` list of Foxhound's crates, and each SDK package's `generated/`
-//! layer.
+//! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
+//! copy of the license allowlist, and each SDK package's `generated/` layer.
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -42,7 +42,8 @@ const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";
 /// The digests of each outside generator's input and output, written with them.
 const DIGESTS: &str = "crates/goodfetch-protocol/generated/digests.json";
 
-/// The cargo-deny configuration that holds the `wrappers` list.
+/// The cargo-deny configuration that holds the `wrappers` list and the
+/// licenses.
 const DENY: &str = "deny.toml";
 
 #[derive(Clone, Copy)]
@@ -183,9 +184,17 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
     let deny_text = std::fs::read_to_string(&deny_path)
         .with_context(|| format!("reading {}", deny_path.display()))?;
     let crates = deny::foxhound_crates(root)?;
+    let licenses = deny::crate_licenses(root)?;
     files.insert(
         DENY.to_owned(),
-        deny::render(&deny_text, &crates).into_bytes(),
+        deny::render_workspace(&deny_text, &crates, &licenses).into_bytes(),
+    );
+    let collie_path = root.join(deny::COLLIE);
+    let collie_text = std::fs::read_to_string(&collie_path)
+        .with_context(|| format!("reading {}", collie_path.display()))?;
+    files.insert(
+        deny::COLLIE.to_owned(),
+        deny::render_collie(&collie_text, &crates).into_bytes(),
     );
 
     let mut externals = Vec::new();

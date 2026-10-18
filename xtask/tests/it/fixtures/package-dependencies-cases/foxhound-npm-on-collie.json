@@ -1,0 +1,9 @@
+{
+  "name": "@goodfetch/foxhound",
+  "version": "0.0.0",
+  "description": "Foxhound's TypeScript SDK.",
+  "dependencies": {
+    "@goodfetch/collie": "workspace:*",
+    "@goodfetch/collie-client": "workspace:*"
+  }
+}

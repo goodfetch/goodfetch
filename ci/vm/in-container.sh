@@ -19,6 +19,10 @@ if [[ -d /cache/target ]]; then cp -a /cache/target/. "$CARGO_TARGET_DIR/"; fi
 if [[ -d /cache/pnpm-store ]]; then cp -a /cache/pnpm-store/. "$npm_config_store_dir/"; fi
 if [[ -d /cache/uv ]]; then cp -a /cache/uv/. "$UV_CACHE_DIR/"; fi
 
+# The workspace belongs to the host's user, so git refuses it as another
+# user's repository unless told to trust it (`xtask affected` reads git).
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/work
+
 set -e
 pnpm install --frozen-lockfile
 uv sync --frozen

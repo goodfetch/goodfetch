@@ -7,6 +7,12 @@
 # A step whose name starts with "Test" is a test step: "all green" fails when
 # one failed in an earlier attempt of the run (ADR 0064). Required checks:
 # "all green" and "Chromium build gate" (AGENTS.md, Merging).
+#
+# The `affected` job decides which other jobs run (ADR 0032): a job it may
+# skip names itself in its `if:`, and "all green" passes a job skipped that
+# way. No required check filters on paths. The change is the merge commit
+# against its first parent, the base branch's head, so each job that reads it
+# checks out two commits.
 name: pull request
 
 on:
@@ -49,10 +55,42 @@ jobs:
         if: always()
         run: ci/vm/stop.sh
 
+  affected:
+    name: affected
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      jobs: ${{ steps.select.outputs.jobs }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Select the jobs and tests the change needs
+        run: >-
+          ci/vm/exec.sh bash -c "mkdir -p target && cargo run --quiet -p xtask --
+          affected --base HEAD^1 --head HEAD > target/affected.txt"
+      - name: Write the selection to the job's outputs
+        id: select
+        run: |
+          cat target/affected.txt
+          cat target/affected.txt >> "$GITHUB_OUTPUT"
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
   pre-merge:
     name: pre-merge
-    needs: quick
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: [quick, affected]
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && contains(fromJSON(needs.affected.outputs.jobs), 'pre-merge')
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 30
     permissions:
@@ -62,12 +100,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - name: Start the VM
         run: ci/vm/start.sh read-only
       - name: Build with the CI profile
         run: ci/vm/exec.sh just build ci
-      - name: "Test: just test pre-merge"
-        run: ci/vm/exec.sh just test pre-merge
+      - name: "Test: just test-affected pre-merge"
+        run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
       - name: Prove the static checks on their fixtures
         run: ci/vm/exec.sh just proofs
       - name: Summarize the failed tests
@@ -144,7 +183,7 @@ jobs:
   all-green:
     name: all green
     if: always()
-    needs: [quick, pre-merge, visual]
+    needs: [quick, affected, pre-merge, visual]
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 20
     permissions:

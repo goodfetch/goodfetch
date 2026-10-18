@@ -19,10 +19,17 @@ if = "github.event.pull_request.head.repo.full_name == github.repository"
 
 [[job]]
 workflow = "pull-request.yml"
-job = "pre-merge"
+job = "affected"
 events = ["pull_request"]
 refs = ["refs/pull/*/merge"]
 if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+[[job]]
+workflow = "pull-request.yml"
+job = "pre-merge"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON(needs.affected.outputs.jobs), 'pre-merge')"
 
 [[job]]
 workflow = "pull-request.yml"

@@ -151,8 +151,19 @@ impl Workspace {
         ]);
     }
 
-    fn git(&self, args: &[&str]) -> String {
+    /// Runs `git <args>` in the workspace, with no user or system
+    /// configuration and a fixed author, and returns its output; panics if
+    /// it fails.
+    pub(crate) fn git(&self, args: &[&str]) -> String {
         let output = Command::new("git")
+            .args([
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+            ])
             .args(args)
             .current_dir(self.path())
             .env_clear()

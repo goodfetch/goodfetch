@@ -455,7 +455,7 @@ Each suite runs everything the suite before it runs.
 - **Run `just quick` before every push.** `just hooks` installs an opt-in pre-push hook that does it.
 - **`just test <suite> [packages]`** runs one suite's tests without lints. CI jobs call it, and so can you.
 - **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
-- **What changed comes from `xtask affected`**, in CI and locally. Until it exists, `just quick` and `just pre-merge` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too.
+- **What changed comes from `xtask affected`**, in CI and locally; `just quick all` and `just pre-merge all` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too.
 - **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
 - **`just release-ci` dispatches the Release suite on your pushed branch** and follows it to the end. While the repository is private, on `main` it also runs the macOS cells on the owner's machine, which stands in for the reference host, and on any other branch the hosted cells alone; it takes the cells to run, all by default ([ADR 0108](docs/adr/0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md)).
 

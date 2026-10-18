@@ -4,10 +4,12 @@
 //! current folder. A check exits with 0 when it passes, 1 with its findings,
 //! and 2 when it could not reach a verdict.
 
+mod affected;
 mod all_green;
 mod check;
 mod dependency_direction;
 mod fixture_size;
+mod foxhound_side;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
@@ -30,6 +32,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Prints which jobs of the pull-request tier a change needs and what
+    /// each test runner selects, as `key=value` lines (ADRs 0032 and 0061).
+    #[command(group(clap::ArgGroup::new("change").required(true).args(["base", "local"])))]
+    Affected {
+        /// The change's base, for CI: the change is what `--head` changed
+        /// since its merge base with it.
+        #[arg(long, requires = "head")]
+        base: Option<String>,
+        #[arg(long, requires = "base")]
+        head: Option<String>,
+        /// The working tree, uncommitted and untracked files included,
+        /// against the merge base with `origin/main`.
+        #[arg(long, conflicts_with_all = ["base", "head"])]
+        local: bool,
+    },
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen {
@@ -82,6 +99,17 @@ struct Environment {
 
 fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Result<ExitCode> {
     match command {
+        Command::Affected { base, head, local } => {
+            // clap requires `--local` or both of `--base` and `--head`.
+            let range = match (local, base, head) {
+                (true, _, _) => affected::Range::WorkingTree,
+                (false, Some(base), Some(head)) => affected::Range::Commits { base, head },
+                (false, _, _) => anyhow::bail!("give --base and --head, or --local"),
+            };
+            let selection = affected::select(&environment.cargo, root, &range)?;
+            output::line(selection.to_string().trim_end());
+            Ok(ExitCode::SUCCESS)
+        }
         Command::AllGreen {
             needs,
             repository,

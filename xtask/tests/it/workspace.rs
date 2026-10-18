@@ -100,6 +100,27 @@ impl Workspace {
         std::fs::write(target, contents).unwrap();
     }
 
+    /// Runs `git <args>` in the workspace, with no user or system
+    /// configuration and a fixed author, and panics if it fails.
+    pub(crate) fn git(&self, args: &[&str]) {
+        let status = Command::new("git")
+            .args([
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(self.path())
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    }
+
     /// Runs `xtask <args>` in the workspace with a cleared environment, but
     /// for the variables that find and run the pinned Cargo toolchain.
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {

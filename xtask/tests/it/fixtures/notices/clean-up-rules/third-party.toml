@@ -1,0 +1,59 @@
+set = "clean-up-rules"
+
+# Built from a pinned commit of easylist/easylist's templates (ADR 0047).
+[[input]]
+name = "EasyList"
+version = "4f2c1e0"
+license = "GPL-3.0-or-later OR CC-BY-SA-3.0"
+source = "https://github.com/easylist/easylist/tree/4f2c1e0"
+use = "compiled-filter-list"
+
+# fanboy.co.nz's copy, as `filter_lists.extra` may name it.
+[[input]]
+name = "Fanboy Annoyance (fanboy.co.nz)"
+version = "202610190000"
+license = "CC-BY-3.0"
+source = "https://secure.fanboy.co.nz/fanboy-annoyance.txt"
+use = "compiled-filter-list"
+
+[[input]]
+name = "Brave's unbreak list"
+version = "9a8b7c6"
+license = "MPL-2.0"
+source = "https://github.com/brave/adblock-lists/blob/9a8b7c6/brave-unbreak.txt"
+use = "compiled-filter-list"
+
+[[input]]
+name = "autoconsent"
+version = "14.20.0"
+license = "MPL-2.0"
+source = "https://github.com/duckduckgo/autoconsent/tree/v14.20.0"
+use = "unmodified"
+
+[[input]]
+name = "DuckDuckGo's tracker surrogates"
+version = "1d2e3f4"
+license = "Apache-2.0 AND MPL-2.0"
+source = "https://github.com/duckduckgo/tracker-surrogates/tree/1d2e3f4"
+use = "unmodified"
+
+[[input]]
+name = "Mozilla's web-compatibility shims"
+version = "150.0"
+license = "MPL-2.0"
+source = "https://searchfox.org/firefox-main/source/browser/extensions/webcompat/shims"
+use = "unmodified"
+
+[[input]]
+name = "uBlock filters"
+version = "5e6f7a8"
+license = "GPL-3.0-only"
+source = "https://github.com/uBlockOrigin/uAssets/tree/5e6f7a8/filters"
+use = "download-only"
+
+[[input]]
+name = "uBlock Origin's resources"
+version = "1.70.0"
+license = "GPL-3.0-only"
+source = "https://github.com/gorhill/uBlock/tree/1.70.0/src/web_accessible_resources"
+use = "download-only"

@@ -1,0 +1,6 @@
+# A Product's crate and the third-party crates it depends on, for which the
+# directory source under vendor/ stands in as crates.io (.cargo/config.toml).
+[workspace]
+members = ["app"]
+exclude = ["vendor"]
+resolver = "3"

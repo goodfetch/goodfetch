@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: permissive-dist
+Version: 1.0.0
+License-Expression: BSD-3-Clause
+Provides-Extra: speed
+Requires-Dist: speed-dist; extra == "speed"
+Requires-Dist: windows-only-dist; sys_platform == "win32"
+
+A distribution under a permissive license.

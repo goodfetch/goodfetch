@@ -32,6 +32,7 @@ mod minute_ceiling;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
+mod notices;
 mod package_dependencies;
 mod quarantine;
 mod release_suite;

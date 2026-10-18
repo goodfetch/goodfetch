@@ -1,0 +1,8 @@
+{
+  "name": "permissive-package",
+  "version": "1.0.0",
+  "license": "MIT",
+  "peerDependencies": {
+    "peer-package": "^4.0.0"
+  }
+}

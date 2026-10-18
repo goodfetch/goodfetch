@@ -19,7 +19,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use serde::Deserialize;
+
+use crate::license_allowlist;
 
 /// Where each region begins; each ends at the first `END` after it.
 const WRAPPERS_BEGIN: &str = "# xtask codegen: begin, the crates under crates/foxhound/ (ADR 0087). Never edit by hand; run `xtask codegen`.";
@@ -30,37 +31,8 @@ const END: &str = "# xtask codegen: end";
 /// The only crate outside `crates/foxhound/` that may depend on one inside.
 const BUILD_TOOL: &str = "xtask";
 
-/// ADR 0018's license allowlist.
-pub(super) const ALLOWLIST: &str = "license-allowlist.toml";
-
 /// Collie's cargo-deny configuration, rooted at its executable crate.
 pub(super) const COLLIE: &str = "ci/deny/collie.toml";
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Allowlist {
-    license: Vec<License>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct License {
-    /// An SPDX license expression.
-    id: String,
-    /// The one use the license is allowed for, when it is not allowed for all.
-    only: Option<Use>,
-}
-
-#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-enum Use {
-    /// Files used as their authors published them (MPL-2.0, ADR 0018); a
-    /// crate from a registry is.
-    UnmodifiedFiles,
-    /// The compiled form of Filter lists embedded in the executable (CC
-    /// BY-SA, ADRs 0018 and 0047); never code.
-    CompiledFilterLists,
-}
 
 /// Foxhound's crates, by folder name, sorted.
 pub(super) fn foxhound_crates(root: &Path) -> Result<Vec<String>> {
@@ -89,15 +61,9 @@ pub(super) fn foxhound_crates(root: &Path) -> Result<Vec<String>> {
 
 /// The licenses a crate may carry, in the allowlist's order.
 pub(super) fn crate_licenses(root: &Path) -> Result<Vec<String>> {
-    let path = root.join(ALLOWLIST);
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let allowlist: Allowlist =
-        toml::from_str(&text).with_context(|| format!("reading {ALLOWLIST}"))?;
-    Ok(allowlist
-        .license
+    Ok(license_allowlist::read(root)?
         .into_iter()
-        .filter(|license| license.only != Some(Use::CompiledFilterLists))
+        .filter(|license| license.only != Some(license_allowlist::Use::CompiledFilterLists))
         .map(|license| license.id)
         .collect())
 }

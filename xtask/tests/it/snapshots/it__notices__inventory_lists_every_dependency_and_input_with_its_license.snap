@@ -1,0 +1,152 @@
+---
+source: xtask/tests/it/notices.rs
+expression: "workspace.read_text(\"target/notices.json\")"
+---
+{
+  "notices": [
+    {
+      "ecosystem": "cargo",
+      "name": "mpl-crate",
+      "version": "2.1.0",
+      "license": "MPL-2.0",
+      "source": "https://crates.io/crates/mpl-crate/2.1.0",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "permissive-crate",
+      "version": "1.0.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://crates.io/crates/permissive-crate/1.0.0",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@scoped/transitive-package",
+      "version": "2.0.0",
+      "license": "ISC",
+      "source": "https://www.npmjs.com/package/@scoped/transitive-package/v/2.0.0",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "peer-package",
+      "version": "4.0.0",
+      "license": "BSD-2-Clause",
+      "source": "https://www.npmjs.com/package/peer-package/v/4.0.0",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "permissive-package",
+      "version": "1.0.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/permissive-package/v/1.0.0",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "python",
+      "name": "permissive-dist",
+      "version": "1.0.0",
+      "license": "BSD-3-Clause",
+      "source": "https://pypi.org/project/permissive-dist/1.0.0/",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "python",
+      "name": "speed-dist",
+      "version": "2.3.0",
+      "license": "Apache-2.0",
+      "source": "https://pypi.org/project/speed-dist/2.3.0/",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "console-assets",
+      "name": "Lucide icons",
+      "version": "0.900.0",
+      "license": "ISC",
+      "source": "https://github.com/lucide-icons/lucide/tree/0.900.0",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "chromium",
+      "name": "Chromium",
+      "version": "150.0.7800.0",
+      "license": "BSD-3-Clause",
+      "source": "https://chromium.googlesource.com/chromium/src/+/refs/tags/150.0.7800.0",
+      "use": "modified"
+    },
+    {
+      "ecosystem": "chromium",
+      "name": "ICU",
+      "version": "77.1",
+      "license": "Unicode-3.0",
+      "source": "https://chromium.googlesource.com/chromium/deps/icu/+/0123456789abcdef",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "Brave's unbreak list",
+      "version": "9a8b7c6",
+      "license": "MPL-2.0",
+      "source": "https://github.com/brave/adblock-lists/blob/9a8b7c6/brave-unbreak.txt",
+      "use": "compiled-filter-list"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "DuckDuckGo's tracker surrogates",
+      "version": "1d2e3f4",
+      "license": "Apache-2.0 AND MPL-2.0",
+      "source": "https://github.com/duckduckgo/tracker-surrogates/tree/1d2e3f4",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "EasyList",
+      "version": "4f2c1e0",
+      "license": "CC-BY-SA-4.0",
+      "source": "https://github.com/easylist/easylist/tree/4f2c1e0",
+      "use": "compiled-filter-list"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "Fanboy Annoyance (fanboy.co.nz)",
+      "version": "202610190000",
+      "license": "CC-BY-SA-4.0",
+      "source": "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
+      "use": "compiled-filter-list"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "Mozilla's web-compatibility shims",
+      "version": "150.0",
+      "license": "MPL-2.0",
+      "source": "https://searchfox.org/firefox-main/source/browser/extensions/webcompat/shims",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "autoconsent",
+      "version": "14.20.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/duckduckgo/autoconsent/tree/v14.20.0",
+      "use": "unmodified"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "uBlock Origin's resources",
+      "version": "1.70.0",
+      "license": "GPL-3.0-only",
+      "source": "https://github.com/gorhill/uBlock/tree/1.70.0/src/web_accessible_resources",
+      "use": "download-only"
+    },
+    {
+      "ecosystem": "clean-up-rules",
+      "name": "uBlock filters",
+      "version": "5e6f7a8",
+      "license": "GPL-3.0-only",
+      "source": "https://github.com/uBlockOrigin/uAssets/tree/5e6f7a8/filters",
+      "use": "download-only"
+    }
+  ]
+}

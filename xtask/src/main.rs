@@ -21,10 +21,12 @@ mod egress;
 mod fixture_size;
 mod foxhound_side;
 mod github;
+mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
+mod notices;
 mod output;
 mod package_dependencies;
 mod quarantine;
@@ -127,6 +129,19 @@ enum Command {
     /// Fails on any setting, flag, variable or workflow pattern that retries a
     /// test (ADRs 0064 and 0074).
     NoRetry,
+    /// Builds the third-party notice inventory: every dependency of Cargo,
+    /// npm and Python, and every input each `third-party.toml` declares,
+    /// with its license and where its source is; fails on a license ADR
+    /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
+    Notices {
+        /// A further file of inputs in `third-party.toml`'s format, such as
+        /// the list a Goodfetch Chromium build writes.
+        #[arg(long)]
+        inputs: Vec<PathBuf>,
+        /// Writes the inventory, as JSON, to this file.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Fails when an npm or PyPI package under `sdks/`, `adapters/` or
     /// `integrations/` depends on a package of the other Product, or on a
     /// Product's package when it is the Collie client package (ADR 0095).
@@ -596,6 +611,19 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
+        Command::Notices { inputs, out } => {
+            let inputs: Vec<PathBuf> = inputs.iter().map(|path| root.join(path)).collect();
+            let sources = notices::Sources {
+                cargo: &environment.cargo,
+                inputs: &inputs,
+            };
+            let out = out.map(|path| root.join(path));
+            Ok(check::report(&notices::check(
+                root,
+                &sources,
+                out.as_deref(),
+            )?))
+        }
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::ReleaseSuite { command } => run_release_suite(command, root, environment),

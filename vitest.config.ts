@@ -18,7 +18,14 @@ import {
   type ViteUserConfig,
 } from "vitest/config";
 
-const outside = ["**/node_modules/**", "rnd/**", "ci/proofs/**", "target/**"];
+const outside = [
+  "**/node_modules/**",
+  ".*/**",
+  "**/fixtures/**",
+  "rnd/**",
+  "ci/proofs/**",
+  "target/**",
+];
 const visualTests = "**/*.visual.test.{ts,tsx}";
 
 const visual: TestProjectInlineConfiguration = {

@@ -19,3 +19,4 @@ mod mocking_lockfile;
 mod modules;
 mod screenshots;
 mod self_hosted;
+mod size;

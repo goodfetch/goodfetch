@@ -9,7 +9,7 @@
 // workflow does, and references are named without the platform.
 import { defineConfig, type PlaywrightTestConfig, type Project } from "@playwright/test";
 
-const ignored = ["**/node_modules/**", "rnd/**", "ci/proofs/**"];
+const ignored = ["**/node_modules/**", ".*/**", "**/fixtures/**", "rnd/**", "ci/proofs/**"];
 
 const visual: Project = {
   name: "visual",

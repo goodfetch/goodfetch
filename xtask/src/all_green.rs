@@ -18,6 +18,7 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::check::Finding;
+use crate::github::Api;
 
 /// The prefix that marks a test step.
 const TEST_STEP_PREFIX: &str = "Test";
@@ -94,25 +95,18 @@ pub(crate) fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
 }
 
 fn attempt_jobs(run: &Run<'_>, attempt: u32) -> Result<Vec<Job>> {
+    let api = Api {
+        url: run.api_url,
+        token: run.token,
+    };
     let mut jobs = Vec::new();
     for page in 1.. {
-        let url = format!(
-            "{}/repos/{}/actions/runs/{}/attempts/{attempt}/jobs?per_page={PAGE_SIZE}&page={page}",
-            run.api_url.trim_end_matches('/'),
-            run.repository,
-            run.id,
-        );
-        let mut request = ureq::get(&url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "goodfetch-xtask");
-        if let Some(token) = run.token {
-            request = request.header("Authorization", format!("Bearer {token}"));
-        }
-        let page: JobsPage = request
-            .call()
-            .and_then(|mut response| response.body_mut().read_json())
-            .with_context(|| format!("reading the jobs of attempt {attempt} from {url}"))?;
+        let page: JobsPage = api
+            .get(&format!(
+                "/repos/{}/actions/runs/{}/attempts/{attempt}/jobs?per_page={PAGE_SIZE}&page={page}",
+                run.repository, run.id,
+            ))
+            .with_context(|| format!("reading the jobs of attempt {attempt}"))?;
         let last = page.jobs.len() < PAGE_SIZE;
         jobs.extend(page.jobs);
         if last || jobs.len() >= page.total_count {

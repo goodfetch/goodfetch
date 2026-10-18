@@ -1,0 +1,12 @@
+---
+source: xtask/tests/it/size.rs
+expression: outcome.stdout
+---
+| Product | Target | File | Size | main | Change | Limit | Verdict |
+|---|---|---|---:|---:|---:|---:|---|
+| Collie | — | goodfetch-collie.crate | 2.50 MB | — | — | 8 MiB | within |
+| Collie | x86_64-unknown-linux-gnu | collie | 75.00 MB | — | — | 120 MB | within |
+| Collie | x86_64-unknown-linux-gnu | collie.tgz | 30.90 MB | — | — | 50 MB | within |
+| Collie | x86_64-unknown-linux-gnu | collie.whl | 31.10 MB | — | — | 50 MB | within |
+| Foxhound | x86_64-unknown-linux-gnu | foxhound-latest | 83.10 MB | — | — | — | within |
+| Foxhound | x86_64-unknown-linux-gnu | foxhound.whl | 39.80 MB | — | — | 60 MB | within |

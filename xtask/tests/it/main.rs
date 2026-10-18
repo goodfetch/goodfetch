@@ -12,11 +12,17 @@
 mod github;
 mod workspace;
 
+mod affected;
 mod all_green;
 mod codegen;
 mod containment;
 mod dependency_direction;
+mod egress;
+mod egress_canary;
+mod egress_rules;
 mod fixture_size;
 mod mocking_lockfile;
 mod modules;
+mod screenshots;
 mod self_hosted;
+mod size;

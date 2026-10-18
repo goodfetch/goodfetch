@@ -249,7 +249,17 @@ importers:
         specifier: 'catalog:'
         version: 7.0.2
 
-  test-support/typescript: {}
+  test-support/typescript:
+    devDependencies:
+      '@playwright/test':
+        specifier: 'catalog:'
+        version: 1.64.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.5
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
 
 packages:
 

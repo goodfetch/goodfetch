@@ -8,4 +8,4 @@ here=$(cd "$(dirname "$0")" && pwd)
 source "$here/common.sh"
 
 limactl delete --force "$VM_NAME" >/dev/null 2>&1 || true
-rm -f "$VM_STATE"
+rm -f "$EGRESS_STATE"

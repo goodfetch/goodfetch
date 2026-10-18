@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Runs inside the CI image in the job's VM (ADR 0135): restores the build
-# cache from /cache, installs the locked dependencies, runs the job's command
-# and copies the JUnit files where the host uploads them. In the cache-warming
-# job (/cache writable) it then saves the cache; no other job writes it.
+# Runs inside the job's container in its VM (ADR 0135), in one of two modes:
+#   prepare  once, when start.sh starts the container: restores the build
+#            cache from /cache, then makes every download the job needs
+#            (`just fetch`), all before ADR 0043's deny;
+#   run      for each step (exec.sh): runs the step's command and copies the
+#            JUnit files where the host uploads them. In the cache-warming
+#            job (/cache writable) it then saves the cache; no other job
+#            writes it.
 set -uo pipefail
 
+mode=${1:?usage: in-container.sh prepare|run <command>…}
+shift
 cd /work
 
 # The cache folder holds Cargo's registry and the build's target folder, the
@@ -13,16 +19,26 @@ cd /work
 export CARGO_TARGET_DIR=/var/tmp/target
 export npm_config_store_dir=/var/tmp/pnpm-store
 export UV_CACHE_DIR=/var/tmp/uv-cache
-mkdir -p "$CARGO_TARGET_DIR" "$npm_config_store_dir" "$UV_CACHE_DIR"
-if [[ -d /cache/cargo-registry ]]; then cp -a /cache/cargo-registry "$CARGO_HOME/registry"; fi
-if [[ -d /cache/target ]]; then cp -a /cache/target/. "$CARGO_TARGET_DIR/"; fi
-if [[ -d /cache/pnpm-store ]]; then cp -a /cache/pnpm-store/. "$npm_config_store_dir/"; fi
-if [[ -d /cache/uv ]]; then cp -a /cache/uv/. "$UV_CACHE_DIR/"; fi
 
-set -e
-pnpm install --frozen-lockfile
-uv sync --frozen
-set +e
+# The workspace belongs to the host's user, so git refuses it as another
+# user's repository unless told to trust it (`xtask affected` reads git).
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/work
+
+if [[ "$mode" == prepare ]]; then
+  set -e
+  mkdir -p "$CARGO_TARGET_DIR" "$npm_config_store_dir" "$UV_CACHE_DIR"
+  if [[ -d /cache/cargo-registry ]]; then cp -a /cache/cargo-registry "$CARGO_HOME/registry"; fi
+  if [[ -d /cache/target ]]; then cp -a /cache/target/. "$CARGO_TARGET_DIR/"; fi
+  if [[ -d /cache/pnpm-store ]]; then cp -a /cache/pnpm-store/. "$npm_config_store_dir/"; fi
+  if [[ -d /cache/uv ]]; then cp -a /cache/uv/. "$UV_CACHE_DIR/"; fi
+  just fetch
+  exit 0
+fi
+
+[[ "$mode" == run ]] || {
+  echo "error: the mode is prepare or run, not $mode" >&2
+  exit 2
+}
 
 "$@"
 status=$?

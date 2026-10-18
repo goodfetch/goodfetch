@@ -33,6 +33,7 @@ pub(crate) struct Dependency {
 
 #[derive(Deserialize)]
 pub(crate) struct Target {
+    pub(crate) name: String,
     pub(crate) kind: Vec<String>,
     pub(crate) src_path: PathBuf,
 }

@@ -1,5 +1,5 @@
 //! GitHub Actions workflow files, parsed into the parts the checks read:
-//! each workflow's triggers and each job's runner, condition and matrix.
+//! each workflow's triggers and each job's runner, condition, matrix and steps.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -22,6 +22,14 @@ pub(crate) struct Job {
     pub(crate) id: String,
     pub(crate) condition: Option<String>,
     pub(crate) runner: Runner,
+    pub(crate) steps: Vec<Step>,
+}
+
+pub(crate) struct Step {
+    pub(crate) name: Option<String>,
+    /// The step's `run:` script; nothing for a step that `uses:` an Action.
+    pub(crate) run: Option<String>,
+    pub(crate) condition: Option<String>,
 }
 
 /// Where a job may run, as far as its `runs-on` can be read without running it.
@@ -84,10 +92,27 @@ fn parse(file: String, document: &Value) -> Result<Workflow> {
                 id: id.clone(),
                 condition: job.get("if").map(scalar).transpose()?,
                 runner: runner(job)?,
+                steps: steps(job)?,
             });
         }
     }
     Ok(Workflow { file, events, jobs })
+}
+
+fn steps(job: &Value) -> Result<Vec<Step>> {
+    let Some(Value::Array(steps)) = job.get("steps") else {
+        return Ok(Vec::new());
+    };
+    steps
+        .iter()
+        .map(|step| {
+            Ok(Step {
+                name: step.get("name").map(scalar).transpose()?,
+                run: step.get("run").map(scalar).transpose()?,
+                condition: step.get("if").map(scalar).transpose()?,
+            })
+        })
+        .collect()
 }
 
 fn scalar(value: &Value) -> Result<String> {

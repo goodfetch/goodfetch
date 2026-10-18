@@ -32,3 +32,13 @@ A local run lists every part it could not run on your host, and why. Its exit co
 ## Pull requests
 
 A pull request needs the "all green" check and the Chromium build gate to pass on its latest commit. Tests are written first and never retried (`TESTING.md`). Report a security flaw privately, as [`SECURITY.md`](SECURITY.md) says, never in a pull request.
+
+A change that grows a Product's file past its Size budget's increase threshold (+1 MB per compressed release file, +3 MB per OCI image tag; ADRs 0057 and 0087) fails `xtask size increase` until the pull request body has a "Size increase" section with one line per file, naming it as the check's finding does, with a delta at least the measured one and its reason:
+
+```markdown
+## Size increase
+
+- collie/x86_64-unknown-linux-gnu/collie.whl: +1.10 MB, the extractor's tables
+```
+
+and the owner accepts it when merging (ADR 0133) with a comment saying "Size increase accepted" that names the pull request's head commit, in full or abbreviated to at least 7 characters. A ceiling is never passed this way.

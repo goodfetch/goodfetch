@@ -7,6 +7,16 @@
 # A step whose name starts with "Test" is a test step: "all green" fails when
 # one failed in an earlier attempt of the run (ADR 0064). Required checks:
 # "all green" and "Chromium build gate" (AGENTS.md, Merging).
+#
+# The `affected` job decides which other jobs run (ADR 0032): a job it may
+# skip names itself in its `if:`, and "all green" passes a job skipped that
+# way. No required check filters on paths. The change is the merge commit
+# against its first parent, the base branch's head, so each job that reads it
+# checks out two commits.
+#
+# A job that runs the product denies outbound traffic before its first test
+# step and runs the Egress canary right after (ADR 0043); every job is
+# declared in ci/egress/endpoints.toml, which `xtask egress check` enforces.
 name: pull request
 
 on:
@@ -33,8 +43,17 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
-      - name: "Test: just quick all"
-        run: ci/vm/exec.sh just quick all
+      - name: Lint
+        run: ci/vm/exec.sh just lint
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: just test quick"
+        run: ci/vm/exec.sh just test quick
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
@@ -49,8 +68,88 @@ jobs:
         if: always()
         run: ci/vm/stop.sh
 
+  affected:
+    name: affected
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      jobs: ${{ steps.select.outputs.jobs }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Select the jobs and tests the change needs
+        run: >-
+          ci/vm/exec.sh bash -c "mkdir -p target && cargo run --quiet -p xtask --
+          affected --base HEAD^1 --head HEAD > target/affected.txt"
+      - name: Write the selection to the job's outputs
+        id: select
+        run: |
+          cat target/affected.txt
+          cat target/affected.txt >> "$GITHUB_OUTPUT"
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
   pre-merge:
     name: pre-merge
+    needs: [quick, affected]
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && contains(fromJSON(needs.affected.outputs.jobs), 'pre-merge')
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Build with the CI profile
+        run: ci/vm/exec.sh just build ci
+      - name: Prove the static checks on their fixtures
+        run: ci/vm/exec.sh just proofs
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: just test-affected pre-merge"
+        run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
+      - name: Upload the JUnit files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-pre-merge-pull-request-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
+  # The visual projects of the Pre-merge suite (ADR 0073): Chromium screenshots,
+  # compared with zero mismatched pixels, only inside the Playwright image
+  # pinned by digest in ci/visual/image.toml, on Linux x86-64. No other job
+  # runs them, and no job writes a Reference screenshot: the
+  # update-screenshots workflow does.
+  visual:
+    name: visual
     needs: quick
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, owner-machine]
@@ -62,14 +161,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
-      - name: Build with the CI profile
-        run: ci/vm/exec.sh just build ci
-      - name: "Test: just test pre-merge"
-        run: ci/vm/exec.sh just test pre-merge
-      - name: Prove the static checks on their fixtures
-        run: ci/vm/exec.sh just proofs
+      - name: Start the VM with the pinned Playwright image
+        run: ci/vm/start.sh read-only ci playwright
+      - name: Install the visual projects' packages
+        run: ci/vm/visual.sh install
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the visual projects in the pinned image"
+        run: ci/vm/visual.sh test
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
@@ -77,8 +181,17 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-pre-merge-pull-request-linux-x64-1
+          name: junit-visual-pull-request-linux-x64-1
           path: target/junit/
+          if-no-files-found: ignore
+      - name: Upload the expected, actual and diff images
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: visual-differences-pull-request
+          path: |
+            target/playwright/
+            target/vitest-attachments/
           if-no-files-found: ignore
       - name: Destroy the VM
         if: always()
@@ -99,7 +212,7 @@ jobs:
   all-green:
     name: all green
     if: always()
-    needs: [quick, pre-merge]
+    needs: [quick, affected, pre-merge, visual]
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 20
     permissions:

@@ -1,0 +1,8 @@
+{
+  "name": "@goodfetch/foxhound",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@goodfetch/collie-client": "workspace:*"
+  }
+}

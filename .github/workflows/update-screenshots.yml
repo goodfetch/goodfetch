@@ -32,9 +32,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Start the VM with the pinned Playwright image
-        run: ci/vm/start.sh read-only playwright
+        run: ci/vm/start.sh read-only ci playwright
+      - name: Install the visual projects' packages
+        run: ci/vm/visual.sh install
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
       - name: Rewrite the changed Reference screenshots in the pinned image
         run: ci/vm/visual.sh update
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Collect them with the image digest and the commit
         run: ci/visual/collect.sh target/update-screenshots
       - name: Upload the Reference screenshots

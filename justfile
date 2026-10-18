@@ -41,10 +41,11 @@ lint: fmt-check
     ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows
     ci/tool.sh actionlint actionlint
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check bans
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
+    cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- fixture-size
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- mocking-lockfile
@@ -53,6 +54,16 @@ lint: fmt-check
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     ci/repository-files.sh
+
+# Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
+# deny: the locked dependencies of each workspace and, as areas pin them, the
+# Playwright browsers, the Clean-up rules' inputs and other pinned inputs.
+# These may retry: they test nothing (ADR 0064).
+# Makes every download the pull-request tier needs, before the egress deny.
+fetch:
+    cargo fetch --locked
+    pnpm install --frozen-lockfile
+    uv sync --frozen
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":

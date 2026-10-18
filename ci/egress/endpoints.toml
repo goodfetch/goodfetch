@@ -1,0 +1,68 @@
+# ADR 0043's outbound-traffic deny in CI: the one place that says what each
+# job may reach. `xtask egress check` (Quick suite) fails on a workflow job
+# missing here, and `ci/egress/egress.sh` builds each job's deny from it.
+#
+# - [[deny]]: a job that runs Goodfetch's product. Under the deny it reaches
+#   only the fixtures (local to its VM) and the pinned artifact mirror below.
+#   It denies after its installs, pinned downloads and cache restores
+#   (`just fetch`, run when the VM starts) and before its first test step,
+#   runs the Egress canary right after, and fails on any other connection.
+# - [[named]]: a job ADR 0043 names, under the deny but also reaching its own
+#   `endpoints` ("<host>:<port>"). Its `exception` says which of ADR 0043's
+#   jobs it is: saas-sinks, benchmark, testnets, vendor-conformance,
+#   clean-up-rules-daily, cloud-run-deploy, model, integration-account,
+#   unpinned-releases or fixture-licence.
+# - [[outside]]: a job that runs none of the product, with the reason.
+
+# The Egress canary's forbidden connection: a public address no job may reach.
+canary = "1.1.1.1:443"
+
+# The pinned artifact mirror: the digest-pinned downloads ADR 0043 lists, by
+# the https:// URLs they are fetched from. A `kind` is one of browser,
+# lightpanda, plugin-browser, plugin-runtime, cursory-recordings,
+# clean-up-rules, product-executable, proving-ground and test-v8; each area
+# adds its entry in the pull request that pins its download. Goodfetch's own
+# releases join it from every `url` of compat/releases.toml (ADR 0066).
+
+# The test V8 build, CI's own entry (ADR 0067): an attested asset of this
+# repository's releases, which GitHub serves through a redirect.
+[[mirror]]
+kind = "test-v8"
+urls = [
+  "https://github.com/goodfetch/goodfetch/releases/download/",
+  "https://release-assets.githubusercontent.com/",
+]
+
+[[deny]]
+job = "pull-request.yml#quick"
+
+[[deny]]
+job = "pull-request.yml#pre-merge"
+
+# The visual projects, in the pinned Playwright image (ADR 0073). The job also
+# loads the CI image, whose container runs the deny's xtask commands.
+[[deny]]
+job = "pull-request.yml#visual"
+
+[[deny]]
+job = "update-screenshots.yml#update"
+
+[[outside]]
+job = "pull-request.yml#chromium-build-gate"
+reason = "Until its first build lands (#445) it builds and runs nothing. Then its fetches come before the deny and its tests run under it (ADR 0074)."
+
+[[outside]]
+job = "pull-request.yml#affected"
+reason = "It selects the jobs and tests a change needs from its files and runs none of the product."
+
+[[outside]]
+job = "pull-request.yml#all-green"
+reason = "It judges the run through GitHub's API and runs none of the product."
+
+[[outside]]
+job = "lab.yml#lab"
+reason = "It runs the frozen R&D lab under rnd/, which is no Product."
+
+[[outside]]
+job = "cache-warming.yml#warm"
+reason = "It fetches and builds the tier's targets without running them, and saves the build cache."

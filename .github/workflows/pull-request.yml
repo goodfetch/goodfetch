@@ -13,6 +13,10 @@
 # way. No required check filters on paths. The change is the merge commit
 # against its first parent, the base branch's head, so each job that reads it
 # checks out two commits.
+#
+# A job that runs the product denies outbound traffic before its first test
+# step and runs the Egress canary right after (ADR 0043); every job is
+# declared in ci/egress/endpoints.toml, which `xtask egress check` enforces.
 name: pull request
 
 on:
@@ -41,10 +45,20 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
-      - name: "Test: just quick all"
+      # Before the deny: the quarantine-list check reads GitHub's issues.
+      - name: Lint
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ci/vm/exec.sh just quick all
+        run: ci/vm/exec.sh just lint
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: just test quick"
+        run: ci/vm/exec.sh just test quick
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
@@ -109,10 +123,17 @@ jobs:
         run: ci/vm/start.sh read-only
       - name: Build with the CI profile
         run: ci/vm/exec.sh just build ci
-      - name: "Test: just test-affected pre-merge"
-        run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
       - name: Prove the static checks on their fixtures
         run: ci/vm/exec.sh just proofs
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: just test-affected pre-merge"
+        run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
@@ -146,9 +167,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Start the VM with the pinned Playwright image
-        run: ci/vm/start.sh read-only playwright
+        run: ci/vm/start.sh read-only ci playwright
+      - name: Install the visual projects' packages
+        run: ci/vm/visual.sh install
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
       - name: "Test: the visual projects in the pinned image"
         run: ci/vm/visual.sh test
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh

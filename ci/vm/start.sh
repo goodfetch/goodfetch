@@ -4,7 +4,9 @@
 #   ci/vm/start.sh read-only|writable [ci] [playwright]
 # `ci` is the CI image (the default when no image is named); `playwright` is
 # the pinned Playwright image of the visual projects (ADR 0073), fetched here,
-# before any of the job's own steps.
+# before any of the job's own steps. With the CI image, it then starts the
+# job's container, which restores the build cache and makes every download
+# the job needs (in-container.sh prepare), all before ADR 0043's deny.
 #
 # The job's workspace is mounted writable at /work. The cache folder
 # ($GOODFETCH_CACHE_FOLDER, set in the runner's .env by the owner, #1562) is
@@ -21,8 +23,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 source "$here/common.sh"
 
 case "$cache_mode" in
-  read-only) cache_writable=false ;;
-  writable) cache_writable=true ;;
+  read-only) cache_writable=false cache_flag=ro ;;
+  writable) cache_writable=true cache_flag=rw ;;
   *) echo "error: the cache mode is read-only or writable, not $cache_mode" >&2; exit 2 ;;
 esac
 for image in "${images[@]}"; do
@@ -38,6 +40,7 @@ workspace=${GITHUB_WORKSPACE:-$(pwd)}
 # A VM an earlier job left behind is destroyed first (the pre-job script also
 # does so before it admits a job).
 limactl delete --force "$VM_NAME" >/dev/null 2>&1 || true
+rm -f "$EGRESS_STATE"
 
 mounts=$(printf '[{"location":"%s","mountPoint":"/work","writable":true},{"location":"%s","mountPoint":"/cache","writable":%s}]' \
   "$workspace" "$cache_folder" "$cache_writable")
@@ -83,4 +86,14 @@ for image in "${images[@]}"; do
       ;;
   esac
 done
-echo "$cache_mode" >"$VM_STATE"
+
+# The job's container lives as long as the VM, so what `just fetch` installs
+# before the deny serves every later step.
+for image in "${images[@]}"; do
+  [[ "$image" == ci ]] || continue
+  vm_shell nerdctl run --detach --name "$CONTAINER" --platform linux/amd64 \
+    --volume /work:/work --volume "/cache:/cache:$cache_flag" \
+    --env CI=true --env "GOODFETCH_CACHE_MODE=$cache_mode" \
+    "$CI_IMAGE" sleep infinity
+  vm_shell nerdctl exec "$CONTAINER" /work/ci/vm/in-container.sh prepare
+done

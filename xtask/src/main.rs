@@ -6,6 +6,8 @@
 
 mod affected;
 mod all_green;
+mod allure;
+mod ceiling;
 mod check;
 mod codegen;
 mod containment;
@@ -23,6 +25,9 @@ mod output;
 mod package_dependencies;
 mod quarantine;
 mod release_suite;
+mod repeat;
+mod results;
+mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
@@ -127,6 +132,25 @@ enum Command {
     ReleaseSuite {
         #[command(subcommand)]
         command: ReleaseSuiteCommand,
+    },
+    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
+    /// runner run the chosen tests `--count` times, whatever each run's
+    /// result (ADR 0064): the diagnostic runs and the daily test-health job.
+    #[command(group(clap::ArgGroup::new("tests").required(true).args(["test", "quarantined"])))]
+    Repeat {
+        #[arg(long)]
+        count: std::num::NonZeroU32,
+        /// A test, as `<runner>=<test ID>` (the quarantine list's IDs).
+        #[arg(long)]
+        test: Vec<String>,
+        /// The quarantine list's oldest entries, at most this many.
+        #[arg(long)]
+        quarantined: Option<usize>,
+    },
+    /// The results store, `test-results` (ADR 0064).
+    Results {
+        #[command(subcommand)]
+        command: ResultsCommand,
     },
     /// Reference screenshots (ADR 0073).
     Screenshots {
@@ -288,6 +312,109 @@ enum QuarantineCommand {
 }
 
 #[derive(Subcommand)]
+enum ResultsCommand {
+    /// Writes the inputs of the Allure Report 3 build from the store: each
+    /// test's latest result, one history point per run attempt and the
+    /// report's configuration (ADR 0064).
+    Allure {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The folder to write, emptied first; run `allure generate results
+        /// --config allurerc.json` in it.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Prints `minutes=<n>` (the month's Linux-equivalent minutes of the
+    /// test-health ceiling) and `admitted=<true|false>` for a run about to
+    /// start, and writes a skip to `--summary` (ADRs 0064, 0072 and 0108).
+    Ceiling {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long, value_enum)]
+        run: ceiling::Run,
+        /// Today's date in UTC, `YYYY-MM-DD`, whose month is counted.
+        #[arg(long)]
+        today: jiff::civil::Date,
+        /// The job summary, `$GITHUB_STEP_SUMMARY`.
+        #[arg(long)]
+        summary: Option<PathBuf>,
+    },
+    /// Prints the tests that failed in a run attempt, for its diagnostic
+    /// runs (ADR 0064): `matrix=<JSON>`, one entry each, at most 20, and
+    /// `left_out=<n>`, the failed tests past those.
+    Failed {
+        /// The repository of the run, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long)]
+        run_id: u64,
+        #[arg(long)]
+        attempt: u32,
+        /// The folder the run's artifacts were downloaded into, one folder each.
+        #[arg(long)]
+        artifacts: PathBuf,
+        /// Only the tests that failed on this OS (`linux`, `macos`, `windows`).
+        #[arg(long)]
+        os: Option<String>,
+        /// Only the tests that failed on this architecture (`x64`, `arm64`).
+        #[arg(long)]
+        arch: Option<String>,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Writes one run attempt into the store: its JUnit files as written,
+    /// one record per test run and one per job.
+    Ingest {
+        /// The repository of the run, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long)]
+        run_id: u64,
+        #[arg(long)]
+        attempt: u32,
+        /// The folder the run's artifacts were downloaded into, one folder each.
+        #[arg(long)]
+        artifacts: PathBuf,
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Prints `<run> <attempt>` for every attempt of the runs that finished
+    /// since `--since` and that the store lacks, for the daily ingest (ADR 0135).
+    Pending {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The first day, UTC, `YYYY-MM-DD`.
+        #[arg(long)]
+        since: jiff::civil::Date,
+        /// The repository of the runs, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+    /// Opens or reopens one `flaky-test` issue per test that passed and
+    /// failed on one tree hash and configuration, and opens or updates one
+    /// `live-check` issue per Live check that failed or was inconclusive
+    /// three times in a row.
+    Scan {
+        /// A checkout of the results store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The repository whose issues the scan keeps, as `owner/name`.
+        #[arg(long, default_value = "goodfetch/goodfetch")]
+        repository: String,
+        #[arg(long, default_value = "https://api.github.com")]
+        api_url: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum EgressCommand {
     /// Fails on a workflow job not declared in `ci/egress/endpoints.toml`,
     /// and on a job under the deny whose steps do not deny before its tests,
@@ -420,6 +547,12 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
+        Command::Repeat {
+            count,
+            test,
+            quarantined,
+        } => run_repeat(root, count, &test, quarantined),
+        Command::Results { command } => run_results(command, root, environment),
         Command::Screenshots { command } => run_screenshots(command, root),
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
@@ -558,6 +691,149 @@ fn run_quarantine(
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// The `repeat` command (ADR 0064).
+fn run_repeat(
+    root: &Path,
+    count: std::num::NonZeroU32,
+    tests: &[String],
+    quarantined: Option<usize>,
+) -> anyhow::Result<ExitCode> {
+    let selection = match quarantined {
+        Some(limit) => repeat::Selection::Quarantined(limit),
+        None => repeat::Selection::Tests(
+            tests
+                .iter()
+                .map(|value| repeat::parse_test(value))
+                .collect::<anyhow::Result<_>>()?,
+        ),
+    };
+    for (runner, argument) in repeat::arguments(root, selection, count)? {
+        output::line(&format!("{runner}\t{argument}"));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The `results` commands (ADR 0064).
+fn run_results(
+    command: ResultsCommand,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        ResultsCommand::Allure { store, out } => {
+            allure::write(&root.join(store), &root.join(out))?;
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::Ceiling {
+            store,
+            run,
+            today,
+            summary,
+        } => {
+            let summary = summary.map(|summary| root.join(summary));
+            ceiling::check(&root.join(store), run, today, summary.as_deref())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::Failed {
+            repository,
+            run_id,
+            attempt,
+            artifacts,
+            os,
+            arch,
+            api_url,
+        } => {
+            let source = results::Source {
+                api: github::Api {
+                    url: &api_url,
+                    token: environment.github_token.as_deref(),
+                },
+                repository: &repository,
+                run: run_id,
+                attempt,
+                artifacts: &root.join(artifacts),
+            };
+            let platform = results::Platform {
+                os: os.as_deref(),
+                arch: arch.as_deref(),
+            };
+            print_failed(&source, &platform)
+        }
+        ResultsCommand::Ingest {
+            repository,
+            run_id,
+            attempt,
+            artifacts,
+            store,
+            api_url,
+        } => {
+            let source = results::Source {
+                api: github::Api {
+                    url: &api_url,
+                    token: environment.github_token.as_deref(),
+                },
+                repository: &repository,
+                run: run_id,
+                attempt,
+                artifacts: &root.join(artifacts),
+            };
+            let path = results::ingest(&source, &root.join(store))?;
+            output::line(&format!("wrote {}", path.display()));
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::Pending {
+            store,
+            since,
+            repository,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            for (run, attempt) in results::pending(&api, &repository, &root.join(store), since)? {
+                output::line(&format!("{run} {attempt}"));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::Scan {
+            store,
+            repository,
+            api_url,
+        } => {
+            let api = github::Api {
+                url: &api_url,
+                token: environment.github_token.as_deref(),
+            };
+            Ok(check::report(&scan::scan(
+                root,
+                &root.join(store),
+                &api,
+                &repository,
+            )?))
+        }
+    }
+}
+
+/// Prints a failed attempt's tests as a diagnostic job matrix (ADR 0064).
+fn print_failed(
+    source: &results::Source<'_>,
+    platform: &results::Platform<'_>,
+) -> anyhow::Result<ExitCode> {
+    // A run with more failures than this is broken, not flaky; the rest are
+    // only counted, for the job summary.
+    const DIAGNOSED_AT_MOST: usize = 20;
+    let mut failed = results::failed(source, platform)?;
+    let left_out = failed.split_off(failed.len().min(DIAGNOSED_AT_MOST));
+    output::line(&format!("count={}", failed.len()));
+    output::line(&format!(
+        "matrix={}",
+        serde_json::json!({ "include": failed })
+    ));
+    output::line(&format!("left_out={}", left_out.len()));
+    Ok(ExitCode::SUCCESS)
 }
 
 /// The `release-suite` commands (ADR 0108).

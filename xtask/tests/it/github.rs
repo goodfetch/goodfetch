@@ -26,7 +26,9 @@ pub(crate) struct GitHub {
 }
 
 impl GitHub {
-    /// Serves each `(path, body)` pair; the path includes its query string.
+    /// Serves each `(path, body)` pair; the path includes its query string,
+    /// and a route written `<METHOD> <path>` answers that method only, before
+    /// a route of the bare path.
     pub(crate) fn serving(routes: &[(&str, &str)]) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -88,7 +90,10 @@ fn answer(
     let mut parts = request_line.split(' ');
     let method = parts.next().unwrap_or_default().to_owned();
     let path = parts.next().unwrap_or_default().to_owned();
-    let (status, answer) = match routes.get(&path) {
+    let matching = routes
+        .get(&format!("{method} {path}"))
+        .or_else(|| routes.get(&path));
+    let (status, answer) = match matching {
         Some(body) => ("200 OK", body.as_str()),
         None => ("404 Not Found", r#"{"message":"Not Found"}"#),
     };

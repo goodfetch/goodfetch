@@ -10,25 +10,32 @@
 )]
 
 mod github;
+mod store;
 mod workspace;
 
 mod affected;
 mod all_green;
+mod allure;
 mod codegen;
 mod containment;
 mod dco;
 mod dependency_direction;
+mod diagnostic;
 mod egress;
 mod egress_canary;
 mod egress_hosts;
 mod egress_rules;
 mod fixture_size;
+mod ingest;
+mod minute_ceiling;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod package_dependencies;
 mod quarantine;
 mod release_suite;
+mod repeat;
+mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;

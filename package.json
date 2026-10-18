@@ -6,6 +6,7 @@
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
+    "allure": "catalog:",
     "json-schema-to-typescript": "16.0.0",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",

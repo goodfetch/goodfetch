@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="2" skipped="0" failures="1" errors="0" uuid="fc1e906a-ab3e-498f-a4a6-62a29a3db01f" timestamp="2026-10-18T03:01:03.471+00:00" time="0.010">
+    <testsuite name="sample" tests="2" skipped="0" errors="0" failures="1">
+        <testcase name="tests::steady" classname="sample" timestamp="2026-10-18T03:01:03.471+00:00" time="0.008"/>
+        <testcase name="tests::flaky" classname="sample" timestamp="2026-10-18T03:01:03.471+00:00" time="0.250">
+            <failure type="test failure">thread 'tests::flaky' panicked</failure>
+        </testcase>
+    </testsuite>
+</testsuites>

@@ -64,13 +64,21 @@ const visual: TestProjectInlineConfiguration = {
   },
 };
 
+// The constrained test-health run (ADR 0064; ci/test-health/constrained.sh)
+// takes a fresh order seed and detects leaked asynchronous resources.
+const orderSeed = process.env["GOODFETCH_ORDER_SEED"];
+
 const config: ViteUserConfig = defineConfig({
   test: {
     retry: 0,
     restoreMocks: true,
     unstubEnvs: true,
     unstubGlobals: true,
-    sequence: { shuffle: { tests: true } },
+    sequence: {
+      shuffle: { tests: true },
+      ...(orderSeed === undefined ? {} : { seed: Number(orderSeed) }),
+    },
+    detectAsyncLeaks: process.env["GOODFETCH_DETECT_ASYNC_LEAKS"] === "1",
     passWithNoTests: true,
     // The Quick suite passes `--slowTestThreshold=1000`; Vitest sets it per run, not per project.
     slowTestThreshold: 30_000,

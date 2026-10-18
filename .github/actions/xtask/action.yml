@@ -1,0 +1,25 @@
+# Builds `xtask` on a GitHub-hosted runner for the jobs that run none of the
+# product and need nothing else: the results store's ingest, its scan's
+# checks of the ceiling and the diagnostic runs' choice (ADR 0064). The
+# pinned toolchain and the build come from a cache, which these jobs, all on
+# `main` (schedule and workflow_run), save, so the daily ingest fits its
+# 2-minute timeout (ADR 0135).
+name: xtask
+description: Restores the toolchain and build cache, then builds xtask.
+runs:
+  using: composite
+  steps:
+    - name: Restore the toolchain and the build of xtask
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.rustup/toolchains
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: xtask-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'xtask/**') }}
+        restore-keys: |
+          xtask-${{ runner.os }}-${{ runner.arch }}-
+    - name: Build xtask
+      shell: bash
+      run: cargo build --quiet --locked -p xtask

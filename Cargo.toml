@@ -32,8 +32,11 @@ publish = false
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 insta = { version = "1.49.0", default-features = false }
+jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
+quick-xml = { version = "0.39.4", default-features = false }
 quote = { version = "1.0.47", default-features = false }
 rstest = { version = "0.27.0", default-features = false }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
@@ -42,6 +45,7 @@ serde-saphyr = { version = "2.0.0", default-features = false, features = ["deser
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
 sha2 = { version = "0.10.9", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
+tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }

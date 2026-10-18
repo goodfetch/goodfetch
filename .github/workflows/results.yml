@@ -1,0 +1,114 @@
+# The results store's ingest (ADRs 0064 and 0135; TESTING.md, After merge).
+# Every attempt of every run, pass or fail, goes into the `test-results`
+# repository beside this one (private until this one is public): one
+# compressed file per run attempt with its JUnit files as written, one record
+# per test run and one per job. Nothing is pruned. The scan then opens or
+# reopens the flaky-test and live-check issues. It runs none of the product,
+# so ADR 0043's deny does not apply, and only these jobs hold the store's
+# token, TEST_RESULTS_TOKEN.
+#
+# While the repository is private (ADR 0135):
+# - `ingest` follows each finished run of the workflows with a hosted job
+#   (90 included minutes a month);
+# - `daily` takes the past day's finished runs the store lacks, chiefly
+#   those that ran only on the owner's machine, the pull-request tier's
+#   among them, with a 2-minute timeout (60 a month). Their flaky tests are
+#   found a day later, which nothing gates on. The release suite (#145) joins
+#   `ingest` once it exists; fuzzing's results never come here (ADR 0067).
+name: results ingest
+
+# `workflow_run` is what follows a finished run. The runs it follows start only
+# on schedule, by hand or after such a run, never from a fork's pull request,
+# and the ingest reads their JUnit files as data, never as code.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [test health, diagnostic, release suite]
+    types: [completed]
+  schedule:
+    - cron: "53 4 * * *"
+
+permissions: {}
+
+jobs:
+  ingest:
+    name: ingest
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      # The scan opens and reopens flaky-test and live-check issues.
+      issues: write
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the results store
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/test-results
+          token: ${{ secrets.TEST_RESULTS_TOKEN }}
+          path: test-results
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Ingest the finished run attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: ci/results/ingest.sh test-results "$RUN" "$ATTEMPT"
+      - name: Push it to the store
+        env:
+          TEST_RESULTS_TOKEN: ${{ secrets.TEST_RESULTS_TOKEN }}
+          RUN: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: ci/results/push.sh test-results "Ingest run $RUN attempt $ATTEMPT"
+      - name: Scan the store for flaky tests and Live checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- results scan --store test-results
+          --repository "$GITHUB_REPOSITORY"
+
+  daily:
+    name: daily
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the results store
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/test-results
+          token: ${{ secrets.TEST_RESULTS_TOKEN }}
+          path: test-results
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Ingest the past day's finished runs the store lacks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ci/results/daily-ingest.sh test-results
+      - name: Push them to the store
+        env:
+          TEST_RESULTS_TOKEN: ${{ secrets.TEST_RESULTS_TOKEN }}
+        run: ci/results/push.sh test-results "Ingest the runs finished by $(date -u +%F)"
+      - name: Scan the store for flaky tests and Live checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- results scan --store test-results
+          --repository "$GITHUB_REPOSITORY"

@@ -93,6 +93,41 @@ reason = "It runs the frozen R&D lab under rnd/, which is no Product."
 job = "cache-warming.yml#warm"
 reason = "It fetches and builds the tier's targets without running them, and saves the build cache."
 
+# Test health (ADR 0064): the jobs that run tests deny; those that read and
+# write the results store, GitHub's interface and the ceiling run none of the
+# product.
+[[deny]]
+job = "test-health.yml#quarantined"
+
+[[deny]]
+job = "test-health.yml#constrained"
+
+[[outside]]
+job = "test-health.yml#report"
+reason = "It scans the results store, keeps the flaky-test and live-check issues and builds the Allure report; it runs none of the product (ADR 0064)."
+
+[[outside]]
+job = "test-health.yml#budget"
+reason = "It counts the month's minutes from the results store; it runs none of the product."
+
+[[deny]]
+job = "diagnostic.yml#rerun"
+
+[[deny]]
+job = "diagnostic.yml#rerun-owner-machine"
+
+[[outside]]
+job = "diagnostic.yml#select"
+reason = "It reads the failed run's JUnit files and the results store to choose the tests to run again; it runs none of the product."
+
+[[outside]]
+job = "results.yml#ingest"
+reason = "The ingest copies JUnit files into the results store and runs none of the product (ADR 0064)."
+
+[[outside]]
+job = "results.yml#daily"
+reason = "The daily ingest copies JUnit files into the results store and runs none of the product (ADRs 0064 and 0135)."
+
 [[outside]]
 job = "release-suite.yml#plan"
 reason = "It reads and writes the Release runs' records through GitHub's API to choose the cells, and runs none of the product."

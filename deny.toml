@@ -1,10 +1,59 @@
-# cargo-deny's configuration. #132 adds the mocking bans of ADR 0062, checked
-# with `cargo deny check bans`; #133 adds the licence allowlist (ADR 0018), the
-# advisories, the sources and ADR 0087's two boundary checks. `xtask codegen`
-# writes the `wrappers` list of Foxhound's crates into its region at the end.
+# cargo-deny's workspace-wide configuration (STYLE.md, Dependencies; ADRs
+# 0018, 0062 and 0087). `just lint` checks the licenses, bans and sources
+# offline; `just audit` checks the advisories, which need RustSec's database.
+# What each Product's executable ships is checked against `ci/deny/`'s own
+# configurations (`ci/deny/products.sh`).
+#
+# `xtask codegen` writes two marked regions: the licenses, from ADR 0018's
+# allowlist in `license-allowlist.toml`, and the `wrappers` list of
+# Foxhound's crates at the end. Each Foxhound crate lists every Foxhound crate
+# and `xtask` as its allowed parents, most of which never depend on it, so the
+# checks run with `-A unused-wrapper`: an unmatched wrapper is the rule's
+# shape, not a finding.
 
 [graph]
 all-features = true
+
+# xtask codegen: begin, ADR 0018's license allowlist, from license-allowlist.toml. Never edit by hand; run `xtask codegen`.
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "CC0-1.0",
+  "Unlicense",
+  "CDLA-Permissive-2.0",
+  "OpenSSL",
+  "MPL-2.0",
+]
+
+# xtask codegen: end
+
+# RustSec's advisories (ADR 0067): every vulnerability and unsound advisory
+# fails, and so does a yanked version or an unmaintained crate anywhere in the
+# graph (STYLE.md: maintained, or deliberately stable). An advisory is ignored
+# only with its ID, a reason and the issue that removes it.
+[advisories]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = []
+
+# Only crates.io; a git or other registry source fails until it is listed
+# here with its reason (STYLE.md, Dependencies).
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
 
 # No mocking of owned code (ADR 0062, TESTING.md); httpmock stays allowed
 # for true externals.

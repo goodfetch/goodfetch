@@ -1,0 +1,14 @@
+[package]
+name = "goodfetch-collie"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+duckdb = { path = "../duckdb" }
+goodfetch-test-support = { path = "../goodfetch-test-support" }
+goodfetch-frontier = { path = "../goodfetch-frontier" }
+goodfetch-engine = { path = "../goodfetch-engine" }
+
+[dev-dependencies]
+goodfetch-simulation = { path = "../goodfetch-simulation" }

@@ -1,0 +1,3 @@
+# Its own pnpm workspace, so pnpm reads this folder's lockfile and never the
+# repository's.
+packages: []

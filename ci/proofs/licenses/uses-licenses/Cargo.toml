@@ -1,0 +1,16 @@
+[package]
+name = "uses-licenses"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+gpl-dependency = { path = "../gpl-dependency" }
+lgpl-dependency = { path = "../lgpl-dependency" }
+agpl-dependency = { path = "../agpl-dependency" }
+sspl-dependency = { path = "../sspl-dependency" }
+busl-dependency = { path = "../busl-dependency" }
+cc-by-sa-dependency = { path = "../cc-by-sa-dependency" }
+mpl-dependency = { path = "../mpl-dependency" }
+permissive-dependency = { path = "../permissive-dependency" }

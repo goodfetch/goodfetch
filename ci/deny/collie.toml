@@ -1,0 +1,134 @@
+# What Collie's executable ships (ADRs 0087, 0088, 0124 and 0125):
+# cargo-deny's bans, rooted at Collie's executable crate with `--all-features`
+# and `--exclude-dev` (ci/deny/products.sh). The workspace-wide rules are
+# deny.toml's.
+#
+# Collie ships none of Foxhound's crates (the region `xtask codegen` writes
+# at the end) and none of the third-party crates only Foxhound's capabilities
+# use. A third-party crate that only Foxhound's crates use joins this list in
+# the pull request that adds it, and the fresh review checks it (ADR 0087).
+
+# DuckDB, for Datasets, search across runs and the SQL tab (ADR 0088).
+[[bans.deny]]
+crate = "duckdb"
+reason = "only Foxhound's Datasets use DuckDB (ADR 0088)"
+
+[[bans.deny]]
+crate = "libduckdb-sys"
+reason = "only Foxhound's Datasets use DuckDB (ADR 0088)"
+
+# wreq, for the impersonated HTTP fetch tier, and the crates that exist for
+# it; not its BoringSSL, which Collie's TLS relay links (ADR 0124).
+[[bans.deny]]
+crate = "wreq"
+reason = "only Foxhound's HTTP fetch tiers use wreq (ADRs 0088 and 0124)"
+
+[[bans.deny]]
+crate = "wreq-proto"
+reason = "exists for wreq, which only Foxhound uses (ADR 0124)"
+
+[[bans.deny]]
+crate = "wreq-rt"
+reason = "exists for wreq, which only Foxhound uses (ADR 0124)"
+
+[[bans.deny]]
+crate = "wreq-util"
+reason = "exists for wreq, which only Foxhound uses (ADR 0124)"
+
+[[bans.deny]]
+crate = "http2"
+reason = "wreq's HTTP/2 fork, which only Foxhound uses (ADR 0124)"
+
+# BoringSSL, through the fork wreq uses, only for the TLS relay, which stays
+# in Collie's Rust SDK crate (ADR 0124): each under the listed direct parents
+# only.
+[[bans.deny]]
+crate = "tokio-btls"
+wrappers = ["goodfetch-collie"]
+reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
+
+[[bans.deny]]
+crate = "btls"
+wrappers = ["goodfetch-collie", "tokio-btls"]
+reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
+
+[[bans.deny]]
+crate = "btls-sys"
+wrappers = ["btls"]
+reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
+
+# Paid fetches (ADR 0045), Foxhound's alone (ADR 0088).
+[[bans.deny]]
+crate = "x402-rs"
+reason = "only Foxhound's Paid fetches use x402 (ADR 0088)"
+
+[[bans.deny]]
+crate = "alloy"
+reason = "only Foxhound's Paid fetches use alloy (ADR 0088)"
+
+# The in-binary Sinks' database and object-store drivers (ADRs 0026 and
+# 0088). SQLite is not one: Collie's Run index uses it.
+[[bans.deny]]
+crate = "object_store"
+reason = "only Foxhound's object-store Sinks use it (ADRs 0026 and 0088)"
+
+[[bans.deny]]
+crate = "tokio-postgres"
+reason = "only Foxhound's PostgreSQL Sinks use it (ADRs 0026 and 0088)"
+
+[[bans.deny]]
+crate = "postgres"
+reason = "only Foxhound's PostgreSQL Sinks use it (ADRs 0026 and 0088)"
+
+[[bans.deny]]
+crate = "sqlx-postgres"
+reason = "only Foxhound's PostgreSQL Sinks use it (ADRs 0026 and 0088)"
+
+[[bans.deny]]
+crate = "pgvector"
+reason = "only Foxhound's pgvector Sink uses it (ADRs 0026 and 0088)"
+
+[[bans.deny]]
+crate = "mysql_async"
+reason = "only Foxhound's MySQL and MariaDB Sinks use it (ADRs 0026 and 0088)"
+
+[[bans.deny]]
+crate = "mysql"
+reason = "only Foxhound's MySQL and MariaDB Sinks use it (ADRs 0026 and 0088)"
+
+[[bans.deny]]
+crate = "sqlx-mysql"
+reason = "only Foxhound's MySQL and MariaDB Sinks use it (ADRs 0026 and 0088)"
+
+# The test-only crates, which no Product ships (ADRs 0062, 0069, 0087 and
+# 0125): the shared helpers, the test adapters and the test executables.
+[[bans.deny]]
+crate = "goodfetch-test-support"
+reason = "test-only: tests take it, no Product ships it (ADR 0062)"
+
+[[bans.deny]]
+crate = "goodfetch-simulation"
+reason = "test-only: turmoil's network adapter (ADRs 0087 and 0125)"
+
+[[bans.deny]]
+crate = "goodfetch-scripted-model"
+reason = "test-only adapter (ADR 0125)"
+
+[[bans.deny]]
+crate = "goodfetch-scripted-engine"
+reason = "test-only executable (ADR 0069)"
+
+[[bans.deny]]
+crate = "goodfetch-test-env"
+reason = "test-only executable (ADR 0062)"
+
+# xtask codegen: begin, Foxhound's crates, which Collie's executable never ships (ADR 0087). Never edit by hand; run `xtask codegen`.
+[[bans.deny]]
+crate = "goodfetch-frontier"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-sink"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+# xtask codegen: end

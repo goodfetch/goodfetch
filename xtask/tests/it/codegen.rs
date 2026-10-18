@@ -1,6 +1,8 @@
 //! `xtask codegen` and its drift check (ADRs 0038, 0087 and 0095): the
 //! committed bundle, catalog and per-Product outputs, each SDK package's
-//! generated layer, and the lists only `xtask codegen` writes.
+//! generated layer, and the lists only `xtask codegen` writes: the
+//! `wrappers` list and Collie's ban of Foxhound's crates (ADR 0087), and
+//! cargo-deny's copy of ADR 0018's license allowlist.
 //! Covers: story:1-57
 
 use rstest::rstest;
@@ -44,7 +46,10 @@ fn names_and_products(catalog: &Value, section: &str) -> Vec<(String, String)> {
 
 /// Every file `xtask codegen` writes, with its contents.
 fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
-    let mut files = vec![("deny.toml".to_owned(), workspace.read_text("deny.toml"))];
+    let mut files = vec![
+        ("deny.toml".to_owned(), workspace.read_text("deny.toml")),
+        (COLLIE_DENY.to_owned(), workspace.read_text(COLLIE_DENY)),
+    ];
     for folder in GENERATED_FOLDERS {
         let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
             .unwrap()
@@ -293,9 +298,86 @@ fn wrappers_list_follows_the_folders_under_crates_foxhound() {
 }
 
 #[test]
-fn check_fails_on_a_stale_wrappers_list() {
+fn check_fails_on_stale_lists_of_foxhounds_crates() {
     let workspace = Workspace::from_fixture("codegen");
     add_politeness_crate(&workspace);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", COLLIE_DENY), finding("drift", "deny.toml")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// Collie's cargo-deny configuration, rooted at its executable (ADR 0087).
+const COLLIE_DENY: &str = "ci/deny/collie.toml";
+
+/// Each crate a cargo-deny configuration bans, in order.
+fn banned_crates(deny: &str) -> Vec<String> {
+    let deny: toml::Table = deny.parse().unwrap();
+    deny["bans"]["deny"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["crate"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn collies_bans_follow_the_folders_under_crates_foxhound() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_politeness_crate(&workspace);
+
+    codegen(&workspace);
+
+    assert_eq!(
+        banned_crates(&workspace.read_text(COLLIE_DENY)),
+        [
+            "duckdb",
+            "goodfetch-frontier",
+            "goodfetch-politeness",
+            "goodfetch-sink",
+        ]
+    );
+}
+
+/// The licenses cargo-deny allows.
+fn allowed_licenses(deny: &str) -> Vec<String> {
+    let deny: toml::Table = deny.parse().unwrap();
+    deny["licenses"]["allow"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|license| license.as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// ADR 0018's license allowlist, the one list every license check reads.
+const ALLOWLIST: &str = "license-allowlist.toml";
+
+const ISC: &str = "[[license]]\nid = \"ISC\"\n";
+
+#[test]
+fn cargo_deny_allows_the_allowlists_licenses_but_those_for_filter_lists_only() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.append(ALLOWLIST, ISC);
+
+    codegen(&workspace);
+
+    assert_eq!(
+        allowed_licenses(&workspace.read_text("deny.toml")),
+        ["MIT", "Apache-2.0", "MPL-2.0", "ISC"]
+    );
+}
+
+#[test]
+fn check_fails_on_a_stale_license_list() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.append(ALLOWLIST, ISC);
 
     let outcome = workspace.xtask(&["codegen", "--check"]);
 

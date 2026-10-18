@@ -1,0 +1,8 @@
+{
+  "name": "npm-audit-proof",
+  "private": true,
+  "description": "The fixture of the npm audit's proof (just proofs): a locked dependency with published security advisories.",
+  "dependencies": {
+    "lodash": "4.17.11"
+  }
+}

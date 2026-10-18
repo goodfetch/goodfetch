@@ -49,10 +49,9 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surfaces`, `M3 Browser automation` and `M4 Everything else`.
 
-- **Create** (once): `gh api repos/<owner>/<repo>/milestones -f title="M1 Core"`, and the same for the other three. Then assign a milestone to every existing open ticket, applying **Order** below (wayfinder tickets that block a milestone's tickets join that milestone), and create the testing issue of M1, M2 and M3.
-- **Assign**: every ticket carries one milestone. `/to-tickets` sets it at creation: `gh issue create --milestone "<name>" ...`, or later `gh issue edit <n> --milestone "<name>"`.
-- **Order**: a ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively. `/to-tickets` checks this when it assigns milestones. Within one spec, it moves a blocker earlier when it finds one later than what it blocks. Across specs, it moves the dependent later or splits it, unless pulling the blocker earlier changes the milestone of fewer tickets, counted transitively, a tie moving the dependent; it lists every such move for the owner in the quiz and comments on each moved ticket ([ADR 0131](../adr/0131-a-cross-spec-milestone-inversion-moves-the-dependent-later-unless-pulling-the-blocker-earlier-moves-fewer-tickets.md)).
-- **Frontier**: the current milestone is the earliest one that still has an open ticket. When picking implementation work, take tickets from the current milestone, then apply the frontier query above (no open blocker, no assignee, not `ready-for-human`). Open `flaky-test` issues come first, then open `live-check` issues, before any other ticket of the milestone; once every V1 milestone is closed, they carry no milestone and still come first (ADR 0064). A milestone spans several specs: order them by ADR 0037's area order, then by each spec's ticket order.
+- **Assign**: every ticket carries one milestone: `gh issue create --milestone "<name>" ...`, or later `gh issue edit <n> --milestone "<name>"`.
+- **Order**: a ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively.
+- **Frontier**: the current milestone is the earliest one that still has an open ticket. When picking implementation work, take tickets from the current milestone, then apply the frontier query above (no open blocker, no assignee, not `ready-for-human`). A milestone spans several specs: order them by ADR 0037's area order, then by each spec's ticket order.
 - **Gate**: each of M1, M2 and M3 holds a `ready-for-human` testing issue, created with the milestone, with no blocking links (GitHub allows at most 50 per issue). It is ready for the owner once it is the only open issue of its milestone, and the frontier skips `ready-for-human` issues, so no agent takes it. Until the owner closes it, no ticket of the next milestone starts, even when it is unblocked.
 
 ## Implementation loop
@@ -63,5 +62,5 @@ The owner builds V1 with `/implement-spec` (owner, 2026-10-17), one spec at a ti
 
 Two labels, applied by CI's automation (ADR 0064), never by triage:
 
-- **`flaky-test`**: one issue per flaky test, in the current milestone, with the runs that differed. It comes first on the frontier, and the test's quarantine-list entry links it.
-- **`live-check`**: one issue per Live check whose last run failed, or was inconclusive three times in a row, owned by the Live check's area, in the current milestone. It comes right after `flaky-test` issues on the frontier, and a comment states its cause within two business days. It closes once that cause is fixed in Goodfetch, or attributed to an external party with a linked upstream report.
+- **`flaky-test`**: one issue per flaky test, in the current milestone, with the runs that differed. The test's quarantine-list entry links it.
+- **`live-check`**: one issue per Live check whose last run failed, or was inconclusive three times in a row, owned by the Live check's area, in the current milestone. A comment states its cause within two business days. It closes once that cause is fixed in Goodfetch, or attributed to an external party with a linked upstream report.

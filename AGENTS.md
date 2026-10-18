@@ -24,7 +24,7 @@ human signer; existing commits on `main` are not rewritten for attribution clean
 
 ## Code style
 
-Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch.
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch. The seams in a spec's Testing Decisions count as agreed (ADR 0133).
 
 Traps that break things, each explained in `STYLE.md`:
 
@@ -36,7 +36,7 @@ Traps that break things, each explained in `STYLE.md`:
 
 ## Language skills
 
-Before writing or reviewing code in a language below, load its skills when your host has them. Those in bold are vendored at pinned commits in [`.agents/skills/`](.agents/skills/README.md), so every agent has them. `STYLE.md` and `TESTING.md` win where a skill differs: for example, the SDKs accept Standard Schema instead of depending on a schema library, and engine responses are not validated at runtime beyond the protocol version check.
+Before writing or reviewing code in a language below, load its skills when your host has them. Those in bold are vendored at pinned commits in [`.agents/skills/`](.agents/skills/README.md), so every agent has them. The ADRs, `STYLE.md` and `TESTING.md` win where a skill differs: for example, the SDKs accept Standard Schema instead of depending on a schema library, and engine responses are not validated at runtime beyond the protocol version check.
 
 | Code | Skills |
 |---|---|

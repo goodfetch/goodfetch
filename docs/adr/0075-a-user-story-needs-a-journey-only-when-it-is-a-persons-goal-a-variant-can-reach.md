@@ -70,6 +70,8 @@ Decided in [Which user stories need a Journey](https://github.com/goodfetch/good
 
 Each area's `/to-spec` applies the three tests to every story it writes, records `journey` and `not_journey` in its stories file, and then adds the Journeys its flagged stories need, extending existing ones first. Its `/to-tickets` names the variants each ticket makes `proved`, as ADR 0063 requires.
 
+> Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no skill writes repository files or ticket fields. The stories file (each story's flags and milestone) and the Journeys of flagged stories must exist before a test declares them; tickets add them like any other work.
+
 ## Considered Options
 
 - **Keep ADR 0072's actor-only rule and plan large Journeys:** rejected. In area 3 it flags 129 stories. To cover them, either each Journey checks dozens of mechanisms, which goes against ADR 0063's "keep a Journey to its goal", or the catalog grows to hundreds of slow end-to-end tests. That inverts the pyramid that Google, Fowler and Kubernetes warn against.
@@ -85,6 +87,7 @@ Each area's `/to-spec` applies the three tests to every story it writes, records
 - **Amends ADR 0072** (notes there record it): `/to-spec` sets the flag by this ADR's three tests, not by the actor alone; every story also needs a declaring test above the unit level; rule 5 is due at the later of the story's milestone and the earliest milestone of a covering variant; `features/stories/<area>.toml` gains `not_journey`; and the causes of an untested Feature gain "no test above the unit level" and "no covering Journey".
 - **Amends ADR 0063** (a note there records it): each area's `/to-spec` adds Journeys for its stories with `journey = true`, not for every user story.
 - **Adds to ADR 0038**, so ADR 0037's amendment rule carries it to every area's spec: each `/to-spec` applies the three tests and records `not_journey`. ADR 0037's area table lists this ADR in the rows of areas 1, 2 and 3.
+  > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no skill writes repository files or ticket fields. The stories file (each story's flags and milestone) and the Journeys of flagged stories must exist before a test declares them; tickets add them like any other work.
 - **The "Test infrastructure" spec builds:** the `not_journey` field in the stories type and its schema; the level each declaration has, read from its path; the two new causes in the report; the due milestone of rule 5. It also writes the Journey files below and the extra `covers`, checks and steps of the existing ones.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)) through the delta pass:
   - `journey = true` for stories 1, 2 and 3 (`npm install`, `pip install`, `cargo add`) and 36 (`goodfetch upgrade-files`). Every other story is `false`. The `not_journey` reason is `actor` for stories of contributors, maintainers, the owner and coding agents; `reach` for stories that need release artifacts, channels, registries, signing, the docs site or a CI job; and `part` for the rest.

@@ -14,6 +14,8 @@ Decided with the owner while reviewing the V1 tickets' cross-area edges on 2026-
 - **A dependency that is only an extension is no edge.** When a ticket works without the other spec's capability and only extends to it once that lands, the provider gets a "When this lands" note in a comment, and no blocking edge.
 - **Every cross-spec move is listed for the owner** in the `/to-tickets` quiz that finds it, and each moved ticket gets a comment saying why.
 
+> Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): `/to-tickets` applies no milestone step, and `docs/agents/issue-tracker.md` keeps only the invariant that a ticket's milestone is never later than any ticket it blocks. This ADR records how the tickets of areas 4 to 14 were moved.
+
 ## Considered Options
 
 - **ADR 0058's rule everywhere:** rejected. Across specs it moves whole capabilities into an earlier milestone, against ADR 0058's own plan of what each milestone delivers.

@@ -1,6 +1,6 @@
 # Vendored skills
 
-Third-party agent skills from the Language skills table of [`AGENTS.md`](../../AGENTS.md), copied unchanged at the commits below so every agent and contributor reads the same version. `STYLE.md` and `TESTING.md` win wherever a skill disagrees. Codex reads this folder; Claude Code reads the same skills through the links in `.claude/skills/`. A personal skill with the same name takes precedence on that machine.
+Third-party agent skills from the Language skills table of [`AGENTS.md`](../../AGENTS.md), copied unchanged at the commits below so every agent and contributor reads the same version. The ADRs, `STYLE.md` and `TESTING.md` win wherever a skill disagrees. Codex reads this folder; Claude Code reads the same skills through the links in `.claude/skills/`. A personal skill with the same name takes precedence on that machine.
 
 | Skill | Language | Source | Commit | License |
 |---|---|---|---|---|

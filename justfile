@@ -39,9 +39,9 @@ lint: fmt-check
     uv run pyright
     uv run mypy .
     ci/tool.sh typos typos
-    ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows
+    ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check bans
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
@@ -191,21 +191,57 @@ pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) 
 release: _skips-reset lint (test "quick") (test "release") proofs _visual-elsewhere _skips-report
     @echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
-# Dispatches the Release suite's workflow on the pushed branch and follows it;
-# the exit code is the run's verdict (ADRs 0061 and 0108). The workflow comes
-# with #145.
-release-ci:
+# Dispatches the Release suite's workflow on the current branch and follows
+# it; the exit code is the run's verdict (ADRs 0061 and 0108). `cells` is
+# `all` or cell names separated by commas: linux-x64-gnu, linux-x64-musl,
+# linux-arm64-gnu, linux-arm64-musl, windows-x64, macos-arm64, macos-x64. On
+# `main`, `commit` is a commit of `main` to test, its head by default, and the
+# macOS cells run on the owner's machine; off `main` the run tests the
+# branch's pushed head with the hosted cells alone. On `main`, the commit's
+# verdict across all its dispatches follows the run's.
+release-ci cells="all" commit="":
     #!/usr/bin/env bash
     set -euo pipefail
+    workflow=release-suite.yml
     branch=$(git rev-parse --abbrev-ref HEAD)
-    if ! gh workflow view release.yml >/dev/null 2>&1; then
-      echo "error: the Release workflow (release.yml) does not exist yet; #145 adds it" >&2
+    commit="{{ commit }}"
+    if [[ "$branch" != main && -n "$commit" ]]; then
+      echo "error: a commit can be chosen only on main; off main the run tests the branch's pushed head" >&2
       exit 2
     fi
-    gh workflow run release.yml --ref "$branch"
-    sleep 5
-    run=$(gh run list --workflow release.yml --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
-    gh run watch "$run" --exit-status
+    git fetch --quiet origin "$branch"
+    if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$branch")" ]]; then
+      echo "error: HEAD is not origin/$branch's head; push it first, since the run tests the pushed head" >&2
+      exit 2
+    fi
+    repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+    before=$(gh run list --workflow "$workflow" --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+    gh workflow run "$workflow" --ref "$branch" -f cells="{{ cells }}" -f commit="$commit"
+    run=$before
+    for _ in $(seq 60); do
+      sleep 2
+      run=$(gh run list --workflow "$workflow" --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+      [[ "$run" != "$before" ]] && break
+    done
+    if [[ "$run" == "$before" ]]; then
+      echo "error: the dispatched run did not appear within two minutes" >&2
+      exit 2
+    fi
+    echo "Release run $run on $branch, cells {{ cells }}."
+    if [[ "$branch" == main ]]; then
+      echo "The macOS cells wait for the owner's machine (owner-machine); while it is off, they stay queued and fail after 24 hours."
+    else
+      echo "Off main, the macOS cells do not run (ADR 0108)."
+    fi
+    status=0
+    gh run watch "$run" --exit-status || status=$?
+    if [[ "$branch" == main ]]; then
+      [[ -n "$commit" ]] || commit=$(gh run view "$run" --json headSha --jq .headSha)
+      echo "Commit $commit across its dispatches:"
+      GITHUB_TOKEN=$(gh auth token) cargo run --quiet -p xtask -- release-suite verdict \
+        --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
+    fi
+    exit "$status"
 
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
 # dependencies, tests and benchmark targets with its profiles, run by nothing.

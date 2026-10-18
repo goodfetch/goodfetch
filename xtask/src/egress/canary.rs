@@ -1,8 +1,11 @@
 //! The Egress canary (ADR 0043; GLOSSARY.md): once the deny is in place, the
-//! job's container tries the forbidden connection `ci/egress/endpoints.toml`
-//! names, and the attempt passes only when it did not connect and the deny's
-//! `canary` counter shows that the deny refused it. At the job's end, every
-//! other connection the deny refused fails the job, named from its log.
+//! product's side of the job tries the forbidden connection
+//! `ci/egress/endpoints.toml` names, and the attempt passes only when it did
+//! not connect and the deny's own record shows that the deny refused it: the
+//! nftables `canary` counter on Linux, the firewall's log on Windows, and on
+//! macOS the sandbox's own refusal, `EPERM`, which nothing else returns. At
+//! the job's end, every other connection the deny refused fails the job,
+//! named from its log.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -20,6 +23,7 @@ use serde::Deserialize;
 
 use super::endpoints::Endpoints;
 use super::rules::LOG_PREFIX;
+use super::windows;
 use crate::check::Finding;
 
 /// How long the canary waits for its connection: a refusal is immediate.
@@ -30,15 +34,19 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 enum Outcome {
     Connected,
     Refused,
+    /// Refused by a local policy before any packet left: macOS's sandbox
+    /// (`EPERM`) or a Windows Firewall block rule (`WSAEACCES`).
+    Denied,
     TimedOut,
     Unreachable,
     Failed,
 }
 
 impl Outcome {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Connected,
         Self::Refused,
+        Self::Denied,
         Self::TimedOut,
         Self::Unreachable,
         Self::Failed,
@@ -48,6 +56,7 @@ impl Outcome {
         match self {
             Self::Connected => "connected",
             Self::Refused => "refused",
+            Self::Denied => "denied",
             Self::TimedOut => "timed-out",
             Self::Unreachable => "unreachable",
             Self::Failed => "failed",
@@ -74,6 +83,7 @@ pub(crate) fn attempt(root: &Path, outcome: &Path) -> Result<()> {
         Ok(_) => Outcome::Connected,
         Err(error) => match error.kind() {
             ErrorKind::ConnectionRefused | ErrorKind::ConnectionReset => Outcome::Refused,
+            ErrorKind::PermissionDenied => Outcome::Denied,
             ErrorKind::TimedOut | ErrorKind::WouldBlock => Outcome::TimedOut,
             ErrorKind::HostUnreachable | ErrorKind::NetworkUnreachable => Outcome::Unreachable,
             _ => Outcome::Failed,
@@ -126,18 +136,42 @@ impl Counters {
     }
 }
 
-/// The canary passes when it did not connect and the deny counted it.
-pub(crate) fn verdict(
-    root: &Path,
-    outcome: &Path,
-    before: &Path,
-    after: &Path,
-) -> Result<Vec<Finding>> {
+/// What shows that the deny refused the canary.
+pub(crate) enum Record<'a> {
+    /// The nftables counters before and after the attempt (Linux).
+    Counters { before: &'a Path, after: &'a Path },
+    /// The firewall's log of dropped packets (Windows).
+    FirewallLog(&'a Path),
+    /// macOS's sandbox keeps no record a standard user can read; its
+    /// refusal, `EPERM`, is the record.
+    Sandbox,
+}
+
+/// What lists the connections the deny refused, at the job's end.
+pub(crate) enum Refusals<'a> {
+    /// The nftables counters and the kernel log (Linux).
+    Nftables { counters: &'a Path, log: &'a Path },
+    /// The firewall's log of dropped packets (Windows).
+    FirewallLog(&'a Path),
+}
+
+fn read(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
+}
+
+/// The canary passes when it did not connect and the deny recorded it.
+pub(crate) fn verdict(root: &Path, outcome: &Path, record: &Record<'_>) -> Result<Vec<Finding>> {
     let canary = Endpoints::read(root)?.canary;
-    let text = std::fs::read_to_string(outcome)
-        .with_context(|| format!("reading {}", outcome.display()))?;
-    let ended = Outcome::parse(&text)?;
-    let counted = Counters::read(after)?.canary > Counters::read(before)?.canary;
+    let ended = Outcome::parse(&read(outcome)?)?;
+    let counted = match record {
+        Record::Counters { before, after } => {
+            Counters::read(after)?.canary > Counters::read(before)?.canary
+        }
+        Record::FirewallLog(log) => windows::dropped(&read(log)?)?
+            .iter()
+            .any(|dropped| Destination::from(dropped).is_canary(canary)),
+        Record::Sandbox => ended == Outcome::Denied,
+    };
     Ok(match (ended, counted) {
         (Outcome::Connected, _) => vec![Finding::new(
             "canary-reached",
@@ -162,6 +196,23 @@ struct Destination {
     protocol: String,
     address: IpAddr,
     port: Option<u16>,
+}
+
+impl Destination {
+    fn is_canary(&self, canary: SocketAddr) -> bool {
+        self.protocol == "tcp"
+            && self.port.map(|port| SocketAddr::new(self.address, port)) == Some(canary)
+    }
+}
+
+impl From<&windows::Dropped> for Destination {
+    fn from(dropped: &windows::Dropped) -> Self {
+        Self {
+            protocol: dropped.protocol.clone(),
+            address: dropped.address,
+            port: dropped.port,
+        }
+    }
 }
 
 impl fmt::Display for Destination {
@@ -208,29 +259,12 @@ fn destination(line: &str) -> Result<Option<Destination>> {
     }))
 }
 
-/// Every connection the deny refused, but the canary's, fails the job: one
-/// finding per destination in the deny's log, or one for the counter when the
-/// log lost them.
-pub(crate) fn report(root: &Path, counters: &Path, log: &Path) -> Result<Vec<Finding>> {
-    let canary = Endpoints::read(root)?.canary;
-    let counters = Counters::read(counters)?;
-    if counters.denied < counters.canary {
-        bail!("the deny's `denied` counter is below its `canary` counter, which its rules forbid");
-    }
-    let text =
-        std::fs::read_to_string(log).with_context(|| format!("reading {}", log.display()))?;
+/// One finding per refused destination but the canary's, each once.
+fn denied(destinations: impl IntoIterator<Item = Destination>, canary: SocketAddr) -> Vec<Finding> {
     let mut seen = BTreeSet::new();
     let mut findings = Vec::new();
-    for line in text.lines() {
-        let Some(destination) = destination(line)? else {
-            continue;
-        };
-        let is_canary = destination.protocol == "tcp"
-            && destination
-                .port
-                .map(|port| SocketAddr::new(destination.address, port))
-                == Some(canary);
-        if is_canary || seen.contains(&destination) {
+    for destination in destinations {
+        if destination.is_canary(canary) || seen.contains(&destination) {
             continue;
         }
         findings.push(Finding::new(
@@ -240,15 +274,42 @@ pub(crate) fn report(root: &Path, counters: &Path, log: &Path) -> Result<Vec<Fin
         ));
         seen.insert(destination);
     }
-    if findings.is_empty() && counters.denied > counters.canary {
-        findings.push(Finding::new(
-            "egress-denied-unlogged",
-            "counter denied",
-            format!(
-                "the deny refused {} connection packets besides the canary's, missing from its log",
-                counters.denied - counters.canary
-            ),
-        ));
+    findings
+}
+
+/// Every connection the deny refused, but the canary's, fails the job: one
+/// finding per destination in the deny's log, or, on Linux, one for the
+/// counter when the log lost them.
+pub(crate) fn report(root: &Path, refusals: &Refusals<'_>) -> Result<Vec<Finding>> {
+    let canary = Endpoints::read(root)?.canary;
+    match refusals {
+        Refusals::FirewallLog(log) => {
+            let dropped = windows::dropped(&read(log)?)?;
+            Ok(denied(dropped.iter().map(Destination::from), canary))
+        }
+        Refusals::Nftables { counters, log } => {
+            let counters = Counters::read(counters)?;
+            if counters.denied < counters.canary {
+                bail!(
+                    "the deny's `denied` counter is below its `canary` counter, which its rules forbid"
+                );
+            }
+            let mut destinations = Vec::new();
+            for line in read(log)?.lines() {
+                destinations.extend(destination(line)?);
+            }
+            let mut findings = denied(destinations, canary);
+            if findings.is_empty() && counters.denied > counters.canary {
+                findings.push(Finding::new(
+                    "egress-denied-unlogged",
+                    "counter denied",
+                    format!(
+                        "the deny refused {} connection packets besides the canary's, missing from its log",
+                        counters.denied - counters.canary
+                    ),
+                ));
+            }
+            Ok(findings)
+        }
     }
-    Ok(findings)
 }

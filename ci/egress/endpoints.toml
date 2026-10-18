@@ -47,6 +47,28 @@ job = "pull-request.yml#visual"
 [[deny]]
 job = "update-screenshots.yml#update"
 
+# The Release suite's cells (ADR 0108). The hosted Linux cells deny in a
+# network namespace, the Windows cell with firewall rules on the product's
+# programs, the macOS cells with a sandbox profile, and the visual job in
+# the owner's machine's VM (ci/egress/egress.sh).
+[[deny]]
+job = "release-suite.yml#linux-x64"
+
+[[deny]]
+job = "release-suite.yml#linux-arm64"
+
+[[deny]]
+job = "release-suite.yml#windows-x64"
+
+[[deny]]
+job = "release-suite.yml#macos-arm64"
+
+[[deny]]
+job = "release-suite.yml#macos-x64"
+
+[[deny]]
+job = "release-suite.yml#visual"
+
 [[outside]]
 job = "pull-request.yml#chromium-build-gate"
 reason = "Until its first build lands (#445) it builds and runs nothing. Then its fetches come before the deny and its tests run under it (ADR 0074)."
@@ -66,3 +88,7 @@ reason = "It runs the frozen R&D lab under rnd/, which is no Product."
 [[outside]]
 job = "cache-warming.yml#warm"
 reason = "It fetches and builds the tier's targets without running them, and saves the build cache."
+
+[[outside]]
+job = "release-suite.yml#plan"
+reason = "It reads and writes the Release runs' records through GitHub's API to choose the cells, and runs none of the product."

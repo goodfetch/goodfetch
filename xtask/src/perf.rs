@@ -14,6 +14,7 @@ mod drift;
 mod figure;
 mod figures;
 mod gungraun;
+mod measure;
 mod pull_request;
 mod table;
 
@@ -32,6 +33,29 @@ use compare::{Row, Verdict};
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    /// Before the deny: checks the base out under target/perf/ and builds
+    /// the base's and the head's (the workspace's) selected bench targets.
+    Build {
+        /// The base: the merge base locally, the base branch's head in the
+        /// pull-request tier, the group's base in the merge queue.
+        #[arg(long)]
+        base: String,
+        /// `<crate>/<bench target>`s, separated by spaces, as `xtask
+        /// affected` prints them in `bench-targets`.
+        #[arg(long, default_value = "")]
+        bench_targets: String,
+    },
+    /// Under the deny: measures the base, then the head, as `build`
+    /// planned, then compares them like `compare`, saving the head's figures
+    /// and every report into target/junit/.
+    Run {
+        /// The pull request's acceptance, as `pull-request` saved it.
+        #[arg(long)]
+        pull_request: Option<PathBuf>,
+        /// The job's summary page (`GITHUB_STEP_SUMMARY`).
+        #[arg(long)]
+        summary: Option<PathBuf>,
+    },
     /// Holds the measured figures to their thresholds over the base's and to
     /// their ceilings, and writes the table.
     Compare(Reports),
@@ -98,10 +122,37 @@ pub(crate) struct Reports {
 pub(crate) fn run(
     command: Command,
     root: &Path,
-    _cargo: &OsStr,
+    cargo: &OsStr,
     token: Option<&str>,
 ) -> Result<ExitCode> {
     match command {
+        Command::Build {
+            base,
+            bench_targets,
+        } => {
+            let targets: Vec<String> = bench_targets
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
+            measure::build(cargo, root, &base, &targets)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Run {
+            pull_request,
+            summary,
+        } => {
+            let measured = measure::run(cargo, root)?;
+            let reports = Reports {
+                gungraun: vec![measured.head],
+                size_base: measured.size_base,
+                size_head: measured.size_head,
+                admission: measured.admission,
+                pull_request,
+                summary,
+                save: Some(PathBuf::from("target/junit").join(figures::FILE_NAME)),
+            };
+            compare(root, &reports)
+        }
         Command::Compare(reports) => compare(root, &reports),
         Command::PullRequest {
             number,

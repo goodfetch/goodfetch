@@ -32,6 +32,9 @@ publish = false
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# ADR 0071; its runner, gungraun-runner, is installed at the same version.
+# Its benchmark API sits behind its `default` feature, named explicitly.
+gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 insta = { version = "1.49.0", default-features = false }

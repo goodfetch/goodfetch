@@ -46,5 +46,13 @@ RUN rustup component add rustfmt clippy \
       cargo-audit@0.22.0 cargo-hack@0.6.45 \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
+# `xtask perf`'s tools (ADR 0071): Valgrind, and gungraun's runner at the
+# version of the workspace's `gungraun` dependency, which it must match.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends valgrind \
+ && rm -rf /var/lib/apt/lists/* \
+ && cargo install --locked --root /usr/local gungraun-runner@0.20.0 \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
 ENV CI=true
 WORKDIR /work

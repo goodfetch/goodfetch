@@ -14,6 +14,7 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct Metadata {
     packages: Vec<Package>,
+    target_directory: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +41,16 @@ pub(crate) struct Target {
 
 /// Every member of the workspace at `root`.
 pub(crate) fn packages(cargo: &OsStr, root: &Path) -> Result<Vec<Package>> {
+    read(cargo, root).map(|metadata| metadata.packages)
+}
+
+/// The workspace's target folder, as Cargo resolves it (`CARGO_TARGET_DIR`
+/// included).
+pub(crate) fn target_directory(cargo: &OsStr, root: &Path) -> Result<PathBuf> {
+    read(cargo, root).map(|metadata| metadata.target_directory)
+}
+
+fn read(cargo: &OsStr, root: &Path) -> Result<Metadata> {
     let output = Command::new(cargo)
         .args(["metadata", "--format-version", "1", "--no-deps"])
         .current_dir(root)
@@ -51,7 +62,5 @@ pub(crate) fn packages(cargo: &OsStr, root: &Path) -> Result<Vec<Package>> {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let metadata: Metadata =
-        serde_json::from_slice(&output.stdout).context("reading cargo metadata's output")?;
-    Ok(metadata.packages)
+    serde_json::from_slice(&output.stdout).context("reading cargo metadata's output")
 }

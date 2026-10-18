@@ -634,12 +634,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             )?))
         }
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
-        Command::Perf { command } => perf::run(
-            command,
-            root,
-            &environment.cargo,
-            environment.github_token.as_deref(),
-        ),
+        Command::Perf { command } => run_perf(command, root, environment),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
         Command::Repeat {
@@ -659,6 +654,16 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::Size { mode } => run_size(&mode, root, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
+}
+
+/// The `perf` commands (ADR 0071), whose arguments `perf` defines.
+fn run_perf(
+    command: perf::Command,
+    root: &Path,
+    environment: &Environment,
+) -> anyhow::Result<ExitCode> {
+    let token = environment.github_token.as_deref();
+    perf::run(command, root, &environment.cargo, token)
 }
 
 /// The `size` modes (ADRs 0057 and 0087).

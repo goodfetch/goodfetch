@@ -210,3 +210,99 @@ fn cover(
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::json;
+
+    use super::super::registry;
+    use super::super::tree::Tree;
+    use super::uncovered;
+
+    /// A bundle registering one JSON format whose schema is `Root`.
+    fn bundle(definitions: &serde_json::Value) -> Vec<u8> {
+        serde_json::to_vec(&json!({
+            "formats": [{
+                "name": "sample",
+                "version": "0.1",
+                "storage": "json",
+                "schema": { "$ref": "#/$defs/Root" },
+            }],
+            "$defs": definitions,
+        }))
+        .unwrap()
+    }
+
+    #[rstest]
+    #[case::recursive_type_ends_at_its_first_repeat(
+        json!({
+            "Root": { "$ref": "#/$defs/Node" },
+            "Node": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" },
+                    "children": { "type": "array", "items": { "$ref": "#/$defs/Node" } },
+                },
+            },
+        }),
+        json!({ "name": "a", "children": [{ "name": "b", "children": [] }] }),
+        vec![],
+    )]
+    #[case::map_values_through_pattern_properties(
+        json!({
+            "Root": {
+                "type": "object",
+                "properties": {
+                    "hosts": {
+                        "type": "object",
+                        "patternProperties": {
+                            "^[a-z.]+$": {
+                                "type": "object",
+                                "properties": { "delay": { "type": "integer" } },
+                            },
+                        },
+                    },
+                },
+            },
+        }),
+        json!({ "hosts": { "example.invalid": {} } }),
+        vec!["hosts.*.delay"],
+    )]
+    #[case::tuple_positions(
+        json!({
+            "Root": {
+                "type": "object",
+                "properties": {
+                    "pair": {
+                        "type": "array",
+                        "prefixItems": [
+                            { "type": "object", "properties": { "left": { "type": "string" } } },
+                            { "type": "object", "properties": { "right": { "type": "string" } } },
+                        ],
+                    },
+                },
+            },
+        }),
+        json!({ "pair": [{ "left": "a" }] }),
+        vec!["pair[].right"],
+    )]
+    fn a_property_is_uncovered_without_a_value_in_any_document(
+        #[case] definitions: serde_json::Value,
+        #[case] document: serde_json::Value,
+        #[case] expected: Vec<&str>,
+    ) {
+        let format = registry::parse(&bundle(&definitions))
+            .unwrap()
+            .pop()
+            .unwrap();
+        let set = Tree::from([(
+            "document.json".to_owned(),
+            serde_json::to_vec(&document).unwrap(),
+        )]);
+
+        let uncovered = uncovered(&format, &set).unwrap();
+
+        assert_eq!(uncovered, expected);
+    }
+}

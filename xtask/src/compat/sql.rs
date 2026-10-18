@@ -303,3 +303,47 @@ pub(super) fn uncovered<'dump>(dumps: impl Iterator<Item = &'dump str>) -> Vec<S
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::uncovered;
+
+    #[rstest]
+    #[case::every_column_filled(
+        "CREATE TABLE t (a INTEGER, b TEXT);\nINSERT INTO t VALUES(1,'x');",
+        &[],
+    )]
+    #[case::null_in_every_row(
+        "CREATE TABLE t (a INTEGER, b TEXT);\nINSERT INTO t VALUES(1,NULL);\nINSERT INTO t VALUES(2,null);",
+        &["t.b"],
+    )]
+    #[case::table_without_rows("CREATE TABLE t (a INTEGER);", &["t.a"])]
+    #[case::named_columns_in_another_order(
+        "CREATE TABLE t (a INTEGER, b TEXT);\nINSERT INTO t (b, a) VALUES('x', NULL);",
+        &["t.a"],
+    )]
+    #[case::several_rows_in_one_statement(
+        "CREATE TABLE t (a INTEGER, b TEXT);\nINSERT INTO t VALUES(1,NULL),(NULL,'x');",
+        &[],
+    )]
+    #[case::separators_inside_values_and_comments(
+        "-- a comment; with, separators\nCREATE TABLE t (a TEXT, b TEXT);\n/* another; one */\nINSERT INTO t VALUES('a;b, ''c''', replace('x\\ny','\\n',char(10)));",
+        &[],
+    )]
+    #[case::quoted_and_qualified_names(
+        "CREATE TABLE IF NOT EXISTS main.\"my table\" ([a b] INTEGER, `c` TEXT, PRIMARY KEY ([a b]));\nINSERT OR REPLACE INTO \"my table\" VALUES(1,NULL);",
+        &["my table.c"],
+    )]
+    #[case::constraint_with_a_comma_inside(
+        "CREATE TABLE t (a INTEGER, b INTEGER, UNIQUE (a, b), CHECK (a > 0));\nINSERT INTO t VALUES(1,2);",
+        &[],
+    )]
+    fn a_column_is_uncovered_without_a_value_in_any_row(
+        #[case] dump: &str,
+        #[case] expected: &[&str],
+    ) {
+        assert_eq!(uncovered(std::iter::once(dump)), expected);
+    }
+}

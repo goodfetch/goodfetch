@@ -1,0 +1,17 @@
+# cargo-deny's configuration. #132 adds the mocking bans of ADR 0062, checked
+# with `cargo deny check bans`; #133 adds the licence allowlist (ADR 0018), the
+# advisories, the sources and ADR 0087's two boundary checks.
+
+[graph]
+all-features = true
+
+[bans]
+# No mocking of owned code (ADR 0062, TESTING.md); httpmock stays allowed
+# for true externals.
+deny = [
+  { crate = "mockall", reason = "mocks owned code (ADR 0062)" },
+  { crate = "mockito", reason = "mocks owned code (ADR 0062)" },
+  { crate = "wiremock", reason = "mocks owned code (ADR 0062)" },
+  { crate = "faux", reason = "mocks owned code (ADR 0062)" },
+  { crate = "mry", reason = "mocks owned code (ADR 0062)" },
+]

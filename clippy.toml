@@ -1,0 +1,92 @@
+# STYLE.md's Clippy lists (Async and concurrency; Lints, formatting and
+# toolchain; Cargo features). An exception is an `#[expect(…, reason = "…")]`
+# on the one module allowed to use the item, never `#[allow]`.
+allow-unwrap-in-tests = true
+
+disallowed-methods = [
+  # Tasks start only through their owner's tracker, in the `tasks` module.
+  { path = "tokio::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::task::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::task::spawn_blocking", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::task::spawn_local", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::runtime::Handle::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::runtime::Handle::spawn_blocking", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::runtime::Runtime::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::runtime::Runtime::spawn_blocking", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "tokio::task::LocalSet::spawn_local", reason = "spawn through the owner's TaskTracker (STYLE.md)", allow-invalid = true },
+  { path = "std::thread::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)" },
+  { path = "std::thread::Builder::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)" },
+  { path = "std::thread::scope", reason = "spawn through the owner's TaskTracker (STYLE.md)" },
+  # Runtimes are built only by `main`, test helpers and bench targets (ADR 0060).
+  { path = "tokio::runtime::Runtime::new", reason = "only main, test helpers and bench targets build a runtime (ADR 0060)", allow-invalid = true },
+  { path = "tokio::runtime::Builder::new_current_thread", reason = "only main, test helpers and bench targets build a runtime (ADR 0060)", allow-invalid = true },
+  { path = "tokio::runtime::Builder::new_multi_thread", reason = "only main, test helpers and bench targets build a runtime (ADR 0060)", allow-invalid = true },
+  { path = "tokio::task::block_in_place", reason = "never block an async worker (ADR 0060)", allow-invalid = true },
+  # Only the three writers touch stdout and stderr; stdin only through the transport.
+  { path = "std::io::stdout", reason = "only the protocol transport, the CLI's output writer and the tracing writer touch stdout (STYLE.md)" },
+  { path = "std::io::stderr", reason = "only the protocol transport, the CLI's output writer and the tracing writer touch stderr (STYLE.md)" },
+  { path = "std::io::stdin", reason = "stdin is opened only in the transport module (ADR 0060)" },
+  { path = "tokio::io::stdin", reason = "stdin is opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::io::stdout", reason = "stdout is opened only in the transport module (ADR 0060)", allow-invalid = true },
+  # Time, randomness and the environment come from their handles (ADR 0059).
+  { path = "std::time::SystemTime::now", reason = "read time through the Clock handle (ADR 0059)" },
+  { path = "std::time::Instant::now", reason = "read time through the Clock handle (ADR 0059)" },
+  { path = "tokio::time::Instant::now", reason = "read time through the Clock handle (ADR 0059)", allow-invalid = true },
+  { path = "ulid::Ulid::new", reason = "make IDs through the Clock and Entropy handles (ADR 0059)", allow-invalid = true },
+  { path = "std::env::var", reason = "only main reads the environment (ADR 0059)" },
+  { path = "std::env::var_os", reason = "only main reads the environment (ADR 0059)" },
+  { path = "std::env::vars", reason = "only main reads the environment (ADR 0059)" },
+  # Blocking calls in async crates go through the `tasks` module's blocking policy.
+  # A synchronous crate (`xtask`) states its exception on the module that blocks.
+  { path = "std::thread::sleep", reason = "never block an async worker (STYLE.md)" },
+  { path = "std::process::Command::new", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::read", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::read_to_string", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::read_dir", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::write", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::copy", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::rename", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::metadata", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::create_dir", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::create_dir_all", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::remove_file", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::remove_dir", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::remove_dir_all", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::File::open", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  { path = "std::fs::File::create", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+]
+
+disallowed-types = [
+  # Sockets are opened only in goodfetch-engine's transport module (ADR 0060).
+  { path = "std::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
+  { path = "std::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)" },
+  { path = "std::net::UdpSocket", reason = "sockets are opened only in the transport module (ADR 0060)" },
+  { path = "std::os::unix::net::UnixListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
+  { path = "std::os::unix::net::UnixStream", reason = "sockets are opened only in the transport module (ADR 0060)" },
+  { path = "std::os::unix::net::UnixDatagram", reason = "sockets are opened only in the transport module (ADR 0060)" },
+  { path = "tokio::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::TcpSocket", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::UdpSocket", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::UnixListener", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::UnixStream", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::UnixDatagram", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::windows::named_pipe::NamedPipeServer", reason = "pipes are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "tokio::net::windows::named_pipe::NamedPipeClient", reason = "pipes are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  # Each crate's `sync` module maps these to loom under `goodfetch_loom` (ADR 0060).
+  { path = "std::sync::Mutex", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::RwLock", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::Condvar", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicBool", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicUsize", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicIsize", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicU8", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicU16", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicU32", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicU64", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicI8", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicI16", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicI32", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicI64", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+  { path = "std::sync::atomic::AtomicPtr", reason = "use the crate's sync module, which loom replaces (ADR 0060)" },
+]

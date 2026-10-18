@@ -1,0 +1,10 @@
+# Which of xtask's top-level modules may import which (ADR 0126).
+[modules]
+all_green = ["check"]
+check = ["output"]
+dependency_direction = ["check"]
+fixture_size = ["check"]
+mocking_lockfile = ["check"]
+output = []
+self_hosted = ["check", "workflow"]
+workflow = []

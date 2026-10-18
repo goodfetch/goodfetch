@@ -1,0 +1,10 @@
+name: off the list
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on:
+      group: anything
+      labels: [macOS]
+    steps:
+      - run: echo off the list

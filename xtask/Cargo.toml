@@ -12,6 +12,7 @@ publish = false
 anyhow.workspace = true
 clap.workspace = true
 flate2.workspace = true
+goodfetch-protocol.workspace = true
 jiff.workspace = true
 proc-macro2.workspace = true
 quick-xml.workspace = true

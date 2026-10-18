@@ -401,9 +401,11 @@ version = "0.0.0"
 name = "goodfetch-protocol"
 version = "0.0.0"
 dependencies = [
+ "rstest",
  "schemars",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -1449,6 +1451,7 @@ dependencies = [
  "anyhow",
  "clap",
  "flate2",
+ "goodfetch-protocol",
  "insta",
  "jiff",
  "proc-macro2",

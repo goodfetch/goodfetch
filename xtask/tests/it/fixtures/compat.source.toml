@@ -1,0 +1,15 @@
+# The compat fixture's generated files (TESTING.md, Fixtures and data files):
+# every `head/` set under `compat/` is `xtask compat write`'s output for the
+# fixture's writers and registry, and `compat/sample-settings/0.1/` is that
+# `head/` set frozen with its SHA256SUMS, as `xtask compat freeze` writes it
+# from the tag of a release that shipped sample-settings 0.1 only. The rest is
+# written by hand. Regenerate the `head/` sets after changing the fixture's
+# writers, its bundle or `xtask compat` itself, from the repository root; the
+# frozen set never changes.
+generator = "xtask compat write"
+date = "2026-10-18"
+command = """
+cargo build -p xtask && (cd xtask/tests/it/fixtures/compat && \
+  CARGO_TARGET_DIR="$PWD/../../../../../target/fixture-compat" \
+  ../../../../../target/debug/xtask compat write)
+"""

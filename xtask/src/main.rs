@@ -3,6 +3,9 @@
 //! test-setup tool (ADR 0062). Every command works on the workspace in the
 //! current folder. A check exits with 0 when it passes, 1 with its findings,
 //! and 2 when it could not reach a verdict.
+//!
+//! Size: one concern, the command line: every command's `clap` definition and
+//! the plumbing that hands its arguments to the module that does the work.
 
 mod affected;
 mod all_green;
@@ -10,6 +13,7 @@ mod allure;
 mod ceiling;
 mod check;
 mod codegen;
+mod compat;
 mod containment;
 mod dco;
 mod dependency_direction;
@@ -87,6 +91,11 @@ enum Command {
     /// the names only Foxhound carries, the cargo-deny `wrappers` list and
     /// each SDK package's `generated/` layer (ADR 0038).
     Codegen(CodegenArguments),
+    /// The Compatibility corpus under `compat/` (ADR 0066).
+    Compat {
+        #[command(subcommand)]
+        command: CompatCommand,
+    },
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
     Containment,
@@ -171,6 +180,26 @@ enum Command {
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
     Wording,
+}
+
+#[derive(Subcommand)]
+enum CompatCommand {
+    /// Regenerates each registered format's `head/` set by running its
+    /// writer, the `compat-<format>` example of the package that owns it.
+    Write,
+    /// Fails on a `head/` set that differs from what `write` produces, a
+    /// changed frozen byte, a missing set, incomplete schema coverage, and a
+    /// schema changed without a version bump.
+    Check,
+    /// Copies each format's `head/` set from a stable release's or patch's
+    /// tag, not from the working tree, to `compat/<format>/<major>.<minor>/`
+    /// with its `SHA256SUMS`, for every shipped version not frozen yet. A
+    /// release candidate's or nightly's tag freezes nothing.
+    Freeze {
+        /// The release tag, `vX.Y.Z`.
+        #[arg(long)]
+        tag: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -533,6 +562,29 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             Ok(check::report(&all_green::check(&root.join(needs), &run)?))
         }
         Command::Codegen(arguments) => run_codegen(arguments, root, environment),
+        Command::Compat { command } => match command {
+            CompatCommand::Write => {
+                compat::write(&environment.cargo, root)?;
+                Ok(ExitCode::SUCCESS)
+            }
+            CompatCommand::Check => Ok(check::report(&compat::check(&environment.cargo, root)?)),
+            CompatCommand::Freeze { tag } => {
+                match compat::freeze(root, &tag)? {
+                    compat::Freeze::Prerelease => output::line(&format!(
+                        "{tag} is a release candidate or a nightly: nothing to freeze"
+                    )),
+                    compat::Freeze::Frozen(sets) if sets.is_empty() => {
+                        output::line(&format!("every version {tag} shipped is frozen already"));
+                    }
+                    compat::Freeze::Frozen(sets) => {
+                        for set in sets {
+                            output::line(&format!("froze {set} from {tag}"));
+                        }
+                    }
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
         Command::DependencyDirection => Ok(check::report(&dependency_direction::check(

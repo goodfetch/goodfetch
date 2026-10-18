@@ -1,0 +1,4 @@
+# A fixture workspace's pinned Playwright image (ADR 0073).
+repository = "mcr.microsoft.com/playwright"
+tag = "v1.64.1-noble"
+digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"

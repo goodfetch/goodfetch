@@ -25,6 +25,14 @@ fn fixture_over_256_kib_fails(#[case] path: &str) {
 #[case::fixture_of_exactly_256_kib("test-support/fixtures/page.html", LIMIT)]
 #[case::large_file_outside_a_fixtures_folder("crates/goodfetch-engine/src/table.bin", LIMIT * 2)]
 #[case::frozen_research("rnd/lab/fixtures/page.html", LIMIT * 2)]
+#[case::vitest_reference_screenshot(
+    "test-support/fixtures/pages/__screenshots__/page.visual.test.ts/page-chromium.png",
+    LIMIT * 2
+)]
+#[case::playwright_reference_screenshot(
+    "test-support/fixtures/pages/page.visual.spec.ts-snapshots/page-visual.png",
+    LIMIT * 2
+)]
 fn file_within_the_rule_passes(#[case] path: &str, #[case] size: usize) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(path, &vec![b'x'; size]);

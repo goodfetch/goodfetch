@@ -11,6 +11,7 @@ mod fixture_size;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
+mod no_retry;
 mod output;
 mod self_hosted;
 mod workflow;
@@ -57,6 +58,9 @@ enum Command {
     /// `modules.toml` does not allow, and on a long file that does not say
     /// why it is one concern (ADR 0126).
     Modules,
+    /// Fails on any setting, flag, variable or workflow pattern that retries a
+    /// test (ADRs 0064 and 0074).
+    NoRetry,
     /// The self-hosted allowlist (ADRs 0108 and 0135).
     SelfHosted {
         #[command(subcommand)]
@@ -105,6 +109,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
+        Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::SelfHosted { command } => match command {
             SelfHostedCommand::Check => Ok(check::report(&self_hosted::check(root)?)),
             SelfHostedCommand::Export => {

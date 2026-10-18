@@ -17,4 +17,5 @@ mod dependency_direction;
 mod fixture_size;
 mod mocking_lockfile;
 mod modules;
+mod no_retry;
 mod self_hosted;

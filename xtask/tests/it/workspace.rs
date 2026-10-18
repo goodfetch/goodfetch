@@ -118,6 +118,11 @@ impl Workspace {
         std::fs::remove_file(self.path().join(relative)).unwrap();
     }
 
+    /// Removes a folder of the workspace and everything in it.
+    pub(crate) fn remove_folder(&self, relative: &str) {
+        std::fs::remove_dir_all(self.path().join(relative)).unwrap();
+    }
+
     /// A text file of the workspace, which must exist.
     pub(crate) fn read_text(&self, relative: &str) -> String {
         std::fs::read_to_string(self.path().join(relative)).unwrap()

@@ -31,6 +31,7 @@ publish = false
 # crate turns on what it uses (STYLE.md, Dependencies).
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 insta = { version = "1.49.0", default-features = false }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }

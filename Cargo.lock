@@ -1271,6 +1271,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "goodfetch-protocol",
  "insta",
  "proc-macro2",
  "quote",

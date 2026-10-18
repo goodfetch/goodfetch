@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+goodfetch-protocol.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true
 serde-saphyr.workspace = true

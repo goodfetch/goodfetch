@@ -54,6 +54,7 @@ lint: fmt-check
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
+    cargo run --quiet -p xtask -- compat check
     cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
 

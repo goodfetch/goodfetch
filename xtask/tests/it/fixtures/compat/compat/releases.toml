@@ -1,0 +1,47 @@
+# What each release shipped (ADR 0066); the fixture's one release.
+
+[[release]]
+version = "0.1.0"
+formats = { sample-settings = "0.1" }
+
+[release.collie.helm_chart]
+name = "ghcr.io/goodfetch/charts/goodfetch-collie"
+url = "https://releases.example.invalid/charts/goodfetch-collie/0.1.0"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000001"
+attestation = { url = "https://releases.example.invalid/charts/goodfetch-collie/0.1.0.att", sha256 = "0000000000000000000000000000000000000000000000000000000000000002" }
+
+[release.collie.image]
+name = "ghcr.io/goodfetch/goodfetch-collie"
+url = "https://releases.example.invalid/images/goodfetch-collie/0.1.0"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000003"
+attestation = { url = "https://releases.example.invalid/images/goodfetch-collie/0.1.0.att", sha256 = "0000000000000000000000000000000000000000000000000000000000000004" }
+
+[release.foxhound.helm_chart]
+name = "ghcr.io/goodfetch/charts/goodfetch-foxhound"
+url = "https://releases.example.invalid/charts/goodfetch-foxhound/0.1.0"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000005"
+attestation = { url = "https://releases.example.invalid/charts/goodfetch-foxhound/0.1.0.att", sha256 = "0000000000000000000000000000000000000000000000000000000000000006" }
+
+[release.foxhound.image]
+name = "ghcr.io/goodfetch/goodfetch-foxhound"
+url = "https://releases.example.invalid/images/goodfetch-foxhound/0.1.0"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000007"
+attestation = { url = "https://releases.example.invalid/images/goodfetch-foxhound/0.1.0.att", sha256 = "0000000000000000000000000000000000000000000000000000000000000008" }
+
+[release.collie_client.npm]
+name = "@goodfetch/collie-client"
+url = "https://releases.example.invalid/npm/collie-client-0.1.0.tgz"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000009"
+attestation = { url = "https://releases.example.invalid/npm/collie-client-0.1.0.tgz.att", sha256 = "000000000000000000000000000000000000000000000000000000000000000a" }
+
+[release.collie_client.pypi]
+name = "goodfetch_collie_client-0.1.0-py3-none-any.whl"
+url = "https://releases.example.invalid/pypi/goodfetch_collie_client-0.1.0-py3-none-any.whl"
+sha256 = "000000000000000000000000000000000000000000000000000000000000000b"
+attestation = { url = "https://releases.example.invalid/pypi/goodfetch_collie_client-0.1.0-py3-none-any.whl.att", sha256 = "000000000000000000000000000000000000000000000000000000000000000c" }
+
+[release.collie_client.crates_io]
+name = "goodfetch-collie-client"
+url = "https://releases.example.invalid/crates/goodfetch-collie-client-0.1.0.crate"
+sha256 = "000000000000000000000000000000000000000000000000000000000000000d"
+attestation = { url = "https://releases.example.invalid/crates/goodfetch-collie-client-0.1.0.crate.att", sha256 = "000000000000000000000000000000000000000000000000000000000000000e" }

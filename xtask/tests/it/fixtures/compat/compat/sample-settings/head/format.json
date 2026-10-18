@@ -1,0 +1,116 @@
+{
+  "name": "sample-settings",
+  "schema": {
+    "$defs": {
+      "SampleLimits": {
+        "additionalProperties": false,
+        "description": "What a run may use.",
+        "properties": {
+          "bytes": {
+            "description": "How many bytes it may download.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pages": {
+            "description": "How many pages it may visit.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pages",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "SampleProxy": {
+        "additionalProperties": false,
+        "description": "The proxy a run goes through.",
+        "properties": {
+          "url": {
+            "description": "Its URL, a Secret reference.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "SampleRetry": {
+        "additionalProperties": false,
+        "description": "When to retry a page.",
+        "properties": {
+          "delay_ms": {
+            "description": "How long to wait first.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status that retries.",
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "delay_ms"
+        ],
+        "type": "object"
+      },
+      "SampleSettings": {
+        "additionalProperties": false,
+        "description": "A sample settings file.",
+        "properties": {
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The headers every request sends.",
+            "type": "object"
+          },
+          "limits": {
+            "$ref": "#/$defs/SampleLimits",
+            "description": "What a run may use."
+          },
+          "name": {
+            "description": "The settings' name.",
+            "type": "string"
+          },
+          "proxy": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SampleProxy"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The proxy, if any."
+          },
+          "retries": {
+            "description": "When to retry.",
+            "items": {
+              "$ref": "#/$defs/SampleRetry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "limits",
+          "headers",
+          "retries"
+        ],
+        "type": "object"
+      }
+    },
+    "$ref": "#/$defs/SampleSettings"
+  },
+  "storage": "json",
+  "version": "0.1"
+}

@@ -15,6 +15,7 @@ mod workspace;
 mod affected;
 mod all_green;
 mod codegen;
+mod compat;
 mod containment;
 mod dependency_direction;
 mod egress;

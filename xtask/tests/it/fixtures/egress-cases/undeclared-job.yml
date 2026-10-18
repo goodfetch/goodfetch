@@ -1,0 +1,10 @@
+name: extra
+on:
+  pull_request:
+permissions: {}
+jobs:
+  build:
+    runs-on: [self-hosted, owner-machine]
+    steps:
+      - name: "Test: just test quick"
+        run: ci/vm/exec.sh just test quick

@@ -8,6 +8,7 @@ mod affected;
 mod all_green;
 mod check;
 mod dependency_direction;
+mod egress;
 mod fixture_size;
 mod foxhound_side;
 mod github;
@@ -69,6 +70,11 @@ enum Command {
     },
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
+    /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
+    Egress {
+        #[command(subcommand)]
+        command: EgressCommand,
+    },
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
@@ -169,6 +175,70 @@ enum SelfHostedCommand {
     Export,
 }
 
+#[derive(Subcommand)]
+enum EgressCommand {
+    /// Fails on a workflow job not declared in `ci/egress/endpoints.toml`,
+    /// and on a job under the deny whose steps do not deny before its tests,
+    /// run the Egress canary right after, and check the deny's log at the end.
+    Check,
+    /// Prints what a job under the deny may reach, one `<host> <port>` line
+    /// each: the pinned artifact mirror and the job's named endpoints.
+    Endpoints {
+        /// The job, as `<workflow file>#<job id>`.
+        #[arg(long)]
+        job: String,
+    },
+    /// Prints the nftables ruleset that denies a job's outbound traffic but
+    /// to its allowed endpoints, at the addresses resolved before the deny.
+    Rules {
+        /// The job, as `<workflow file>#<job id>`.
+        #[arg(long)]
+        job: String,
+        /// A file of `<host> <port> <address>` lines, resolved in the VM.
+        #[arg(long)]
+        resolved: PathBuf,
+        /// The VM user that runs the job's container, so the product.
+        #[arg(long)]
+        uid: u32,
+    },
+    /// The Egress canary: a forbidden connection that must be refused.
+    Canary {
+        #[command(subcommand)]
+        command: CanaryCommand,
+    },
+    /// Fails on every connection the deny refused but the canary's, read
+    /// from the deny's counters and its kernel log at the job's end.
+    Report {
+        /// The output of `nft --json list counters table inet goodfetch_egress`.
+        #[arg(long)]
+        counters: PathBuf,
+        /// The VM's kernel log.
+        #[arg(long)]
+        log: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum CanaryCommand {
+    /// Tries the canary's connection and writes how it ended.
+    Attempt {
+        #[arg(long)]
+        outcome: PathBuf,
+    },
+    /// Passes when the attempt did not connect and the deny counted it.
+    Verdict {
+        /// The file `attempt` wrote.
+        #[arg(long)]
+        outcome: PathBuf,
+        /// The deny's counters before the attempt, as `nft --json` lists them.
+        #[arg(long)]
+        before: PathBuf,
+        /// The deny's counters after the attempt.
+        #[arg(long)]
+        after: PathBuf,
+    },
+}
+
 /// What `main` reads from the environment, the only place that does (ADR 0059).
 struct Environment {
     /// The Cargo that runs `xtask`, or the one on `PATH`.
@@ -210,6 +280,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             &environment.cargo,
             root,
         )?)),
+        Command::Egress { command } => run_egress(command, root),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
@@ -276,6 +347,44 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
                 files.save.as_deref(),
             ),
         },
+    }
+}
+
+/// The `egress` commands (ADR 0043).
+fn run_egress(command: EgressCommand, root: &Path) -> anyhow::Result<ExitCode> {
+    match command {
+        EgressCommand::Check => Ok(check::report(&egress::check(root)?)),
+        EgressCommand::Endpoints { job } => {
+            for endpoint in egress::allowed(root, &job)? {
+                output::line(&format!("{} {}", endpoint.host, endpoint.port));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        EgressCommand::Rules { job, resolved, uid } => {
+            output::line(egress::rules(root, &job, &root.join(resolved), uid)?.trim_end());
+            Ok(ExitCode::SUCCESS)
+        }
+        EgressCommand::Canary { command } => match command {
+            CanaryCommand::Attempt { outcome } => {
+                egress::attempt(root, &root.join(outcome))?;
+                Ok(ExitCode::SUCCESS)
+            }
+            CanaryCommand::Verdict {
+                outcome,
+                before,
+                after,
+            } => Ok(check::report(&egress::verdict(
+                root,
+                &root.join(outcome),
+                &root.join(before),
+                &root.join(after),
+            )?)),
+        },
+        EgressCommand::Report { counters, log } => Ok(check::report(&egress::report(
+            root,
+            &root.join(counters),
+            &root.join(log),
+        )?)),
     }
 }
 

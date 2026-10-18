@@ -1,0 +1,31 @@
+name: pull request
+on:
+  pull_request:
+permissions: {}
+jobs:
+  quick:
+    runs-on: [self-hosted, owner-machine]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Lint
+        run: ci/vm/exec.sh just lint
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: just test quick"
+        run: ci/vm/exec.sh just test quick
+      - name: Check that no other connection was denied
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+  all-green:
+    runs-on: [self-hosted, owner-machine]
+    steps:
+      - name: Judge the run
+        run: ci/vm/exec.sh cargo run -p xtask -- all-green

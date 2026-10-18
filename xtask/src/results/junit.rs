@@ -150,3 +150,39 @@ fn attribute(element: &BytesStart<'_>, name: &str) -> Result<Option<String>> {
     }
     Ok(None)
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{file_runtime, pytest_node_id};
+
+    #[rstest]
+    #[case::module_function("tests.test_page", "test_title", "tests/test_page.py::test_title")]
+    #[case::class_method(
+        "tests.test_page.TestTitle",
+        "test_shown",
+        "tests/test_page.py::TestTitle::test_shown"
+    )]
+    #[case::nested_classes(
+        "tests.test_page.TestTitle.TestEmpty",
+        "test_shown",
+        "tests/test_page.py::TestTitle::TestEmpty::test_shown"
+    )]
+    fn pytest_class_name_gives_its_node_id(
+        #[case] class: &str,
+        #[case] name: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(pytest_node_id(class, name), expected);
+    }
+
+    #[rstest]
+    #[case::vitest_node_line("vitest-node24.xml", Some("node24"))]
+    #[case::pytest_free_threaded("pytest-3.14t.xml", Some("3.14t"))]
+    #[case::no_suffix("playwright.xml", None)]
+    #[case::nextest_profile("nextest-ci.xml", None)]
+    fn junit_file_name_gives_its_runtime(#[case] file: &str, #[case] expected: Option<&str>) {
+        assert_eq!(file_runtime(file), expected);
+    }
+}

@@ -36,16 +36,17 @@ Traps that break things:
 
 ## Language skills
 
-Before writing or reviewing code in a language below, load its skills when your host has them. `STYLE.md` and `TESTING.md` win where a skill differs: for example, the SDKs accept Standard Schema instead of depending on a schema library, and engine responses are not validated at runtime beyond the protocol version check.
+Before writing or reviewing code in a language below, load its skills when your host has them. Those in bold are vendored at pinned commits in [`.agents/skills/`](.agents/skills/README.md), so every agent has them. `STYLE.md` and `TESTING.md` win where a skill differs: for example, the SDKs accept Standard Schema instead of depending on a schema library, and engine responses are not validated at runtime beyond the protocol version check.
 
 | Code | Skills |
 |---|---|
-| Any typed code: Rust, TypeScript, Python | `principle-type-system-discipline` |
-| TypeScript (`.ts`, `.tsx`) | `typescript-best-practices` |
+| Any typed code: Rust, TypeScript, Python | **`principle-type-system-discipline`** |
+| TypeScript (`.ts`, `.tsx`) | **`typescript-best-practices`** |
+| Python | **`ruff`**, **`uv`** |
 | The Console and the React wrappers (React, shadcn on Base UI, Vite) | `vercel-react-best-practices` (its React rules, not its Next.js ones), `vercel-composition-patterns`, `react-mnne`, `shadcn` |
 | The PostgreSQL and Supabase Sinks | `postgres`, `supabase-postgres-best-practices` |
 
-Rust and Python have no language skill: their sections of `STYLE.md` are the guide.
+Rust has no language skill: its section of `STYLE.md` and the references it names are the guide.
 
 ## Agent skills
 

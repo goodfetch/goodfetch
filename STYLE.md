@@ -2,7 +2,7 @@
 
 How code is shaped in Goodfetch: the engine, its crates, the SDKs, the Console and the tools around them. Every rule comes with its reason, so that an exception can be judged against it. The hard-to-reverse rules (contracts, errors on the wire, cancellation, casing, concurrency, Cargo features) are decided in [ADR 0038](docs/adr/0038-contracts-from-rust-types-one-error-cancellation-and-concurrency-model.md); this file restates them only as far as code needs them. Rules a tool can check also live in the tool's configuration, which wins when the two disagree, and this file is then corrected.
 
-Where this file is silent, the references are the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/checklist.html) and Microsoft's [Pragmatic Rust Guidelines](https://microsoft.github.io/rust-guidelines/).
+Where this file is silent, the Rust section names its references and `AGENTS.md`'s Language skills lists the skills for each language; this file wins where they disagree.
 
 ## Design
 
@@ -34,6 +34,8 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ## Rust
 
+References: the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/checklist.html) and Microsoft's [Pragmatic Rust Guidelines](https://microsoft.github.io/rust-guidelines/) (as one file for agents: [`all.txt`](https://media.githubusercontent.com/media/microsoft/rust-guidelines/19723b30aadf1854fef6a56c2da2395dc03255c1/src/agents/all.txt)).
+
 ### Workspace and crates
 
 - **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound links, ADR 0087) and `crates/foxhound/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`. A crate takes a Product's name only when it is that Product's executable crate or a crate the Product publishes for its users: `goodfetch-collie` or `goodfetch-foxhound` for the crate published as its Rust SDK, `goodfetch-<product>-<part>` for any other (ADR 0090). Siblings and shared dependencies are referenced with `.workspace = true`.
@@ -63,7 +65,6 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **A failure from a party Goodfetch did not write becomes a typed error in one translation point per boundary** ([ADR 0127](docs/adr/0127-a-failure-from-a-party-goodfetch-did-not-write-becomes-a-typed-error-in-one-module-per-boundary-and-no-other-code-reads-its-text.md)): such as the CDP client, the transport primitive of each fetch tier that sends HTTP itself, the egress proxy where it forwards to an upstream proxy, each Model provider adapter and each built-in Sink's client; under a driver (ADR 0129) each maps into the enum the driver defines. The party's message is a private, redacted field with no string accessor, and only the translation point matches on it; an unknown failure becomes its `Unrecognized` variant, logged at `warn`.
   _Why:_ text matched wherever it is needed breaks in every place at once when the party rewords it.
 - **No `unwrap()` outside tests.** `expect("invariant: …")` states an invariant the type system can't express; anything input can trigger returns an error.
-- **Panics are for bugs only, never for input or control flow.**
 
 ### Async and concurrency
 
@@ -103,7 +104,6 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **`unsafe_code` is denied across the workspace.** A module that needs it (the in-house `sandbox_init` binding of ADR 0033, the pipe file descriptors of ADR 0017) opts in with `#![expect(unsafe_code, reason = "…")]`.
 - **Every `unsafe` block carries a `// SAFETY:` comment** (`undocumented_unsafe_blocks`), and `unsafe_op_in_unsafe_fn` is denied.
 - **Miri runs in CI on the opted-in code it can execute (pure-Rust `unsafe`).** FFI and system-call modules, which Miri can't run, are covered by tests on each real OS, and by the Release suite's AddressSanitizer run on Linux (ADR 0067).
-- **`unsafe` is never used to get past `Send` or `Sync`.**
 
 ### Logging and secrets
 
@@ -113,7 +113,6 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   _Why:_ an OTLP export is one more output that leaves the process, and a query string can hold a token.
 - **`#[instrument(skip_all, fields(…))]`**, so arguments are only logged when named.
   _Why:_ one `?config` in a log line can leak a proxy password, and secrets never reach logs (ADRs 0014, 0015).
-- **Events are structured:** a fixed message plus fields, no `format!` inside a log call.
 - **Logs go to stderr or a file, never stdout**, through the `tracing` subscriber.
 - **Levels:** `error` needs someone to act; `warn` is a degraded but handled state; `info` is a lifecycle step of a run, Session or Daemon; `debug` explains a decision; `trace` is per-message detail.
 - **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`). Secret canaries and redaction property tests prove the secret reaches no output ([`TESTING.md`](TESTING.md#secrets), ADR 0067).

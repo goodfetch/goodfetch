@@ -100,6 +100,46 @@ impl Workspace {
         std::fs::write(target, contents).unwrap();
     }
 
+    pub(crate) fn read(&self, relative: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.path().join(relative)).ok()
+    }
+
+    /// Commits the whole workspace into its own Git repository, made on the
+    /// first call, and returns the new head commit.
+    pub(crate) fn commit_all(&self) -> String {
+        if !self.path().join(".git").exists() {
+            self.git(&["init", "--quiet"]);
+        }
+        self.git(&["add", "--all"]);
+        self.git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "--no-verify",
+            "--allow-empty",
+            "--message",
+            "fixture",
+        ]);
+        self.git(&["rev-parse", "HEAD"]).trim().to_owned()
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(self.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {args:?} failed");
+        String::from_utf8(output.stdout).unwrap()
+    }
+
     /// Runs `xtask <args>` in the workspace with a cleared environment, but
     /// for the variables that find and run the pinned Cargo toolchain.
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {

@@ -14,8 +14,16 @@ CI_IMAGE="goodfetch-ci:$(shasum -a 256 "$ci_root/ci/image/Containerfile" | cut -
 # Where start.sh records the VM's cache mode for exec.sh.
 VM_STATE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/goodfetch-vm-cache-mode"
 
+# The pinned Playwright image of the visual projects (ADR 0073), by digest,
+# from ci/visual/image.toml.
+image_key() {
+  sed -n "s/^$1 = \"\\(.*\\)\"\$/\\1/p" "$ci_root/ci/visual/image.toml"
+}
+PLAYWRIGHT_DIGEST=$(image_key digest)
+PLAYWRIGHT_IMAGE="$(image_key repository)@$PLAYWRIGHT_DIGEST"
+
 vm_shell() {
   limactl shell --workdir /work "$VM_NAME" -- "$@"
 }
 
-export VM_NAME CI_IMAGE VM_STATE
+export VM_NAME CI_IMAGE VM_STATE PLAYWRIGHT_DIGEST PLAYWRIGHT_IMAGE

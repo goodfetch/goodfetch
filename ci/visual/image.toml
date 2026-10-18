@@ -1,0 +1,13 @@
+# The pinned Playwright image (ADR 0073): the only environment where the
+# `visual` projects of Vitest and Playwright run, and where Reference
+# screenshots are compared and written. Its `digest` is the Linux x86-64
+# (amd64) manifest of `repository:tag`, so the image cannot move or switch
+# architecture. Its Playwright version is the pnpm catalog's (`playwright`
+# and `@playwright/test` in pnpm-workspace.yaml): change both together, then
+# regenerate every Reference screenshot with the `update-screenshots` workflow.
+#
+# Read by ci/vm/start.sh and ci/vm/visual.sh (one `key = "value"` a line) and
+# by `xtask screenshots fetch`, which refuses a run made in another image.
+repository = "mcr.microsoft.com/playwright"
+tag = "v1.64.1-noble"
+digest = "sha256:bdfda2a8fdf48707c5e50a49bd3e06d8d0c759153dc8ee057d8a81c3450bb3e9"

@@ -40,6 +40,13 @@ if = "github.event.pull_request.head.repo.full_name == github.repository"
 
 [[job]]
 workflow = "pull-request.yml"
+job = "supply-chain"
+events = ["pull_request"]
+refs = ["refs/pull/*/merge"]
+if = "github.event.pull_request.head.repo.full_name == github.repository"
+
+[[job]]
+workflow = "pull-request.yml"
 job = "chromium-build-gate"
 events = ["pull_request"]
 refs = ["refs/pull/*/merge"]

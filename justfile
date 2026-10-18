@@ -41,19 +41,22 @@ lint: fmt-check
     ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
-    ci/tool.sh cargo-deny cargo deny check bans
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/runner/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
+    ci/tool.sh cargo-deny ci/deny/products.sh
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- fixture-size
     cargo run --quiet -p xtask -- dependency-direction
+    cargo run --quiet -p xtask -- package-dependencies
     cargo run --quiet -p xtask -- mocking-lockfile
     cargo run --quiet -p xtask -- no-retry
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
+    cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
 
@@ -184,7 +187,7 @@ quick *all: _skips-reset lint (_suite "quick" all) _skips-report
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
-pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs _visual-elsewhere _skips-report
+pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco _visual-elsewhere _skips-report
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
@@ -252,6 +255,7 @@ warm:
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
     cargo build --workspace --profile ci
     cargo bench --workspace --no-run
+    ci/msrv.sh
 
 # Applies the Reference screenshots of an `update-screenshots` run of this
 # branch (ADR 0073), refusing a run made in another image than the pinned one
@@ -264,6 +268,54 @@ screenshots-fetch run:
     trap 'rm -rf "$folder"' EXIT
     gh run download "{{ run }}" --name reference-screenshots --dir "$folder"
     cargo run --quiet -p xtask -- screenshots fetch "$folder"
+
+# The pull-request tier's supply-chain job (#133), each part also a recipe:
+# the advisories of every lockfile, the MSRV build, cargo-hack over each
+# Product's SDK crate and Miri. The audits read public advisory databases, so
+# CI runs this before any egress deny.
+supply-chain: audit msrv feature-combinations miri
+
+# The security advisories of the Cargo, pnpm and uv lockfiles: cargo-deny's
+# and cargo-audit's (RustSec), pnpm audit's and pip-audit's (ci/audit.sh).
+audit:
+    ci/tool.sh cargo-audit ci/audit.sh rust
+    ci/audit.sh npm
+    ci/audit.sh python
+
+# Builds the workspace with the toolchain of its `rust-version`, the MSRV of
+# ADR 0030 (latest stable minus two).
+msrv:
+    ci/msrv.sh
+
+# cargo-hack over every feature combination of each Product's SDK crate
+# (ADR 0087).
+feature-combinations:
+    ci/tool.sh cargo-hack ci/feature-combinations.sh
+
+# Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
+# (STYLE.md, `unsafe`); none does yet, so it runs nothing.
+miri:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read_list() { uv run --frozen --quiet python -c "import tomllib; miri = tomllib.load(open('ci/miri.toml', 'rb')); $1"; }
+    modules=$(read_list 'print("\n".join(m["crate"] + "\t" + m["filter"] for m in miri["module"]))')
+    if [[ -z "$modules" ]]; then
+      echo "Miri: no module opts in yet (ci/miri.toml)"
+      exit 0
+    fi
+    toolchain=$(read_list 'print(miri["toolchain"])')
+    while IFS=$'\t' read -r crate filter; do
+      cargo "+$toolchain" miri test --package "$crate" --lib -- "$filter"
+    done <<< "$modules"
+
+# Checks that every commit from `base` to `head`, merges aside, is signed off
+# by its author (ADR 0018). Locally: since the merge base with `origin/main`.
+dco base="" head="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
+    cargo run --quiet -p xtask -- dco --base "$base" --head "{{ head }}"
 
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.

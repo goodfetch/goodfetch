@@ -5,6 +5,12 @@
 # its link names the workflow file and the job id.
 
 [[exception]]
+feature = "story:1-37"
+evidence = "check"
+reason = "The workspace's `rust-version` is the latest stable minus two, and the supply-chain job builds the workspace with that toolchain on every pull request (`just msrv`); the Pre-merge job proves the build refuses an API stabilized after it."
+link = ".github/workflows/pull-request.yml#supply-chain"
+
+[[exception]]
 feature = "story:1-49"
 evidence = "check"
 reason = "One repository holding every surface is its layout; the Quick job's lints and cargo metadata run over the whole workspace on every pull request."
@@ -15,6 +21,24 @@ feature = "story:1-50"
 evidence = "check"
 reason = "`just` is the entry point CI calls: every job of the pull-request tier runs a `just` recipe."
 link = ".github/workflows/pull-request.yml#quick"
+
+[[exception]]
+feature = "story:1-59"
+evidence = "check"
+reason = "The Quick job's lints run formatting, Clippy, cargo-deny (licenses, bans, sources, each Product's bans), cargo-shear, typos, zizmor, oxlint and ruff; the supply-chain job runs cargo-deny's and cargo-audit's advisories, pnpm audit, pip-audit and the MSRV build; the Pre-merge job runs cargo-nextest and proves each gate on a fixture that breaks it."
+link = ".github/workflows/pull-request.yml#supply-chain"
+
+[[exception]]
+feature = "story:1-60"
+evidence = "check"
+reason = "The supply-chain job runs cargo-hack over every feature combination of `goodfetch-collie` and `goodfetch-foxhound` (`just feature-combinations`), once they exist; the Pre-merge job proves it refuses two features that break together."
+link = ".github/workflows/pull-request.yml#supply-chain"
+
+[[exception]]
+feature = "story:1-61"
+evidence = "check"
+reason = "The supply-chain job runs Miri on the modules ci/miri.toml opts in (`just miri`); none opts in yet, so it runs nothing, and the first opt-in adds Miri's toolchain to the CI image and a proof."
+link = ".github/workflows/pull-request.yml#supply-chain"
 
 [[exception]]
 feature = "story:1-63"

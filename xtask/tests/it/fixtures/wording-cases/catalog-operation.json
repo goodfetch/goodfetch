@@ -1,0 +1,14 @@
+{
+  "error_codes": [
+    {
+      "description": "The sample operation refused the text.",
+      "name": "sample_refused"
+    }
+  ],
+  "operations": [
+    {
+      "description": "Bypasses a check, stays undetectable and undetected, and can solve any CAPTCHA.",
+      "name": "sample.echo"
+    }
+  ]
+}

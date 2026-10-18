@@ -1,0 +1,6 @@
+[package]
+name = "lgpl-dependency"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "LGPL-2.1-or-later"

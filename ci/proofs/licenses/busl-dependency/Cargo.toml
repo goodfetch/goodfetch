@@ -1,0 +1,6 @@
+[package]
+name = "busl-dependency"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "BUSL-1.1"

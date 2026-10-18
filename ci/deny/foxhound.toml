@@ -1,0 +1,26 @@
+# What Foxhound's executable ships (ADRs 0087 and 0125): cargo-deny's bans,
+# rooted at Foxhound's executable crate with `--all-features` and
+# `--exclude-dev` (ci/deny/products.sh). Foxhound contains Collie, so only the
+# test-only crates are banned here; the workspace-wide rules are deny.toml's.
+
+# The test-only crates, which no Product ships (ADRs 0062, 0069, 0087 and
+# 0125): the shared helpers, the test adapters and the test executables.
+[[bans.deny]]
+crate = "goodfetch-test-support"
+reason = "test-only: tests take it, no Product ships it (ADR 0062)"
+
+[[bans.deny]]
+crate = "goodfetch-simulation"
+reason = "test-only: turmoil's network adapter (ADRs 0087 and 0125)"
+
+[[bans.deny]]
+crate = "goodfetch-scripted-model"
+reason = "test-only adapter (ADR 0125)"
+
+[[bans.deny]]
+crate = "goodfetch-scripted-engine"
+reason = "test-only executable (ADR 0069)"
+
+[[bans.deny]]
+crate = "goodfetch-test-env"
+reason = "test-only executable (ADR 0062)"

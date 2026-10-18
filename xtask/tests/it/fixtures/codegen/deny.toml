@@ -1,6 +1,16 @@
 [graph]
 all-features = true
 
+# xtask codegen: begin, ADR 0018's license allowlist, from license-allowlist.toml. Never edit by hand; run `xtask codegen`.
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "MPL-2.0",
+]
+
+# xtask codegen: end
+
 [bans]
 multiple-versions = "allow"
 

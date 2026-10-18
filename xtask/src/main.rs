@@ -9,6 +9,7 @@ mod all_green;
 mod check;
 mod codegen;
 mod containment;
+mod dco;
 mod dependency_direction;
 mod egress;
 mod fixture_size;
@@ -19,11 +20,14 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod output;
+mod package_dependencies;
 mod quarantine;
 mod release_suite;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod tree;
+mod wording;
 mod workflow;
 
 use std::ffi::OsString;
@@ -81,6 +85,16 @@ enum Command {
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
     Containment,
+    /// Fails on a commit from `--base` to `--head`, merges aside, without a
+    /// Developer Certificate of Origin sign-off by its author (ADR 0018).
+    Dco {
+        /// The pull request's base commit.
+        #[arg(long)]
+        base: String,
+        /// The pull request's head commit.
+        #[arg(long)]
+        head: String,
+    },
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
@@ -99,6 +113,10 @@ enum Command {
     /// Fails on any setting, flag, variable or workflow pattern that retries a
     /// test (ADRs 0064 and 0074).
     NoRetry,
+    /// Fails when an npm or PyPI package under `sdks/`, `adapters/` or
+    /// `integrations/` depends on a package of the other Product, or on a
+    /// Product's package when it is the Collie client package (ADR 0095).
+    PackageDependencies,
     /// The test quarantine list, `quarantine.toml` (ADR 0064).
     Quarantine {
         #[command(subcommand)]
@@ -126,6 +144,9 @@ enum Command {
         #[command(subcommand)]
         mode: SizeMode,
     },
+    /// Fails on a term of `wording.toml` in the prose of any text published
+    /// about either Product (ADRs 0035 and 0097).
+    Wording,
 }
 
 #[derive(Subcommand)]
@@ -386,6 +407,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         }
         Command::Codegen(arguments) => run_codegen(arguments, root, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
+        Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
         Command::DependencyDirection => Ok(check::report(&dependency_direction::check(
             &environment.cargo,
             root,
@@ -395,6 +417,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(&environment.cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
+        Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Quarantine { command } => run_quarantine(command, root, environment),
         Command::ReleaseSuite { command } => run_release_suite(command, root, environment),
         Command::Screenshots { command } => run_screenshots(command, root),
@@ -406,6 +429,7 @@ fn run(command: Command, root: &Path, environment: &Environment) -> anyhow::Resu
             }
         },
         Command::Size { mode } => run_size(&mode, root, environment),
+        Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }
 

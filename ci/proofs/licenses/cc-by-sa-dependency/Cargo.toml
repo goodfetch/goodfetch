@@ -1,0 +1,6 @@
+[package]
+name = "cc-by-sa-dependency"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "CC-BY-SA-4.0"

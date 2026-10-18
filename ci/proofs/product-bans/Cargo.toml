@@ -1,0 +1,6 @@
+# The fixture of ci/deny/products.sh's proof (just proofs): each Product's
+# executable crate links crates its configuration in ci/deny/ bans. Every
+# other crate is a local stand-in named as the crate it stands for.
+[workspace]
+resolver = "3"
+members = ["*"]

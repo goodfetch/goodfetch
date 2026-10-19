@@ -52,6 +52,32 @@ const component: TestProjectInlineConfiguration = {
   },
 };
 
+// The Release suite reruns the Console's screens under WCAG's text-spacing
+// values and 200% text (ADR 0073; TESTING.md, Accessibility), a style sheet
+// test support's setup injects into each test's page, where `clippedText`
+// checks no text is cut off. Served tests cannot take it: the production CSP
+// refuses an injected style sheet.
+const componentTextSpacing: TestProjectInlineConfiguration = {
+  extends: true,
+  test: {
+    name: "component-text-spacing",
+    include: ["console/**/tests/screens/**/*.test.tsx"],
+    exclude: [...outside, visualTests],
+    testTimeout: 300_000,
+    setupFiles: [
+      "@goodfetch/test-support/vitest-browser/setup",
+      "@goodfetch/test-support/vitest-browser/text-spacing",
+    ],
+    browser: {
+      enabled: true,
+      headless: true,
+      provider: playwright(),
+      instances: [{ browser: "chromium", name: "component-text-spacing (chromium)" }],
+      commands: browserCommands,
+    },
+  },
+};
+
 const visual: TestProjectInlineConfiguration = {
   extends: true,
   test: {
@@ -136,6 +162,7 @@ const config: ViteUserConfig = defineConfig({
         },
       },
       component,
+      ...(process.env["GOODFETCH_TEST_SUITE"] === "release" ? [componentTextSpacing] : []),
       ...(process.env["GOODFETCH_VISUAL_IMAGE"] === undefined ? [] : [visual]),
     ],
   },

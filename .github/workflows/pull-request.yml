@@ -269,9 +269,8 @@ jobs:
         timeout-minutes: 10
         env:
           MODELS: ${{ needs.affected.outputs.models }}
-        run: |
-          read -ra models <<< "$MODELS"
-          ci/vm/exec.sh just tlc "${models[@]}"
+        # `just` splits the space-separated names into its arguments.
+        run: ci/vm/exec.sh just tlc "$MODELS"
       - name: "Test: the sample's broken variant fails TLC"
         run: ci/vm/exec.sh just tlc-self-test
       - name: Check that the deny refused nothing else

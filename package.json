@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@goodfetch/test-support": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",

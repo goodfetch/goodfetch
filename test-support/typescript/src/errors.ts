@@ -16,7 +16,9 @@ export type TestSupportErrorCode =
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */
-  | "processes_alive";
+  | "processes_alive"
+  /** A browser command was asked for state its browser provider cannot set (ADR 0068). */
+  | "provider_unsupported";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

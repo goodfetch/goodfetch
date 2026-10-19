@@ -6,7 +6,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./screenshot": "./src/screenshot.ts"
+    "./screenshot": "./src/screenshot.ts",
+    "./vitest-browser": "./src/vitest-browser.ts",
+    "./vitest-browser/setup": "./src/vitest-browser-setup.ts",
+    "./vitest-browser/commands": "./src/vitest-browser-commands.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
@@ -18,6 +21,7 @@
   "devDependencies": {
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

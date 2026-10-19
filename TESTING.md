@@ -1229,7 +1229,7 @@ Each suite contains the one before, so the table gives the first suite that runs
   _Why:_ Base UI's positioning, focus and pointer handling need a real layout.
 - **Mount with `vitest-browser-react`, find with `vitest/browser` locators, act with `vitest/browser`'s `userEvent`.** Never `@testing-library/user-event`.
   _Why:_ events are then real browser input sent by Playwright, and the locators are Playwright's.
-- **Use the shared Vitest fixture of `@goodfetch/test-support`; it resets hover in `beforeEach`** (`userEvent.unhover(document.body)`).
+- **Use the shared Vitest fixture of `@goodfetch/test-support`; it resets hover in `beforeEach`** (`userEvent.unhover(document.body)`). It is the `component` project's setup file, `@goodfetch/test-support/vitest-browser/setup`, whose `hoverReset` the root `vitest.config.ts` runs before every `.test.tsx` test.
   _Why:_ the Playwright provider keeps the pointer position and hover state between tests of one file, and tests run shuffled.
 - **The engine is the in-memory adapter of the protocol from `@goodfetch/test-support`, passed to the Console's Client as its transport and body fetcher.** Never MSW, never a patched global `WebSocket`. A call the test did not answer fails the test, and every message is validated against the schema bundle.
 - **Test data comes from builders with literal defaults.** Override only what the test asserts on; no random data.
@@ -1239,6 +1239,8 @@ Each suite contains the one before, so the table gives the first suite that runs
 ### Browser state
 
 - **Set colour scheme, reduced motion, locale, time zone and online status through Playwright:** context options (`colorScheme`, `reducedMotion`, `locale`, `timezoneId`), `page.emulateMedia` and `context.setOffline` in served tests; the provider's context options and the `@goodfetch/test-support` browser command in component tests.
+  - In a component test, `browserState({ colorScheme, reducedMotion, locale, timeZone, online })` from `@goodfetch/test-support/vitest-browser` sets any of the five until the test ends, when the page gets the project's state back. Colour scheme and reduced motion work in every browser. Locale, time zone and online status are DevTools Protocol overrides, so only Chromium takes them per test; elsewhere the command fails with `provider_unsupported`, and a project sets them in its provider's context options.
+  - Online status there is `navigator.onLine` and its events, never `context.setOffline`, which would also cut the page's own connection to Vitest and hang the run.
 - **Pass page visibility to the Console's Client as a value**, like its transport. Playwright cannot emulate it. Served tests of the idle stop close the page instead.
 - **Never redefine a property of `document`, `navigator` or `window`.** oxlint's `no-restricted-properties` refuses `Object.defineProperty`, `Object.defineProperties` and `Reflect.defineProperty` in test files, and `vi.stubGlobal` is banned ([Writing a test](#writing-a-test)).
 

@@ -12,6 +12,36 @@ use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
+/// Writes the `#[test]` that replays a fuzz target, the one way to replay
+/// one (ADR 0067): `fuzz_replay!(body, "fuzz/<target>")` runs `body`, the
+/// target's plain `Fn(&[u8])` body, over every file of the target folder's
+/// `seeds` folder and then of its `crashers` folder, and fails naming each
+/// file the body panicked on. The folder is relative to the calling crate's
+/// manifest folder. A missing or empty crashers folder passes; a missing or
+/// empty seeds folder fails.
+///
+/// Call it once per target, in its own module of the crate's unit tests, so
+/// it runs in the Quick suite on every OS:
+///
+/// ```ignore
+/// #[cfg(test)]
+/// mod json_rpc_framing {
+///     goodfetch_test_support::fuzz_replay!(crate::framing::fuzz_body, "fuzz/json_rpc_framing");
+/// }
+/// ```
+#[macro_export]
+macro_rules! fuzz_replay {
+    ($body:expr, $target:literal $(,)?) => {
+        #[test]
+        fn replays_seeds_and_crashers() {
+            let target = ::std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join($target);
+            if let Err(error) = $crate::replay_fuzz_target(&target, $body) {
+                panic!("{error}");
+            }
+        }
+    };
+}
+
 /// The folder of a target's committed seeds, inside its target folder.
 pub const SEEDS_FOLDER: &str = "seeds";
 

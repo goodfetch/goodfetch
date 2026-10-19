@@ -111,6 +111,12 @@ fn a_target_without_crashers_replays_its_seeds(#[case] crashers: Folder) {
     );
 }
 
+/// The fixture target as a crate replays it: `fuzz_replay!` writes this
+/// module's `#[test]`.
+mod length_prefix {
+    crate::fuzz_replay!(super::fixed_body, "src/fuzz/fixtures/length_prefix");
+}
+
 #[rstest]
 #[case::missing(Folder::Missing)]
 #[case::empty(Folder::Empty)]

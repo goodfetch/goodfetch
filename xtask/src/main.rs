@@ -12,6 +12,7 @@ mod acceptance;
 mod affected;
 mod all_green;
 mod allure;
+mod budgets;
 mod ceiling;
 mod check;
 mod codegen;
@@ -73,6 +74,11 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// The budget check (ADR 0061): opens or updates one `needs-triage`
+    /// issue per suite or job whose median of its last 20 runs in its own
+    /// tier, read from the results store, is past its budget in TESTING.md;
+    /// never fails.
+    Budgets(budgets::Arguments),
     /// Regenerates every file generated from `goodfetch-protocol`'s types:
     /// the JSON Schema bundle and catalog file, each Product's projection,
     /// the names only Foxhound carries, the cargo-deny `wrappers` list and
@@ -322,6 +328,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
     match command {
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,

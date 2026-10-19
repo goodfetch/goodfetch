@@ -708,6 +708,7 @@ name = "goodfetch-test-support"
 version = "0.0.0"
 dependencies = [
  "assert_cmd",
+ "chacha20",
  "clap",
  "jiff",
  "jsonschema",
@@ -716,6 +717,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",

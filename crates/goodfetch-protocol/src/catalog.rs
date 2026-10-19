@@ -30,7 +30,9 @@ pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 0, minor:
 
 /// One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
 /// writes it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Product {
     /// Browser automation; Foxhound contains it.

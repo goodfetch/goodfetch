@@ -1,8 +1,9 @@
 //! `xtask codegen` and its drift check (ADRs 0038, 0087 and 0095): the
 //! committed bundle, catalog and per-Product outputs, each SDK package's
 //! generated layer, and the lists only `xtask codegen` writes: the
-//! `wrappers` list and Collie's ban of Foxhound's crates (ADR 0087), and
-//! cargo-deny's copy of ADR 0018's license allowlist.
+//! `wrappers` list and Collie's ban of Foxhound's crates (ADR 0087),
+//! cargo-deny's copy of ADR 0018's license allowlist, and the Journey files'
+//! schema on its own (ADR 0063).
 //! Covers: story:1-57
 
 use std::fmt::Write as _;
@@ -51,6 +52,10 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
     let mut files = vec![
         ("deny.toml".to_owned(), workspace.read_text("deny.toml")),
         (COLLIE_DENY.to_owned(), workspace.read_text(COLLIE_DENY)),
+        (
+            JOURNEY_SCHEMA.to_owned(),
+            workspace.read_text(JOURNEY_SCHEMA),
+        ),
     ];
     for folder in GENERATED_FOLDERS {
         let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
@@ -98,6 +103,8 @@ fn check_passes_on_a_clean_tree() {
 
 const SAMPLE: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
+const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
+const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
 
 #[rstest]
 #[case::field_added_to_a_collie_type(
@@ -130,8 +137,18 @@ const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
         finding("drift", "crates/goodfetch-protocol/generated/catalog.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound_names.rs"),
+        finding("drift", "features/inventory.json"),
         finding("drift", "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py"),
         finding("drift", "sdks/typescript/foxhound/src/generated/operations.ts"),
+    ],
+)]
+#[case::field_added_to_the_journey_type(
+    JOURNEY,
+    "    /// What the person achieves.\n    pub goal: String,\n",
+    "    /// What the person achieves.\n    pub goal: String,\n    /// Its Product.\n    pub product: String,\n",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
+        finding("drift", JOURNEY_SCHEMA),
     ],
 )]
 fn check_fails_after_a_type_change_that_was_not_regenerated(
@@ -146,6 +163,34 @@ fn check_fails_after_a_type_change_that_was_not_regenerated(
     let outcome = workspace.xtask(&["codegen", "--check"]);
 
     assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}
+
+/// The Feature inventory follows the stories and rows files it reads, as it
+/// follows the types (ADR 0072).
+#[rstest]
+#[case::story_added(
+    "features/stories/1.toml",
+    "not_journey = \"actor\"\nstatus = \"active\"\n",
+    "not_journey = \"actor\"\nstatus = \"active\"\n\n[[story]]\nid = 3\ntitle = \"A new story.\"\nmilestone = \"M1 Core\"\njourney = true\nstatus = \"active\"\n"
+)]
+#[case::row_given_another_milestone("features/rows.toml", "M1 Core", "M2 Next")]
+fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
+    #[case] source: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(source, from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", "features/inventory.json")],
+        "{}",
+        outcome.stderr
+    );
     assert_eq!(outcome.code, 1);
 }
 
@@ -201,6 +246,9 @@ fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
     "drift"
 )]
 #[case::catalog("crates/goodfetch-protocol/generated/catalog.json", "drift")]
+#[case::feature_inventory("features/inventory.json", "drift")]
+#[case::stories_schema("features/stories.schema.json", "drift")]
+#[case::journey_schema(JOURNEY_SCHEMA, "drift")]
 fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("codegen");
     let edited = format!("{}\n", workspace.read_text(path));
@@ -246,6 +294,100 @@ fn catalog_marks_each_entry_with_the_product_whose_module_defines_it() {
         vec![
             ("sample.crawl".to_owned(), "foxhound".to_owned()),
             ("sample.echo".to_owned(), "collie".to_owned()),
+        ]
+    );
+}
+
+/// Each matrix row but the excluded ones, each story and each contract of
+/// the catalog is a Feature, with its area and milestone (ADR 0072).
+#[test]
+fn inventory_lists_every_feature_of_the_fixture_with_its_area_and_milestone() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.remove("features/inventory.json");
+
+    codegen(&workspace);
+
+    let inventory: Value =
+        serde_json::from_str(&workspace.read_text("features/inventory.json")).unwrap();
+    let features: Vec<(String, Value, Value)> = inventory["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|feature| {
+            (
+                feature["id"].as_str().unwrap().to_owned(),
+                feature["area"].clone(),
+                feature["milestone"].clone(),
+            )
+        })
+        .collect();
+    let feature = |id: &str, area: u32, milestone: Option<&str>| {
+        (
+            id.to_owned(),
+            Value::from(area),
+            milestone.map_or(Value::Null, Value::from),
+        )
+    };
+    assert_eq!(
+        features,
+        vec![
+            feature("error:sample_crawl_refused", 1, None),
+            feature("error:sample_refused", 1, None),
+            feature("event:sample.crawled", 1, None),
+            feature("event:sample.echoed", 1, None),
+            feature("operation:sample.crawl", 1, None),
+            feature("operation:sample.echo", 1, None),
+            feature("row:RT-01", 3, Some("M1 Core")),
+            feature("row:RT-02", 3, None),
+            feature("row:durability-resume", 3, None),
+            feature("story:1-1", 1, Some("M1 Core")),
+            feature("story:1-2", 1, Some("M2 Next")),
+        ]
+    );
+}
+
+/// A Feature named in the table of Foxhound's names is Foxhound's alone;
+/// every other is both Products' (ADRs 0087 and 0094).
+#[test]
+fn inventory_records_the_products_that_carry_each_feature() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.remove("features/inventory.json");
+
+    codegen(&workspace);
+
+    let inventory: Value =
+        serde_json::from_str(&workspace.read_text("features/inventory.json")).unwrap();
+    let products = |id: &str| -> Value {
+        inventory["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|feature| feature["id"] == id)
+            .unwrap()["products"]
+            .clone()
+    };
+    let foxhound = serde_json::json!(["foxhound"]);
+    let both = serde_json::json!(["collie", "foxhound"]);
+    assert_eq!(
+        [
+            products("operation:sample.crawl"),
+            products("error:sample_crawl_refused"),
+            products("event:sample.crawled"),
+            products("operation:sample.echo"),
+            products("error:sample_refused"),
+            products("event:sample.echoed"),
+            products("story:1-1"),
+            products("row:RT-01"),
+        ],
+        [
+            foxhound.clone(),
+            foxhound.clone(),
+            foxhound,
+            both.clone(),
+            both.clone(),
+            both.clone(),
+            both.clone(),
+            both,
         ]
     );
 }

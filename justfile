@@ -56,8 +56,10 @@ lint: fmt-check
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
+    cargo run --quiet -p xtask -- features check
     cargo run --quiet -p xtask -- compat check
     cargo run --quiet -p xtask -- wording
+    cargo run --quiet -p xtask -- journeys check
     cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
     ci/tool-versions.sh
@@ -70,6 +72,27 @@ codegen:
     pnpm install --frozen-lockfile
     uv sync --frozen
     cargo run --quiet -p xtask -- codegen
+
+# What the changed packages declare, then the Feature check's verdict (ADR
+# 0072): the Features each crate `xtask affected` selects declares, one
+# `<feature> <level> <test>` line each, and the check's findings over the
+# workspace, which are the Features missing a test, an exception or an area.
+# Takes `xtask affected`'s change, `--local` by default.
+features *change:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    change=({{ change }})
+    [[ ${#change[@]} -gt 0 ]] || change=(--local)
+    selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
+    read -ra crates <<< "$(sed -n 's/^crates=//p' <<< "$selection")"
+    if [[ ${#crates[@]} -gt 0 ]]; then
+      echo "Declared by ${crates[*]}:"
+      cargo run --quiet -p xtask -- features scan "${crates[@]/#/--package=}"
+    else
+      echo "The change reaches no crate."
+    fi
+    echo "Missing:"
+    cargo run --quiet -p xtask -- features check && echo "nothing"
 
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the
@@ -259,6 +282,7 @@ pre-merge *all:
     "$just" lint
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
+    "$just" _tlc "{{ all }}"
     "$just" proofs
     "$just" supply-chain
     "$just" dco
@@ -277,6 +301,7 @@ release:
     "$just" lint
     "$just" test quick
     "$just" test release
+    "$just" _tlc all
     "$just" proofs
     "$just" _visual-elsewhere
     echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
@@ -339,6 +364,27 @@ release-ci cells="all" commit="":
 # elsewhere, and listed as skipped without either (ci/perf.sh).
 perf base="":
     ci/perf.sh {{ base }}
+
+# Keeps each tool of test-support/models/tools.toml in target/tla-tools/,
+# downloading only a file that lacks its pinned SHA-256; a download whose
+# SHA-256 differs fails (ADR 0060).
+# Downloads the pinned pair of TLA+ tools, before the outbound-traffic deny.
+tlc-fetch:
+    cargo run --quiet -p xtask -- tlc fetch
+
+# Each model of test-support/models/ runs with its small.cfg; `--config
+# large` takes the nightly job's constants, and `--config <variant>` a
+# model's own variant (ADR 0060). Needs Java 11 or later.
+# Model-checks TLA+ models with TLC: `just tlc <model>…` or `just tlc --all`.
+tlc *arguments:
+    {{ just_executable() }} tlc-fetch
+    cargo run --quiet -p xtask -- tlc run {{ arguments }}
+
+# A job that passes the models is so shown able to fail.
+# The TLC job's self-test: the sample's broken variant must fail its invariant.
+tlc-self-test:
+    {{ just_executable() }} tlc-fetch
+    cargo run --quiet -p xtask -- tlc run sample --config broken --expect invariant-violated
 
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
 # dependencies, tests and benchmark targets with its profiles, run by nothing:
@@ -483,6 +529,27 @@ _suite suite all:
       "") {{ just_executable() }} test-affected {{ suite }} ;;
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
+
+# TLC on the models the change reaches (`all`: every model), then the job's
+# self-test, as CI's `tlc` job runs them; listed as skipped without Java.
+_tlc all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    case "{{ all }}" in
+      all) models=(--all) ;;
+      "")
+        selection=$(cargo run --quiet -p xtask -- affected --local)
+        read -ra models <<< "$(sed -n 's/^models=//p' <<< "$selection")"
+        if [[ ${#models[@]} -eq 0 ]]; then
+          echo "The change reaches no TLA+ model."
+          exit 0
+        fi
+        ;;
+      *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
+    esac
+    ci/tool.sh java "$just" tlc "${models[@]}"
+    ci/tool.sh java "$just" tlc-self-test
 
 # Runner configs define the `visual` projects only inside the pinned image
 # (ci/visual/run.sh), so no host test command runs them.

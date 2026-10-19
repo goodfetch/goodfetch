@@ -1,0 +1,30 @@
+id = "J-003"
+title = "Crawl a site to Markdown and export its Dataset as JSON"
+goal = "A person crawls a site and exports its Dataset; the export MUST hold every page as a Record in Markdown."
+area = 6
+product = "foxhound"
+status = "active"
+covers = ["row:SA-01", "story:3-23"]
+
+[proving_ground]
+seed = 3
+tasks = [{ id = "catalog/1", digest = "00000000000000000000000000000000000000000000000000000000000000a1" }]
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+adapter-langchain = "M4"
+
+[[steps]]
+text = "Crawl the Proving ground's catalog site over HTTP"
+
+[[steps]]
+text = "Watch the run in the Console"
+on = "console"
+
+[[steps]]
+text = "Export the Dataset as JSON"
+
+[[expect]]
+text = "The oracle verifies the exported Dataset"
+task = "catalog/1"

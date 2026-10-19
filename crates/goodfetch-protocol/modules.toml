@@ -1,9 +1,10 @@
 # Which of goodfetch-protocol's top-level modules may import which (ADR 0126).
 [modules]
 catalog = []
-emit = ["catalog", "foxhound", "releases", "sample"]
+emit = ["catalog", "foxhound", "journey", "releases", "sample"]
 foxhound = ["catalog", "sample"]
 foxhound_names = []
+journey = ["catalog", "releases"]
 releases = []
 routing = ["catalog", "foxhound_names"]
 sample = ["catalog"]

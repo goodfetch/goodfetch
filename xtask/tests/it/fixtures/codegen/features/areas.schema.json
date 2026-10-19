@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "Area": {
+      "additionalProperties": false,
+      "description": "The generated Features of one kind whose IDs start with `prefix`, owned\nby one area.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/Kind",
+          "description": "A generated kind."
+        },
+        "number": {
+          "description": "The area's number in ADR 0037's table.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prefix": {
+          "description": "The start of the IDs it owns, after `<kind>:`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "number",
+        "kind",
+        "prefix"
+      ],
+      "type": "object"
+    },
+    "Kind": {
+      "description": "A Feature's kind, the part of its ID before the first `:`. Each later\ngenerator adds its kind here (ADR 0072's table).",
+      "oneOf": [
+        {
+          "const": "row",
+          "description": "An ADR 0037 matrix row that is not `excluded`.",
+          "type": "string"
+        },
+        {
+          "const": "story",
+          "description": "A spec's user story, `story:<area>-<n>`.",
+          "type": "string"
+        },
+        {
+          "const": "operation",
+          "description": "An operation of the Operation catalog.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "An Error code.",
+          "type": "string"
+        },
+        {
+          "const": "event",
+          "description": "A catalog event.",
+          "type": "string"
+        },
+        {
+          "const": "setting",
+          "description": "A setting of the settings schema.",
+          "type": "string"
+        },
+        {
+          "const": "exit",
+          "description": "An exit code of the exit-code table.",
+          "type": "string"
+        },
+        {
+          "const": "format",
+          "description": "A versioned format of the format registry.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`features/areas.toml`: the owning area of each generated Feature.",
+  "properties": {
+    "area": {
+      "description": "Each area's share of the generated Features.",
+      "items": {
+        "$ref": "#/$defs/Area"
+      },
+      "type": "array"
+    }
+  },
+  "title": "AreasFile",
+  "type": "object"
+}

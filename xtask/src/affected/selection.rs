@@ -7,8 +7,8 @@ use std::fmt;
 use std::path::Path;
 
 use super::RepoPath;
-use super::workspace::{Crate, Ecosystem, Package, Workspace, is_visual_test};
-use crate::{foxhound_side, perf, screenshots};
+use super::workspace::{Crate, Ecosystem, Model, Package, Workspace, is_visual_test};
+use crate::{foxhound_side, perf, screenshots, tlc};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -32,16 +32,19 @@ pub(crate) enum Job {
     Docs,
     /// The pull-request Evaluation (ADR 0065).
     Evaluation,
+    /// TLC on `models`, with their small constants (ADR 0060).
+    Tlc,
 }
 
 impl Job {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::PreMerge,
         Self::Sinks,
         Self::Perf,
         Self::Visual,
         Self::Docs,
         Self::Evaluation,
+        Self::Tlc,
     ];
 
     const fn id(self) -> &'static str {
@@ -52,6 +55,7 @@ impl Job {
             Self::Visual => "visual",
             Self::Docs => "docs",
             Self::Evaluation => "evaluation",
+            Self::Tlc => "tlc",
         }
     }
 }
@@ -90,6 +94,8 @@ pub(crate) struct Selection {
     touched_sinks: BTreeSet<String>,
     /// `<crate>/<bench target>`.
     bench_targets: BTreeSet<String>,
+    /// The TLA+ models TLC checks, by name.
+    models: BTreeSet<String>,
 }
 
 /// The folder of every sink process (ADR 0087).
@@ -136,6 +142,17 @@ fn is_visual_input(path: &RepoPath) -> bool {
     is_visual_test(name)
         || screenshots::is_reference_screenshot(Path::new(path.as_str()))
         || VISUAL_INPUTS.iter().any(|input| path.is_in(input))
+}
+
+/// What TLC's job reads besides the models: the pinned tools and the
+/// command that fetches them and runs TLC. A change to one selects every
+/// model.
+const TLC_INPUTS: [&str; 3] = [tlc::TOOLS_FILE, "xtask/src/tlc.rs", "xtask/src/tlc"];
+
+/// Whether a change to the path reaches the model: a file of its folder, or
+/// of a module it traces.
+fn reaches_model(path: &RepoPath, model: &Model) -> bool {
+    path.is_in(model.folder.as_str()) || model.traces.iter().any(|trace| path.is_in(trace.as_str()))
 }
 
 fn is_prompt_affecting(path: &RepoPath) -> bool {
@@ -240,7 +257,8 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
                 changed.crates.insert(krate.name.clone());
             }
             Some(Owner::Package(package)) => changed.packages.push(package),
-            None if needs_no_tests(path) => {}
+            // The models are checked by TLC alone.
+            None if needs_no_tests(path) || path.is_in(tlc::MODELS_FOLDER) => {}
             None => everything = true,
         }
     }
@@ -369,6 +387,18 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
     if !bench_targets.is_empty() {
         jobs.insert(Job::Perf);
     }
+    let every_model = paths
+        .iter()
+        .any(|path| TLC_INPUTS.iter().any(|input| path.is_in(input)));
+    let models: BTreeSet<String> = workspace
+        .models
+        .iter()
+        .filter(|model| every_model || paths.iter().any(|path| reaches_model(path, model)))
+        .map(|model| model.name.clone())
+        .collect();
+    if !models.is_empty() {
+        jobs.insert(Job::Tlc);
+    }
 
     Selection {
         products,
@@ -380,6 +410,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
         sinks,
         touched_sinks: names(reached.iter().filter(|krate| is_sink(krate))),
         bench_targets,
+        models,
     }
 }
 
@@ -447,6 +478,11 @@ impl fmt::Display for Selection {
             formatter,
             "bench-targets={}",
             joined(self.bench_targets.iter().map(String::as_str))
+        )?;
+        writeln!(
+            formatter,
+            "models={}",
+            joined(self.models.iter().map(String::as_str))
         )
     }
 }

@@ -61,6 +61,12 @@ id = "CC0-1.0"
 [[license]]
 id = "Unlicense"
 
+# Agent decision, pending owner review (#337): MIT without its attribution
+# clause, as permissive as 0BSD and Unlicense above. borrow-or-share carries
+# it, which jsonschema takes for `xtask journeys check`.
+[[license]]
+id = "MIT-0"
+
 [[license]]
 id = "CDLA-Permissive-2.0"
 

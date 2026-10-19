@@ -1,0 +1,5 @@
+# Each ADR 0037 matrix row's milestone (ADR 0072): `[[row]]` entries with the
+# row's `id` and the GitHub milestone of the ticket that finishes it. The row
+# list itself comes from the matrix, never from here. No row has its
+# milestone yet, so the Feature check does not yet require one (ADR 0072's
+# note, pending owner review). Schema: `rows.schema.json`.

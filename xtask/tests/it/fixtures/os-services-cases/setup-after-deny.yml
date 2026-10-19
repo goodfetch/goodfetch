@@ -1,0 +1,16 @@
+name: pull request
+on:
+  pull_request:
+permissions: {}
+jobs:
+  quick:
+    runs-on: [self-hosted, owner-machine]
+    steps:
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
+      - name: "Test: just test quick"
+        run: ci/vm/exec.sh just test quick

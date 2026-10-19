@@ -1,0 +1,35 @@
+#:schema ./journey.schema.json
+id = "J-010"
+title = "Run a Crawl and see nothing leave the machine beyond its targets and pinned downloads"
+goal = """
+A person runs a Crawl with nothing configured to leave the machine. The \
+Crawl MUST return every product of the site's catalog, and nothing MUST \
+leave the machine but the Crawl's requests to its targets and the \
+digest-pinned downloads the engine needs: no telemetry, no update check and \
+no browser background traffic."""
+area = 4
+product = "foxhound"
+status = "active"
+covers = ["row:SC-10"]
+
+[proving_ground]
+seed = 10
+tasks = [
+  { id = "catalog/1", digest = "1991f8f22dfb013c23b57ae3bb8105ec72831878cbd2a30e62fe77d01b5b9c59" },
+]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Crawl the catalog with Foxhound's default settings"
+
+[[steps]]
+text = "Wait for the Crawl to finish"
+
+[[expect]]
+text = "The oracle verifies the Crawl's Records"
+task = "catalog/1"
+
+[[expect]]
+text = "Every connection Foxhound's processes opened went to the catalog's hosts or fetched a digest-pinned download, and none carried telemetry or an update check"

@@ -15,6 +15,7 @@ mod invariants;
 mod kill;
 mod observation;
 mod process;
+mod resolver;
 mod runtime;
 mod tools;
 mod trace;
@@ -31,6 +32,7 @@ pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,
     reported_address, reported_address_within,
 };
+pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};

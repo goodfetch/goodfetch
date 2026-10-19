@@ -57,6 +57,8 @@ corpus = []
 versions = []
 
 [submodules.crawl]
+facets = []
+fields = []
 links = []
 pacing = []
 limits = []

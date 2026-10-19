@@ -27,13 +27,11 @@ use toml::value::Datetime;
 use crate::check::Finding;
 use crate::environment::Environment;
 use crate::github::{self, Api};
+use crate::issues::Label as IssueLabel;
 use crate::output;
 
 /// The list's file, at the workspace's root.
 pub(crate) const LIST: &str = "quarantine.toml";
-
-/// The label every quarantined test's issue carries (ADR 0064).
-const FLAKY_TEST_LABEL: &str = "flaky-test";
 
 /// A test runner whose tests the list may name.
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -212,7 +210,7 @@ pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> 
                 if !issue
                     .labels
                     .iter()
-                    .any(|label| label.name == FLAKY_TEST_LABEL) =>
+                    .any(|label| label.name == IssueLabel::FlakyTest.name()) =>
             {
                 Some((
                     "quarantine-issue-not-flaky-test",

@@ -22,7 +22,7 @@ pub(crate) enum Label {
 }
 
 impl Label {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::FlakyTest => "flaky-test",
             Self::LiveCheck => "live-check",

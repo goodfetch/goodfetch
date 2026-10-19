@@ -25,9 +25,18 @@ fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
     let tasks = proving_ground.tasks();
 
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
-    assert_eq!(each(&tasks, "id"), [json!("catalog/1"), json!("catalog/2")]);
-    assert_eq!(each(&tasks, "family"), [json!("catalog"), json!("catalog")]);
-    assert_eq!(each(&tasks, "kind"), [json!("crawl"), json!("extract")]);
+    assert_eq!(
+        each(&tasks, "id"),
+        [json!("catalog/1"), json!("catalog/2"), json!("catalog/3")]
+    );
+    assert_eq!(
+        each(&tasks, "family"),
+        [json!("catalog"), json!("catalog"), json!("catalog")]
+    );
+    assert_eq!(
+        each(&tasks, "kind"),
+        [json!("crawl"), json!("extract"), json!("submit")]
+    );
     assert_eq!(
         tasks["tasks"][0]["start_url"],
         format!("http://1.catalog.test:{}/catalog/1", proving_ground.port())

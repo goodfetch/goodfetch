@@ -1,5 +1,5 @@
 //! What the Proving ground answers to one request: a page family's page on
-//! that family's host name, and on any other host name its own task list
+//! that family's host names, and the Effect its form carries out, and on any other host name its own task list
 //! (`GET /tasks`), oracle (`POST /oracle`), certificate authority
 //! (`GET /certificate-authority`) and observations (`GET /observations`).
 
@@ -96,8 +96,18 @@ impl Site {
     /// Answers one request, given its `Host` header, path and body.
     pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
         if self.hosts.contains_key(&observation::host_name(host)) {
-            return match (method, catalog::page(self.seed, path)) {
-                (&Method::GET, Some(page)) => Reply::html(page),
+            return match (method, path) {
+                (&Method::POST, "/orders") => match catalog::order(body) {
+                    Some((effect, page)) => {
+                        self.observations.effect(host, effect);
+                        Reply::html(page)
+                    }
+                    None => Reply::error(StatusCode::BAD_REQUEST, "unknown_product"),
+                },
+                (&Method::GET, _) => catalog::page(self.seed, path).map_or_else(
+                    || Reply::error(StatusCode::NOT_FOUND, "not_found"),
+                    Reply::html,
+                ),
                 _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
             };
         }
@@ -128,7 +138,13 @@ impl Site {
         };
         let tasks = self.tasks();
         match tasks.iter().find(|task| task.entry.id == submission.task) {
-            Some(task) => Reply::json(StatusCode::OK, &oracle::judge(&task.expected, submission)),
+            Some(task) => {
+                let effects = self.observations.effects_of(&task.entry.id);
+                Reply::json(
+                    StatusCode::OK,
+                    &oracle::judge(&task.expected, submission, &effects),
+                )
+            }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),
         }
     }

@@ -2,8 +2,8 @@
 //! recorded as the Proving ground saw it (method, target, headers in the
 //! order sent, cookies, signature, the connection's TLS `ClientHello` and
 //! HTTP/2 settings, pseudo-header order, status and timing), the bytes each
-//! request and each host received and sent. The oracle and the suites read
-//! them, never a tool's report.
+//! request and each host received and sent, and the Effects the site
+//! carried out. The oracle and the suites read them, never a tool's report.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -28,6 +28,7 @@ use serde::Serialize;
 use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
 use crate::sync::Mutex;
+use crate::task::Effect;
 
 /// The most requests kept in detail (STYLE.md: every buffer is bounded).
 const REQUEST_LIMIT: usize = 100_000;
@@ -46,6 +47,7 @@ struct State {
     requests: Vec<Request>,
     unrecorded_requests: u64,
     hosts: BTreeMap<Arc<str>, ByteCount>,
+    effects: Vec<EffectRecord>,
 }
 
 /// Bytes received from and sent to a client.
@@ -140,6 +142,14 @@ struct Timing {
     answered_microseconds: Option<u64>,
 }
 
+/// An Effect the site carried out, with the task of the host it came on.
+#[derive(Serialize)]
+struct EffectRecord {
+    task: Option<String>,
+    #[serde(flatten)]
+    effect: Effect,
+}
+
 /// A recorded request's place in the record.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RequestId(usize);
@@ -149,6 +159,7 @@ pub(crate) struct RequestId(usize);
 struct Document<'a> {
     requests: &'a [Request],
     unrecorded_requests: u64,
+    effects: &'a [EffectRecord],
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
 }
@@ -196,8 +207,25 @@ impl Observations {
             .add(bytes);
     }
 
-    /// The record as JSON: the requests, and the bytes per task and per
-    /// host.
+    /// Records that the site carried out `effect` on a request to
+    /// `authority`.
+    pub(crate) fn effect(&self, authority: &str, effect: Effect) {
+        let task = self.served(authority).and_then(|(_, task)| task.clone());
+        self.state().effects.push(EffectRecord { task, effect });
+    }
+
+    /// The Effects carried out for `task`, in order.
+    pub(crate) fn effects_of(&self, task: &str) -> Vec<Effect> {
+        self.state()
+            .effects
+            .iter()
+            .filter(|record| record.task.as_deref() == Some(task))
+            .map(|record| record.effect.clone())
+            .collect()
+    }
+
+    /// The record as JSON: the requests, the Effects, and the bytes per task
+    /// and per host.
     pub(crate) fn document(&self) -> Vec<u8> {
         let state = self.state();
         let mut tasks = BTreeMap::new();
@@ -212,6 +240,7 @@ impl Observations {
         serde_json::to_vec(&Document {
             requests: &state.requests,
             unrecorded_requests: state.unrecorded_requests,
+            effects: &state.effects,
             tasks,
             hosts: &state.hosts,
         })

@@ -134,6 +134,20 @@ impl ProvingGround {
         Self::answer(response)
     }
 
+    /// Posts a form to a URL on one of the Proving ground's host names.
+    pub(crate) fn post_form(&self, url: &str, form: &str) -> Answer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let response = self
+            .agent
+            .post(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .content_type("application/x-www-form-urlencoded")
+            .send(form)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// Submits a result to the oracle.
     pub(crate) fn judge(&self, submission: &Value) -> Answer {
         let response = self

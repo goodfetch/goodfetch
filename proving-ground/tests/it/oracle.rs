@@ -95,6 +95,8 @@ fn a_correct_result_is_verified(#[case] index: usize) {
             "missing": [],
             "extra": [],
             "wrong": [],
+            "missing_effects": [],
+            "extra_effects": [],
         })
     );
 }
@@ -233,4 +235,106 @@ fn a_malformed_submission_is_refused() {
 
     assert_eq!(answer.status, 400);
     assert_eq!(answer.json()["error"], "malformed_submission");
+}
+
+/// The order task's ID and host, and the product its order form orders,
+/// read from the form the way any tool would.
+fn order_form(proving_ground: &ProvingGround) -> (String, String, String) {
+    let task = proving_ground.tasks()["tasks"][2].clone();
+    assert_eq!(task["kind"], "submit", "{task}");
+    let start_url = task["start_url"].as_str().expect("a start URL");
+    let form = proving_ground.get(start_url).body;
+    assert!(
+        form.contains(r#"<form method="post" action="/orders">"#),
+        "{form}"
+    );
+    let product = Regex::new(r#"name="product" value="([^"]+)""#)
+        .expect("a valid pattern")
+        .captures(&form)
+        .expect("the form names its product")[1]
+        .to_owned();
+    let host = start_url
+        .strip_prefix("http://")
+        .and_then(|rest| rest.split(':').next())
+        .expect("a host")
+        .to_owned();
+    (
+        task["id"].as_str().expect("an ID").to_owned(),
+        host,
+        product,
+    )
+}
+
+/// Submits the order form `times` times.
+fn place_order(proving_ground: &ProvingGround, host: &str, product: &str, times: usize) {
+    for _ in 0..times {
+        let answer = proving_ground.post_form(
+            &format!("http://{host}/orders"),
+            &format!("product={product}"),
+        );
+        assert_eq!(answer.status, 200, "{}", answer.body);
+    }
+}
+
+#[test]
+fn an_order_placed_once_is_verified_from_the_proving_grounds_own_record() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, host, product) = order_form(&proving_ground);
+    place_order(&proving_ground, &host, &product, 1);
+
+    let answer = proving_ground
+        .judge(&submission(&task, "success", &[]))
+        .json();
+
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+}
+
+#[rstest]
+#[case::claimed_a_success("success", "false_success")]
+#[case::left_to_review("needs-review", "failed")]
+fn an_order_placed_twice_is_judged_a_failure_from_the_proving_grounds_own_record(
+    #[case] status: &str,
+    #[case] outcome: &str,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, host, product) = order_form(&proving_ground);
+    place_order(&proving_ground, &host, &product, 2);
+
+    let answer = proving_ground.judge(&submission(&task, status, &[])).json();
+
+    assert_eq!(answer["outcome"], outcome, "{answer}");
+    assert_eq!(
+        answer["extra_effects"],
+        json!([{ "kind": "order", "product": product }])
+    );
+    assert_eq!(answer["missing_effects"], json!([]));
+}
+
+#[test]
+fn an_order_the_tool_reports_but_never_placed_is_a_false_success() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, _, product) = order_form(&proving_ground);
+
+    let answer = proving_ground
+        .judge(&submission(&task, "success", &[]))
+        .json();
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(
+        answer["missing_effects"],
+        json!([{ "kind": "order", "product": product }])
+    );
+}
+
+#[test]
+fn an_order_placed_on_another_tasks_host_is_not_the_order_tasks() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, _, product) = order_form(&proving_ground);
+    place_order(&proving_ground, "1.catalog.test", &product, 1);
+
+    let answer = proving_ground
+        .judge(&submission(&task, "failure", &[]))
+        .json();
+
+    assert_eq!(answer["outcome"], "failed", "{answer}");
 }

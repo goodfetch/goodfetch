@@ -317,3 +317,15 @@ fn a_tasks_requests_and_bytes_are_recorded_for_that_task() {
         json!({ "1.catalog.test": { "received": exchange.written, "sent": exchange.read } })
     );
 }
+
+#[test]
+fn an_effect_the_site_carries_out_is_recorded_for_its_task() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    proving_ground.post_form("http://3.catalog.test/orders", "product=P-0042");
+
+    assert_eq!(
+        proving_ground.observations()["effects"],
+        json!([{ "task": "catalog/3", "kind": "order", "product": "P-0042" }])
+    );
+}

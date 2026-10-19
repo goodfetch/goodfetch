@@ -36,7 +36,10 @@ assert_cmd = { version = "2.2.2", default-features = false }
 # A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
+goodfetch-collie = { path = "crates/goodfetch-collie" }
+goodfetch-engine = { path = "crates/goodfetch-engine" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }
@@ -71,6 +74,9 @@ rcgen = { version = "0.14.10", default-features = false }
 rustls = { version = "0.23.46", default-features = false }
 tokio-rustls = { version = "0.26.4", default-features = false }
 insta = { version = "1.49.0", default-features = false }
+# The executables' global allocator (ADR 0024), and the Callgrind
+# benchmarks' (ADR 0071).
+mimalloc = { version = "0.1.48", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the

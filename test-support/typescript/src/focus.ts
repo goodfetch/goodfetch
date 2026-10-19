@@ -39,6 +39,7 @@ export interface FocusStop {
  * reach.
  */
 export async function keyboardWalk(page: Page): Promise<readonly FocusStop[]> {
+  // Tab out of the page from wherever focus is, so the next walk starts at its top.
   await walk(page, "forward");
   const stops: FocusStop[] = [];
   const forward = await walk(page, "forward", async (stop) => {
@@ -64,6 +65,7 @@ export async function keyboardWalk(page: Page): Promise<readonly FocusStop[]> {
  */
 export async function focusChecks(page: Page): Promise<void> {
   const screenshots = browserName(page) !== "webkit";
+  // Tab out of the page from wherever focus is, so the next walk starts at its top.
   await walk(page, "forward");
   await walk(page, "forward", async (stop) => {
     if (await stop.evaluate(isEntirelyCovered)) {

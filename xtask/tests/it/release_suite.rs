@@ -177,20 +177,7 @@ fn serve(branch: &str, earlier: Vec<Run>, extra: &[(&str, &str)]) -> GitHub {
             ),
         ),
     ];
-    for run in &runs {
-        let jobs: Vec<String> = run.jobs.iter().map(Job::json).collect();
-        routes.push((
-            format!(
-                "{REPOSITORY}/actions/runs/{}/jobs?filter=all&per_page=100&page=1",
-                run.id
-            ),
-            format!(
-                r#"{{"total_count": {}, "jobs": [{}]}}"#,
-                jobs.len(),
-                jobs.join(", ")
-            ),
-        ));
-    }
+    routes.extend(jobs_routes(&runs));
     let mut borrowed: Vec<(&str, &str)> = routes
         .iter()
         .map(|(path, body)| (path.as_str(), body.as_str()))
@@ -528,6 +515,27 @@ fn commit_chosen_off_main_is_refused() {
 }
 
 /// The runs of `HEAD`, newest first, as the runs API lists them by commit.
+/// The route of each run's jobs, as GitHub's jobs API lists them with
+/// `filter=all`.
+fn jobs_routes(runs: &[Run]) -> Vec<(String, String)> {
+    runs.iter()
+        .map(|run| {
+            let jobs: Vec<String> = run.jobs.iter().map(Job::json).collect();
+            (
+                format!(
+                    "{REPOSITORY}/actions/runs/{}/jobs?filter=all&per_page=100&page=1",
+                    run.id
+                ),
+                format!(
+                    r#"{{"total_count": {}, "jobs": [{}]}}"#,
+                    jobs.len(),
+                    jobs.join(", ")
+                ),
+            )
+        })
+        .collect()
+}
+
 fn serve_commit(runs: &[Run]) -> GitHub {
     let listed: Vec<String> = runs.iter().map(Run::json).collect();
     let mut routes = vec![(
@@ -540,20 +548,7 @@ fn serve_commit(runs: &[Run]) -> GitHub {
             listed.join(", ")
         ),
     )];
-    for run in runs {
-        let jobs: Vec<String> = run.jobs.iter().map(Job::json).collect();
-        routes.push((
-            format!(
-                "{REPOSITORY}/actions/runs/{}/jobs?filter=all&per_page=100&page=1",
-                run.id
-            ),
-            format!(
-                r#"{{"total_count": {}, "jobs": [{}]}}"#,
-                jobs.len(),
-                jobs.join(", ")
-            ),
-        ));
-    }
+    routes.extend(jobs_routes(runs));
     let borrowed: Vec<(&str, &str)> = routes
         .iter()
         .map(|(path, body)| (path.as_str(), body.as_str()))

@@ -30,6 +30,7 @@ Evidence from the competitor survey made for that ticket:
 
 **Where runs live.**
 - **Default folder.** Run files and directories go by default to a per-user, per-major data folder, such as `~/.local/share/goodfetch/1/runs/<run-id>/` and its macOS and Windows equivalents. The location is a setting (ADR 0028). Each engine records its runs in the index wherever they are, so a run outside the default folder is still listed.
+  > Note (agent decision, pending owner review; [#215](https://github.com/goodfetch/goodfetch/issues/215)): the per-major folder is `<home>/<major>/`, where `<home>` is `GOODFETCH_HOME` or else the `goodfetch` folder of the OS's data folder, and `<major>` is the Product major, `0.y` during `0.y` previews (ADR 0030). A Run's folder `runs/<run-id>/` holds its state, `run.sqlite`, and the writer's lock file, `run.lock`; the Run index is `<home>/<major>/run-index.sqlite`, whose rows record a folder inside the per-major folder relative to it and any other absolutely.
 - **Changes ADR 0002:** the per-run layout gains this default location and the Run index.
 
 **Events and reconnects.**

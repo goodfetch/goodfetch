@@ -378,11 +378,12 @@ fn task_host(ordinal: u32) -> String {
 /// and `port`. Ordinals are append-only (ADR 0063).
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
     let start_url = |ordinal| format!("http://{}:{port}/login", task_host(ordinal));
-    let orders = |number| Expected {
-        records: (1..=ORDERS)
-            .map(|order| record(seed, number, order))
-            .collect(),
-        effects: Vec::new(),
+    let orders = |number| {
+        Expected::records(
+            (1..=ORDERS)
+                .map(|order| record(seed, number, order))
+                .collect(),
+        )
     };
     vec![
         Task {

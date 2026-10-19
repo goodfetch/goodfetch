@@ -6,7 +6,9 @@
 //! Effect carried out twice is an extra one. The tool's status is recorded, never what
 //! makes a result verified: a correct `needs-review` result is verified
 //! (ADR 0013), and only a result the tool calls a success can be a false
-//! success.
+//! success. A downloaded file is judged by its name and exact bytes. Where the
+//! only right result is a refusal, the tool's report of a failure is part of
+//! it: nothing carried out and a success reported is a false success.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::clock::Stopwatch;
+use crate::digest;
 use crate::task::{Effect, Expected, Record};
 
 /// A tool's result for one task, as submitted to `POST /oracle`.
@@ -26,6 +29,18 @@ pub(crate) struct Submission {
     /// The Records the tool returned, each with its fields by name.
     #[serde(default)]
     records: Vec<Value>,
+    /// The files the tool downloaded.
+    #[serde(default)]
+    files: Vec<SubmittedFile>,
+}
+
+/// A file a tool returns: its name and its bytes in lowercase or uppercase
+/// hex.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubmittedFile {
+    name: String,
+    hex: String,
 }
 
 /// What the tool said of its own result.
@@ -69,6 +84,16 @@ pub(crate) struct Answer {
     /// Effects it carried out beyond the expected ones: another, or one
     /// again.
     extra_effects: Vec<Effect>,
+    /// The names of expected files the result lacks.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    missing_files: Vec<String>,
+    /// Submitted files whose bytes are not the expected ones.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    wrong_files: Vec<WrongFile>,
+    /// The names of submitted files with no expected file, or one already
+    /// submitted.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    extra_files: Vec<String>,
     oracle_time_microseconds: u64,
 }
 
@@ -82,19 +107,109 @@ struct Wrong {
     submitted: Value,
 }
 
+/// A submitted file whose bytes are not the expected ones.
+#[derive(Serialize)]
+struct WrongFile {
+    name: String,
+    expected_sha256: String,
+    /// `null` when its `hex` is not hex.
+    submitted_sha256: Option<String>,
+}
+
+/// What the submitted Records hold against the expected ones.
+struct Records {
+    missing: Vec<String>,
+    extra: Vec<Value>,
+    wrong: Vec<Wrong>,
+    /// Whether any submitted Record is an expected one.
+    any_correct: bool,
+}
+
+/// What the Effects carried out hold against the expected ones.
+struct Effects {
+    missing: Vec<Effect>,
+    extra: Vec<Effect>,
+    /// Whether any Effect carried out is an expected one.
+    any_expected: bool,
+}
+
+/// What the submitted files hold against the expected ones.
+struct Files {
+    missing: Vec<String>,
+    wrong: Vec<WrongFile>,
+    extra: Vec<String>,
+    /// Whether any submitted file is an expected one with its bytes.
+    any_correct: bool,
+}
+
 /// Judges `submission` against `expected`, and the Effects carried out for
-/// its task, `effects`, against the expected ones.
+/// its task, `effects`, against the expected ones. A task whose expected
+/// result is a refusal is verified only when nothing was carried out and the
+/// tool reported a failure.
 pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effect]) -> Answer {
     let stopwatch = Stopwatch::start();
+    let records = judge_records(expected, submission.records);
+    let effects = judge_effects(expected, effects);
+    let files = judge_files(expected, &submission.files);
+    let correct = records.missing.is_empty()
+        && effects.missing.is_empty()
+        && files.missing.is_empty()
+        && nothing_wrong(&records, &effects, &files);
+    let outcome = if expected.refusal {
+        match submission.status {
+            ToolStatus::Failure if correct => Outcome::Verified,
+            ToolStatus::Success => Outcome::FalseSuccess,
+            ToolStatus::Failure | ToolStatus::NeedsReview => Outcome::Failed,
+        }
+    } else if correct {
+        Outcome::Verified
+    } else if submission.status == ToolStatus::Success {
+        Outcome::FalseSuccess
+    } else if nothing_wrong(&records, &effects, &files)
+        && (records.any_correct || effects.any_expected || files.any_correct)
+    {
+        Outcome::Incomplete
+    } else {
+        Outcome::Failed
+    };
+    Answer {
+        task: submission.task,
+        outcome,
+        tool_status: submission.status,
+        missing: records.missing,
+        extra: records.extra,
+        wrong: records.wrong,
+        missing_effects: effects.missing,
+        extra_effects: effects.extra,
+        missing_files: files.missing,
+        wrong_files: files.wrong,
+        extra_files: files.extra,
+        oracle_time_microseconds: stopwatch.microseconds(),
+    }
+}
+
+/// Whether nothing submitted or carried out is extra or wrong.
+fn nothing_wrong(records: &Records, effects: &Effects, files: &Files) -> bool {
+    records.extra.is_empty()
+        && records.wrong.is_empty()
+        && effects.extra.is_empty()
+        && files.wrong.is_empty()
+        && files.extra.is_empty()
+}
+
+/// Judges the submitted Records: each expected one once, a tolerated one at
+/// most once, each with its expected fields.
+fn judge_records(expected: &Expected, submitted: Vec<Value>) -> Records {
     let by_id: BTreeMap<&str, &Record> = expected
         .records
         .iter()
+        .chain(&expected.tolerated)
         .map(|record| (record["id"].as_str(), record))
         .collect();
     let mut seen = BTreeSet::new();
     let mut extra = Vec::new();
     let mut wrong = Vec::new();
-    for record in submission.records {
+    for record in submitted {
         let matched = record
             .get("id")
             .and_then(Value::as_str)
@@ -116,54 +231,93 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
             }
         }
     }
-    let missing: Vec<String> = by_id
-        .keys()
-        .filter(|id| !seen.contains(*id))
-        .map(|id| (*id).to_owned())
+    let missing = expected
+        .records
+        .iter()
+        .map(|record| record["id"].as_str())
+        .filter(|id| !seen.contains(id))
+        .map(str::to_owned)
         .collect();
-    let mut missing_effects = expected.effects.clone();
-    let mut extra_effects = Vec::new();
-    for effect in effects {
-        match missing_effects
-            .iter()
-            .position(|expected| expected == effect)
-        {
-            Some(at) => {
-                missing_effects.remove(at);
-            }
-            None => extra_effects.push(effect.clone()),
-        }
-    }
-    let carried_out = effects.len() > extra_effects.len();
-    let outcome = if missing.is_empty()
-        && extra.is_empty()
-        && wrong.is_empty()
-        && missing_effects.is_empty()
-        && extra_effects.is_empty()
-    {
-        Outcome::Verified
-    } else if submission.status == ToolStatus::Success {
-        Outcome::FalseSuccess
-    } else if extra.is_empty()
-        && wrong.is_empty()
-        && extra_effects.is_empty()
-        && (!seen.is_empty() || carried_out)
-    {
-        Outcome::Incomplete
-    } else {
-        Outcome::Failed
-    };
-    Answer {
-        task: submission.task,
-        outcome,
-        tool_status: submission.status,
+    Records {
         missing,
         extra,
         wrong,
-        missing_effects,
-        extra_effects,
-        oracle_time_microseconds: stopwatch.microseconds(),
+        any_correct: !seen.is_empty(),
     }
+}
+
+/// Judges the Effects carried out: each expected one once, nothing else.
+fn judge_effects(expected: &Expected, effects: &[Effect]) -> Effects {
+    let mut missing = expected.effects.clone();
+    let mut extra = Vec::new();
+    for effect in effects {
+        match missing.iter().position(|expected| expected == effect) {
+            Some(at) => {
+                missing.remove(at);
+            }
+            None => extra.push(effect.clone()),
+        }
+    }
+    Effects {
+        any_expected: effects.len() > extra.len(),
+        missing,
+        extra,
+    }
+}
+
+/// Judges the submitted files: each expected one once, by name, with its
+/// exact bytes.
+fn judge_files(expected: &Expected, submitted: &[SubmittedFile]) -> Files {
+    let mut seen = BTreeSet::new();
+    let mut wrong = Vec::new();
+    let mut extra = Vec::new();
+    let mut any_correct = false;
+    for file in submitted {
+        let Some(expected) = expected
+            .files
+            .iter()
+            .find(|expected| expected.name == file.name)
+            .filter(|expected| seen.insert(expected.name.as_str()))
+        else {
+            extra.push(file.name.clone());
+            continue;
+        };
+        let submitted_sha256 = from_hex(&file.hex).map(|bytes| digest::sha256(&bytes));
+        if submitted_sha256.as_deref() == Some(expected.sha256.as_str()) {
+            any_correct = true;
+        } else {
+            wrong.push(WrongFile {
+                name: file.name.clone(),
+                expected_sha256: expected.sha256.clone(),
+                submitted_sha256,
+            });
+        }
+    }
+    let missing = expected
+        .files
+        .iter()
+        .filter(|file| !seen.contains(file.name.as_str()))
+        .map(|file| file.name.clone())
+        .collect();
+    Files {
+        missing,
+        wrong,
+        extra,
+        any_correct,
+    }
+}
+
+/// The bytes a text of hex digit pairs names; `None` for anything else.
+fn from_hex(text: &str) -> Option<Vec<u8>> {
+    text.len()
+        .is_multiple_of(2)
+        .then(|| {
+            (0..text.len())
+                .step_by(2)
+                .map(|at| u8::from_str_radix(text.get(at..at + 2)?, 16).ok())
+                .collect()
+        })
+        .flatten()
 }
 
 /// Whether a submitted value is the expected one: the same text, or a number

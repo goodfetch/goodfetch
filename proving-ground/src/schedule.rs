@@ -125,12 +125,11 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
             account: None,
             time_steps: Some(WATCHED_STEPS),
         },
-        expected: Expected {
-            records: (0..=revision_at(WATCHED_STEPS - 1))
+        expected: Expected::records(
+            (0..=revision_at(WATCHED_STEPS - 1))
                 .map(|revision| record(seed, revision))
                 .collect(),
-            effects: Vec::new(),
-        },
+        ),
     }]
 }
 

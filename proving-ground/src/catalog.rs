@@ -200,10 +200,9 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 account: None,
                 time_steps: None,
             },
-            expected: Expected {
-                records: (1..=PRODUCTS).map(|number| record(seed, number)).collect(),
-                effects: Vec::new(),
-            },
+            expected: Expected::records(
+                (1..=PRODUCTS).map(|number| record(seed, number)).collect(),
+            ),
         },
         Task {
             host: task_host(2),
@@ -217,10 +216,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 account: None,
                 time_steps: None,
             },
-            expected: Expected {
-                records: vec![record(seed, extracted)],
-                effects: Vec::new(),
-            },
+            expected: Expected::records(vec![record(seed, extracted)]),
         },
         Task {
             host: task_host(3),
@@ -233,12 +229,9 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 account: None,
                 time_steps: None,
             },
-            expected: Expected {
-                records: Vec::new(),
-                effects: vec![Effect::Order {
-                    product: product_id(ordered),
-                }],
-            },
+            expected: Expected::effects(vec![Effect::Order {
+                product: product_id(ordered),
+            }]),
         },
     ]
 }

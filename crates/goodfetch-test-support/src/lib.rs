@@ -17,6 +17,7 @@ mod observation;
 mod process;
 mod resolver;
 mod runtime;
+mod ssrf;
 mod tools;
 mod trace;
 mod variables;
@@ -34,6 +35,10 @@ pub use process::{
 };
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use ssrf::{
+    Answer, CaseLookup, EgressRule, Family, Redirect, Refusal, Route, SsrfCase, SsrfTable,
+    SsrfTableError,
+};
 pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use variables::{

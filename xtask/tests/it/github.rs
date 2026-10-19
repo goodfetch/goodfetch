@@ -56,6 +56,11 @@ impl GitHub {
         &self.address
     }
 
+    /// Every request answered so far.
+    pub(crate) fn requests(&self) -> Vec<Request> {
+        self.requests.lock().unwrap().clone()
+    }
+
     /// The requests answered so far whose method is not GET.
     pub(crate) fn writes(&self) -> Vec<Request> {
         self.requests

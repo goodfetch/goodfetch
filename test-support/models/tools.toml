@@ -1,0 +1,27 @@
+# The pinned pair of TLA+ tools (ADR 0060): TLC's `tla2tools.jar` and the
+# CommunityModules release whose `CommunityModules-deps.jar` holds `IOUtils`
+# (`IOEnv`), read by M4's trace validation of the Simulation's NDJSON
+# traces. `xtask tlc fetch` (`just tlc-fetch`) downloads each before the
+# outbound-traffic deny into `target/tla-tools/`, and fails on a download
+# whose SHA-256 differs from its pin; `xtask tlc run` refuses a kept file
+# that differs.
+#
+# The pair is TLA+ 1.8.0 (TLC2 Version 2026.10.15.145915, rev 932d35e) with
+# CommunityModules 202610131629, checked on 2026-10-19 to run etcd's style of
+# NDJSON trace validation (`ndJsonDeserialize`, `IOEnv`, `TLCGet("queue")`,
+# `-lncheck final`): a matching trace passes and a diverging one fails.
+# Stable 1.7.4 cannot pair with any CommunityModules release since 2024-09:
+# its overrides fail to load (NoClassDefFoundError for KSubsetValue).
+# 1.8.0 is a prerelease whose `tla2tools.jar` asset GitHub replaces at each
+# new build, so a fresh download fails its pin once upstream rebuilds: move
+# both pins together, after checking the new pair, in one pull request.
+
+[[tool]]
+name = "tla2tools.jar"
+url = "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar"
+sha256 = "15d103b7e5617780bcc904c0af12f1ad242e2b345c0301136c5be4588f17edac"
+
+[[tool]]
+name = "CommunityModules-deps.jar"
+url = "https://github.com/tlaplus/CommunityModules/releases/download/202610131629/CommunityModules-deps-202610131629.jar"
+sha256 = "36f1431d58b24a9e98614d2e56eed9b4cfd3a089c3f2b986f78572632ed2831d"

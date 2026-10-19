@@ -287,6 +287,42 @@ fn release_commit_is_the_one_a_run_tested_not_its_head() {
     assert_eq!(opened(&github.writes()).len(), 1);
 }
 
+/// The issue's change rounds away from zero, as the comparison table's does,
+/// so it is never under the measured one.
+#[test]
+fn drift_issue_states_its_change_rounded_away_from_zero() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[
+            release_suite_run(
+                1,
+                "2026-10-01T08:00:00Z",
+                RELEASE_COMMIT,
+                instructions(FRONTIER, 1_000_000),
+            ),
+            release_suite_run(
+                2,
+                "2026-10-18T08:00:00Z",
+                MAIN_COMMIT,
+                instructions(FRONTIER, 1_100_050),
+            ),
+        ],
+    );
+    let github = github(Some("v0.1.0"));
+
+    let outcome = drift(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let writes = github.writes();
+    let body: Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert!(
+        body["body"].as_str().unwrap().contains("| +10.01% |"),
+        "{}",
+        body["body"]
+    );
+}
+
 #[test]
 fn before_the_first_release_nothing_is_compared() {
     let workspace = Workspace::from_fixture("empty");

@@ -25,7 +25,7 @@ use crate::output;
 use crate::results::{self, Kept};
 
 use super::budget;
-use super::figure::Figure;
+use super::figure::{Figure, Sign, away_from_zero, hundredths};
 use super::figures::{self, Recorded};
 
 /// The branch whose figures are `main`'s, and the event of the merge
@@ -188,8 +188,9 @@ fn change(released: u64, value: u64) -> String {
     if released == 0 {
         return "—".to_owned();
     }
-    let hundredths = (i128::from(value) - i128::from(released)) * 10_000 / i128::from(released);
-    let sign = if hundredths < 0 { '-' } else { '+' };
-    let hundredths = hundredths.unsigned_abs();
-    format!("{sign}{}.{:02}%", hundredths / 100, hundredths % 100)
+    let change = away_from_zero(
+        (i128::from(value) - i128::from(released)) * 10_000,
+        i128::from(released),
+    );
+    format!("{}%", hundredths(change, Sign::Always))
 }

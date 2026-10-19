@@ -22,7 +22,7 @@ use crate::check::Finding;
 
 use super::budget::{self, Ceiling};
 use super::compare::Row;
-use super::figure::Figure;
+use super::figure::{self, Figure, Sign};
 use super::table;
 
 /// One ceiling's verdict on the head.
@@ -53,7 +53,7 @@ pub(crate) struct Check {
 
 impl Check {
     fn id(&self) -> String {
-        format!("{} {}", self.subject, self.figure)
+        figure::id(self.subject, self.figure)
     }
 }
 
@@ -216,9 +216,7 @@ fn body_bytes(path: &Path) -> Result<u64> {
 fn hundredths(numerator: i128, denominator: i128) -> String {
     let scaled = numerator * 100;
     let quotient = scaled.div_euclid(denominator) + i128::from(scaled.rem_euclid(denominator) != 0);
-    let sign = if quotient < 0 { "-" } else { "" };
-    let quotient = quotient.unsigned_abs();
-    format!("{sign}{}.{:02}", quotient / 100, quotient % 100)
+    figure::hundredths(quotient, Sign::WhenNegative)
 }
 
 pub(crate) fn render(checks: &[Check]) -> String {

@@ -76,7 +76,7 @@ writer = ["registry", "tree"]
 
 # Which of `perf`'s own modules may import which.
 [submodules.perf]
-admission = ["budget", "compare", "gungraun"]
+admission = ["budget", "compare", "figure", "gungraun"]
 budget = ["figure"]
 bundle = ["figure"]
 ceilings = ["budget", "compare", "figure", "table"]

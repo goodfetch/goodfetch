@@ -4,7 +4,7 @@
 use std::fmt::Write as _;
 
 use super::compare::{Increase, Row, Verdict};
-use super::figure::Figure;
+use super::figure::{Figure, Sign, hundredths};
 
 pub(crate) fn render(rows: &[Row]) -> String {
     let mut table = String::from(
@@ -47,24 +47,19 @@ pub(crate) fn value(figure: Figure, value: u64) -> String {
 pub(crate) fn change(row: &Row) -> Option<String> {
     let listed = row.listed_change()?;
     Some(match row.limit.increase {
-        Increase::Percent(_) => {
-            let sign = if listed < 0 { '-' } else { '+' };
-            let hundredths = listed.unsigned_abs();
-            format!("{sign}{}.{:02}%", hundredths / 100, hundredths % 100)
-        }
+        Increase::Percent(_) => format!("{}%", hundredths(listed, Sign::Always)),
         Increase::Bytes(_) => kilobytes(listed, true),
     })
 }
 
 /// Tens of bytes as kB with two decimals, signed when asked.
 fn kilobytes(tens: i128, signed: bool) -> String {
-    let sign = match (signed, tens < 0) {
-        (_, true) => "-",
-        (true, false) => "+",
-        (false, false) => "",
+    let sign = if signed {
+        Sign::Always
+    } else {
+        Sign::WhenNegative
     };
-    let tens = tens.unsigned_abs();
-    format!("{sign}{}.{:02} kB", tens / 100, tens % 100)
+    format!("{} kB", hundredths(tens, sign))
 }
 
 fn limit(row: &Row) -> String {

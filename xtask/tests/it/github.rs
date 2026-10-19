@@ -4,7 +4,7 @@
 //! true externals).
 #![expect(
     clippy::disallowed_types,
-    reason = "a test's stand-in server for a true external binds its own loopback socket (ADR 0060 governs product code)"
+    reason = "a test's stand-in for a true external binds its own loopback socket and shares its request log through a std Mutex; ADR 0060's sockets and its loom-replaced sync module govern product code"
 )]
 
 use std::collections::BTreeMap;
@@ -38,6 +38,12 @@ impl GitHub {
             .collect();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&requests);
+        // The stand-in answers on its own thread for the test's life, and
+        // nextest ends the test's process with it, so nothing joins it.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a test's stand-in serves on a plain thread; the TaskTracker rule governs product code (STYLE.md)"
+        )]
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 answer(stream.unwrap(), &routes, &recorded);

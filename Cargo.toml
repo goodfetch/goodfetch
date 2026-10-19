@@ -31,6 +31,8 @@ publish = false
 # crate turns on what it uses (STYLE.md, Dependencies).
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+# Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
+assert_cmd = { version = "2.2.2", default-features = false }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
@@ -39,6 +41,9 @@ clap = { version = "4.6.7", default-features = false, features = ["std", "derive
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 insta = { version = "1.49.0", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
+# goodfetch-test-support's own tests validate the test-env description
+# against its committed schema.
+jsonschema = { version = "0.59.0", default-features = false }
 # Property tests of parsers and stateful rules (TESTING.md); `std` reads
 # regex strategies.
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
@@ -56,6 +61,9 @@ syn = { version = "3.0.9", default-features = false, features = ["full", "parsin
 tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
+tokio = { version = "1.53.3", default-features = false }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 

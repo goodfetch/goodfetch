@@ -1,0 +1,200 @@
+//! The processes a test starts (ADR 0069): the record every started process
+//! joins, which stops each one still alive at teardown and fails the test,
+//! and the address a child reports on its first line of output.
+
+use std::cell::{RefCell, RefMut};
+use std::fmt;
+use std::io::{self, Read as _};
+use std::process::{Child, ChildStdout, ExitStatus};
+use std::rc::Rc;
+use std::sync::mpsc;
+use std::time::Duration;
+
+/// Every process a test started through test support, so none outlives its
+/// test unnoticed.
+#[derive(Default)]
+pub struct ProcessTracker {
+    processes: RefCell<Vec<Process>>,
+}
+
+impl ProcessTracker {
+    /// Records a started child, and returns the handle the test keeps.
+    pub fn record(&self, program: String, child: Child) -> Process {
+        let process = Process {
+            program,
+            child: Rc::new(RefCell::new(child)),
+        };
+        self.processes.borrow_mut().push(process.clone());
+        process
+    }
+
+    /// Stops every recorded process that is still alive, and returns their
+    /// programs, in the order they started.
+    pub fn stop_alive(&self) -> Vec<String> {
+        let mut alive = Vec::new();
+        for process in self.processes.borrow().iter() {
+            let mut child = process.child();
+            if matches!(child.try_wait(), Ok(None)) {
+                // Best effort: a kill or wait that fails leaves nothing more
+                // to do, and the test fails either way.
+                let _ = child.kill();
+                let _ = child.wait();
+                alive.push(process.program.clone());
+            }
+        }
+        alive
+    }
+}
+
+/// A process a test started, which its `TestEnv` checks at teardown.
+#[derive(Clone)]
+pub struct Process {
+    program: String,
+    child: Rc<RefCell<Child>>,
+}
+
+impl Process {
+    /// The program it runs, as the command named it.
+    pub fn program(&self) -> &str {
+        &self.program
+    }
+
+    /// The child, for its pipes and its identifier.
+    ///
+    /// # Panics
+    ///
+    /// If the child is already borrowed.
+    pub fn child(&self) -> RefMut<'_, Child> {
+        self.child.borrow_mut()
+    }
+
+    /// Closes its standard input and waits for it to exit.
+    pub fn close_stdin_and_wait(&self) -> io::Result<ExitStatus> {
+        let mut child = self.child();
+        drop(child.stdin.take());
+        child.wait()
+    }
+
+    /// Kills it and waits for it to exit.
+    pub fn stop(&self) -> io::Result<ExitStatus> {
+        let mut child = self.child();
+        child.kill()?;
+        child.wait()
+    }
+}
+
+/// The processes a test left alive after its teardown, which fail it: the
+/// payload of the teardown's panic.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProcessesAlive {
+    /// Each such process's program, in the order they started.
+    pub programs: Vec<String>,
+}
+
+impl fmt::Display for ProcessesAlive {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "processes alive after the test's teardown, now stopped (ADR 0069): {}",
+            self.programs.join(", ")
+        )
+    }
+}
+
+/// How long `reported_address` waits for the first line.
+pub const REPORT_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The first line a child wrote: a JSON object with an `address` field.
+#[derive(Debug, PartialEq)]
+pub struct Reported {
+    /// The `address` field: a bound address or a socket path.
+    pub address: String,
+    /// The whole line.
+    pub line: serde_json::Value,
+}
+
+/// Reads the address a child reports on its first line of standard output,
+/// waiting at most [`REPORT_DEADLINE`].
+pub fn reported_address(child: &mut Child) -> Result<Reported, ReportedAddressError> {
+    reported_address_within(child, REPORT_DEADLINE)
+}
+
+/// Reads the address a child reports on its first line of standard output,
+/// waiting at most `deadline`. Its standard output must be piped; the bytes
+/// after that line stay unread for the test.
+pub fn reported_address_within(
+    child: &mut Child,
+    deadline: Duration,
+) -> Result<Reported, ReportedAddressError> {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or(ReportedAddressError::NoStdout)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test helper's reader thread, which ends when the child's output does (ADR 0062)"
+    )]
+    std::thread::spawn(move || {
+        let mut stdout = stdout;
+        let line = first_line(&mut stdout);
+        let _ = sender.send((line, stdout));
+    });
+    let (line, stdout) = receiver
+        .recv_timeout(deadline)
+        .map_err(|_| ReportedAddressError::Deadline(deadline))?;
+    child.stdout = Some(stdout);
+    let line = line.map_err(ReportedAddressError::Read)?;
+    let text = line.ok_or(ReportedAddressError::Closed)?;
+    let line: serde_json::Value =
+        serde_json::from_str(&text).map_err(|_| ReportedAddressError::NotJson(text.clone()))?;
+    let address = line["address"]
+        .as_str()
+        .ok_or(ReportedAddressError::NoAddress(text))?
+        .to_owned();
+    Ok(Reported { address, line })
+}
+
+/// One line, read a byte at a time so nothing after it is taken; `None` if
+/// the output closed first.
+fn first_line(stdout: &mut ChildStdout) -> io::Result<Option<String>> {
+    let mut line = Vec::new();
+    let mut byte = [0_u8];
+    loop {
+        if stdout.read(&mut byte)? == 0 {
+            return Ok(None);
+        }
+        if byte[0] == b'\n' {
+            break;
+        }
+        line.push(byte[0]);
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    Ok(Some(String::from_utf8_lossy(&line).into_owned()))
+}
+
+/// Why a child reported no address.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ReportedAddressError {
+    /// Its standard output is not piped.
+    #[error("the child's standard output is not piped")]
+    NoStdout,
+    /// No line came within the deadline.
+    #[error("the child wrote no line within {0:?}")]
+    Deadline(Duration),
+    /// Its output closed before a line.
+    #[error("the child's output closed before its first line")]
+    Closed,
+    /// Reading its output failed.
+    #[error("reading the child's output failed: {0}")]
+    Read(io::Error),
+    /// The line is not JSON.
+    #[error("the child's first line is not JSON: {0}")]
+    NotJson(String),
+    /// The line has no `address` string.
+    #[error("the child's first line has no `address` field: {0}")]
+    NoAddress(String),
+}

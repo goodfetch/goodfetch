@@ -208,3 +208,15 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
   - the `console`, SDK, CLI, MCP, adapter and Integration runners: [Console and docs test stack](https://github.com/goodfetch/goodfetch/issues/282), [SDK and CLI test stack](https://github.com/goodfetch/goodfetch/issues/285), [MCP, framework adapter and Integration test stack](https://github.com/goodfetch/goodfetch/issues/286).
 - **[`goodfetch-conformance` tracer: the harness, the result document and a self-test suite](https://github.com/goodfetch/goodfetch/issues/169)** builds the Rust constructor, the reader and the outcome vectors; [Conformance result documents from the TypeScript and Python test runners](https://github.com/goodfetch/goodfetch/issues/170) builds the helpers' derivation against them.
 - **The "Test infrastructure" spec** builds the Journey type and its schema, the catalog check and report, the readers' comparison of a document with its Journey, the command that selects variants, the twelve files of the first catalog, and each language's helper that reads a Journey, starts its Proving ground through ADR 0062's test support and writes its result document.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): *Journey* is the glossary's term and is capitalised wherever it names one, here and in `TESTING.md`; the lowercase "journeys" above are quotes (the owner's request, Chromium's critical user journeys).
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): `sdk-rust` variants drive their Product's shipped executable through the crate's client, as a Daemon, never the engine the crate can link (ADR 0069).
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): "every URL's port removed" includes URLs inside string values, such as an absolute link in an expected Markdown body: the digest removes the port of every `http` or `https` URL wherever it appears in a string, which the Proving ground's digest tests prove.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): **Adds to ADR 0061:** Journey tests run with their package's integration tests, in the Pre-merge suite when the package is touched and in the Release suite.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): **Adds to ADR 0062:** each surface keeps its Journey tests in a `journeys` folder of the package that ships it, beside its integration tests.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the MCP, adapter and Integration runners left to [#286](https://github.com/goodfetch/goodfetch/issues/286) are decided since in [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md), whose "Adds to ADR 0063" names them, as the Console's and the SDK and CLI runners are in ADRs 0068 and 0069.

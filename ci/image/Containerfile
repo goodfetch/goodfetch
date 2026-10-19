@@ -3,35 +3,65 @@
 # runs inside each job's Lima VM under Rosetta for Linux. The cache-warming
 # job builds it on `main` and saves it to the cache folder; a pull-request VM
 # loads it from there, and builds it only when the folder lacks this version.
+#
+# The layers run from the slowest to build and least often changed to the
+# quickest: the Cargo tools compile from source (over an hour under
+# emulation), so an edit lower down rebuilds from that edit on and reuses
+# them. Each ARG sits right above the layer that reads it, since a changed
+# ARG misses the cache of every RUN after its declaration.
 FROM docker.io/library/rust:1.99.0-slim-trixie@sha256:458b145eb2406e832adc9c9536d487c5d264401a4ce63adbeced3fe91292616c
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+# What the later layers fetch and unpack with, and the make some Cargo
+# tools' build scripts call.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git make xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+# The Cargo tools at pinned versions.
+RUN cargo install --locked --root /usr/local \
+      just@1.46.0 cargo-nextest@0.9.146 cargo-deny@0.20.2 cargo-insta@1.49.0 \
+      cargo-shear@1.14.0 typos-cli@1.50.3 zizmor@1.30.1 \
+      cargo-audit@0.22.0 cargo-hack@0.6.45 \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
+# `xtask perf`'s tools (ADR 0071): Valgrind, and gungraun's runner at the
+# version of the workspace's `gungraun` dependency, which it must match.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends valgrind \
+ && rm -rf /var/lib/apt/lists/* \
+ && cargo install --locked --root /usr/local gungraun-runner@0.20.0 \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
+# rust-toolchain.toml's components, and the MSRV's toolchain (the
+# workspace's `rust-version`, ADR 0030; raise both together).
+RUN rustup component add rustfmt clippy \
+ && rustup toolchain install 1.97 --profile minimal
+
+# The linters' and scripts' system tools.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends jq shellcheck libxml2-utils \
+ && rm -rf /var/lib/apt/lists/*
 
 ARG NODE_VERSION=24.19.0
 ARG NODE_SHA256=14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647
 ARG PNPM_VERSION=12.9.1
-ARG UV_VERSION=0.9.28
-ARG UV_SHA256=66ad1822dd9cf96694b95c24f25bc05cff417a65351464da01682a91796d1f2b
-ARG ACTIONLINT_VERSION=1.7.12
-ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-ARG MOLD_VERSION=2.42.1
-ARG MOLD_SHA256=6ff270c9bf07d2bec5c98aa324eb7c4daf6a1a4d815c05ff1708049616047855
-
-SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git jq make xz-utils shellcheck libxml2-utils \
- && rm -rf /var/lib/apt/lists/*
-
 RUN curl -fsSLo /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
  && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
  && rm /tmp/node.tar.xz \
  && npm install --global "pnpm@${PNPM_VERSION}"
 
+ARG UV_VERSION=0.9.28
+ARG UV_SHA256=66ad1822dd9cf96694b95c24f25bc05cff417a65351464da01682a91796d1f2b
 RUN curl -fsSLo /tmp/uv.tar.gz "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
  && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
  && tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 \
  && rm /tmp/uv.tar.gz
 
+ARG ACTIONLINT_VERSION=1.7.12
+ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 RUN curl -fsSLo /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
  && echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c - \
  && tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint \
@@ -40,6 +70,8 @@ RUN curl -fsSLo /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/rele
 # Test builds link with mold, as the hosted Linux jobs do through the
 # host-tools action; local builds keep the default linker. Rust's own
 # default on this target is rust-lld, which `-fuse-ld=mold` replaces.
+ARG MOLD_VERSION=2.42.1
+ARG MOLD_SHA256=6ff270c9bf07d2bec5c98aa324eb7c4daf6a1a4d815c05ff1708049616047855
 RUN curl -fsSLo /tmp/mold.tar.gz "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
  && echo "${MOLD_SHA256}  /tmp/mold.tar.gz" | sha256sum -c - \
  && tar -xzf /tmp/mold.tar.gz -C /usr/local --strip-components=1 \
@@ -53,25 +85,6 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-Clink-arg=-fuse-ld=mold
 RUN apt-get update \
  && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools iproute2 \
  && rm -rf /var/lib/apt/lists/*
-
-# rust-toolchain.toml's components, the MSRV's toolchain (the workspace's
-# `rust-version`, ADR 0030; raise both together), and the Cargo tools at
-# pinned versions.
-RUN rustup component add rustfmt clippy \
- && rustup toolchain install 1.97 --profile minimal \
- && cargo install --locked --root /usr/local \
-      just@1.46.0 cargo-nextest@0.9.146 cargo-deny@0.20.2 cargo-insta@1.49.0 \
-      cargo-shear@1.14.0 typos-cli@1.50.3 zizmor@1.30.1 \
-      cargo-audit@0.22.0 cargo-hack@0.6.45 \
- && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
-
-# `xtask perf`'s tools (ADR 0071): Valgrind, and gungraun's runner at the
-# version of the workspace's `gungraun` dependency, which it must match.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends valgrind \
- && rm -rf /var/lib/apt/lists/* \
- && cargo install --locked --root /usr/local gungraun-runner@0.20.0 \
- && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
 # libclang and Clang's own headers, which sqlite-plugin's build script loads
 # through bindgen to build goodfetch-test-support's crash VFS (ADR 0060), so

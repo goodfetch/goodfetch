@@ -72,6 +72,7 @@ impl Plan {
 
 /// The reports `run` wrote, relative to the workspace.
 pub(crate) struct Reports {
+    pub(crate) base: PathBuf,
     pub(crate) head: PathBuf,
     pub(crate) admission: Option<PathBuf>,
     pub(crate) size_base: Option<PathBuf>,
@@ -194,6 +195,7 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
     remove_base_tree(root)?;
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
     Ok(Reports {
+        base: relative(&base_report),
         head: relative(&head_report),
         admission: admission.as_deref().map(relative),
         size_base: size_base.as_deref().map(relative),

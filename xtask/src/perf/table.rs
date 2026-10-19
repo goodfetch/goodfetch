@@ -31,7 +31,7 @@ pub(crate) fn render(rows: &[Row]) -> String {
 }
 
 /// A figure's value: a count, or kB for brotli bytes.
-fn value(figure: Figure, value: u64) -> String {
+pub(crate) fn value(figure: Figure, value: u64) -> String {
     match figure {
         Figure::Brotli => kilobytes(i128::from(value).div_euclid(10), false),
         _ => value.to_string(),
@@ -68,7 +68,7 @@ fn limit(row: &Row) -> String {
         Increase::Bytes(bytes) => format!("+{} kB", bytes / 1_000),
     };
     match row.limit.ceiling {
-        Some(ceiling) => format!("{increase}, ≤ {} MB", ceiling / 1_000_000),
+        Some(ceiling) => format!("{increase}, ≤ {}", value(row.measured.figure, ceiling)),
         None => increase,
     }
 }

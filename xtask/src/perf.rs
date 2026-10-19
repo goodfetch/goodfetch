@@ -9,6 +9,7 @@
 mod admission;
 mod budget;
 mod bundle;
+mod ceilings;
 mod compare;
 mod drift;
 mod figure;
@@ -100,6 +101,11 @@ pub(crate) struct Reports {
     /// (repeatable).
     #[arg(long)]
     gungraun: Vec<PathBuf>,
+    /// gungraun's JSON summaries of the base, run with
+    /// `--save-baseline=base` (repeatable): a ceiling whose benchmark the
+    /// base measured fails when the head has no figure for it.
+    #[arg(long)]
+    gungraun_base: Vec<PathBuf>,
     /// size-limit's `--json` report of the base.
     #[arg(long, requires = "size_head")]
     size_base: Option<PathBuf>,
@@ -149,6 +155,7 @@ pub(crate) fn run(
             let measured = measure::run(cargo, root)?;
             let reports = Reports {
                 gungraun: vec![measured.head],
+                gungraun_base: vec![measured.base],
                 size_base: measured.size_base,
                 size_head: measured.size_head,
                 admission: measured.admission,
@@ -195,15 +202,17 @@ pub(crate) fn run(
 }
 
 fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
-    let paths: Vec<PathBuf> = reports
-        .gungraun
-        .iter()
-        .map(|path| root.join(path))
-        .collect();
-    let paths: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
-    let mut measured = gungraun::read(&paths)?;
+    let joined =
+        |paths: &[PathBuf]| -> Vec<PathBuf> { paths.iter().map(|path| root.join(path)).collect() };
+    let mut measured = gungraun::read(&joined(&reports.gungraun))?;
+    // What the base measured, so a ceiling whose benchmark or entry the head
+    // lost still fails.
+    let mut base_measured = gungraun::benchmarks(&joined(&reports.gungraun_base))?;
     if let Some(head) = &reports.size_head {
         let base = reports.size_base.as_ref().map(|path| root.join(path));
+        if let Some(base) = &base {
+            base_measured.extend(bundle::entry_subjects(base)?);
+        }
         measured.extend(bundle::read(base.as_deref(), &root.join(head))?);
     }
     let mut rows: Vec<Row> = measured.into_iter().map(compare::row).collect();
@@ -218,7 +227,12 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
         Some(folder) => admission::read(&rows, &root.join(folder))?,
         None => Vec::new(),
     };
-    let mut text = format!("### Performance budget\n\n{}", table::render(&rows));
+    let ceilings = ceilings::check(root, &rows, &base_measured)?;
+    let mut text = format!(
+        "### Performance budget\n\n{}\n#### Absolute ceilings\n\n{}",
+        table::render(&rows),
+        ceilings::render(&ceilings)
+    );
     if !admissions.is_empty() {
         let _ = write!(
             text,
@@ -232,6 +246,7 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
         append(&root.join(summary), text)?;
     }
     let mut findings: Vec<Finding> = rows.iter().filter_map(finding).collect();
+    findings.extend(ceilings::findings(&ceilings));
     findings.extend(admission::findings(&admissions));
     Ok(check::report(&findings))
 }
@@ -247,12 +262,12 @@ fn finding(row: &Row) -> Option<Finding> {
                 table::change(row).unwrap_or_default()
             ),
         )),
-        Verdict::OverCeiling => Some(Finding::new(
-            "over-ceiling",
-            id,
-            "is over its ceiling, which only the owner moves",
-        )),
-        Verdict::Within | Verdict::Improved | Verdict::New | Verdict::Accepted => None,
+        // `ceilings` reports every ceiling, a row's own included.
+        Verdict::OverCeiling
+        | Verdict::Within
+        | Verdict::Improved
+        | Verdict::New
+        | Verdict::Accepted => None,
     }
 }
 

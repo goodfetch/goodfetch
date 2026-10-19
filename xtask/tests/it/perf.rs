@@ -19,13 +19,13 @@ const BENCHMARK: &str = "goodfetch-frontier/instructions::frontier::push";
 
 /// One gungraun metric of a benchmark: its key in the summary, and the
 /// head's (`new`) and the base's (`old`) values.
-struct Metric<'a> {
+pub(crate) struct Metric<'a> {
     key: &'a str,
     head: Option<u64>,
     base: Option<u64>,
 }
 
-fn metric(key: &str, base: Option<u64>, head: Option<u64>) -> Metric<'_> {
+pub(crate) fn metric(key: &str, base: Option<u64>, head: Option<u64>) -> Metric<'_> {
     Metric { key, head, base }
 }
 
@@ -37,6 +37,16 @@ fn tool_of(key: &str) -> &'static str {
 /// One line of gungraun's `--output-format=json`: the summary of one
 /// benchmark of the crate at `package_dir`, one profile per tool.
 fn summary(package_dir: &str, module_path: &str, metrics: &[Metric<'_>]) -> String {
+    bench_summary(package_dir, module_path, None, metrics)
+}
+
+/// The summary of one benchmark, with its `#[bench::id]` when it has one.
+pub(crate) fn bench_summary(
+    package_dir: &str,
+    module_path: &str,
+    id: Option<&str>,
+    metrics: &[Metric<'_>],
+) -> String {
     let mut profiles: Vec<(&str, serde_json::Map<String, Value>)> = Vec::new();
     for metric in metrics {
         let tool = tool_of(metric.key);
@@ -72,7 +82,7 @@ fn summary(package_dir: &str, module_path: &str, metrics: &[Metric<'_>]) -> Stri
         .collect();
     let (file, rest) = module_path.split_once("::").unwrap();
     let (group, function) = rest.split_once("::").unwrap();
-    json!({
+    let mut summary = json!({
         "baselines": [null, "base"],
         "benchmark_exe": format!("target/release/deps/{file}-0123456789abcdef"),
         "benchmark_file": format!("{package_dir}/benches/{file}.rs"),
@@ -87,8 +97,11 @@ fn summary(package_dir: &str, module_path: &str, metrics: &[Metric<'_>]) -> Stri
         "project_root": "/work",
         "started_at": "2026-10-19T08:00:00Z",
         "version": "7",
-    })
-    .to_string()
+    });
+    if let Some(id) = id {
+        summary["id"] = json!(id);
+    }
+    summary.to_string()
 }
 
 /// gungraun's report of the frontier's one benchmark.
@@ -101,7 +114,7 @@ fn write_gungraun(workspace: &Workspace, metrics: &[Metric<'_>]) {
     workspace.write("perf/head.jsonl", format!("{line}\n").as_bytes());
 }
 
-fn compare(workspace: &Workspace, extra: &[&str]) -> Outcome {
+pub(crate) fn compare(workspace: &Workspace, extra: &[&str]) -> Outcome {
     let mut args = vec!["perf", "compare", "--gungraun", "perf/head.jsonl"];
     args.extend_from_slice(extra);
     workspace.xtask(&args)
@@ -184,7 +197,7 @@ fn benchmark_with_no_base_is_reported_never_gated() {
 }
 
 /// size-limit's `--json` report of `entries`, `(name, brotli bytes)`.
-fn size_limit(entries: &[(&str, u64)]) -> String {
+pub(crate) fn size_limit(entries: &[(&str, u64)]) -> String {
     let entries: Vec<Value> = entries
         .iter()
         .map(|(name, size)| json!({ "name": name, "passed": true, "size": size }))
@@ -268,14 +281,14 @@ fn console_build_of_exactly_1_mb_brotli_passes() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-const HEAD_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+pub(crate) const HEAD_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA: &str = "fedcba9876543210fedcba9876543210fedcba98";
 const PULL_REQUEST: &str = "/repos/goodfetch/goodfetch/pulls/7";
 const COMMENTS: &str = "/repos/goodfetch/goodfetch/issues/7/comments?per_page=100&page=1";
 
 /// A pull request whose head is `HEAD_SHA`, with `body` and one comment by
 /// the owner.
-fn pull_request(body: &str, comment: &str) -> GitHub {
+pub(crate) fn pull_request(body: &str, comment: &str) -> GitHub {
     let pull_request = format!(
         r#"{{ "number": 7, "body": {}, "head": {{ "sha": "{HEAD_SHA}" }} }}"#,
         serde_json::to_string(body).unwrap()
@@ -289,7 +302,11 @@ fn pull_request(body: &str, comment: &str) -> GitHub {
 
 /// Saves the pull request's acceptance, as the job does before its deny,
 /// then compares with it.
-fn compare_for_pull_request(workspace: &Workspace, github: &GitHub, extra: &[&str]) -> Outcome {
+pub(crate) fn compare_for_pull_request(
+    workspace: &Workspace,
+    github: &GitHub,
+    extra: &[&str],
+) -> Outcome {
     let saved = workspace.xtask(&[
         "perf",
         "pull-request",

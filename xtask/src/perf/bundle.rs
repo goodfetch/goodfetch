@@ -6,7 +6,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
@@ -34,6 +34,11 @@ fn entries(path: &Path) -> Result<BTreeMap<String, u64>> {
         .into_iter()
         .map(|entry| (entry.name, entry.size))
         .collect())
+}
+
+/// The subjects of the entries of the report at `path`.
+pub(crate) fn entry_subjects(path: &Path) -> Result<BTreeSet<String>> {
+    Ok(entries(path)?.keys().map(|name| subject(name)).collect())
 }
 
 /// Every head entry, with the base's size of the entry of the same name;

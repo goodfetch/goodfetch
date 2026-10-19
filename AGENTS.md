@@ -19,7 +19,7 @@ this status remains pre-release, ask the owner before a breaking change.
 
 ## Merging
 
-While the repository is private on GitHub Free, no check can be made required (rulesets and branch protection answer `403`; GitHub Pro bills, so it is declined, ADR 0076). Before merging a pull request, confirm with `gh pr checks <number>` that "all green" and the Chromium build gate are successful on its exact head. Never merge while either is pending or failed; a check that waits for the owner's machine is handled as `TESTING.md`'s "When a check waits for the owner's machine" says (ADR 0135).
+CI runs locally (owner decision of 2026-10-19, ADR 0135): GitHub Actions is turned off for the repository. Merge a pull request once `just quick all` and `just pre-merge all` pass in a checkout of its exact head. In a stack of pull requests, merge the bottom one first.
 
 ## Authorship
 

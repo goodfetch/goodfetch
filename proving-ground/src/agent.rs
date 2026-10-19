@@ -11,11 +11,15 @@
 //! | 3 | the Pro plan's price changed |
 //!
 //! Each state has its expected result: one booking per time step, and the
-//! price that step's page shows. Prices are drawn from the seed.
+//! price that step's page shows. Prices are drawn from the seed. The fault
+//! tasks read the price on a page that never drifts, each asking the Fake
+//! model for one fault.
 
 use serde::Deserialize;
+use serde_json::{Map, Value};
 
 use crate::generator;
+use crate::model::Fault;
 use crate::task::{Effect, Entry, Expected, Kind, Record, Task};
 
 /// The host name the family is served on (ADR 0059's `resolve`).
@@ -43,6 +47,52 @@ const PLAN: &str = "pro";
 
 /// The tasks whose pages drift: the booking and the price read.
 const DRIFTING: [u32; 2] = [1, 2];
+
+/// The fault tasks: each reads the Pro price on the baseline page and asks
+/// the Fake model for one fault (ADR 0065), which its description states.
+const FAULTS: [(u32, &str); 7] = [
+    (
+        3,
+        "Read the monthly price of the Pro plan on this page, and return one Record with the \
+         fields `id` (`pro`) and `price`. The Fake model answers this task with a rate limit: \
+         `429` with `Retry-After: 1`.",
+    ),
+    (
+        4,
+        "Read the monthly price of the Pro plan on this page, and return one Record with the \
+         fields `id` (`pro`) and `price`. The Fake model answers this task with its format's \
+         overload.",
+    ),
+    (
+        5,
+        "Read the monthly price of the Pro plan on this page, and return one Record with the \
+         fields `id` (`pro`) and `price`. The Fake model never answers this task, until the \
+         client times out.",
+    ),
+    (
+        6,
+        "Read the monthly price of the Pro plan on this page, and return one Record with the \
+         fields `id` (`pro`) and `price`. The Fake model cuts its answer to this task before \
+         its end.",
+    ),
+    (
+        7,
+        "Read the monthly price of the Pro plan on this page, and return one Record with the \
+         fields `id` (`pro`) and `price`. The Fake model answers this task with malformed \
+         JSON.",
+    ),
+    (
+        8,
+        "Read the monthly price of the Pro plan on this page, and return one Record with the \
+         fields `id` (`pro`) and `price`. The Fake model refuses this task.",
+    ),
+    (
+        9,
+        "Read the monthly price of the Pro plan on this page, and return one Record with the \
+         fields `id` (`pro`) and `price`. The Fake model answers this task with a wrong but \
+         plausible price, which a Success check or Grounding must refuse.",
+    ),
+];
 
 /// What the page shows at one time step.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -218,7 +268,7 @@ document.body.dataset.ready = 'true';
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
     let start_url = |ordinal| format!("http://{}:{port}{START_PATH}", task_host(ordinal));
     let steps = 0..TIME_STEPS;
-    vec![
+    let mut tasks = vec![
         Task {
             host: task_host(1),
             entry: Entry {
@@ -263,7 +313,80 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 effects: Vec::new(),
             },
         },
-    ]
+    ];
+    tasks.extend(fault_tasks(seed, port));
+    tasks
+}
+
+/// The fault tasks, after the drifting ones.
+fn fault_tasks(seed: u64, port: u16) -> impl Iterator<Item = Task> {
+    FAULTS.into_iter().map(move |(ordinal, description)| Task {
+        host: task_host(ordinal),
+        entry: Entry {
+            id: format!("{FAMILY}/{ordinal}"),
+            family: FAMILY,
+            kind: Kind::Extract,
+            start_url: format!("http://{}:{port}{START_PATH}", task_host(ordinal)),
+            description,
+            time_steps: None,
+        },
+        expected: Expected {
+            records: vec![Record::from([
+                ("id", "pro".to_owned()),
+                ("price", prices(seed).pro.to_string()),
+            ])],
+            effects: Vec::new(),
+        },
+    })
+}
+
+/// The fault the task `id` asks the Fake model for, if any.
+pub(crate) fn fault(seed: u64, id: &str) -> Option<Fault> {
+    let ordinal: u32 = id.strip_prefix("agent/")?.parse().ok()?;
+    Some(match ordinal {
+        3 => Fault::RateLimit,
+        4 => Fault::Overload,
+        5 => Fault::Timeout,
+        6 => Fault::CutStream,
+        7 => Fault::MalformedJson,
+        8 => Fault::Refusal,
+        // A price of this plan the page never shows, from the same range.
+        9 => Fault::WrongAnswer(vec![Map::from_iter([
+            ("id".to_owned(), Value::from("pro")),
+            (
+                "price".to_owned(),
+                Value::from(prices(seed).changed_pro.to_string()),
+            ),
+        ])]),
+        _ => return None,
+    })
+}
+
+/// What the Fake model answers about the drifting task `id` at time step
+/// `step`: that step's price Record, or that step's booking; `None` for the
+/// family's other tasks, whose answer is their expected result.
+pub(crate) fn answer(seed: u64, id: &str, step: u64) -> Option<Vec<Map<String, Value>>> {
+    let fields = |pairs: Vec<(&str, Value)>| {
+        pairs
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect::<Map<String, Value>>()
+    };
+    match id {
+        "agent/1" => Some(vec![fields(vec![
+            ("name", NAME.into()),
+            ("email", EMAIL.into()),
+            ("plan", PLAN.into()),
+            ("consent", true.into()),
+        ])]),
+        "agent/2" => Some(vec![
+            price_record(seed, step)
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), Value::from(value)))
+                .collect(),
+        ]),
+        _ => None,
+    }
 }
 
 /// The price task's expected Record at time step `step`.

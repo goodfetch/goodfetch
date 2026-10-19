@@ -9,6 +9,7 @@
 
 mod agent;
 mod clients;
+mod fake_model;
 mod observations;
 mod oracle;
 mod pages;

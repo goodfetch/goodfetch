@@ -25,34 +25,27 @@ fn the_task_list_names_the_tasks_of_every_family() {
     let tasks = proving_ground.tasks();
 
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
+    let listed: Vec<Value> = tasks["tasks"]
+        .as_array()
+        .expect("`tasks` is an array")
+        .iter()
+        .map(|task| json!([task["id"], task["family"], task["kind"]]))
+        .collect();
     assert_eq!(
-        each(&tasks, "id"),
+        listed,
         [
-            json!("catalog/1"),
-            json!("catalog/2"),
-            json!("catalog/3"),
-            json!("agent/1"),
-            json!("agent/2"),
-        ]
-    );
-    assert_eq!(
-        each(&tasks, "family"),
-        [
-            json!("catalog"),
-            json!("catalog"),
-            json!("catalog"),
-            json!("agent"),
-            json!("agent"),
-        ]
-    );
-    assert_eq!(
-        each(&tasks, "kind"),
-        [
-            json!("crawl"),
-            json!("extract"),
-            json!("submit"),
-            json!("submit"),
-            json!("extract"),
+            json!(["catalog/1", "catalog", "crawl"]),
+            json!(["catalog/2", "catalog", "extract"]),
+            json!(["catalog/3", "catalog", "submit"]),
+            json!(["agent/1", "agent", "submit"]),
+            json!(["agent/2", "agent", "extract"]),
+            json!(["agent/3", "agent", "extract"]),
+            json!(["agent/4", "agent", "extract"]),
+            json!(["agent/5", "agent", "extract"]),
+            json!(["agent/6", "agent", "extract"]),
+            json!(["agent/7", "agent", "extract"]),
+            json!(["agent/8", "agent", "extract"]),
+            json!(["agent/9", "agent", "extract"]),
         ]
     );
     assert_eq!(

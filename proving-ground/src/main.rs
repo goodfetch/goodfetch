@@ -12,6 +12,7 @@ mod clock;
 mod command;
 mod digest;
 mod generator;
+mod model;
 mod observation;
 mod oracle;
 mod output;

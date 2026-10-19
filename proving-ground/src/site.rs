@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent;
 use crate::catalog;
+use crate::model::{self, Candidate, FakeModel};
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::sync::Mutex;
@@ -30,6 +31,7 @@ pub(crate) struct Site {
     certificate_authority: String,
     observations: Arc<Observations>,
     time_step: Mutex<u64>,
+    model: FakeModel,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -85,6 +87,7 @@ impl Site {
             certificate_authority,
             observations,
             time_step: Mutex::new(0),
+            model: FakeModel::new(seed),
         }
     }
 
@@ -95,6 +98,7 @@ impl Site {
         let mut hosts = BTreeMap::from([
             (catalog::HOST.to_owned(), None),
             (agent::HOST.to_owned(), None),
+            (model::HOST.to_owned(), None),
         ]);
         hosts.extend(
             Self::all_tasks(seed, 0)
@@ -118,6 +122,10 @@ impl Site {
     /// Answers one request, given its `Host` header, path and body.
     pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
         let name = observation::host_name(host);
+        if name == model::HOST {
+            // The Fake model answers its own paths (`Self::model`).
+            return Reply::error(StatusCode::NOT_FOUND, "not_found");
+        }
         if self.hosts.contains_key(&name) && agent::serves(&name) {
             return self.agent(method, host, &name, path, body);
         }
@@ -144,6 +152,11 @@ impl Site {
             ),
             (&Method::POST, "/oracle") => self.judge(body),
             (&Method::PUT, "/time-step") => self.set_time_step(body),
+            (&Method::GET, "/model-calls") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/json",
+                body: self.model.document().into(),
+            },
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
@@ -176,6 +189,50 @@ impl Site {
             ),
             _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
         }
+    }
+
+    /// The Fake model's answer to a `POST` on its host name to `target`
+    /// (path and query); `None` for any other request, which [`Self::respond`]
+    /// answers.
+    pub(crate) fn model(
+        &self,
+        method: &Method,
+        host: &str,
+        target: &str,
+        body: &Bytes,
+    ) -> Option<model::Answer> {
+        if method != Method::POST || observation::host_name(host) != model::HOST {
+            return None;
+        }
+        let step = *self.time_step.lock();
+        let candidates: Vec<Candidate> = self
+            .tasks()
+            .into_iter()
+            .map(|task| {
+                let id = task.entry.id;
+                let answer = agent::answer(self.seed, &id, step).unwrap_or_else(|| {
+                    let effects = task.expected.effects.iter().map(serde_json::to_value);
+                    task.expected
+                        .records
+                        .iter()
+                        .map(serde_json::to_value)
+                        .chain(effects)
+                        .filter_map(|value| match value {
+                            Ok(serde_json::Value::Object(fields)) => Some(fields),
+                            _ => None,
+                        })
+                        .collect()
+                });
+                Candidate {
+                    fault: agent::fault(self.seed, &id),
+                    id,
+                    description: task.entry.description,
+                    host: task.host,
+                    answer,
+                }
+            })
+            .collect();
+        self.model.answer(target, body, &candidates)
     }
 
     /// Sets the time step drifting pages follow.

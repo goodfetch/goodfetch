@@ -36,6 +36,11 @@ tracing-subscriber.workspace = true
 [build-dependencies]
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 
+# Its integration tests start the Proving ground through the test tool
+# manifest, so a change to it runs them (TESTING.md, Commands).
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]
+
 [package.metadata.cargo-shear]
 ignored = ["bindgen"]
 

@@ -286,7 +286,10 @@ async fn answer(site: &Site, tunnels: &Tunnels, request: Request<Incoming>) -> R
     let mut response = Response::new(Either::Left(Full::new(reply.body)));
     *response.status_mut() = reply.status;
     let headers = response.headers_mut();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    // An empty media type is a reply sent without `Content-Type`.
+    if !reply.content_type.is_empty() {
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    }
     for (name, value) in reply.headers {
         let value = HeaderValue::try_from(value)
             .expect("invariant: the Proving ground's own header values are visible ASCII");

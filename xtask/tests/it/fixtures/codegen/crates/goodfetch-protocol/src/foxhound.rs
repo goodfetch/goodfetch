@@ -25,7 +25,6 @@ pub struct SampleCrawlParams {
 
 /// What `sample.crawl` answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct SampleCrawlResult {
     /// How many pages were visited.
     pub visited: u32,
@@ -33,7 +32,6 @@ pub struct SampleCrawlResult {
 
 /// What `sample.crawled` reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct SampleCrawled {
     /// How many pages were visited.
     pub visited: u32,

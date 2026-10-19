@@ -10,6 +10,8 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
+use serde_json::Value;
+
 use super::layer::{Deprecation, Layer, Product, Stability};
 use super::naming::{pascal, snake};
 use super::{Generated, TypesFile};
@@ -37,9 +39,11 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 13] = [
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
 pub(super) fn generate(layer: &Layer) -> Generated {
-    let (input, _) = layer.generator_input(&format!("{}Types", layer.product.title()), |name| {
-        ("customTypePath", format!("{CLIENT_PACKAGE}.models.{name}"))
-    });
+    let (mut input, _) = layer
+        .generator_input(&format!("{}Types", layer.product.title()), |name| {
+            ("customTypePath", format!("{CLIENT_PACKAGE}.models.{name}"))
+        });
+    allow_unknown_fields(&mut input);
     Generated {
         files: vec![
             ("__init__.py", init(layer)),
@@ -53,6 +57,28 @@ pub(super) fn generate(layer: &Layer) -> Generated {
             input,
             prefix: String::new(),
         },
+    }
+}
+
+/// States JSON Schema's own default, that an object without
+/// `additionalProperties` allows unknown fields, on every such object, so
+/// `datamodel-code-generator` writes `extra='allow'` for it: the types the
+/// engine sends keep what the SDK does not know in `model_extra`, while
+/// those a program sends say `false` and forbid it (ADR 0082).
+fn allow_unknown_fields(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("object")
+                && !object.contains_key("additionalProperties")
+            {
+                object.insert("additionalProperties".to_owned(), Value::Bool(true));
+            }
+            for child in object.values_mut() {
+                allow_unknown_fields(child);
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(allow_unknown_fields),
+        _ => {}
     }
 }
 
@@ -156,8 +182,21 @@ fn operations(layer: &Layer) -> String {
         "{product}'s operations, each an async method and a sync one (ADR 0038)."
     ));
     text.push('\n');
+    // In isort's order: classes, then functions.
+    let returns = !layer.operations.is_empty();
+    let typing: Vec<&str> = [
+        ("Any", returns),
+        ("Protocol", layer.product == Product::Collie),
+        ("cast", returns),
+    ]
+    .into_iter()
+    .filter_map(|(name, imported)| imported.then_some(name))
+    .collect();
+    if !typing.is_empty() {
+        let _ = writeln!(text, "from typing import {}", typing.join(", "));
+    }
     if layer.product == Product::Collie {
-        text.push_str("from typing import Protocol\n\nfrom pydantic import BaseModel\n");
+        text.push_str("\nfrom pydantic import BaseModel\n");
     }
     if deprecates {
         text.push_str("from typing_extensions import deprecated\n");
@@ -175,6 +214,9 @@ fn operations(layer: &Layer) -> String {
     }
     if layer.product == Product::Collie {
         text.push_str(CALLERS);
+    }
+    if !layer.operations.is_empty() {
+        text.push_str(FIELDS);
     }
     for (prefix, caller, asynchronous) in [("Async", "AsyncCaller", true), ("", "Caller", false)] {
         let mode = if asynchronous { "async" } else { "sync" };
@@ -207,7 +249,7 @@ fn operations(layer: &Layer) -> String {
             ));
             let _ = writeln!(
                 text,
-                "        return {result}.model_validate({}self._caller.call({:?}, params))",
+                "        return {result}.model_construct(**_fields({}self._caller.call({:?}, params)))",
                 if asynchronous { "await " } else { "" },
                 operation.name
             );
@@ -233,6 +275,16 @@ class Caller(Protocol):
     def call(self, operation: str, params: BaseModel) -> object:
         """Sends one call and returns its result as the engine sent it."""
         ...
+"#;
+
+/// How each method builds its result: from the fields as the engine sent
+/// them, without validation, so a field or value a newer engine added never
+/// raises (ADR 0082).
+const FIELDS: &str = r#"
+
+def _fields(result: object) -> dict[str, Any]:
+    """The fields of a result, the JSON object the engine sent."""
+    return cast("dict[str, Any]", result)
 "#;
 
 fn events(layer: &Layer) -> String {

@@ -41,7 +41,7 @@ class SampleCrawlResult(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra='allow',
     )
     visited: Annotated[int, Field(ge=0)]
     """
@@ -55,7 +55,7 @@ class SampleCrawled(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra='allow',
     )
     visited: Annotated[int, Field(ge=0)]
     """

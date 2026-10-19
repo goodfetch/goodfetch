@@ -223,7 +223,6 @@
       "type": "object"
     },
     "SampleCrawlResult": {
-      "additionalProperties": false,
       "description": "What `sample.crawl` answers.",
       "properties": {
         "visited": {
@@ -239,7 +238,6 @@
       "type": "object"
     },
     "SampleCrawled": {
-      "additionalProperties": false,
       "description": "What `sample.crawled` reports.",
       "properties": {
         "visited": {
@@ -269,7 +267,6 @@
       "type": "object"
     },
     "SampleEchoResult": {
-      "additionalProperties": false,
       "description": "What `sample.echo` answers.",
       "properties": {
         "text": {
@@ -283,7 +280,6 @@
       "type": "object"
     },
     "SampleEchoed": {
-      "additionalProperties": false,
       "description": "What `sample.echoed` reports.",
       "properties": {
         "text": {
@@ -297,7 +293,6 @@
       "type": "object"
     },
     "SampleStorePutParams": {
-      "additionalProperties": false,
       "description": "What a sample store keeps.",
       "properties": {
         "key": {

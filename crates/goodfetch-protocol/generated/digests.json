@@ -1,18 +1,18 @@
 {
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
-    "input": "0cd7745ad2276f1705db47078a886b199dde45ce85d67f1af5ec0d9e647e1c5a",
-    "output": "f2dff4cd1abe98f8804909faa2e02f3c7be10bcecda9ffdf514faa9dce2e4f61"
+    "input": "dbe59bf4c8501e05efcbc987ea3fe40a94e0d53350a846ac4b8ebef2564f713b",
+    "output": "035652c21d33ddec322f3e68fbc610ebf1b8a3f599757ccc63298dbd0a459524"
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "ae7b49b8c2b1c0bb5998734bcea824750b36c022db86f36b5e821d5ff9b43863",
-    "output": "ff5c71a1943895594a1f919d917a9db06a3ce4b189f4697379ff50841023f5f4"
+    "input": "e83f5fb9d21e9bd9f84ff8036a2102cb8719c3b46b44bac8129cf8b98063e9d5",
+    "output": "60660373d5ca48995cd7df48cbacf4d0cde9d0de54d0b853689772fa84b3a4f4"
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "0cd7745ad2276f1705db47078a886b199dde45ce85d67f1af5ec0d9e647e1c5a",
+    "input": "3b7f0b99f9e010988e319f9f4be26f6f70c208594dd94403c5992369567169c9",
     "output": "16df5bf4cc6104b8eddafd5b85fa4219529c52c97ee6bd1f13dfe6a6270b0516"
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "a7664f2c99afe6d6fd04200ef0daa37aa93a8f3230eb5064bf2c317c8de63faa",
+    "input": "0afad02982bd518f2fab3423d068603ed998315de05d543ee02c8da989b35404",
     "output": "1e29569f75d3e30f0926bbc97cd8c1a6eed96f757a0ea1acb8ae368211065aec"
   }
 }

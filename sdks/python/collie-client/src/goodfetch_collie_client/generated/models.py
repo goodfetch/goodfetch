@@ -35,7 +35,7 @@ class SampleEchoResult(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra='allow',
     )
     text: str
     """
@@ -49,7 +49,7 @@ class SampleEchoed(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra='allow',
     )
     text: str
     """
@@ -63,7 +63,7 @@ class SampleStorePutParams(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra='allow',
     )
     key: str
     """

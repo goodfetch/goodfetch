@@ -1,6 +1,11 @@
 //! Collie's sample entries: one of each kind, which carry `xtask codegen`'s
 //! pipeline until the areas that own each contract define the real ones
 //! (spec #130). Collie carries them, and so does Foxhound, which contains it.
+//!
+//! What the engine sends (a result, an event, a Plugin kind's params) keeps
+//! reading when a newer engine adds a field, so it ignores unknown fields;
+//! what a program sends (params, a Plugin kind's result) refuses them
+//! (ADRs 0077, G3, and 0082).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -22,7 +27,6 @@ pub struct SampleEchoParams {
 
 /// What `sample.echo` answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct SampleEchoResult {
     /// The text, repeated.
     pub text: String,
@@ -30,7 +34,6 @@ pub struct SampleEchoResult {
 
 /// What `sample.echoed` reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct SampleEchoed {
     /// The text that was repeated.
     pub text: String,
@@ -38,7 +41,6 @@ pub struct SampleEchoed {
 
 /// What a sample store keeps.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct SampleStorePutParams {
     /// The key to keep the value under.
     pub key: String,
@@ -112,3 +114,39 @@ pub const ENTRIES: Entries = Entries {
         arrived_in: ARRIVED_IN,
     }],
 };
+
+#[cfg(test)]
+mod tests {
+    use super::{SampleEchoParams, SampleEchoResult, SampleEchoed, SampleStorePutParams};
+
+    #[test]
+    fn result_from_a_newer_engine_reads_without_its_unknown_field() {
+        let result: SampleEchoResult =
+            serde_json::from_str(r#"{ "text": "hi", "added_in_a_minor": 1 }"#).unwrap();
+
+        assert_eq!(result, SampleEchoResult { text: "hi".into() });
+    }
+
+    #[test]
+    fn event_from_a_newer_engine_reads_without_its_unknown_field() {
+        let event: SampleEchoed =
+            serde_json::from_str(r#"{ "text": "hi", "added_in_a_minor": 1 }"#).unwrap();
+
+        assert_eq!(event, SampleEchoed { text: "hi".into() });
+    }
+
+    #[test]
+    fn plugin_params_from_a_newer_engine_read_without_their_unknown_field() {
+        let params: SampleStorePutParams =
+            serde_json::from_str(r#"{ "key": "k", "value": "v", "added_in_a_minor": 1 }"#).unwrap();
+
+        assert_eq!(params.key, "k");
+    }
+
+    #[test]
+    fn params_refuse_an_unknown_field() {
+        let params = serde_json::from_str::<SampleEchoParams>(r#"{ "text": "hi", "txet": 1 }"#);
+
+        assert!(params.is_err());
+    }
+}

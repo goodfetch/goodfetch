@@ -7,7 +7,7 @@
 # installed the generators.
 generator = "xtask codegen"
 generators = ["json-schema-to-typescript 16.0.0", "datamodel-code-generator 0.86.0"]
-date = "2026-10-18"
+date = "2026-10-19"
 command = """
 cargo build -p xtask && (cd xtask/tests/it/fixtures/codegen && \
   CARGO_TARGET_DIR="$PWD/../../../../../target/fixture-codegen" \

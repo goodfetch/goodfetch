@@ -1,5 +1,6 @@
 //! `serve`'s first output line: one JSON object with the bound address, the
-//! version and the seed, so every test and Journey variant starts its own
+//! version, the seed and the network profile with its calibration (the
+//! `network` tests), so every test and Journey variant starts its own
 //! Proving ground on port 0 (ADRs 0062 and 0063).
 //! Covers: story:2-80
 
@@ -17,7 +18,7 @@ fn serve_on_port_zero_first_prints_its_address_version_and_seed() {
     let object = line.as_object().expect("the line is one JSON object");
     assert_eq!(
         object.keys().collect::<Vec<_>>(),
-        ["address", "seed", "version"]
+        ["address", "network", "seed", "version"]
     );
     assert!(
         Regex::new(r"^127\.0\.0\.1:[1-9][0-9]*$")

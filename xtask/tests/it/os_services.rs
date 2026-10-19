@@ -2,8 +2,8 @@
 //! network and OS services): each extra loopback address binds on the host,
 //! the Secret Service stores and reads an item, a host without one fails the
 //! check, and a local `just test` lists it and skips the tests that need it.
-//! The tests needing a service sit in a module named after it, `keychain` or
-//! `extra_loopback`, which is what a local run skips.
+//! The tests needing a service sit in a module named after it, `keychain`,
+//! `extra_loopback` or `tc_netem`, which is what a local run skips.
 
 use std::ffi::OsStr;
 
@@ -124,6 +124,28 @@ fn a_local_run_lists_each_missing_service_and_the_tests_it_skips() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert_eq!(outcome.stdout, "extra_loopback::\nkeychain::\n");
     assert_eq!(workspace.read_text("skipped.txt").lines().count(), 2);
+}
+
+#[test]
+fn a_host_without_tc_lacks_netem_and_a_local_run_skips_its_tests() {
+    let workspace = Workspace::from_fixture("empty");
+    let nothing = workspace.path().join("no-tools");
+    std::fs::create_dir(&nothing).unwrap();
+
+    let outcome = workspace.xtask_with_env(
+        &[
+            "os-services",
+            "check",
+            "--netem",
+            "--skipped",
+            "skipped.txt",
+        ],
+        &[("PATH", nothing.as_os_str())],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "tc_netem::\n");
+    assert_eq!(workspace.read_text("skipped.txt").lines().count(), 1);
 }
 
 #[test]

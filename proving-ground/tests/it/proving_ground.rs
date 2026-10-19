@@ -57,10 +57,21 @@ impl ProvingGround {
 
     /// Starts `serve` on the given address.
     pub(crate) fn start_on(seed: u64, address: &str) -> Self {
+        Self::start_with(
+            seed,
+            &["--address", address, "--network-profile", "none"],
+            &[],
+        )
+    }
+
+    /// Starts `serve` with the given address and network arguments, in an
+    /// environment that holds only `environment`.
+    pub(crate) fn start_with(seed: u64, arguments: &[&str], environment: &[(&str, &str)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
             .args(["serve", "--seed", &seed.to_string(), "--copy", "local"])
-            .args(["--address", address, "--network-profile", "none"])
+            .args(arguments)
             .env_clear()
+            .envs(environment.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

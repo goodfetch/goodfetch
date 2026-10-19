@@ -53,15 +53,24 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    /// Binds the address; port 0 binds a free port.
-    pub(crate) async fn bind(address: SocketAddr, seed: u64) -> Result<Self> {
+    /// Binds the address; port 0 binds a free port. Clients reach it on
+    /// `reached_on` when a latency proxy stands in front of it, else on the
+    /// port it bound.
+    pub(crate) async fn bind(
+        address: SocketAddr,
+        reached_on: Option<u16>,
+        seed: u64,
+    ) -> Result<Self> {
         let listener = TcpListener::bind(address)
             .await
             .with_context(|| format!("binding {address}"))?;
-        let port = listener
-            .local_addr()
-            .context("reading the bound address")?
-            .port();
+        let port = match reached_on {
+            Some(port) => port,
+            None => listener
+                .local_addr()
+                .context("reading the bound address")?
+                .port(),
+        };
         let hosts = Site::hosts(seed);
         let authority = Authority::new(seed, hosts.keys().map(String::as_str), clock::wall_now())?;
         let acceptor = TlsAcceptor::from(authority.server_config());

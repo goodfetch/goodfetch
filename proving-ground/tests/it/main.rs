@@ -14,6 +14,7 @@ mod clients;
 mod fake_model;
 mod login;
 mod model_recordings;
+mod network;
 mod observations;
 mod oracle;
 mod pages;
@@ -24,4 +25,6 @@ mod replay;
 mod schedule;
 mod serve;
 mod task_list;
+#[cfg(target_os = "linux")]
+mod tc_netem;
 mod transport;

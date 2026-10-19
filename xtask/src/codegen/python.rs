@@ -164,11 +164,13 @@ fn docstring(
     if paragraphs.len() == 1 {
         return format!("{indent}\"\"\"{}\"\"\"\n", paragraphs[0]);
     }
-    let body = paragraphs
-        .iter()
-        .flat_map(|paragraph| paragraph.lines())
-        .collect::<Vec<_>>();
-    let mut text = format!("{indent}\"\"\"{}\n", body[0]);
+    // The summary opens the docstring; every other line of the
+    // description follows, indented, then each marker's paragraph.
+    let mut description = paragraphs[0].lines();
+    let mut text = format!("{indent}\"\"\"{}\n", description.next().unwrap_or_default());
+    for line in description {
+        let _ = writeln!(text, "{indent}{line}");
+    }
     for paragraph in &paragraphs[1..] {
         let _ = writeln!(text);
         for line in paragraph.lines() {

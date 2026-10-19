@@ -5,6 +5,8 @@
 //! cargo-deny's copy of ADR 0018's license allowlist.
 //! Covers: story:1-57
 
+use std::fmt::Write as _;
+
 use rstest::rstest;
 use serde_json::Value;
 
@@ -281,6 +283,64 @@ fn each_sdk_package_generates_only_its_products_operations(
     let operations = workspace.read_text(path);
     assert!(operations.contains(own_operation), "{operations}");
     assert!(!operations.contains(other_operation), "{operations}");
+}
+
+/// The layer files `xtask codegen` writes itself, as a reviewer reads them
+/// (TESTING.md, Snapshots: generated surfaces); the outside generators'
+/// files are held to their recorded digests instead.
+#[rstest]
+#[case::typescript_collie_client("sdks/typescript/collie-client/src/generated")]
+#[case::typescript_foxhound("sdks/typescript/foxhound/src/generated")]
+#[case::python_collie_client("sdks/python/collie-client/src/goodfetch_collie_client/generated")]
+#[case::python_foxhound("sdks/python/foxhound/src/goodfetch_foxhound/generated")]
+fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
+    let workspace = Workspace::from_fixture("codegen");
+
+    codegen(&workspace);
+
+    let extension = if folder.contains("typescript") {
+        "ts"
+    } else {
+        "py"
+    };
+    let mut layer = String::new();
+    for name in [
+        "index",
+        "__init__",
+        "operations",
+        "events",
+        "errors",
+        "plugins",
+    ] {
+        let path = format!("{folder}/{name}.{extension}");
+        if let Some(contents) = workspace.read(&path) {
+            let _ = writeln!(layer, "==> {name}.{extension}");
+            layer.push_str(&String::from_utf8(contents).unwrap());
+        }
+    }
+    insta::assert_snapshot!(folder.replace('/', "__"), layer);
+}
+
+/// An Experimental or deprecated entry's docstring adds paragraphs after
+/// its description, which keeps every line it has.
+#[test]
+fn python_docstring_keeps_every_line_of_a_marked_entry_description() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        SAMPLE,
+        "description: \"Repeats a text back to the caller.\",",
+        "description: \"Repeats a text\\nback to the caller.\",",
+    );
+
+    codegen(&workspace);
+
+    let operations = workspace
+        .read_text("sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py");
+    assert!(
+        operations
+            .contains("\"\"\"Repeats a text\n        back to the caller.\n\n        Experimental"),
+        "{operations}"
+    );
 }
 
 const POLITENESS_MANIFEST: &str = "crates/foxhound/goodfetch-politeness/Cargo.toml";

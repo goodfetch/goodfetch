@@ -5,6 +5,11 @@ description = "Goodfetch's shared pytest plugin (ADR 0062); never published."
 requires-python = ">=3.11"
 # PyPI refuses an upload that carries this classifier.
 classifiers = ["Private :: Do Not Upload"]
+dependencies = ["jsonschema>=4.26.0", "pytest>=9.1.1"]
+
+# Every pytest run in the uv workspace loads the plugin.
+[project.entry-points.pytest11]
+goodfetch_test_support = "goodfetch_test_support.plugin"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10"]

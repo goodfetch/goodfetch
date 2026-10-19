@@ -147,6 +147,12 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: "Test: just test-affected pre-merge"
         run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
+      # ADR 0064's stress run: each new or changed test 20 times, and each
+      # test the change takes off the quarantine list 200 times, in the
+      # order the merge commit's tree seeds. Its JUnit files go to
+      # target/junit/repeat-<count>/, uploaded with the suite's.
+      - name: "Test: just stress"
+        run: ci/vm/exec.sh just stress HEAD^1
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check

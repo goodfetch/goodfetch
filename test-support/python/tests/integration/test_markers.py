@@ -1,0 +1,84 @@
+"""The `journey` and `covers` markers, and their listing (ADRs 0063 and 0072)."""
+
+import json
+from typing import TYPE_CHECKING
+
+import pytest
+from goodfetch_test_support import TestEnv
+
+if TYPE_CHECKING:
+    from conftest import SampleRun
+
+INTERRUPTED = 2
+"""pytest's exit code when collection fails."""
+
+MARKED = """
+import pytest
+
+
+@pytest.mark.{marker}("J-002")
+def test_marked() -> None:
+    pass
+"""
+
+LISTED = """
+import pytest
+
+pytestmark = pytest.mark.covers("story:3-18")
+
+
+@pytest.mark.journey("J-002")
+@pytest.mark.covers("operation:run.start", "error:run_not_found")
+def test_journey() -> None:
+    pass
+
+
+def test_module_level() -> None:
+    pass
+"""
+
+
+@pytest.mark.parametrize(
+    ("marker", "status", "results"),
+    [
+        pytest.param("journey", 0, {"test_marked": "passed"}, id="journey"),
+        pytest.param("covers", 0, {"test_marked": "passed"}, id="covers"),
+        pytest.param(
+            "journee", INTERRUPTED, {"tests.test_sample": "error"}, id="unregistered"
+        ),
+    ],
+)
+def test_strict_markers_refuse_a_marker_the_plugin_does_not_register(
+    sample_run: "SampleRun", marker: str, status: int, results: dict[str, str]
+) -> None:
+    """`journey` and `covers` are registered; a misspelled marker fails its module."""
+    outcome = sample_run.run(MARKED.format(marker=marker))
+
+    assert (outcome.status, outcome.results) == (status, results), outcome.output
+
+
+def test_marker_listing_names_each_test_with_its_journey_and_covers_values(
+    sample_run: "SampleRun", test_env: TestEnv
+) -> None:
+    """The listing the Feature scanner and the Journey check read (ADR 0072)."""
+    listing = test_env.folder / "markers.json"
+
+    outcome = sample_run.run(
+        LISTED, args=["--collect-only", f"--marker-listing={listing}"]
+    )
+
+    assert outcome.status == 0, outcome.output
+    assert json.loads(listing.read_text("utf-8")) == {
+        "tests": [
+            {
+                "id": "tests/test_sample.py::test_journey",
+                "journey": ["J-002"],
+                "covers": ["operation:run.start", "error:run_not_found", "story:3-18"],
+            },
+            {
+                "id": "tests/test_sample.py::test_module_level",
+                "journey": [],
+                "covers": ["story:3-18"],
+            },
+        ]
+    }

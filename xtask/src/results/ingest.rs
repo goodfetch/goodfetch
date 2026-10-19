@@ -26,6 +26,9 @@ use crate::junit::{self, Ending, TestCase};
 /// The file each JUnit artifact holds beside its JUnit files.
 const CONTEXT: &str = "context.json";
 
+/// The prefix of a folder whose files ran its count of times.
+const REPEAT_FOLDER: &str = "repeat-";
+
 /// The tier whose skipped checks are inconclusive (ADR 0064).
 const LIVE_TIER: &str = "live";
 
@@ -271,9 +274,10 @@ fn read_artifact(
             let cases = junit::test_cases(runner, text)
                 .with_context(|| format!("reading {}", path.display()))?;
             let live = configuration.tier == LIVE_TIER;
+            let repeat = folder_repeat(&relative).or(context.repeat);
             for (test, outcome, duration_seconds) in cases
                 .into_iter()
-                .flat_map(|case| runs_of(case, runner, context.repeat, live))
+                .flat_map(|case| runs_of(case, runner, repeat, live))
             {
                 test_runs.push(TestRun {
                     test,
@@ -304,6 +308,18 @@ fn read_artifact(
         });
     }
     Ok((test_runs, kept))
+}
+
+/// The count of a file in a `repeat-<count>/` folder at the artifact's top,
+/// where a job that ran tests more than one count of times, such as the
+/// stress run, puts each count's files (`just stress`).
+fn folder_repeat(relative: &str) -> Option<NonZeroU32> {
+    let folder = Path::new(relative)
+        .components()
+        .next()?
+        .as_os_str()
+        .to_str()?;
+    folder.strip_prefix(REPEAT_FOLDER)?.parse().ok()
 }
 
 fn read_context(name: &str, folder: &Path) -> Result<Context> {

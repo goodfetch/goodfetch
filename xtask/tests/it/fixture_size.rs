@@ -11,6 +11,9 @@ const LIMIT: usize = 262_144;
 #[rstest]
 #[case::beside_a_crates_tests("crates/goodfetch-engine/tests/it/fixtures/page.html")]
 #[case::in_shared_test_support("test-support/fixtures/corpus/page.html")]
+// ci/proofs/ holds the static checks' fixtures, though no folder there is
+// named `fixtures`.
+#[case::of_a_static_checks_proof("ci/proofs/insta/missing/src/lib.rs")]
 fn fixture_over_256_kib_fails(#[case] path: &str) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(path, &vec![b'x'; LIMIT + 1]);

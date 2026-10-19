@@ -24,6 +24,26 @@ pub(crate) struct Entry {
     /// The page the task starts on, with the port `serve` bound.
     pub(crate) start_url: String,
     pub(crate) description: &'static str,
+    /// The account a task behind a login logs in with, derived from the seed
+    /// so each Journey variant has its own (ADR 0063).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account: Option<Account>,
+    /// How many time steps a watch task spans, from step 0: the steps its
+    /// harness sets, one after another, while the tool watches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) time_steps: Option<u64>,
+}
+
+/// A login account of the task list.
+#[derive(Serialize)]
+pub(crate) struct Account {
+    pub(crate) username: String,
+    pub(crate) password: String,
+    /// The account's authenticator secret in base32 (RFC 4648, unpadded),
+    /// from which a tool computes its TOTP codes (RFC 6238); absent when the
+    /// account has no MFA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) totp_secret: Option<String>,
 }
 
 /// What a task asks a tool to do.
@@ -34,6 +54,9 @@ pub(crate) enum Kind {
     Crawl,
     /// Read Records from the start page alone.
     Extract,
+    /// Revisit the start page at each time step and return a Record per
+    /// change seen.
+    Watch,
 }
 
 /// A task's expected result, derived from the seed data only.

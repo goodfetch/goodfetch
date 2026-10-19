@@ -19,15 +19,48 @@ fn each(tasks: &Value, field: &str) -> Vec<Value> {
 }
 
 #[test]
-fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
+fn the_task_list_names_each_familys_tasks() {
     let proving_ground = ProvingGround::start(158);
 
     let tasks = proving_ground.tasks();
 
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
-    assert_eq!(each(&tasks, "id"), [json!("catalog/1"), json!("catalog/2")]);
-    assert_eq!(each(&tasks, "family"), [json!("catalog"), json!("catalog")]);
-    assert_eq!(each(&tasks, "kind"), [json!("crawl"), json!("extract")]);
+    assert_eq!(
+        each(&tasks, "id"),
+        [
+            json!("catalog/1"),
+            json!("catalog/2"),
+            json!("rendered/1"),
+            json!("rendered/2"),
+            json!("login/1"),
+            json!("login/2"),
+            json!("schedule/1"),
+        ]
+    );
+    assert_eq!(
+        each(&tasks, "family"),
+        [
+            json!("catalog"),
+            json!("catalog"),
+            json!("rendered"),
+            json!("rendered"),
+            json!("login"),
+            json!("login"),
+            json!("schedule"),
+        ]
+    );
+    assert_eq!(
+        each(&tasks, "kind"),
+        [
+            json!("crawl"),
+            json!("extract"),
+            json!("crawl"),
+            json!("extract"),
+            json!("crawl"),
+            json!("crawl"),
+            json!("watch"),
+        ]
+    );
     assert_eq!(
         tasks["tasks"][0]["start_url"],
         format!("http://catalog.test:{}/catalog/1", proving_ground.port())

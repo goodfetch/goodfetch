@@ -12,7 +12,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use http_body_util::{BodyExt as _, Full, Limited};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{CONTENT_TYPE, HOST, HeaderValue};
+use hyper::header::{CONTENT_TYPE, COOKIE, HOST, HeaderValue};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
@@ -21,7 +21,8 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::site::{Reply, Site};
+use crate::exchange::{self, Reply};
+use crate::site::Site;
 
 /// The largest request body the server reads, a submission to the oracle
 /// included; a larger one is refused (STYLE.md: every buffer is bounded).
@@ -128,20 +129,33 @@ async fn stop_signal() -> Result<()> {
 /// Reads one request, asks the site, and writes its reply.
 async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>> {
     let (parts, body) = request.into_parts();
-    let host = parts
-        .headers
-        .get(HOST)
-        .and_then(|host| host.to_str().ok())
-        .unwrap_or_default()
-        .to_owned();
+    let header = |name| {
+        parts
+            .headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+    };
     let reply = match Limited::new(body, BODY_LIMIT).collect().await {
-        Ok(body) => site.respond(&parts.method, &host, parts.uri.path(), &body.to_bytes()),
+        Ok(body) => site.respond(
+            header(HOST),
+            &exchange::Request {
+                method: &parts.method,
+                path: parts.uri.path(),
+                cookies: header(COOKIE),
+                body: &body.to_bytes(),
+            },
+        ),
         Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
     };
     let mut response = Response::new(Full::new(reply.body));
     *response.status_mut() = reply.status;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    for (name, value) in reply.headers {
+        let value = HeaderValue::try_from(value)
+            .expect("invariant: the Proving ground's own header values are visible ASCII");
+        headers.append(name, value);
+    }
     response
 }

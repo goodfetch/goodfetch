@@ -14,20 +14,27 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+data-encoding.workspace = true
+form_urlencoded.workspace = true
+hmac.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 serde.workspace = true
 serde_json.workspace = true
 serde_json_canonicalizer.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "macros"] }
 tokio-util = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
+data-encoding.workspace = true
+hmac.workspace = true
 proptest.workspace = true
 regex.workspace = true
 rstest.workspace = true
+sha1.workspace = true
 ureq.workspace = true
 
 [lints]

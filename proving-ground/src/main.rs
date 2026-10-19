@@ -8,12 +8,18 @@ mod catalog;
 mod clock;
 mod command;
 mod digest;
+mod exchange;
 mod generator;
+mod login;
 mod oracle;
 mod output;
+mod rendered;
+mod schedule;
 mod server;
 mod site;
+mod sync;
 mod task;
+mod totp;
 mod version;
 
 use anyhow::{Context as _, Result};

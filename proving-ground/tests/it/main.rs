@@ -7,8 +7,11 @@
     reason = "the tests start the Proving ground's binary as a child process"
 )]
 
+mod login;
 mod oracle;
 mod pages;
 mod proving_ground;
+mod rendered;
+mod schedule;
 mod serve;
 mod task_list;

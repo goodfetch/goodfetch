@@ -9,7 +9,7 @@ use regex::Regex;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 158;
 
@@ -64,10 +64,6 @@ fn correct_result(proving_ground: &ProvingGround, index: usize) -> (String, Vec<
         _ => vec![read_product(proving_ground, start_url)],
     };
     (task["id"].as_str().expect("an ID").to_owned(), records)
-}
-
-fn submission(task: &str, status: &str, records: &[Value]) -> Value {
-    json!({ "task": task, "status": status, "records": records })
 }
 
 /// Covers: story:2-31, story:2-32

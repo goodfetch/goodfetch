@@ -145,6 +145,8 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 description: "Crawl the catalog from its first listing page, following each page's \
                     Next link, and return one Record per product, read from its product page, \
                     with the fields `id`, `name` and `price`.",
+                account: None,
+                time_steps: None,
             },
             expected: Expected {
                 records: (1..=PRODUCTS).map(|number| record(seed, number)).collect(),
@@ -158,6 +160,8 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 start_url: format!("{origin}/products/{}", product_id(extracted)),
                 description: "Extract the product this page shows as one Record with the fields \
                     `id`, `name` and `price`.",
+                account: None,
+                time_steps: None,
             },
             expected: Expected {
                 records: vec![record(seed, extracted)],

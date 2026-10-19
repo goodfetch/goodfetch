@@ -221,14 +221,15 @@ fn data(seed: u64) -> String {
 
 fn untyped_page(seed: u64) -> String {
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{title}</title></head>\n<body>\n<main><h1>{title}</h1></main>\n</body>\n</html>\n",
-        title = title(seed, 8)
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{title}</title></head>\n<body>\n<main><h1>{title}</h1><p>{text}</p></main>\n</body>\n</html>\n",
+        title = title(seed, 8),
+        text = words(seed, 20, 6, false)
     )
 }
 
 /// The name the download link suggests for the export.
 fn export_name(seed: u64) -> String {
-    format!("{}-export.csv", words(seed, 9, 1, false))
+    format!("{}-export.csv", words(seed, 9, 3, false).replace(' ', "-"))
 }
 
 fn download_page(seed: u64) -> String {

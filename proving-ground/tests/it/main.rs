@@ -10,6 +10,7 @@
 mod clients;
 mod encodings;
 mod extraction;
+mod extraction_families;
 mod files;
 mod languages;
 mod observations;

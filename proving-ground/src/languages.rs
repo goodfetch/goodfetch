@@ -170,13 +170,17 @@ const IDN_PHRASES: [&str; 4] = [
     "Schöne Grüße aus Zürich.",
 ];
 
-/// Two of `phrases`, drawn at `number`, joined by `separator`.
+/// Two of `phrases`, drawn at `number`, then a reference number, so no two
+/// seeds give a page the same text, joined by `separator`.
 fn drawn(seed: u64, number: u64, phrases: &[&str], separator: &str) -> String {
-    generator::distinct(seed, &[FAMILY_PLACE, number], phrases.len(), 2)
-        .into_iter()
-        .map(|index| phrases[index])
-        .collect::<Vec<_>>()
-        .join(separator)
+    let reference = 10_000 + generator::below(seed, &[FAMILY_PLACE, number, 0], 90_000);
+    let mut text: Vec<String> =
+        generator::distinct(seed, &[FAMILY_PLACE, number], phrases.len(), 2)
+            .into_iter()
+            .map(|index| phrases[index].to_owned())
+            .collect();
+    text.push(reference.to_string());
+    text.join(separator)
 }
 
 /// One page's Record: its ID, title and text.

@@ -379,7 +379,10 @@ fn text(seed: u64, number: u64, case: &Case) -> (&'static str, String) {
             .into_iter()
             .map(|index| phrases[index])
             .collect();
-    let mut text = chosen.join(language.separator());
+    // A reference number, so no two seeds give a page the same text.
+    let reference = 10_000 + generator::below(seed, &[FAMILY_PLACE, number, 0], 90_000);
+    let separator = language.separator();
+    let mut text = format!("{}{separator}{reference}", chosen.join(separator));
     if case.undecodable {
         // The byte written in its place decodes to U+FFFD.
         text.insert(text.find(' ').unwrap_or(0), '\u{FFFD}');

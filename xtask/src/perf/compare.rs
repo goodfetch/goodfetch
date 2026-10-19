@@ -82,7 +82,11 @@ fn away_from_zero(numerator: i128, denominator: i128) -> i128 {
 pub(crate) fn limit(measured: &Measured) -> Limit {
     let increase = match measured.figure {
         Figure::Brotli => Increase::Bytes(budget::BUNDLE_INCREASE_BYTES),
-        _ => Increase::Percent(budget::INCREASE_PERCENT),
+        Figure::Instructions
+        | Figure::TotalAllocations
+        | Figure::TotalBytes
+        | Figure::GlobalMaximumBytes
+        | Figure::ResidentMemory => Increase::Percent(budget::INCREASE_PERCENT),
     };
     Limit {
         increase,

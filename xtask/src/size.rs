@@ -211,19 +211,15 @@ fn measure(mode: &Mode<'_>, root: &Path, files: &Path, save: Option<&Path>) -> R
         return Ok(ExitCode::SUCCESS);
     }
     output::line(&table::render(&rows));
-    let findings: Vec<Finding> = rows
-        .iter()
-        .filter(|row| row.verdict == Verdict::Over)
-        .map(finding)
-        .collect();
+    let findings: Vec<Finding> = rows.iter().filter_map(finding).collect();
     Ok(check::report(&findings))
 }
 
 fn ceiling_row(file: Measured) -> Row {
     let limit = budget::ceiling(file.product, file.kind);
     let verdict = match limit {
-        Limit::Ceiling(ceiling) if file.bytes > ceiling => Verdict::Over,
-        _ => Verdict::Within,
+        Limit::Ceiling(ceiling) if file.bytes > ceiling => Verdict::OverCeiling,
+        Limit::Ceiling(_) | Limit::Increase(_) | Limit::None => Verdict::Within,
     };
     Row {
         file,
@@ -237,14 +233,14 @@ fn increase_row(file: Measured, main: &BTreeMap<String, Bytes>) -> Row {
     let limit = budget::increase(file.kind);
     let main = main.get(&file.id()).copied();
     let verdict = match (limit, main) {
-        (Limit::Ceiling(ceiling), _) if file.bytes > ceiling => Verdict::Over,
+        (Limit::Ceiling(ceiling), _) if file.bytes > ceiling => Verdict::OverCeiling,
         (Limit::Increase(threshold), Some(main))
             if file.bytes.0 > main.0.saturating_add(threshold.0) =>
         {
-            Verdict::Over
+            Verdict::Tripped
         }
         (Limit::Increase(_), None) => Verdict::New,
-        _ => Verdict::Within,
+        (Limit::Ceiling(_) | Limit::Increase(_) | Limit::None, _) => Verdict::Within,
     };
     Row {
         file,
@@ -257,8 +253,7 @@ fn increase_row(file: Measured, main: &BTreeMap<String, Bytes>) -> Row {
 /// Marks each file past its increase threshold that the pull request
 /// accepts; GitHub is read only when a file tripped.
 fn accept(rows: &mut [Row], pull_request: &PullRequest<'_>) -> Result<()> {
-    let tripped =
-        |row: &Row| row.verdict == Verdict::Over && matches!(row.limit, Limit::Increase(_));
+    let tripped = |row: &Row| row.verdict == Verdict::Tripped;
     if !rows.iter().any(tripped) {
         return Ok(());
     }
@@ -275,9 +270,9 @@ fn accept(rows: &mut [Row], pull_request: &PullRequest<'_>) -> Result<()> {
     Ok(())
 }
 
-fn finding(row: &Row) -> Finding {
-    match row.limit {
-        Limit::Ceiling(_) => Finding::new(
+fn finding(row: &Row) -> Option<Finding> {
+    match row.verdict {
+        Verdict::OverCeiling => Some(Finding::new(
             "over-ceiling",
             row.file.id(),
             format!(
@@ -286,8 +281,8 @@ fn finding(row: &Row) -> Finding {
                 row.file.product.name(),
                 row.limit
             ),
-        ),
-        Limit::Increase(_) | Limit::None => Finding::new(
+        )),
+        Verdict::Tripped => Some(Finding::new(
             "size-increase",
             row.file.id(),
             format!(
@@ -295,6 +290,7 @@ fn finding(row: &Row) -> Finding {
                 row.change().map_or_else(String::new, table::change),
                 row.limit
             ),
-        ),
+        )),
+        Verdict::Within | Verdict::New | Verdict::Accepted => None,
     }
 }

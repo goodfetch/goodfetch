@@ -7,8 +7,8 @@ use std::fmt;
 use std::path::Path;
 
 use super::RepoPath;
-use super::workspace::{Crate, Ecosystem, Package, Workspace};
-use crate::{foxhound_side, perf};
+use super::workspace::{Crate, Ecosystem, Package, Workspace, is_visual_test};
+use crate::{foxhound_side, perf, screenshots};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -26,6 +26,8 @@ pub(crate) enum Job {
     Sinks,
     /// `xtask perf` over `bench-targets` (ADR 0071).
     Perf,
+    /// The visual projects in the pinned Playwright image (ADR 0073).
+    Visual,
     /// The docs build, lychee offline, the docs Playwright pass and samples.
     Docs,
     /// The pull-request Evaluation (ADR 0065).
@@ -33,10 +35,11 @@ pub(crate) enum Job {
 }
 
 impl Job {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::PreMerge,
         Self::Sinks,
         Self::Perf,
+        Self::Visual,
         Self::Docs,
         Self::Evaluation,
     ];
@@ -46,6 +49,7 @@ impl Job {
             Self::PreMerge => "pre-merge",
             Self::Sinks => "sinks",
             Self::Perf => "perf",
+            Self::Visual => "visual",
             Self::Docs => "docs",
             Self::Evaluation => "evaluation",
         }
@@ -112,6 +116,26 @@ fn needs_no_tests(path: &RepoPath) -> bool {
         || ["rnd", "docs", "website"]
             .iter()
             .any(|folder| path.is_in(folder))
+}
+
+/// What the visual job reads besides its tests and the code they exercise:
+/// the runner configs that define the `visual` projects, the pinned
+/// Playwright image and the scripts that run it (ADR 0073).
+const VISUAL_INPUTS: [&str; 4] = [
+    "playwright.config.ts",
+    "vitest.config.ts",
+    "ci/visual",
+    "ci/vm/visual.sh",
+];
+
+/// Whether the path is a visual test, a Reference screenshot or one of the
+/// visual job's own inputs, which select the job whatever owns them, even
+/// when the change deletes them.
+fn is_visual_input(path: &RepoPath) -> bool {
+    let name = path.as_str().rsplit('/').next().unwrap_or_default();
+    is_visual_test(name)
+        || screenshots::is_reference_screenshot(Path::new(path.as_str()))
+        || VISUAL_INPUTS.iter().any(|input| path.is_in(input))
 }
 
 fn is_prompt_affecting(path: &RepoPath) -> bool {
@@ -300,6 +324,13 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
     };
     let vitest_packages = package_folders(workspace, &changed_packages, Ecosystem::TypeScript);
     let pytest_packages = package_folders(workspace, &changed_packages, Ecosystem::Python);
+    // A visual test exercises its own package and the packages it depends on.
+    let reaches_a_visual_test = workspace.visual_tests.iter().any(|test| {
+        matches!(owner(workspace, test), Some(Owner::Package(package)) if vitest_packages.contains(&package.folder))
+    });
+    if reaches_a_visual_test || paths.iter().any(is_visual_input) {
+        jobs.insert(Job::Visual);
+    }
 
     let pre_merge = !matches!(rust, RustTests::None)
         || !vitest_packages.is_empty()

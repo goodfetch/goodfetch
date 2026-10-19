@@ -3,9 +3,9 @@
 # missing here, and `ci/egress/egress.sh` builds each job's deny from it.
 #
 # - [[deny]]: a job that runs Goodfetch's product. Under the deny it reaches
-#   only the fixtures (local to its VM) and the pinned artifact mirror below.
-#   It denies after its installs, pinned downloads and cache restores
-#   (`just fetch`, run when the VM starts) and before its first test step,
+#   only the fixtures, local to its VM. It denies after its installs, cache
+#   restores and pinned downloads (`just fetch`, run when the VM starts, and
+#   the pinned artifact mirror's downloads) and before its first test step,
 #   runs the Egress canary right after, and fails on any other connection.
 # - [[named]]: a job ADR 0043 names, under the deny but also reaching its own
 #   `endpoints` ("<host>:<port>"). Its `exception` says which of ADR 0043's
@@ -17,21 +17,11 @@
 # The Egress canary's forbidden connection: a public address no job may reach.
 canary = "1.1.1.1:443"
 
-# The pinned artifact mirror: the digest-pinned downloads ADR 0043 lists, by
-# the https:// URLs they are fetched from. A `kind` is one of browser,
-# lightpanda, plugin-browser, plugin-runtime, cursory-recordings,
-# clean-up-rules, product-executable, proving-ground and test-v8; each area
-# adds its entry in the pull request that pins its download. Goodfetch's own
-# releases join it from every `url` of compat/releases.toml (ADR 0066).
-
-# The test V8 build, CI's own entry (ADR 0067): an attested asset of this
-# repository's releases, which GitHub serves through a redirect.
-[[mirror]]
-kind = "test-v8"
-urls = [
-  "https://github.com/goodfetch/goodfetch/releases/download/",
-  "https://release-assets.githubusercontent.com/",
-]
+# The pinned artifact mirror (ADR 0043's digest-pinned downloads: the test V8
+# build, ADR 0067, and Goodfetch's own releases from every `url` of
+# compat/releases.toml, ADR 0066, among them) is no endpoint here: a job
+# fetches what it needs before its deny, so a denied step that reaches
+# GitHub fails the job (owner decision of 2026-10-19).
 
 [[deny]]
 job = "pull-request.yml#quick"

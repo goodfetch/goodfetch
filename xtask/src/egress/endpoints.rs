@@ -1,7 +1,10 @@
-//! `ci/egress/endpoints.toml`, parsed: the Egress canary's address, the
-//! pinned artifact mirror, and each job's declaration under the deny, outside
-//! it, or under it with named endpoints (ADR 0043). Goodfetch's own releases
-//! join the mirror from `compat/releases.toml` (ADR 0066) when it exists.
+//! `ci/egress/endpoints.toml`, parsed: the Egress canary's address and each
+//! job's declaration under the deny, outside it, or under it with named
+//! endpoints (ADR 0043). The pinned artifact mirror is no endpoint: every
+//! pinned download, the test V8 build and Goodfetch's own releases
+//! (`compat/releases.toml`, ADR 0066) included, comes before the deny, so a
+//! job under it reaches only the fixtures, local to it (owner decision of
+//! 2026-10-19).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -15,7 +18,6 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 pub(crate) const ENDPOINTS: &str = "ci/egress/endpoints.toml";
-pub(crate) const RELEASES: &str = "compat/releases.toml";
 
 /// A job of a workflow, written `<workflow file>#<job id>`.
 #[derive(Clone, PartialEq, Eq, Deserialize)]
@@ -110,60 +112,6 @@ impl fmt::Display for Endpoint {
     }
 }
 
-/// An `https://` URL a pinned download is fetched from; the deny allows its
-/// host and port, so it stands for every path on that host.
-#[derive(Deserialize)]
-#[serde(try_from = "String")]
-struct MirrorUrl(Endpoint);
-
-impl TryFrom<String> for MirrorUrl {
-    type Error = anyhow::Error;
-
-    fn try_from(text: String) -> Result<Self> {
-        let rest = text.strip_prefix("https://").with_context(|| {
-            format!("`{text}` is not an https:// URL; pinned downloads are HTTPS")
-        })?;
-        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-        if authority.contains('@') {
-            bail!("`{text}` carries credentials");
-        }
-        let endpoint = match authority.rsplit_once(':') {
-            Some((host, port))
-                if !host.ends_with(':') && (host.starts_with('[') || !host.contains(':')) =>
-            {
-                Endpoint::parse(host, port)?
-            }
-            _ => Endpoint::parse(authority, "443")?,
-        };
-        Ok(Self(endpoint))
-    }
-}
-
-/// What a mirror entry holds: only the digest-pinned downloads ADR 0043
-/// lists, and the test V8 build, CI's own entry (ADR 0067). Goodfetch's own
-/// releases come from `compat/releases.toml` (ADR 0066).
-#[derive(Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum MirrorKind {
-    Browser,
-    Lightpanda,
-    PluginBrowser,
-    PluginRuntime,
-    CursoryRecordings,
-    CleanUpRules,
-    ProductExecutable,
-    ProvingGround,
-    TestV8,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MirrorEntry {
-    #[serde(rename = "kind")]
-    _kind: MirrorKind,
-    urls: Vec<MirrorUrl>,
-}
-
 /// The jobs ADR 0043 lets reach named endpoints, and only those.
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -219,8 +167,6 @@ struct NamedEntry {
 struct File {
     canary: SocketAddr,
     #[serde(default)]
-    mirror: Vec<MirrorEntry>,
-    #[serde(default)]
     deny: Vec<DenyEntry>,
     #[serde(default)]
     outside: Vec<OutsideEntry>,
@@ -230,7 +176,7 @@ struct File {
 
 /// How a job stands to the deny.
 pub(crate) enum Rule {
-    /// It runs the product, under the deny: the fixtures and the mirror only.
+    /// It runs the product, under the deny: the fixtures only.
     Deny,
     /// It runs none of the product, outside the deny.
     Outside,
@@ -246,8 +192,6 @@ pub(crate) struct Declaration {
 pub(crate) struct Endpoints {
     /// The forbidden address the Egress canary tries.
     pub(crate) canary: SocketAddr,
-    /// The pinned artifact mirror's hosts, Goodfetch's own releases included.
-    pub(crate) mirror: Vec<Endpoint>,
     pub(crate) declarations: Vec<Declaration>,
 }
 
@@ -264,15 +208,6 @@ impl Endpoints {
                 file.canary
             );
         }
-        let mut mirror: Vec<Endpoint> = file
-            .mirror
-            .into_iter()
-            .flat_map(|entry| entry.urls)
-            .map(|url| url.0)
-            .collect();
-        mirror.extend(released(root)?);
-        mirror.sort();
-        mirror.dedup();
         let declarations = file
             .deny
             .into_iter()
@@ -291,7 +226,6 @@ impl Endpoints {
             .collect();
         Ok(Self {
             canary: file.canary,
-            mirror,
             declarations,
         })
     }
@@ -302,9 +236,9 @@ impl Endpoints {
             .find(|declaration| &declaration.job == job)
     }
 
-    /// Everything a job under the deny may reach: the mirror, and its named
-    /// endpoints when it has some. A job outside the deny or not declared
-    /// has no such list.
+    /// Everything a job under the deny may reach beyond its fixtures: its
+    /// named endpoints, when ADR 0043 names it, and nothing otherwise. A job
+    /// outside the deny or not declared has no such list.
     pub(crate) fn allowed(&self, job: &JobKey) -> Result<Vec<Endpoint>> {
         let named: &[Endpoint] = match self.declaration(job).map(|declaration| &declaration.rule) {
             None => bail!("{job} is not declared in {ENDPOINTS}"),
@@ -312,48 +246,10 @@ impl Endpoints {
             Some(Rule::Deny) => &[],
             Some(Rule::Named(endpoints)) => endpoints,
         };
-        let mut allowed = self.mirror.clone();
-        allowed.extend(named.iter().cloned());
+        let mut allowed = named.to_vec();
         allowed.sort();
         allowed.dedup();
         Ok(allowed)
-    }
-}
-
-/// The hosts of every `url` in `compat/releases.toml`, wherever the entry
-/// holds it, and nothing when the file does not exist yet.
-fn released(root: &Path) -> Result<Vec<Endpoint>> {
-    let path = root.join(RELEASES);
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let document: toml::Table =
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    let mut urls = Vec::new();
-    collect_urls(&toml::Value::Table(document), &mut urls);
-    urls.into_iter()
-        .map(|url| {
-            MirrorUrl::try_from(url)
-                .map(|url| url.0)
-                .with_context(|| format!("reading {}", path.display()))
-        })
-        .collect()
-}
-
-fn collect_urls(value: &toml::Value, urls: &mut Vec<String>) {
-    match value {
-        toml::Value::Table(table) => {
-            for (key, value) in table {
-                match value {
-                    toml::Value::String(url) if key == "url" => urls.push(url.clone()),
-                    other => collect_urls(other, urls),
-                }
-            }
-        }
-        toml::Value::Array(items) => items.iter().for_each(|item| collect_urls(item, urls)),
-        _ => {}
     }
 }
 

@@ -238,11 +238,15 @@ jobs:
   # compared with zero mismatched pixels, only inside the Playwright image
   # pinned by digest in ci/visual/image.toml, on Linux x86-64. No other job
   # runs them, and no job writes a Reference screenshot: the
-  # update-screenshots workflow does.
+  # update-screenshots workflow does. `xtask affected` selects it when a
+  # visual test, a Reference screenshot, a runner's config, the pinned image
+  # or the code a visual test exercises changes.
   visual:
     name: visual
-    needs: quick
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: [quick, affected]
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && contains(fromJSON(needs.affected.outputs.jobs), 'visual')
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 30
     permissions:

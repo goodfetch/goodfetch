@@ -65,7 +65,7 @@ pub(crate) enum Command {
     /// run the Egress canary right after, and check the deny's log at the end.
     Check,
     /// Prints what a job under the deny may reach, one `<host> <port>` line
-    /// each: the pinned artifact mirror and the job's named endpoints.
+    /// each: the job's named endpoints, none for a job only under the deny.
     Endpoints {
         /// The job, as `<workflow file>#<job id>`.
         #[arg(long)]

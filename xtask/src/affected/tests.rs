@@ -1,6 +1,7 @@
 //! The selection rules, as named cases of changed paths over one fixture
-//! workspace that holds both Products' crates, the sink processes, and both
-//! Products' TypeScript and Python packages (spec #130, Testing Decisions).
+//! workspace that holds both Products' crates, the sink processes, both
+//! Products' TypeScript and Python packages, and the Console's visual test
+//! (spec #130, Testing Decisions).
 //! Covers: story:1-52, story:1-53, story:1-64
 
 use std::collections::BTreeSet;
@@ -50,106 +51,128 @@ fn package(ecosystem: Ecosystem, name: &str, folder: &str, dependencies: &[&str]
 
 /// Collie's crates outside `crates/foxhound/`, Foxhound's inside it, the sink
 /// processes and their shared code under `crates/foxhound/sinks/` (the sink
-/// protocol is `goodfetch-protocol`'s), and each Product's packages.
+/// protocol is `goodfetch-protocol`'s), each Product's packages, and a visual
+/// test in the Console, which takes its screenshots through the shared
+/// test-support package.
 fn fixture() -> Workspace {
-    use Ecosystem::{Python, TypeScript};
     Workspace {
-        crates: vec![
-            library("goodfetch-protocol", "crates/goodfetch-protocol", &[]),
+        crates: crates(),
+        packages: packages(),
+        visual_tests: vec![RepoPath::new("console/src/screens/run.visual.test.tsx")],
+    }
+}
+
+fn crates() -> Vec<Crate> {
+    vec![
+        library("goodfetch-protocol", "crates/goodfetch-protocol", &[]),
+        library(
+            "goodfetch-test-support",
+            "crates/goodfetch-test-support",
+            &[],
+        ),
+        with_benches(
+            &["engine"],
             library(
-                "goodfetch-test-support",
-                "crates/goodfetch-test-support",
-                &[],
+                "goodfetch-engine",
+                "crates/goodfetch-engine",
+                &["goodfetch-protocol", "goodfetch-test-support"],
             ),
-            with_benches(
-                &["engine"],
-                library(
-                    "goodfetch-engine",
-                    "crates/goodfetch-engine",
-                    &["goodfetch-protocol", "goodfetch-test-support"],
-                ),
-            ),
-            executable(
-                "goodfetch-collie",
-                "crates/goodfetch-collie",
+        ),
+        executable(
+            "goodfetch-collie",
+            "crates/goodfetch-collie",
+            &["goodfetch-engine"],
+        ),
+        with_benches(
+            &["frontier"],
+            library(
+                "goodfetch-frontier",
+                "crates/foxhound/goodfetch-frontier",
                 &["goodfetch-engine"],
             ),
-            with_benches(
-                &["frontier"],
-                library(
-                    "goodfetch-frontier",
-                    "crates/foxhound/goodfetch-frontier",
-                    &["goodfetch-engine"],
-                ),
-            ),
-            executable(
-                "goodfetch-foxhound",
-                "crates/foxhound/goodfetch-foxhound",
-                &["goodfetch-engine", "goodfetch-frontier"],
-            ),
-            library(
-                "goodfetch-sink-shared",
-                "crates/foxhound/sinks/goodfetch-sink-shared",
-                &["goodfetch-protocol"],
-            ),
-            executable(
-                "goodfetch-sink-kafka",
-                "crates/foxhound/sinks/goodfetch-sink-kafka",
-                &["goodfetch-sink-shared"],
-            ),
-            executable(
-                "goodfetch-sink-s3",
-                "crates/foxhound/sinks/goodfetch-sink-s3",
-                &["goodfetch-sink-shared"],
-            ),
-            executable("xtask", "xtask", &[]),
-        ],
-        packages: vec![
-            package(
-                TypeScript,
-                "@goodfetch/collie-client",
-                "sdks/typescript/collie-client",
-                &[],
-            ),
-            package(
-                TypeScript,
-                "@goodfetch/collie",
-                "sdks/typescript/collie",
-                &["@goodfetch/collie-client"],
-            ),
-            package(
-                TypeScript,
-                "@goodfetch/foxhound",
-                "sdks/typescript/foxhound",
-                &["@goodfetch/collie-client"],
-            ),
-            package(TypeScript, "@goodfetch/console", "console", &[]),
-            package(
-                TypeScript,
-                "@goodfetch/console-foxhound",
-                "console/foxhound",
-                &[],
-            ),
-            package(
-                Python,
-                "goodfetch-collie-client",
-                "sdks/python/collie-client",
-                &[],
-            ),
-            package(
-                Python,
-                "goodfetch-collie",
-                "sdks/python/collie",
-                &["goodfetch-collie-client"],
-            ),
-            package(
-                Python,
-                "goodfetch-foxhound",
-                "sdks/python/foxhound",
-                &["goodfetch-collie-client"],
-            ),
-        ],
-    }
+        ),
+        executable(
+            "goodfetch-foxhound",
+            "crates/foxhound/goodfetch-foxhound",
+            &["goodfetch-engine", "goodfetch-frontier"],
+        ),
+        library(
+            "goodfetch-sink-shared",
+            "crates/foxhound/sinks/goodfetch-sink-shared",
+            &["goodfetch-protocol"],
+        ),
+        executable(
+            "goodfetch-sink-kafka",
+            "crates/foxhound/sinks/goodfetch-sink-kafka",
+            &["goodfetch-sink-shared"],
+        ),
+        executable(
+            "goodfetch-sink-s3",
+            "crates/foxhound/sinks/goodfetch-sink-s3",
+            &["goodfetch-sink-shared"],
+        ),
+        executable("xtask", "xtask", &[]),
+    ]
+}
+
+fn packages() -> Vec<Package> {
+    use Ecosystem::{Python, TypeScript};
+    vec![
+        package(
+            TypeScript,
+            "@goodfetch/collie-client",
+            "sdks/typescript/collie-client",
+            &[],
+        ),
+        package(
+            TypeScript,
+            "@goodfetch/collie",
+            "sdks/typescript/collie",
+            &["@goodfetch/collie-client"],
+        ),
+        package(
+            TypeScript,
+            "@goodfetch/foxhound",
+            "sdks/typescript/foxhound",
+            &["@goodfetch/collie-client"],
+        ),
+        package(
+            TypeScript,
+            "@goodfetch/console",
+            "console",
+            &["@goodfetch/test-support"],
+        ),
+        package(
+            TypeScript,
+            "@goodfetch/console-foxhound",
+            "console/foxhound",
+            &[],
+        ),
+        package(
+            TypeScript,
+            "@goodfetch/test-support",
+            "test-support/typescript",
+            &[],
+        ),
+        package(
+            Python,
+            "goodfetch-collie-client",
+            "sdks/python/collie-client",
+            &[],
+        ),
+        package(
+            Python,
+            "goodfetch-collie",
+            "sdks/python/collie",
+            &["goodfetch-collie-client"],
+        ),
+        package(
+            Python,
+            "goodfetch-foxhound",
+            "sdks/python/foxhound",
+            &["goodfetch-collie-client"],
+        ),
+    ]
 }
 
 fn select_paths(paths: &[&str]) -> Selection {
@@ -180,8 +203,20 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","evaluation"]"#)]
 // The catalog is the docs' reference too (spec #130, Pre-merge suite).
 #[case::evaluation_and_docs_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","docs","evaluation"]"#)]
-#[case::evaluation_for_skills(&["skills/collie/SKILL.md"], r#"["pre-merge","sinks","perf","docs","evaluation"]"#)]
-#[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","docs"]"#)]
+#[case::evaluation_for_skills(&["skills/collie/SKILL.md"], r#"["pre-merge","sinks","perf","visual","docs","evaluation"]"#)]
+#[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
+// The visual job runs when a visual test, a Reference screenshot, a runner's
+// config, the pinned image or the code a visual test exercises changes.
+#[case::visual_for_a_vitest_visual_test(&["console/src/screens/run.visual.test.tsx"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_playwright_visual_test(&["test-support/typescript/src/screenshot.visual.spec.ts"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_vitest_reference_screenshot(&["console/src/screens/__screenshots__/run.visual.test.tsx/run-1.png"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_playwright_reference_screenshot(&["test-support/typescript/src/screenshot.visual.spec.ts-snapshots/fixture-page.png"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_the_playwright_config(&["playwright.config.ts"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
+#[case::visual_for_the_pinned_image(&["ci/visual/image.toml"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
+#[case::visual_for_code_a_visual_test_exercises(&["console/src/app.tsx"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_package_a_visual_test_depends_on(&["test-support/typescript/src/screenshot.ts"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::no_visual_for_a_package_no_visual_test_reaches(&["sdks/typescript/collie/src/index.ts"], r#"["pre-merge","sinks"]"#)]
+#[case::no_visual_for_a_nested_package_without_visual_tests(&["console/foxhound/src/datasets.tsx"], r#"["pre-merge","sinks"]"#)]
 #[case::nothing_for_no_change(&[], "[]")]
 fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
     let selection = select_paths(paths);
@@ -338,10 +373,10 @@ fn workspace_input_change_selects_everything() {
 
     insta::assert_snapshot!(selection, @r#"
     products=collie foxhound
-    jobs=["pre-merge","sinks","perf","docs"]
+    jobs=["pre-merge","sinks","perf","visual","docs"]
     nextest-filter=all()
     crates=goodfetch-collie goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-protocol goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared goodfetch-test-support xtask
-    vitest-packages=console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound
+    vitest-packages=console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript
     pytest-packages=sdks/python/collie sdks/python/collie-client sdks/python/foxhound
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3

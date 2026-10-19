@@ -11,6 +11,8 @@ export type TestSupportErrorCode =
   | "tool_missing"
   /** `goodfetch-test-env` exited before it printed a description. */
   | "start_failed"
+  /** A shared fixture of `test-support/fixtures/` fails its committed schema. */
+  | "fixture_invalid"
   /** The description `goodfetch-test-env` printed fails its committed schema. */
   | "description_invalid"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */

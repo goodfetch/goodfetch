@@ -6,8 +6,8 @@
 use goodfetch_conformance::{ProvingGround, References, run_self_test};
 use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::result_document::{
-    CaseOutcome, CaseResult, ConformanceDocument, OracleOutcome, Outcome, ResultDocument,
-    TargetIdentity, read,
+    CaseOutcome, CaseResult, ConformanceDocument, LoadedDocument, OracleOutcome, Outcome,
+    ResultDocument, TargetIdentity, read,
 };
 use goodfetch_test_support::TestEnv;
 
@@ -87,11 +87,11 @@ fn the_self_test_document_names_the_proving_ground_it_judged_and_matches_its_sch
         )
     );
     assert_eq!(header.proving_ground.version, version);
-    let written = ResultDocument::Conformance(document);
+    let written = ResultDocument::Conformance(document.clone());
     assert_eq!(schema_violations(&written), Vec::<String>::new());
     assert_eq!(
         read(&serde_json::to_vec(&written).unwrap()).unwrap(),
-        written
+        LoadedDocument::Conformance(document)
     );
 }
 

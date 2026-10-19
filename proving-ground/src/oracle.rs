@@ -10,7 +10,12 @@
 //! (ADR 0013), and only a result the tool calls a success can be a false
 //! success. A downloaded file is judged by its name and exact bytes. Where the
 //! only right result is a refusal, the tool's report of a failure is part of
-//! it: nothing carried out and a success reported is a false success.
+//! it: nothing carried out and a success reported is a false success, unless
+//! the Records it reports are complete, which only outwaiting the task's
+//! incident gives: data delivered late, a failure. Where the refusal names an
+//! error, the tool's must be it. The Proving ground's own observations of the
+//! task's requests judge what the tool fetched: a path it must not request,
+//! and the Web Bot Auth signatures it must or must not send.
 //! What else the Proving ground's own record refutes, such as a
 //! fingerprint that changed between requests or an escape a page's script
 //! reported, is a finding, and a result with a finding is never verified.
@@ -22,7 +27,9 @@ use serde_json::Value;
 
 use crate::clock::Stopwatch;
 use crate::digest;
-use crate::task::{self, Effect, Expected, Record};
+use crate::observation::Seen;
+use crate::robots;
+use crate::task::{self, Effect, Expected, ExpectedError, Record};
 
 /// A tool's result for one task, as submitted to `POST /oracle`.
 #[derive(Deserialize)]
@@ -41,6 +48,19 @@ pub(crate) struct Submission {
     /// repeats so results are reported per each.
     #[serde(default)]
     access: Option<AccessDimensions>,
+    /// The error a failing tool reports.
+    #[serde(default)]
+    error: Option<SubmittedError>,
+}
+
+/// A failing tool's error: its Error code and, for a navigation that
+/// failed, the browser's network error.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SubmittedError {
+    code: String,
+    #[serde(default)]
+    network_error: Option<String>,
 }
 
 /// A file a tool returns: its name and its bytes in lowercase or uppercase
@@ -174,6 +194,21 @@ pub(crate) struct Answer {
     /// submitted.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     extra_files: Vec<String>,
+    /// Complete Records reported as a success where the task's incident made
+    /// a failure the only right result: data delivered late, not a false
+    /// success.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    late: bool,
+    /// A failure whose error is not the one the refusal names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wrong_error: Option<WrongError>,
+    /// The targets of the task's requests to a path it must not request.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    forbidden_requests: Vec<String>,
+    /// The task's requests whose Web Bot Auth signature is not as the task
+    /// requires.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    signature_faults: Vec<SignatureFault>,
     /// What the Proving ground's own record refutes beside the Records,
     /// Effects and files: what it saw the tool do wrong on the task's host,
     /// and the checks of what it observed that failed.
@@ -183,6 +218,31 @@ pub(crate) struct Answer {
     #[serde(skip_serializing_if = "Option::is_none")]
     access: Option<AccessDimensions>,
     oracle_time_microseconds: u64,
+}
+
+/// The error a refusal names, and the one the tool reported.
+#[derive(Serialize)]
+struct WrongError {
+    expected: ExpectedError,
+    submitted: Option<SubmittedError>,
+}
+
+/// A request whose signature is not as its task requires.
+#[derive(Serialize)]
+struct SignatureFault {
+    target: String,
+    fault: Fault,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Fault {
+    /// Not signed, where every request must be.
+    Unsigned,
+    /// Signed, but its signature was refused against the agent's directory.
+    Refused,
+    /// Signed, where no request may be.
+    Signed,
 }
 
 /// A finding of the oracle's answer: a Crawl's misstep the family that
@@ -358,27 +418,75 @@ struct Files {
 /// its task, `effects`, against the expected ones; any of the task's
 /// `findings` refutes it. A task whose expected result is a refusal is
 /// verified only when nothing was carried out and the tool reported a
-/// failure.
+/// failure (the one named, if any), and the task's `requests`, as observed,
+/// are judged against its forbidden paths and signatures.
 pub(crate) fn judge(
     expected: &Expected,
     submission: Submission,
     effects: &[Effect],
+    requests: &[Seen],
     findings: Vec<task::Finding>,
 ) -> Answer {
     let stopwatch = Stopwatch::start();
     let records = judge_records(expected, submission.records);
     let effects = judge_effects(expected, effects);
     let files = judge_files(expected, &submission.files);
+    let forbidden_requests: Vec<String> = requests
+        .iter()
+        .filter(|request| {
+            request.target != "/robots.txt"
+                && (expected
+                    .forbidden_paths
+                    .iter()
+                    .any(|path| request.target.starts_with(path))
+                    || expected.robots_txt.is_some_and(|robots| {
+                        !robots::allows(
+                            robots,
+                            request.fingerprint.user_agent.as_deref(),
+                            &request.target,
+                        )
+                    }))
+        })
+        .map(|request| request.target.clone())
+        .collect();
+    let signature_faults = judge_signatures(expected.signed, requests);
+    let wrong_error = expected.error.as_ref().and_then(|named| {
+        let matches = submission.error.as_ref().is_some_and(|error| {
+            error.code == named.code
+                && named
+                    .network_error
+                    .is_none_or(|network| error.network_error.as_deref() == Some(network))
+        });
+        (!matches && submission.status == ToolStatus::Failure).then(|| WrongError {
+            expected: named.clone(),
+            submitted: submission.error.clone(),
+        })
+    });
+    let as_fetched = forbidden_requests.is_empty() && signature_faults.is_empty();
     let correct = records.missing.is_empty()
         && effects.missing.is_empty()
         && files.missing.is_empty()
         && findings.is_empty()
+        && nothing_wrong(&records, &effects, &files)
+        && as_fetched;
+    // A refusal's expected Records are those only outwaiting its incident
+    // gives: their absence is no fault, their whole presence is late.
+    let refused_cleanly = effects.missing.is_empty()
+        && files.missing.is_empty()
+        && findings.is_empty()
+        && nothing_wrong(&records, &effects, &files)
+        && as_fetched
+        && wrong_error.is_none();
+    let late = expected.refusal
+        && submission.status == ToolStatus::Success
+        && !expected.records.is_empty()
+        && records.missing.is_empty()
         && nothing_wrong(&records, &effects, &files);
     let outcome = if expected.refusal {
         match submission.status {
-            ToolStatus::Failure if correct => Outcome::Verified,
-            ToolStatus::Success => Outcome::FalseSuccess,
-            ToolStatus::Failure | ToolStatus::NeedsReview => Outcome::Failed,
+            ToolStatus::Failure if refused_cleanly => Outcome::Verified,
+            ToolStatus::Success if !late => Outcome::FalseSuccess,
+            ToolStatus::Success | ToolStatus::Failure | ToolStatus::NeedsReview => Outcome::Failed,
         }
     } else if correct {
         Outcome::Verified
@@ -386,6 +494,7 @@ pub(crate) fn judge(
         Outcome::FalseSuccess
     } else if findings.is_empty()
         && nothing_wrong(&records, &effects, &files)
+        && as_fetched
         && (records.any_correct || effects.any_expected || files.any_correct)
     {
         Outcome::Incomplete
@@ -404,11 +513,38 @@ pub(crate) fn judge(
         missing_files: files.missing,
         wrong_files: files.wrong,
         extra_files: files.extra,
+        late,
+        wrong_error,
+        forbidden_requests,
+        signature_faults,
         findings: findings.into_iter().map(Refutation::Crawl).collect(),
         quality: records.quality,
         access: submission.access,
         oracle_time_microseconds: stopwatch.microseconds(),
     }
+}
+
+/// The requests whose signature is not as `signed` requires: each one
+/// signed and verified, or none signed.
+fn judge_signatures(signed: Option<bool>, requests: &[Seen]) -> Vec<SignatureFault> {
+    let Some(signed) = signed else {
+        return Vec::new();
+    };
+    requests
+        .iter()
+        .filter_map(|request| {
+            let fault = match (signed, request.signature) {
+                (true, None) => Fault::Unsigned,
+                (true, Some(false)) => Fault::Refused,
+                (false, Some(_)) => Fault::Signed,
+                (true, Some(true)) | (false, None) => return None,
+            };
+            Some(SignatureFault {
+                target: request.target.clone(),
+                fault,
+            })
+        })
+        .collect()
 }
 
 /// Whether nothing submitted or carried out is extra or wrong.

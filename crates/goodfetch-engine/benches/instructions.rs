@@ -1,0 +1,27 @@
+//! The engine's instruction counts, under gungraun's Callgrind with mimalloc
+//! as the global allocator, as the executables ship (ADR 0071).
+
+mod scenarios;
+
+use std::hint::black_box;
+
+use gungraun::prelude::*;
+
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[library_benchmark]
+#[bench::hundred_requests(scenarios::engine_info_lines(100))]
+fn framing(lines: Vec<u8>) -> usize {
+    black_box(scenarios::frame_and_decode(black_box(&lines)))
+}
+
+#[library_benchmark]
+#[bench::hundred_calls(scenarios::engine_info_lines(100))]
+fn dispatch(lines: Vec<u8>) -> usize {
+    black_box(scenarios::dispatch(black_box(&lines)))
+}
+
+library_benchmark_group!(name = engine, benchmarks = [framing, dispatch]);
+
+main!(library_benchmark_groups = engine);

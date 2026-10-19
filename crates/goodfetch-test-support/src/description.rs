@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
+use crate::proving_ground::ProvingGroundDescription;
 use crate::ssrf::SsrfTable;
 use crate::tools::Tools;
 
@@ -33,6 +34,11 @@ pub struct Description {
     pub start_time: String,
     /// The commit's executables, from the test tool manifest.
     pub tools: Tools,
+    /// The Proving ground `--proving-ground <seed>` started, present only
+    /// when asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "ProvingGroundDescription")]
+    pub proving_ground: Option<ProvingGroundDescription>,
 }
 
 impl Description {
@@ -45,7 +51,15 @@ impl Description {
             seed: env.seed(),
             start_time: START_TIME.to_owned(),
             tools,
+            proving_ground: None,
         }
+    }
+
+    /// The same description with the Proving ground the test started.
+    #[must_use]
+    pub fn with_proving_ground(mut self, proving_ground: ProvingGroundDescription) -> Self {
+        self.proving_ground = Some(proving_ground);
+        self
     }
 }
 

@@ -51,7 +51,7 @@ pub struct ProvingGroundDescription {
     pub fixtures: ProvingGroundFixtures,
 }
 
-/// The network fixtures `serve` starts beside its pages (#311).
+/// The network fixtures `serve` starts beside its pages.
 #[derive(
     Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]

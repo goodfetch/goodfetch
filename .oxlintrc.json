@@ -35,8 +35,17 @@
   "overrides": [
     {
       "files": ["console/**"],
+      "jsPlugins": ["eslint-plugin-lingui"],
       "rules": {
-        "import/no-relative-parent-imports": "error"
+        "import/no-relative-parent-imports": "error",
+        "lingui/no-unlocalized-strings": "error"
+      }
+    },
+    {
+      "files": ["console/**/*.test.{ts,tsx}", "console/**/*.stories.tsx", "console/tests/**"],
+      "jsPlugins": ["eslint-plugin-lingui"],
+      "rules": {
+        "lingui/no-unlocalized-strings": "off"
       }
     }
   ],

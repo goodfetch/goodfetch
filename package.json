@@ -7,6 +7,7 @@
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "allure": "catalog:",
+    "eslint-plugin-lingui": "0.16.0",
     "json-schema-to-typescript": "16.0.0",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",

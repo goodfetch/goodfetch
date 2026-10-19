@@ -38,6 +38,11 @@ mkdir -p target/junit target/release-suite
 # A selection may hold no test of a runner yet; every test it holds runs.
 export NEXTEST_NO_TESTS=pass INSTA_UPDATE=no
 
+# Vitest, Playwright and pytest order their tests by the tree under test's
+# seed, as `just test` does (TESTING.md, Before merge).
+GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
+export GOODFETCH_ORDER_SEED
+
 # Each runner skips the tests on the test quarantine list through its own
 # filter (ADR 0064), as `just test` does; `build` writes the list's
 # `<runner>\t<argument>` lines before the deny.
@@ -90,7 +95,7 @@ case "$part" in
         --outputFile.junit="target/junit/vitest-node$line.xml" \
         ${skip_vitest[@]+"${skip_vitest[@]}"} || status=$?
       PATH="$folder:$PATH" PLAYWRIGHT_JUNIT_OUTPUT_FILE="target/junit/playwright-node$line.xml" \
-        pnpm exec playwright test --shard="$shard" --pass-with-no-tests \
+        pnpm exec playwright test --shard="$shard" --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" \
         ${skip_playwright[@]+"${skip_playwright[@]}"} || status=$?
     done
     exit "$status"
@@ -103,7 +108,7 @@ case "$part" in
       echo "CPython $python"
       # pytest exits 5 when it collects no test, as before any Python test exists.
       code=0
-      uv run --frozen --python "$python" pytest -n auto \
+      uv run --frozen --python "$python" pytest -n auto --randomly-seed="$GOODFETCH_ORDER_SEED" \
         --junitxml="target/junit/pytest-$python.xml" ${skip_pytest[@]+"${skip_pytest[@]}"} || code=$?
       [[ $code -eq 0 || $code -eq 5 ]] || status=$code
     done

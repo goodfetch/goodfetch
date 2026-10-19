@@ -2,8 +2,8 @@
 # Checks that every tool pinned in more than one place is pinned at one
 # version (`just lint`): the CI image's (ci/image/Containerfile), the hosted
 # jobs' host-tools action, ci/host/runtimes.env, package.json's
-# packageManager and the workspace's gungraun, which gungraun's runner must
-# match. The image's tag hashes only its Containerfile, so a version changed
+# packageManager, the pnpm catalog's Playwright and the workspace's gungraun,
+# which gungraun's runner must match. The image's tag hashes only its Containerfile, so a version changed
 # elsewhere alone would leave the image and the hosted jobs apart.
 set -euo pipefail
 
@@ -40,5 +40,7 @@ agree mold "$(image_arg MOLD_VERSION)" "$(sed -n 's/^ *mold-version: //p' "$acti
   "the CI image and the host-tools action"
 agree gungraun "$(image_tool gungraun-runner)" "$(sed -n 's/^gungraun = { version = "=\([0-9.]*\)".*/\1/p' "$root/Cargo.toml")" \
   "the CI image's gungraun-runner and the workspace's gungraun"
+agree playwright "$(image_arg PLAYWRIGHT_VERSION)" "$(sed -n 's/^  playwright: //p' "$root/pnpm-workspace.yaml")" \
+  "the CI image and the pnpm catalog"
 
 exit "$failed"

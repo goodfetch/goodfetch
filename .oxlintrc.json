@@ -34,6 +34,64 @@
   },
   "overrides": [
     {
+      "files": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/tests/**/*.ts",
+        "**/tests/**/*.tsx"
+      ],
+      "rules": {
+        "no-restricted-properties": [
+          "error",
+          {
+            "property": "newContext",
+            "message": "Makes a context of its own, or an API request context (ADR 0068); take the context or request fixture of @goodfetch/test-support/playwright."
+          },
+          {
+            "object": "browser",
+            "property": "newPage",
+            "message": "Makes a context of its own (ADR 0068); take the page fixture, or call context.newPage()."
+          },
+          {
+            "property": "launchPersistentContext",
+            "message": "Makes a browser and context of its own (ADR 0068); take the fixtures of @goodfetch/test-support/playwright."
+          },
+          {
+            "property": "launch",
+            "message": "Starts a browser of its own (ADR 0068); take the fixtures of @goodfetch/test-support/playwright."
+          },
+          {
+            "property": "connect",
+            "message": "Connects to a browser of its own (ADR 0068); take the fixtures of @goodfetch/test-support/playwright. A Node socket uses net.createConnection."
+          },
+          {
+            "property": "connectOverCDP",
+            "message": "Connects to a browser of its own (ADR 0068); take the fixtures of @goodfetch/test-support/playwright."
+          },
+          {
+            "property": "waitForTimeout",
+            "message": "Sleeps (ADR 0068); wait with a web-first assertion or expect.poll."
+          },
+          {
+            "object": "Object",
+            "property": "defineProperty",
+            "message": "Redefines a property (ADR 0068); set browser state through Playwright, or pass the value as an option."
+          },
+          {
+            "object": "Object",
+            "property": "defineProperties",
+            "message": "Redefines a property (ADR 0068); set browser state through Playwright, or pass the value as an option."
+          },
+          {
+            "object": "Reflect",
+            "property": "defineProperty",
+            "message": "Redefines a property (ADR 0068); set browser state through Playwright, or pass the value as an option."
+          }
+        ]
+      }
+    },
+    {
       "files": ["console/**"],
       "jsPlugins": ["eslint-plugin-lingui"],
       "rules": {

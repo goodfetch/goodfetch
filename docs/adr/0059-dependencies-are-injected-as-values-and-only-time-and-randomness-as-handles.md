@@ -123,3 +123,5 @@ Any test can run beside any other:
 - **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/goodfetch/goodfetch/issues/214)** starts its engine with a per-test `GOODFETCH_HOME` and a cleared environment. The `Clock` and `Entropy` arrive with the first code that reads time or chooses at random.
 - **The "Test infrastructure" spec** builds the shared helpers: the test `Clock`, the seeded `Entropy`, the per-test home and environment, the port report, and the CI setup of `gnome-keyring` and `lo0` aliases.
   > Amended by [ADR 0062](0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md): the test `Clock` and seeded `Entropy` are the handles' named constructors, not test-support helpers.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): Windows answering on `127.0.0.x` is not yet tested either, as `TESTING.md` says; it is checked with macOS's `lo0` line by the first ticket that depends on it.

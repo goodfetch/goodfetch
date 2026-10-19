@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="1" skipped="0" tests="3" time="0.049" timestamp="2026-10-19T12:45:49.041838+02:00" hostname="runner"><testcase classname="tests.test_page" name="test_title_is_read" time="0.001"><failure message="assert (1 + 1) == 3">def test_title_is_read() -&gt; None:
+        print("goodfetch-test-seed=31", file=sys.stderr)
+&gt;       assert 1 + 1 == 3
+E       assert (1 + 1) == 3
+
+tests/test_page.py:13: AssertionError</failure><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+goodfetch-test-seed=31
+
+</system-err></testcase><testcase classname="tests.test_page" name="test_link_is_followed" time="0.000"><error message="failed on setup with &quot;RuntimeError: the page did not load&quot;">@pytest.fixture
+    def page() -&gt; str:
+&gt;       raise RuntimeError("the page did not load")
+E       RuntimeError: the page did not load
+
+tests/test_page.py:8: RuntimeError</error></testcase><testcase classname="tests.test_page" name="test_steady" time="0.000" /></testsuite></testsuites>

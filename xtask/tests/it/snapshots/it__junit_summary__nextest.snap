@@ -1,0 +1,19 @@
+---
+source: xtask/tests/it/junit_summary.rs
+expression: workspace.read_text(SUMMARY)
+---
+### Failed tests
+
+1 test failed in 1 JUnit file.
+
+#### `sample tests::title_is_read`
+
+In `nextest-ci.xml`, with `goodfetch-test-seed=17`.
+
+```text
+thread 'tests::title_is_read' (37781387) panicked at src/lib.rs:9:9:
+assertion `left == right` failed: the title
+  left: 2
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+```

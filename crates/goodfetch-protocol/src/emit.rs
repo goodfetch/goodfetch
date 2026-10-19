@@ -22,8 +22,8 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, Metric, Operation,
-    PROTOCOL_VERSION, PluginKind, Product,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Metric, Operation,
+    PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
 use crate::journey::{Journey, JourneyCatalog};
 use crate::releases::ReleasesFile;
@@ -77,6 +77,9 @@ struct Sections {
     error_codes: Vec<Value>,
     plugin_kinds: Vec<Value>,
     metrics: Vec<Value>,
+    settings: Vec<Value>,
+    hook_stages: Vec<Value>,
+    shared_type_values: Vec<Value>,
 }
 
 impl Sections {
@@ -112,6 +115,24 @@ impl Sections {
                 .iter()
                 .map(|metric| metric_entry(product, metric)),
         );
+        self.settings.extend(
+            entries
+                .settings
+                .iter()
+                .map(|setting| setting_entry(product, setting)),
+        );
+        self.hook_stages.extend(
+            entries
+                .hook_stages
+                .iter()
+                .map(|stage| hook_stage_entry(product, stage)),
+        );
+        self.shared_type_values.extend(
+            entries
+                .shared_type_values
+                .iter()
+                .map(|value| shared_type_value_entry(product, value)),
+        );
     }
 
     fn into_catalog(self) -> Value {
@@ -123,6 +144,9 @@ impl Sections {
             "error_codes": sorted(self.error_codes),
             "plugin_kinds": sorted(self.plugin_kinds),
             "metrics": sorted(self.metrics),
+            "settings": sorted(self.settings),
+            "hook_stages": sorted(self.hook_stages),
+            "shared_type_values": sorted(self.shared_type_values),
         })
     }
 }
@@ -229,6 +253,34 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
         "unit": metric.unit,
         "stability": metric.stability.as_str(),
         "arrived_in": metric.arrived_in.to_string(),
+    })
+}
+
+fn setting_entry(product: Product, setting: &Setting) -> Value {
+    json!({
+        "name": setting.name,
+        "product": product.as_str(),
+        "description": setting.description,
+        "arrived_in": setting.arrived_in.to_string(),
+    })
+}
+
+fn hook_stage_entry(product: Product, stage: &HookStage) -> Value {
+    json!({
+        "name": stage.name,
+        "product": product.as_str(),
+        "description": stage.description,
+        "arrived_in": stage.arrived_in.to_string(),
+    })
+}
+
+fn shared_type_value_entry(product: Product, value: &SharedTypeValue) -> Value {
+    json!({
+        "name": value.name,
+        "product": product.as_str(),
+        "type": value.shared_type.as_str(),
+        "description": value.description,
+        "arrived_in": value.arrived_in.to_string(),
     })
 }
 

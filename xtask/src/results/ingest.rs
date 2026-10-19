@@ -19,9 +19,9 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::artifact::{self, Arch, Os};
-use super::junit::{self, Ending, TestCase};
 use super::store::{self, Attempt, JobRun, KeptFile, Outcome, RunAttempt, TestRun};
 use crate::github::{Api, List};
+use crate::junit::{self, Ending, TestCase};
 
 /// The file each JUnit artifact holds beside its JUnit files.
 const CONTEXT: &str = "context.json";

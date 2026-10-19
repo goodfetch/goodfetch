@@ -3,7 +3,8 @@
 //! time), the processes a test starts and the addresses they report, the
 //! test tool manifest, the paused runtime, proptest's configuration, the
 //! test `tracing` subscriber, the Observation log with its fencing and
-//! Limits checkers, and seeded kills of real processes (ADR 0060); and
+//! Limits checkers, seeded kills of real processes (ADR 0060), the strict
+//! reader of a child's JSON-RPC stdout (ADR 0070); and
 //! `goodfetch-test-env`, which gives the same
 //! setup to TypeScript and Python as one JSON description. It works on
 //! values only: it depends on no Goodfetch crate and is only ever a
@@ -16,6 +17,7 @@ mod kill;
 mod observation;
 mod process;
 mod runtime;
+mod strict_stdout;
 mod tools;
 mod trace;
 mod variables;
@@ -32,6 +34,9 @@ pub use process::{
     reported_address, reported_address_within,
 };
 pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use strict_stdout::{
+    Line, MESSAGE_DEADLINE, STDERR_GRACE, StrictStdout, StrictStdoutError, StrictStdoutErrorKind,
+};
 pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use variables::{

@@ -26,7 +26,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(16))]
 
     #[test]
-    fn the_same_seed_serves_each_crawl_familys_pages_byte_for_byte(
+    fn the_same_seed_serves_the_pages_of_each_crawl_family_byte_for_byte(
         seed: u64,
         (host, path) in crawl_page(),
     ) {

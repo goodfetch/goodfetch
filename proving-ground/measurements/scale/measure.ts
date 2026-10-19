@@ -220,12 +220,13 @@ for (let trial = 0; trial < trialCount; trial += 1) {
   for (const kind of ["proving_ground", "crawlee"] as const) {
     const serving = await serve();
     version = serving.version;
-    trials.push(
+    const measured =
       kind === "proving_ground"
         ? await provingGroundTrial(serving)
-        : await crawleeTrial(serving, crawlee),
-    );
+        : await crawleeTrial(serving, crawlee);
+    trials.push(measured);
     await serving.stop();
+    console.error(JSON.stringify(measured));
   }
 }
 const rates = (kind: Trial["kind"]) =>

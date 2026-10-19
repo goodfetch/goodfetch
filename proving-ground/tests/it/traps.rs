@@ -100,6 +100,18 @@ fn a_crawl_that_stays_in_a_trap_is_caught() {
 }
 
 #[test]
+fn a_complete_crawl_that_fetched_duplicates_left_to_review_is_failed() {
+    let proving_ground = ProvingGround::start(SEED);
+    let mut crawler = known_right(&proving_ground);
+    crawler.key = every_url;
+    let pages = crawler.crawl(&start_url(&proving_ground));
+
+    let answer = judge(&proving_ground, "needs-review", &records_once(&pages));
+
+    assert_eq!(answer["outcome"], "failed", "{answer}");
+}
+
+#[test]
 fn a_crawl_that_follows_a_hidden_link_is_caught_and_its_address_refused() {
     let proving_ground = ProvingGround::start(SEED);
     let mut crawler = known_right(&proving_ground);

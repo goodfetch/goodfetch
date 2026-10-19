@@ -48,6 +48,10 @@ _Avoid_: client (for the Connection), engine (for the Connection), session (a Se
 What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.
 _Avoid_: consumer API, public surface
 
+**CLI**:
+The command-line interface of each Product's executable, through which a person or a script runs that Product's commands; Foxhound's keeps every command of Collie's.
+_Avoid_: shell, terminal, command-line tool
+
 **Attached engine**:
 An engine started by one Client for its own use, which stops when that Client goes away.
 _Avoid_: sidecar, child engine

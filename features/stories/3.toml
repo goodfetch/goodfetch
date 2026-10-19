@@ -1,0 +1,1150 @@
+# Area 3's user stories (spec #213, Engine runtime), the declared
+# `story:3-<id>` Features of ADR 0072, every story of the spec as its
+# Further Notes give them: each story's milestone is that of the ticket that
+# finishes it, and a story without a Journey carries ADR 0075's reason
+# (`actor`, `part` or `reach`). The spec's issue keeps the full text; this
+# copy is the one the Feature check reads. Never renumber or reuse an ID: a
+# removed story stays with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a TypeScript or Python developer, I want my script to start an Attached engine over stdio with no setup, so that a one-off script needs no Daemon."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want my SDK to use the Daemon when one is configured or already running, so that several scripts share one engine and one Console."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 3
+title = "As a Client author, I want every connection to open with `hello` carrying the protocol's `major.minor` and the surface's name, so that a version mismatch fails cleanly before any work."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a developer, I want a Daemon or a cloud engine to accept a Client of the same major and the same or an older minor and refuse anything else with `protocol_version_unsupported`, so that I never run against an engine that misreads me."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a developer, I want a Client of my Product major that the running Daemon refuses to wait for its major's pick and connect to it when the Daemon is idle and not the pick, and otherwise, under `engine: daemon`, to fail with a `fix` naming the `daemon restart` of my own Product's executable by its path (for a Rust Client, its install first) and, where that would still not be the pick, Foxhound at my version or newer, so that upgrading an SDK never leaves me stuck (ADR 0098; the `auto` fallback is area 11's)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer, I want to cancel any call in flight with `$/cancel`, answered with `cancelled` at its next cancellation point, so that one cancelled call never costs me the others on the connection."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a developer, I want every failure as an Error code with a snake_case name, a retryable flag and a JSON-RPC class, so that my code matches on codes, never on message text."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer, I want records and handler requests never dropped and progress and logs coalesced when my Client is slow, so that a slow consumer slows the run instead of losing data."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a Console user, I want every event to carry a position that only goes up and a resubscribe from that position after a reconnect, with a fresh snapshot when the position is gone, so that no lossless event is missed."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer, I want page bodies passed as handles to files in the run's directory, read directly on the same machine and streamed through `page.body` from elsewhere, so that a 10 MB page never costs 15 times its size in JSON."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a developer on the same machine, I want the Daemon found through a per-user, per-major runtime file (mode `0600`) holding its endpoint, per-launch token, version and PID, and a dead PID's file replaced, so that discovery is automatic and safe."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a developer, I want the Daemon's protocol on a `0600` Unix socket on macOS and Linux and on loopback TCP on Windows, closing any connection whose first message is not a `hello` with the token, so that other users on the machine cannot drive it."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As an edge or serverless developer, I want a WebSocket transport to an Exposed Daemon configured by `GOODFETCH_URL` and a scoped token, so that a Worker or edge function can make request-scoped calls."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 14
+title = "As a developer, I want an Attached engine to checkpoint and stop when its stdin closes, and to die with its Client even when the Client dies without closing it (`PR_SET_PDEATHSIG` on Linux, a kill-on-close Job Object on Windows, a kqueue `NOTE_EXIT` watch on macOS), so that no engine outlives my script."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer, I want every browser and child process the engine starts in its own process group or Job Object, killed with the engine, so that no orphan Chrome survives."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer, I want the engine to tell a gone Client apart from a failed handler, so that a closed laptop lid is not reported as a bug in my code."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer, I want `workers=N` handler processes to lease work from one run, with an Attached engine opening a private endpoint for them under the same token rule, so that CPU-heavy handlers scale on one machine (CL-04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a user, I want the Daemon started on demand by whatever needs it, or by `daemon start`, and stopped after 10 idle minutes unless `--keep-alive` is set, it holds an enabled Schedule of the active major, or it is installed as a service, so that it costs nothing when unused."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 19
+title = "As a user, I want a visible Console tab to count as a connected Client, so that the Daemon never stops while I am looking at it."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a user, I want the Daemon to run from a versioned copy of its executable in the Browser cache, pinned by its executable's entry, so that `npm update` or `pip install -U` never replaces a running executable, which Windows forbids (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a user, I want `daemon install`, from either Product's executable, to register a per-user service per major (launchd agent, systemd user unit, Windows logon task) that starts its major's pick, with socket activation on macOS and Linux and a persistent token rotated by `daemon rotate-token`, so that the first connection starts the Daemon."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a user with two majors installed, I want each major to run its own Daemon, runtime file, socket, Console port and data folders, so that a 1.x and a 2.x project never restart each other's."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a user, I want a Daemon crash to stop only its runs, each resumable from its own state, and a Client crash to stop only that Client's work, which the Daemon re-queues, so that one failure never loses the rest."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 24
+title = "As a user, I want the Daemon to host several runs at once, so that several crawlers run in one process (RT-19)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 25
+title = "As a developer, I want each run's frontier, staged results, Sessions, Effect journal and Usage in its own SQLite file in WAL mode with one writer, so that a run is one portable file."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a developer, I want an acknowledged commit to survive a power cut by default (`synchronous=FULL`, grouped commits, `fullfsync` on macOS, bundled SQLite), so that a run never loses what it reported done."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a developer, I want an opt-in fast mode labelled everywhere as surviving a process crash only, so that I can trade durability for speed knowingly."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a developer, I want run files in a per-user, per-major data folder by default, at a location I can set, so that runs are where I expect them."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As an operator, I want the per-install layout, one database written by the Daemon for all of an install's runs, as a local setting, with export, import and Checkpoint producing the same per-run file as the default layout, so that the two layouts stay interchangeable."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As Goodfetch Cloud or any Client, I want Checkpoints on the `checkpoint` and `migrate` signals, on a clean stop and periodically at an interval I set, written to a location I give and reported with size, digest, run epoch and journal position, so that I store them wherever I like."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a self-hosting operator, I want Checkpoint locations to accept `s3://`, `gs://`, `az://` and S3-compatible URLs with credentials as Secret references, so that a run survives the loss of its host."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As an operator on Lambda, Cloud Run or Fargate, I want periodic Checkpoints on by default every 60 seconds and a warning in results when no Checkpoint location is set, so that an ephemeral host never takes a run with it silently."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As an operator, I want the engine to refuse a run directory on NFS, SMB, EFS, Azure Files, Filestore or a FUSE object-storage mount with `run_state_filesystem_unsupported`, which names the fix, so that SQLite's locking never fails silently."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a developer, I want a run resumed on another machine to redo the work since its last Checkpoint, check the Effects its journal holds instead of repeating them, and report as uncertain those it cannot check, so that a lost machine never repeats an order."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 35
+title = "As a developer, I want to pause a run as checkpoint, stop and resume, so that pause survives a restart (RT-11)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 36
+title = "As a developer, I want a run bound to its machine by its Session source refused elsewhere with `session_bound_to_machine`, and a run behind a person's Browser host allowed to resume on another engine, so that a login never reaches a site from a new IP under the same cookies."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 37
+title = "As a user, I want a resumed run to keep the Clean-up rules digest it recorded at start, so that a resume never changes what a run blocks."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a user, I want a run state or Checkpoint of a newer minor than my engine refused with a message to upgrade, and one of an older major refused with a message naming `upgrade-files`, so that no file is misread."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a user, I want a discarded or reset run to leave no state behind, in either layout, and no recoverable bytes of its secrets, checked by a permanent conformance gate, so that one run's cookies never reach another."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a developer, I want each work item leased with a monotonic epoch for the handler timeout plus a margin, renewed only by lengthening and judged on the engine's monotonic clock, so that a hung handler loses its work item."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a developer, I want my handler's outputs staged and made visible exactly once, when the attempt commits under a valid lease and run epoch, so that at-least-once delivery never duplicates a Record."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a developer, I want every outgoing browser or network command of the engine checked against the work item's lease, so that a handler past its lease sends nothing more."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As Goodfetch Cloud, I want every write leaving the engine (Checkpoint, Export, Sink write) to carry the run epoch, so that a destination rejects a zombie copy's writes with a compare-and-set."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a developer, I want raw CDP opened for a work item to reserve its Session, wait for the other work items on it, fail with `attach_ended` and the lease's reason when the lease ends first, refuse a second request with `session_reserved`, and be cut with `lease_lost` or `lease_released` when the lease ends, so that a raw client never outlives its lease."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 45
+title = "As an auditor, I want every attach cut recorded in the Audit log, and attaches with no recorded cut recorded as `unconfirmed` when an engine next takes the writer role, so that a crash never hides an attach."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a Console user, I want a reader to test whether a run's writer is alive without making a writer that tries at the same moment think the owner is alive, so that taking over a dead run never fails by accident (ADR 0037's consequence)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a developer, I want work admitted through bounded per-domain queues served round-robin under a global cap, one request per domain per turn, so that one heavy domain never starves the others."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a developer, I want domains keyed by registrable domain under the full Public Suffix List, private entries included, with a Recipe override of the key, so that subdomains of one site share one queue."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a developer, I want priority to order requests within a domain only, so that a high priority on one domain never starves another."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a developer, I want a domain waiting out a delay or backoff to hold no global capacity, and per-domain queues journaled and released once drained, so that state stays bounded and survives a resume."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a developer, I want a requests-per-minute cap per run on the admission gate, so that I can bound a run's rate whatever its concurrency (RT-02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want a handler timeout, a whole-run wall-clock timeout and a first-byte timeout as settings with stated defaults, so that nothing waits forever (RT-06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a developer, I want one governor per engine process that sizes concurrency from measured memory, CPU and Tokio saturation, between a floor and my ceiling, so that I stop tuning concurrency by hand on every machine (RT-01)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a developer, I want HTTP fetches, open browser pages and model calls admitted separately, each with its own floor and ceiling, so that a browser crawl never exhausts memory at an HTTP crawl's concurrency."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 55
+title = "As a Daemon user, I want capacity served round-robin to live runs, then to their domains, with Operator policy able to cap a run's share, so that the first run to grow never starves the rest."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a container user, I want the memory allowance to be the tightest of my process's own cgroup limit (v1 or v2, from its own path), a Windows Job object limit, `memory_allowance`, or 50 % of physical memory, read again at every sample, so that an in-place Pod resize is seen and the OOM killer never acts first (RT-03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a workstation user running three scripts, I want each engine to read the host's own memory pressure, so that three Attached engines never each claim half the machine."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a developer, I want memory measured over the engine and all its children (browsers, process Plugins, a local Browser host), as PSS on Linux, so that Chrome's shared pages are counted once."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a developer, I want a run under memory pressure to stop admitting, then close idle browsers and recycle the largest, then requeue the work item whose page passed its cap with `page_memory_exceeded`, and as a last resort checkpoint and stop the largest run with `resources_exhausted`, resumable, so that the engine sheds load in order."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a person in the Live view, I want the page I control never ended by the governor and my run stopped last, so that a takeover is never cut from under me."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a developer, I want Sessions of one run to share a browser process as contexts, a Session with a per-process Fingerprint method to get its own process, and Sessions of different runs never to share one, so that isolation follows the run (SA-09)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a developer, I want a browser recycled after 100 pages, past a per-browser memory cap, or when idle, with each Session's cookies, storage and fingerprint seed carried over, so that recycling never changes an identity."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a developer, I want hedged requests off by default and allowed only for GET and HEAD from work items that declare no Effect, through the Session's own exit and capped at 5 % of requests, so that a hedge never runs an Effect twice or changes IP (RT-20)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a developer, I want identical GET and HEAD requests in flight from one Session, from work items that declare no Effect, coalesced by default and never across Sessions or runs, recorded in Provenance, so that robots.txt and sitemaps are fetched once without mixing cookies."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a Browser host user, I want the engine to admit that Session's pages by the host's reported pressure, so that a remote browser is governed where it runs."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a user of a vendor's cloud browsers, I want the engine to learn a ceiling per provider from the vendor's refusals, shared by every run of mine and across machines, so that a plan limit is respected account-wide."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a user, I want Limits on the install, a Daemon, a person, a named token, a Client connection and a Partitioned crawl, held by every engine of mine through one per-user Usage ledger, so that a loop over `runs.start` cannot escape a total cap (pain 5)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 68
+title = "As a user, I want period Limits per day, week or month in an explicit IANA time zone, capping a kind of Usage or its price in a currency, so that caps match my billing."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 69
+title = "As a user, I want concurrent engines to reserve by slices taken in one ledger transaction, sized as the smaller of 1 % of the Limit and the remainder over twice the live runs, so that no two engines take the same Usage and no run hoards it."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 70
+title = "As a user, I want a model call's or paid solve's worst case reserved before it is sent and journaled in the run, so that a currency Limit is never exceeded."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 71
+title = "As a user, I want a new run refused with `limit_reached`, naming the scope and period, and a live run that cannot take a new slice to stop at its next safe point as `stopped` and `incomplete`, resumable, so that an agent can tell me why."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 72
+title = "As a user, I want slices of a dead engine reclaimed by the next engine that opens the ledger, from the Usage the run journaled, so that a crash never leaks or double-charges my Limit."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 73
+title = "As a user, I want a Notification at 50 %, 80 % and 100 % of each Limit sent exactly once whichever engines cross it, and a \"Needs you\" item at 100 %, so that I hear about a cap before it stops my work."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 74
+title = "As a user, I want an engine that finds a Limit it cannot evaluate to refuse runs it cannot place outside it with `limit_not_understood`, so that an older engine never runs past a newer cap."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 75
+title = "As a user, I want only a person in the Console or an interactive CLI prompt to raise a Limit, while any Client may lower or first set Limits covering only its own work, so that an agent stopped by a cap cannot lift it."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a user, I want a run marked *uncapped* when it can spend money with nothing capping it, and `init` and the Console's first launch to offer a monthly install Limit, so that I see unbounded spending."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 77
+title = "As a fleet operator, I want a managed Operator policy to name an install Limit that each engine writes to the ledger as its own managed row, so that MDM-deployed machines get their cap with no person at each."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a container user, I want the CLI to warn when the ledger sits on a temporary filesystem, so that period Limits do not reset silently on restart."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a user, I want `usage` to show Usage against each Limit by scope, so that I see what is left."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 80
+title = "As a site owner, I want every run of one user on a machine to share per-domain Politeness (requests in flight, `Retry-After`, backoff and halving after a 429), whichever engine runs it, so that three runs never send 24 requests at once."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 81
+title = "As a user, I want a run to admit a request only while the combined count in flight for its domain key is below its own cap, so that a stricter run waits while a looser one may go up to its cap."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a user, I want per-proxy limits (`proxy_concurrency`, `proxy_rate`) and a ceiling learned from the proxy's own 429 and 502, classified as proxy errors and never as a Block cause, and a 407 failing with `proxy_auth_failed`, so that my proxy provider's limits are respected."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 83
+title = "As a user with several machines, I want an optional Politeness store (Valkey or Redis) under a namespace, using GCRA in a Lua script and permits with leases, TLS off loopback and a password as a Secret reference, so that Politeness holds across machines (pain 15, pain 17)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a user, I want a store outage to degrade to a granted share per engine for at most `politeness_degraded_max` (10 minutes by default), then stop admission to shared keys, reported as an event, a metric and a result note, so that an outage never turns into hammering a site."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 85
+title = "As a user, I want `politeness_sharing` per run (`shared`, `per_daemon` or `run`), with anything but `shared` marked in the result, so that I can opt out knowingly."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a developer, I want every parameter to be a setting resolved through built-in defaults, Operator policy, user and project configuration, the Recipe or my code, and the run, so that one model explains every value (RT-22)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a Recipe author, I want every setting my Recipe declares locked for its users unless I expose it, optionally with bounds, so that users cannot remove a guarantee my Recipe relies on."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 88
+title = "As an operator, I want Operator policy to set, cap or lock any value, and a tightened cap to reach running runs at their next admission point, so that a shared Daemon stays within bounds."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 89
+title = "As a user, I want `config explain` to show each effective value, the layer that set it and the layer that locked it, so that I can tell why a value applies."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 90
+title = "As a security-minded user, I want the settings that only lower layers may widen (`trusted_cas`, certificate pins and `any`, `pay_domains`, `max_price_per_page`, `consent_domains`, `wall_domains`, `wall_refetch_domains`, `wall_denied_domains`, scriptlet-carrying Filter lists, Paid fetches' exchange rates and chain RPC endpoints) enforced by the resolver, and `session.source` never set or locked by a Recipe, so that a Recipe or an agent can only narrow them."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 91
+title = "As a user, I want the delivery ID and epoch on every write, the guarantee class reported per delivery, webhook signing and Secret references locked whatever the layer, so that honesty guarantees cannot be configured away."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a user, I want any override that weakens a guarantee class or switches off a costly control recorded in the Audit log and marked on the results it touches, so that weakening is visible."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 93
+title = "As an operator of a Daemon group, I want machine-specific settings (local addresses, TLS files, browser paths) in a *group member* scope applied only by that Group member, so that one Group member's paths never reach another."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 94
+title = "As a user, I want a new major to refuse to start on an older major's Operator policy until `upgrade-files` has run, so that caps and locks are never lost silently."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 95
+title = "As a user, I want every contract format this area owns (run state and Checkpoints, the Usage ledger, the per-user Politeness file, the Politeness store's layout, the list of installed executables, the peer protocol) to carry its own `major.minor` and be refused when too new or too old with a clear message, so that a file is never misread."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As a user moving to a new major, I want `upgrade-files` to give per-user state a new major's copy and never change the previous major's files, so that I can go back."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 97
+title = "As a user, I want an executable more than three months past its release date to print one line a day on stderr, with no network call and a setting to turn it off, never on a protocol stream or in `--json` output, so that I learn about fixes without telemetry."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As an operator, I want `daemon run` in the foreground, running the Product I chose with no pick (ADR 0098), with no runtime file and no idle stop, listening on a configured address, configured from files and environment variables, and logging JSON to stdout, so that it runs under Docker, Kubernetes and systemd."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 99
+title = "As an operator, I want `SIGTERM` to stop leasing work and taking runs, checkpoint every run as resumable and exit within the grace period, so that a rolling upgrade loses nothing."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 100
+title = "As an operator, I want the foreground Daemon to be a child subreaper that reaps every browser descendant, so that it runs as PID 1 without `tini`."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 101
+title = "As an operator, I want an ops listener, off by default, with token-free `/livez` and `/readyz` that return only a status, and a Prometheus `/metrics` behind a scoped read-only token, so that Kubernetes probes need no token and metrics reveal nothing to strangers."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 102
+title = "As an operator, I want `/readyz` to fail while draining, when run state is not writable, when the configured browsers are missing, or when the governor is at its last resort, and to ignore the Lead Daemon's reachability in a group, so that traffic goes only where it can run."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 103
+title = "As an operator, I want metrics instrumented once with OpenTelemetry and exported through OTLP, Prometheus or both, with versioned names under `goodfetch.*` and bounded labels only, so that dashboards survive upgrades and never leak URLs."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 104
+title = "As an operator, I want `daemon health` to answer the probes' questions for `exec` probes and systemd, so that every platform can check the Daemon."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 105
+title = "As a developer, I want log levels, a JSON format and `tracing` spans for every RPC request, run, page and CDP command, with opt-in OTLP traces, so that I can see what the engine did (RT-17, RT-18)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 106
+title = "As a team operator, I want `group init`, `group token` and `group join` to form a Daemon group with its own certificate authority and mutual-TLS peer link, so that Daemons serve my team as one."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 107
+title = "As an operator, I want one Lead Daemon to be the single writer of the group's control state and every Group member to cache the read-mostly stores from versioned pushes, so that a Limit, a token or a Schedule means the same on every pod."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 108
+title = "As an operator, I want the peer protocol versioned on its own, with two Group members settling on the lower minor, so that I upgrade Group members in any order."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 109
+title = "As a Client, I want to connect to any Group member, with unary calls forwarded to the owner and heavy streams redirected to its `advertise_url` or forwarded, and `run_moved` retried once, so that the group looks like one Daemon."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 110
+title = "As an operator, I want the Lead Daemon to place each new run on the Group member with the most headroom among those that can run it and whose minor is at least the run state's, honouring a `group_member` pin, so that work goes where it fits."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As an operator, I want a draining Group member to tell a restart from a removal, resume its own runs after a restart and hand each run's Checkpoint to another Group member after a removal, with `runs adopt` for what the grace period did not cover, so that scaling down never strands a run."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 112
+title = "As an operator, I want runs to go on while the Lead Daemon is unreachable, live runs spending the slices they hold, cached tokens valid for at most 10 minutes, the last pushed policy applying and new runs that need a slice refused with `lead_unreachable`, so that a lead restart is not an outage."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 113
+title = "As an operator, I want Group backups every 15 minutes and on demand, `group promote --from-backup` only once the former Lead Daemon is confirmed stopped, and a lead epoch on every peer message, so that two Lead Daemons never grant slices at once."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 114
+title = "As an operator on Kubernetes, I want pods to join with a projected ServiceAccount token checked by `TokenReview`, to read their `StatefulSet` to tell removal from restart, and the lead to stop acting when it cannot re-read its `StatefulSet` within the lease period, so that the chart needs no stored join token and a cut-off lead stops by itself."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 115
+title = "As a user of an Attached engine on a Group member's machine, I want my engine to take its slices and Politeness through that Group member, so that group-wide Limits hold for my scripts too."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 116
+title = "As a large-crawl user, I want `runs.start` to take `partitions` (a number or `auto`), returning a Partitioned crawl ID beside its Partitions' run IDs, so that one crawl uses several Group members."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 117
+title = "As a user, I want each domain key owned by the Partition with the highest rendezvous hash score, and links for another Partition's domains forwarded to it over the peer link and deduplicated there, so that every URL lands exactly once and Politeness is exact inside the crawl."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 118
+title = "As a user, I want adding or removing a Group member to hand off only the domains that move, fenced so that no domain is fetched by two Partitions at once, so that a crawl rescales while it runs."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 119
+title = "As a user, I want the crawl reported on the three axes from its Partitions, Usage summed, a Limit spanning its Partitions, and abort, checkpoint and resume acting on every Partition, so that a Partitioned crawl reads as one run."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 120
+title = "As a user, I want `partitions` above 1 refused with `partitions_need_group` outside a group, `partitions_exceed_group_members` above the eligible Group members, and `session_bound_to_machine` or `browser_borrowed` for sources bound to one machine or browser, so that a crawl never splits what cannot be split."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 121
+title = "As a user running model-written code or a stranger's Script Hook, I want it run in V8 without JIT, with V8's sandbox on, in a worker confined at network level `none` with no files and no Secrets, one set of workers per run, so that a JavaScript engine bug reaches nothing worth stealing."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 122
+title = "As a developer, I want workers started lazily at a run's first script, never shared between runs, and their pool sized by the governor, so that scripts cost nothing until used."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 123
+title = "As a developer, I want time and memory limits enforced by V8 first and by OS limits as a backstop, failing only the script call with `script_time_exceeded`, `script_memory_exceeded` or `script_crashed`, which no script can catch, so that one runaway script never takes down a run."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 124
+title = "As a developer, I want repeated crashes to quarantine a Script Hook or code mode for the rest of the run with `script_quarantined` and a Notification, never skipped silently, so that a broken script is visible."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 125
+title = "As a script author, I want JavaScript or TypeScript (types stripped by `oxc`, never checked), standard JavaScript with `Intl` and `Temporal`, only the web APIs that touch nothing outside, captured `console`, and the namespaces of my Product's catalog as async globals named as in its TypeScript SDK (ADR 0095), so that what I write runs the same everywhere."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 126
+title = "As a Recipe user, I want each Script Hook in its own SES Compartment after `lockdown()`, with nothing it can write that outlives a call, so that a hook's result never depends on when its worker was last replaced."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 127
+title = "As a developer, I want default limits for CPU time, wall time, memory, result size, log size and catalog calls, settable through the layers, so that scripts are bounded out of the box."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 128
+title = "As a developer, I want a keep-alive run that waits for new work until its input is closed, so that a run can serve work as it arrives (RT-12)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 129
+title = "As a developer, I want a custom status message on progress events, so that my run says what it is doing (RT-15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 130
+title = "As a developer, I want user state persisted with the run and restored on resume, written with the attempt's commit, so that a retried handler never applies a state change twice (RT-09)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 131
+title = "As a developer, I want lifecycle events (checkpointing, migrating, aborting, system info) on the event stream, so that my code can react to them (RT-14)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 132
+title = "As a developer who points my Product's engine-path variable (`GOODFETCH_COLLIE_ENGINE_PATH` or `GOODFETCH_FOXHOUND_ENGINE_PATH`, ADR 0090) at a hotfix executable, I want every Attached engine to accept an SDK of its major with the same or an older minor and refuse any other with `protocol_version_unsupported`, so that the engine and the SDK never misread each other (ADR 0066)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 133
+title = "As a user with a portable install or a CI job, I want `GOODFETCH_HOME` to root all of Goodfetch's data, caches, configuration and Daemon files, which both Products share (ADR 0098), with more specific settings still winning, so that one folder holds one installation (ADR 0059)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 134
+title = "As a user testing against staging, I want a `resolve` setting that maps host names to addresses before any lookup, in the engine's resolver and in Chromium, still checked by ADR 0017's resolved-address rule, so that I can pin addresses without editing system files (ADR 0059)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 135
+title = "As a developer, I want my Client's `hello` to name the Product it needs and its Product version, and an engine whose Product does not contain that one to refuse it with `not_in_product` before the version check, sent before any other message, so that a Foxhound program on a Collie engine fails at `connect()` with the fix, never at its first crawl call (ADR 0095)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 136
+title = "As a developer, I want an operation, a CLI command, a setting, a Plugin kind, a Hook stage or a value of a shared type that only Foxhound carries refused on a Collie engine with `not_in_product`, naming the running Product and its version and the install command of Foxhound, so that I learn the fix is the other Product, not a bug in my program (ADRs 0087, 0095)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 137
+title = "As a user with both Products installed, I want one Daemon per major, running that major's pick: the fullest Product installed for the major, at its newest installed version, that can be started and can open the major's shared stores, so that Collie's and Foxhound's Clients always agree on it and never restart each other's Daemon (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 138
+title = "As a user who installs, upgrades or removes a Product, I want a Daemon that is no longer its major's pick to hand over to the pick once it hosts no live run and no Client other than a Console, so that the change takes effect without cutting a run (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 139
+title = "As a user, I want each executable to record itself when it runs in a per-user list of installed executables, with its Product, Product version, path, pinned downloads and when it was last seen, and an entry to count as installed while its executable is still at that path at that version or was seen within `browser_cache.max_unused_age`, so that a reinstall, a deleted `node_modules` or a switched container never counts as a removal (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 140
+title = "As a user, I want a build in the Browser cache deleted only when no executable that counts as installed pins it and no installed Plugin declares it, it has not been used or installed for `browser_cache.max_unused_age` (30 days) and no process holds it, at most once a day after a download and on `browsers clean` (whose `--dry-run` lists what it would delete), never deleting what my engine cannot read nor anything in a cache it cannot write, so that the cache stays bounded without deleting a build still in use (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 141
+title = "As a user with both Products, I want each run to record the Product it needs, Collie until it uses an entry the Operation catalog marks Foxhound's and Foxhound from then on, in the Run index and its own state, and a Collie engine to read such a run like any other but refuse with `not_in_product` to take its writer role, resume or adopt it, so that a run is never continued by an engine that lacks what it needs (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 142
+title = "As a user whose project or Goodfetch home serves both Products, I want user and project configuration and the Operator policy to load while they hold the other Product's keys, each Product applying its own and a Collie engine's `config explain` listing the others as Foxhound's, while the same key given explicitly to a Collie engine fails with `not_in_product`, so that installing Foxhound beside Collie never breaks Collie and nothing is hidden (ADR 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 143
+title = "As a Recipe author, I want my Recipe's manifest to name the Product it needs, written by `init`, a Recipe that names Foxhound refused by Collie with `not_in_product` before its run starts, and whichever engine runs it holding its code to that Product, so that a Recipe that names the wrong Product fails on my machine as it would in Goodfetch Cloud (ADR 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 144
+title = "As a user running engines of several versions of one major, of either Product, I want the Run index, the Schedule store, the Saved identity store, user configuration and the Operator policy to record the lowest minor of their major that can use them, raised only for what an older engine would misread, and an older engine to refuse one marked newer than itself naming the version to install, so that upgrading one Product does not lock the other out (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 145
+title = "As a team operator, I want every Group member of a Daemon group to run the same Product, and a Daemon of the other Product refused at the peer handshake with `not_in_product`, naming both Products and telling me to start it with the group's Product, so that no run moves to a Group member that cannot resume it (ADR 0095)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 146
+title = "As a developer whose program is traced with OpenTelemetry, I want each request to carry my program's Trace context in `params._meta` and the engine to open one span per request from its catalog entry, continuing my trace into the engine and on to its Browser hosts, Group members and Plugins while OTLP export is on, and never sending it to a site or any other third party, so that one trace shows my call end to end ([ADR 0132](https://github.com/goodfetch/goodfetch/blob/main/docs/adr/0132-each-request-may-carry-its-callers-trace-context-across-goodfetchs-own-links-and-the-engines-spans-stay-experimental.md); RT-18)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

@@ -74,6 +74,14 @@ codegen:
     uv sync --frozen
     cargo run --quiet -p xtask -- codegen
 
+# Writes the Proving ground's task list of each seed the Journey catalog uses
+# to journeys/tasks/, from the commit's Proving ground, and removes the list of
+# a seed no Journey uses (ADR 0063). Commit what it writes. `--check` writes
+# nothing and fails on a list that differs: the Pre-merge suite's drift check.
+journeys-tasks *check:
+    {{ just_executable() }} _test-tools
+    cargo run --quiet -p xtask -- journeys tasks --proving-ground "$(jq -r .proving_ground target/test-tools.json)" {{ check }}
+
 # What the changed packages declare, then the Feature check's verdict (ADR
 # 0072): the Features each crate `xtask affected` selects declares, one
 # `<feature> <level> <test>` line each, and the check's findings over the
@@ -199,8 +207,24 @@ test suite *packages:
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
           # nextest runs no doctests; cargo-insta's own doctest pass would take
-          # nextest's profile flag, which `cargo test` refuses.
-          cargo test "${packages[@]}" --doc --profile {{ test_profile }}
+          # nextest's profile flag, which `cargo test` refuses. `cargo test
+          # --doc` also refuses a selection with no library target ("no
+          # library targets found"), such as a binary-only crate alone, so it
+          # gets only the selected packages that have one, and none skips it.
+          doc_packages=("${packages[@]}")
+          if [[ "${packages[0]}" == -p ]]; then
+            libraries=$(cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(any(.targets[].kind[]; IN("lib", "rlib", "dylib", "proc-macro"))) | .name')
+            doc_packages=()
+            for ((i = 1; i < ${#packages[@]}; i += 2)); do
+              if grep -qxF -- "${packages[i]}" <<< "$libraries"; then doc_packages+=(-p "${packages[i]}"); fi
+            done
+          fi
+          if [[ ${#doc_packages[@]} -gt 0 ]]; then
+            cargo test "${doc_packages[@]}" --doc --profile {{ test_profile }}
+          else
+            echo "Doctests: no selected package has a library target"
+          fi
         fi
         if $typescript; then
           pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
@@ -353,6 +377,7 @@ pre-merge *all:
     "$just" lint
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
+    "$just" journeys-tasks --check
     "$just" _tlc "{{ all }}"
     "$just" proofs
     "$just" supply-chain

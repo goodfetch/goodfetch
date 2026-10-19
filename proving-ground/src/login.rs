@@ -15,7 +15,7 @@ use crate::clock;
 use crate::exchange::{Reply, Request};
 use crate::generator;
 use crate::sync::Mutex;
-use crate::task::{self, Entry, Expected, Kind, Record, Task};
+use crate::task::{self, Entry, Expected, Kind, Record, Task, origin};
 use crate::totp;
 
 /// The host name the family is served on.
@@ -376,8 +376,8 @@ fn task_host(ordinal: u32) -> String {
 
 /// The family's tasks for `seed`, their start URLs on their own host names
 /// and `port`. Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let start_url = |ordinal| format!("http://{}:{port}/login", task_host(ordinal));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let start_url = |ordinal| format!("{}/login", origin(&task_host(ordinal), port));
     let orders = |number| {
         Expected::records(
             (1..=ORDERS)

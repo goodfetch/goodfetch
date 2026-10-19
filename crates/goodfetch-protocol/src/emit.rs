@@ -7,7 +7,10 @@
 //! schema: `compat/releases.toml` (ADR 0066), and the Journey catalog's
 //! files, every `journeys/J-*.toml` and `journeys/catalog.toml` (ADR 0063),
 //! whose Journey schema `xtask codegen` also writes on its own to
-//! `journeys/journey.schema.json`. What later decisions put in the bundle
+//! `journeys/journey.schema.json`. Its `documents` holds the schemas of the
+//! documents tests write rather than files the repository keeps: the result
+//! document and the case log's entry (ADRs 0063 and 0069). What later
+//! decisions put in the bundle
 //! joins here once its types exist, through the same `xtask codegen`: the
 //! format registry (ADR 0066), the `--json` output types and the exit-code
 //! table (ADR 0069), and the Feature inventory schemas (ADR 0072). `xtask compat` reads the format registry as the
@@ -21,12 +24,14 @@ use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
+use crate::case_log::CaseLogEntry;
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Metric, Operation,
     PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
 use crate::journey::{Journey, JourneyCatalog};
 use crate::releases::ReleasesFile;
+use crate::result_document::ResultDocument;
 use crate::{foxhound, sample};
 
 /// Every module that defines entries.
@@ -53,6 +58,8 @@ pub fn emit() -> Emitted {
     let releases = generator.subschema_for::<ReleasesFile>();
     let journey = generator.subschema_for::<Journey>();
     let journey_catalog = generator.subschema_for::<JourneyCatalog>();
+    let result_document = generator.subschema_for::<ResultDocument>();
+    let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
     Emitted {
         bundle: json!({
@@ -63,6 +70,10 @@ pub fn emit() -> Emitted {
                 "compat/releases.toml": releases,
                 JOURNEY_FILES: journey,
                 "journeys/catalog.toml": journey_catalog,
+            },
+            "documents": {
+                "result_document": result_document,
+                "case_log_entry": case_log_entry,
             },
             "$defs": definitions,
         }),

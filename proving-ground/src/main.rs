@@ -2,7 +2,8 @@
 //! and generates from a seed, with its task list and its oracle. Its command
 //! line and HTTP are the interface every caller sees: `serve` binds an
 //! address, prints one JSON line, and serves each page family on its own host
-//! name, the task list at `/tasks` and the oracle at `/oracle`.
+//! name, the task list at `/tasks` and the oracle at `/oracle`. `tasks`
+//! prints one seed's task list and exits.
 
 mod agent;
 mod authority;
@@ -45,21 +46,34 @@ use std::net::{Ipv4Addr, SocketAddr};
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 
-use crate::command::{Command, NetworkProfile, Serve, Shaper};
+use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
 use crate::network::{Loss, Network, Profile};
 use crate::server::Server;
+use crate::site::Site;
+use crate::task::TaskList;
 
 fn main() -> Result<()> {
-    let Command::Serve(serve) = Command::parse();
+    match Command::parse() {
+        Command::Serve(serve) => run(&serve),
+        Command::Tasks(Tasks { seed }) => output::line(&TaskList::new(
+            version::VERSION,
+            seed,
+            &Site::every_task(seed, None),
+        )),
+    }
+}
+
+/// Builds the runtime `serve` runs on, then serves until stopped.
+fn run(serve: &Serve) -> Result<()> {
     #[expect(
         clippy::disallowed_methods,
-        reason = "`main` builds the Proving ground's one runtime (ADR 0060)"
+        reason = "`serve` builds the Proving ground's one runtime here (ADR 0060)"
     )]
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("building the Tokio runtime")?;
-    let Serve {
+    let &Serve {
         seed,
         address,
         network_profile,
@@ -67,12 +81,18 @@ fn main() -> Result<()> {
         shaper,
         ..
     } = serve;
-    runtime.block_on(run(seed, address, network_profile, loss, shaper))
+    runtime.block_on(shape_and_serve(
+        seed,
+        address,
+        network_profile,
+        loss,
+        shaper,
+    ))
 }
 
 /// Shapes and calibrates the network, binds the server behind it, prints
 /// the output line, and serves until stopped; then undoes the shaping.
-async fn run(
+async fn shape_and_serve(
     seed: u64,
     address: SocketAddr,
     network_profile: NetworkProfile,

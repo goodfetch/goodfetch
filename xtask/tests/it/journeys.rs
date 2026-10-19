@@ -4,12 +4,18 @@
 //! `journeys/journey.schema.json` accepts it; its name is its ID; no two
 //! Journeys share a number and none reaches `journeys/catalog.toml`'s next
 //! free number; every surface is one ADR 0063 lists, never named for a
-//! milestone before the surface ships; a retired Journey gives its reason.
-//! Each finding names the file and the rule it breaks.
+//! milestone before the surface ships; a retired Journey gives its reason;
+//! each task a Journey names is in its seed's committed task list, with the
+//! digest it pins. Each finding names the file and the rule it breaks.
+//!
+//! `xtask journeys tasks`, in the Pre-merge suite, writes and drift-checks
+//! those lists from a real Proving ground.
 
 use std::path::Path;
 
+use goodfetch_test_support::Tool;
 use rstest::rstest;
+use serde_json::Value;
 
 use crate::workspace::{Workspace, finding};
 
@@ -47,18 +53,29 @@ fn clean_catalog_passes() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-/// The repository's catalog as committed, J-001 and its schema included.
+/// Copies the files of `folder`, and of its folders, to `journeys/` in the
+/// workspace under `prefix`.
+fn copy_catalog(workspace: &Workspace, folder: &Path, prefix: &str) {
+    for entry in std::fs::read_dir(folder).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().into_string().unwrap();
+        if entry.file_type().unwrap().is_dir() {
+            copy_catalog(workspace, &entry.path(), &format!("{prefix}{name}/"));
+        } else {
+            workspace.write(
+                &format!("journeys/{prefix}{name}"),
+                &std::fs::read(entry.path()).unwrap(),
+            );
+        }
+    }
+}
+
+/// The repository's catalog as committed, J-001, its schema and its task
+/// lists included.
 #[test]
 fn committed_catalog_passes() {
     let workspace = Workspace::from_fixture("empty");
-    for entry in std::fs::read_dir(committed()).unwrap() {
-        let entry = entry.unwrap();
-        let name = entry.file_name().into_string().unwrap();
-        workspace.write(
-            &format!("journeys/{name}"),
-            &std::fs::read(entry.path()).unwrap(),
-        );
-    }
+    copy_catalog(&workspace, &committed(), "");
 
     let outcome = check(&workspace);
 
@@ -266,4 +283,173 @@ fn missing_schema_fails() {
         outcome.stderr
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// The fixture's committed task list of seed 3, which J-003 pins.
+const TASK_LIST: &str = "journeys/tasks/seed-3.json";
+
+#[rstest]
+#[case::removed_from_its_list(TASK_LIST, "\"id\": \"catalog/1\"", "\"id\": \"catalog/7\"")]
+#[case::seed_with_no_list("journeys/J-003.toml", "seed = 3", "seed = 4")]
+fn journey_naming_a_task_absent_from_its_seed_list_fails(
+    #[case] file: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+) {
+    let workspace = catalog();
+    workspace.edit(file, from, to);
+
+    let outcome = check(&workspace);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("missing-task", "journeys/J-003.toml")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The Proving ground changed the task's entry or expected result, so the
+/// digest the Journey pins is no longer the one its seed's list holds.
+#[test]
+fn pinned_digest_its_seed_list_no_longer_holds_fails() {
+    let workspace = catalog();
+    workspace.edit(
+        TASK_LIST,
+        "00000000000000000000000000000000000000000000000000000000000000a1",
+        "00000000000000000000000000000000000000000000000000000000000000b1",
+    );
+
+    let outcome = check(&workspace);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("task-digest", "journeys/J-003.toml")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn task_list_that_does_not_parse_fails() {
+    let workspace = catalog();
+    workspace.edit(TASK_LIST, "\"seed\": 3", "\"seed\": \"3\"");
+
+    let outcome = check(&workspace);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("parse", TASK_LIST)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The Quick suite starts no process (ADR 0063): the task rule reads the
+/// committed lists, so the check passes with no program it could start.
+#[test]
+fn task_rule_reads_the_committed_lists_and_starts_no_process() {
+    let workspace = catalog();
+    let nothing = tempfile::tempdir().unwrap();
+    let no_cargo = nothing.path().join("cargo");
+
+    let outcome = workspace.xtask_with_env(
+        &["journeys", "check"],
+        &[
+            ("PATH", nothing.path().as_os_str()),
+            ("CARGO", no_cargo.as_os_str()),
+        ],
+    );
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// `xtask journeys tasks` on the commit's real Proving ground, which `just
+/// test` builds and lists in the test tool manifest.
+fn tasks(workspace: &Workspace, arguments: &[&str]) -> crate::workspace::Outcome {
+    let tools = goodfetch_test_support::tools().unwrap();
+    let proving_ground = tools.path(Tool::ProvingGround).unwrap();
+    let mut command = vec![
+        "journeys",
+        "tasks",
+        "--proving-ground",
+        proving_ground.to_str().unwrap(),
+    ];
+    command.extend_from_slice(arguments);
+    workspace.xtask(&command)
+}
+
+/// A seed no Journey of the fixture catalog uses.
+const UNUSED_LIST: &str = "journeys/tasks/seed-9.json";
+
+#[test]
+fn tasks_commits_the_proving_grounds_list_of_each_seed_the_catalog_uses() {
+    let workspace = catalog();
+    workspace.remove(TASK_LIST);
+    workspace.write(UNUSED_LIST, b"{}\n");
+
+    let outcome = tasks(&workspace, &[]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let list: Value = serde_json::from_str(&workspace.read_text(TASK_LIST)).unwrap();
+    assert_eq!(list["seed"], 3, "{list}");
+    let crawl = list["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|task| task["id"] == "catalog/1")
+        .unwrap_or_else(|| panic!("the list names catalog/1: {list}"));
+    assert_eq!(crawl["start_url"], "http://1.catalog.test/catalog/1");
+    let digest = crawl["digest"].as_str().unwrap();
+    assert!(
+        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "{digest}"
+    );
+    assert_eq!(workspace.read(UNUSED_LIST), None);
+    let checked = tasks(&workspace, &["--check"]);
+    assert_eq!(checked.findings(), vec![], "{}", checked.stderr);
+    assert_eq!(checked.code, 0, "{}", checked.stderr);
+}
+
+/// The Pre-merge drift check: a committed list that is not the Proving
+/// ground's for its seed fails, and the check writes nothing.
+#[rstest]
+#[case::digest_changed("digest", TASK_LIST)]
+#[case::list_missing("missing", TASK_LIST)]
+#[case::seed_no_journey_uses("unused", UNUSED_LIST)]
+fn drift_check_fails_on_a_list_that_is_not_the_proving_grounds(
+    #[case] drift: &str,
+    #[case] subject: &str,
+) {
+    let workspace = catalog();
+    let refreshed = tasks(&workspace, &[]);
+    assert_eq!(refreshed.code, 0, "{}", refreshed.stderr);
+    match drift {
+        "digest" => {
+            let mut list: Value = serde_json::from_str(&workspace.read_text(TASK_LIST)).unwrap();
+            list["tasks"][0]["digest"] = Value::from("0".repeat(64));
+            workspace.write(TASK_LIST, &serde_json::to_vec_pretty(&list).unwrap());
+        }
+        "missing" => workspace.remove(TASK_LIST),
+        _ => workspace.write(UNUSED_LIST, &workspace.read(TASK_LIST).unwrap()),
+    }
+    let before = (workspace.read(TASK_LIST), workspace.read(UNUSED_LIST));
+
+    let outcome = tasks(&workspace, &["--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("task-list-drift", subject)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+    assert_eq!(
+        (workspace.read(TASK_LIST), workspace.read(UNUSED_LIST)),
+        before
+    );
 }

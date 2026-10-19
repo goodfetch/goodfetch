@@ -1,4 +1,4 @@
-//! The Proving ground's command line: `serve` and its arguments.
+//! The Proving ground's command line: `serve`, `tasks` and their arguments.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -15,6 +15,17 @@ pub(crate) enum Command {
     /// the first output line is one JSON object with `address`, `version` and
     /// `seed`.
     Serve(Serve),
+    /// Prints the task list `serve` serves for a seed, as one JSON line with
+    /// each start URL on no port, and exits; `xtask journeys tasks` commits
+    /// it (ADR 0063).
+    Tasks(Tasks),
+}
+
+#[derive(Args)]
+pub(crate) struct Tasks {
+    /// The seed the tasks' expected results are generated from.
+    #[arg(long)]
+    pub(crate) seed: u64,
 }
 
 #[derive(Args)]

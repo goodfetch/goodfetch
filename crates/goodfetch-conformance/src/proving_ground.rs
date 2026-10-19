@@ -1,0 +1,189 @@
+//! A running Proving ground as the harness reaches it over HTTP: its task
+//! list, its pages and its oracle (ADRs 0025 and 0063). It is the one
+//! translation point for the Proving ground's HTTP failures (ADR 0127).
+//!
+//! The local copy serves each page family on its own host name (such as
+//! `catalog.test`) and the task list and oracle on any other, all from the
+//! one address `serve` reported; every request connects to that address and
+//! names the URL's host in its `Host` header, as the `resolve` setting maps
+//! a host name to an address (ADR 0059). ureq opens its own sockets, the
+//! third-party client exception of ADR 0060.
+
+use goodfetch_protocol::journey::TaskId;
+use goodfetch_protocol::result_document::{OracleAnswer, ProvingGroundCopy};
+use serde::{Deserialize, Serialize};
+
+/// A running Proving ground.
+#[derive(Clone, Debug)]
+pub struct ProvingGround {
+    address: String,
+    online: bool,
+    agent: ureq::Agent,
+}
+
+/// The task list a Proving ground serves (ADR 0063).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct TaskList {
+    /// The Proving ground's version and seed.
+    pub proving_ground: ProvingGroundCopy,
+    /// Its tasks.
+    pub tasks: Vec<Task>,
+}
+
+/// One Proving ground task.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Task {
+    /// `<family>/<ordinal>`.
+    pub id: TaskId,
+    /// Its page family.
+    pub family: String,
+    /// What the task asks, such as `crawl` or `extract`.
+    pub kind: String,
+    /// The URL a tool starts from, with the port `serve` bound.
+    pub start_url: String,
+    /// What the task asks, in words.
+    pub description: String,
+    /// Its digest, which ignores the port.
+    pub digest: String,
+}
+
+/// A result submitted to the oracle: the task, the status the tool reported
+/// and the Records it found, each in the task's family's own shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Submission<'a, R> {
+    /// The task.
+    pub task: &'a TaskId,
+    /// The tool's status: `success`, `needs-review` or `failure`.
+    pub status: &'a str,
+    /// The Records.
+    pub records: &'a [R],
+}
+
+impl ProvingGround {
+    /// The local copy `serve` reported at `address` (`host:port`).
+    pub fn local(address: &str) -> Self {
+        let agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build()
+            .into();
+        Self {
+            address: address.to_owned(),
+            online: false,
+            agent,
+        }
+    }
+
+    /// Whether it is the online copy, whose results report and never block
+    /// a release; the local copy is not.
+    pub fn is_online(&self) -> bool {
+        self.online
+    }
+
+    /// The task list.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached, answers another status
+    /// than 200 or serves no task list.
+    pub fn task_list(&self) -> Result<TaskList, ProvingGroundError> {
+        let url = format!("http://{}/tasks", self.address);
+        let body = Self::answer(&url, self.agent.get(&url).call())?;
+        serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
+    }
+
+    /// A page's body, for a URL on one of the Proving ground's host names.
+    ///
+    /// # Errors
+    ///
+    /// When the URL is not an `http` URL, or the page cannot be fetched or
+    /// answers another status than 200.
+    pub fn page(&self, url: &str) -> Result<String, ProvingGroundError> {
+        let rest = url
+            .strip_prefix("http://")
+            .ok_or_else(|| ProvingGroundError::NotHttp {
+                url: url.to_owned(),
+            })?;
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let response = self
+            .agent
+            .get(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .call();
+        Self::answer(url, response)
+    }
+
+    /// The oracle's answer for a submitted result.
+    ///
+    /// # Errors
+    ///
+    /// When the oracle cannot be reached, refuses the submission (an
+    /// unknown task, a malformed result) or gives no answer.
+    pub fn judge<R: Serialize>(
+        &self,
+        submission: &Submission<'_, R>,
+    ) -> Result<OracleAnswer, ProvingGroundError> {
+        let url = format!("http://{}/oracle", self.address);
+        let body = Self::answer(&url, self.agent.post(&url).send_json(submission))?;
+        serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
+    }
+
+    fn answer(
+        url: &str,
+        response: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+    ) -> Result<String, ProvingGroundError> {
+        let mut response = response.map_err(|source| ProvingGroundError::Unreachable {
+            url: url.to_owned(),
+            source: Box::new(source),
+        })?;
+        let status = response.status().as_u16();
+        if status != 200 {
+            return Err(ProvingGroundError::Status {
+                url: url.to_owned(),
+                status,
+            });
+        }
+        response
+            .body_mut()
+            .read_to_string()
+            .map_err(|source| ProvingGroundError::Unreachable {
+                url: url.to_owned(),
+                source: Box::new(source),
+            })
+    }
+}
+
+/// Why the Proving ground gave no usable answer.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ProvingGroundError {
+    /// A URL that is not an `http` one.
+    #[error("`{url}` is not an http URL")]
+    NotHttp {
+        /// The URL.
+        url: String,
+    },
+    /// The request failed before an answer.
+    #[error("the Proving ground did not answer {url}: {source}")]
+    Unreachable {
+        /// The URL.
+        url: String,
+        /// Why.
+        source: Box<ureq::Error>,
+    },
+    /// It answered another status than 200.
+    #[error("the Proving ground answered {url} with status {status}")]
+    Status {
+        /// The URL.
+        url: String,
+        /// The status.
+        status: u16,
+    },
+    /// Its answer is not the JSON expected.
+    #[error("the Proving ground's answer to {url} cannot be read: {source}")]
+    Unreadable {
+        /// The URL.
+        url: String,
+        /// Why.
+        source: serde_json::Error,
+    },
+}

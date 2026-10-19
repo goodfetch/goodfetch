@@ -19,7 +19,7 @@ use sessions::Session;
 use crate::exchange::{Reply, Request};
 use crate::generator;
 use crate::sync::Mutex;
-use crate::task::{Account, Effect, Entry, Expected, Kind, Record, Task};
+use crate::task::{Account, Effect, Entry, Expected, Kind, Record, Task, origin};
 
 /// The host name the family's task host names end with.
 pub(crate) const HOST: &str = "portal.test";
@@ -223,7 +223,7 @@ struct Spec {
 
 /// The family's tasks for `seed`, their start URLs on their own host names
 /// and `port`. Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     (1..=ordinals())
         .zip(VARIANTS)
         .map(|(ordinal, variant)| {
@@ -239,7 +239,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                     id: format!("{FAMILY}/{ordinal}"),
                     family: FAMILY,
                     kind: Kind::Crawl,
-                    start_url: format!("http://{}:{port}{}", task_host(ordinal), spec.start),
+                    start_url: format!("{}{}", origin(&task_host(ordinal), port), spec.start),
                     description: spec.description,
                     account: spec.signs_in.then(|| account(seed)),
                     time_steps: None,

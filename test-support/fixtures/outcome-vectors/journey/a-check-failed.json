@@ -1,0 +1,7 @@
+{
+  "description": "A failed check fails the variant",
+  "steps": ["passed"],
+  "checks": ["passed", "failed"],
+  "tasks": ["verified"],
+  "outcome": "failed"
+}

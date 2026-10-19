@@ -92,6 +92,7 @@ done
 for image in "${images[@]}"; do
   [[ "$image" == ci ]] || continue
   vm_shell nerdctl run --detach --name "$CONTAINER" --platform linux/amd64 \
+    --cap-add NET_ADMIN \
     --volume /work:/work --volume "/cache:/cache:$cache_flag" \
     --env CI=true --env "GOODFETCH_CACHE_MODE=$cache_mode" \
     "$CI_IMAGE" sleep infinity

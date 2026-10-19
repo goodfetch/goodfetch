@@ -21,6 +21,8 @@ pub(crate) enum Verdict {
     Within,
     /// No figure of `main` to compare with: reported, never gated.
     New,
+    /// No report of `main`'s tree at all: reported, never gated.
+    NoBaseline,
     /// Past its increase threshold over `main`'s figure.
     Tripped,
     /// Over its ceiling, which no acceptance passes.
@@ -56,6 +58,7 @@ pub(crate) fn render(rows: &[Row]) -> String {
             match row.verdict {
                 Verdict::Within => "within",
                 Verdict::New => "new",
+                Verdict::NoBaseline => "no baseline",
                 Verdict::Tripped => "over",
                 Verdict::OverCeiling => "over its ceiling",
                 Verdict::Accepted => "accepted",

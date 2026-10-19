@@ -1,5 +1,24 @@
 {
   "$defs": {
+    "Journey": {
+      "additionalProperties": false,
+      "description": "A sample Journey.",
+      "properties": {
+        "goal": {
+          "description": "What the person achieves.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Its ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "goal"
+      ],
+      "type": "object"
+    },
     "SampleCrawlParams": {
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
@@ -125,6 +144,11 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "files": {
+    "journeys/J-*.toml": {
+      "$ref": "#/$defs/Journey"
+    }
+  },
   "protocol_version": "0.1",
   "title": "Goodfetch protocol"
 }

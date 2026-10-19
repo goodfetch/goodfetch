@@ -2,6 +2,8 @@
 
 Every change is held to a **Performance budget** made only of figures that repeat exactly on a shared runner: instruction counts and heap metrics under Valgrind, compared with the change's base in the same job; counts of protocol messages, bytes and renders, as snapshots; and the Console's bundle bytes. Resident memory has ceilings. Wall time never fails a change: it is measured every night on `main`'s head on the reference host, as the **Performance series**, once the owner approves that use, and at release by ADR 0025's benchmark, whose Δ rule is unchanged.
 
+> Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md), noted on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): no approval is awaited: the rented reference host is declined, and the Performance series runs on the owner's machine when it is on, labelled with it.
+
 ADR 0025 measures performance on the reference host at each release candidate, and ADR 0057 holds sizes on every change. Nothing held the speed or memory of the code between releases, so a regression would surface weeks after the change that made it. The facts limit what a per-change gate can hold:
 - **Time on shared runners is noise.** GitHub-hosted runners vary by a 2.66% coefficient of variation on real benchmark suites, so a 2% gate gives about 45% false alarms (CodSpeed's own measurement), and one runner label hands out different CPUs. ADR 0061 already says "No run fails for being slow within its cap".
 - **What projects require is exact counts.** Oxc's required checks are an allocation snapshot and a minified size; rustc-perf, Rustls and SQLite rely on instruction counts under Valgrind. Instruction counts of one binary on one machine repeat exactly, and move by 0.1–0.5% across CPUs.
@@ -94,6 +96,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
   - startup wall time and peak memory of the binary, with hyperfine 2.0;
   - the Console's lab metrics (LCP, CLS, TBT) with Lighthouse 13, driven directly against the binary-served Console, the median of 5 runs against the "good" values: LCP ≤ 2.5 s and CLS ≤ 0.1 from Web Vitals, and TBT ≤ 200 ms from web.dev's TBT guidance (TBT is not a Web Vital; lab tools use it in place of INP). Lighthouse CI is not used: it still bundles Lighthouse 12.
 - **It is a paid resource, gated on the owner.** It starts only once the owner approves the reference host's nightly use. Until then it runs nowhere, and the counted gates stand alone. It uses no hosted minutes, so it runs while the repository is private and the nightly tier is off, an exception to ADR 0032's rule like ADR 0064's test-health job.
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md), noted on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): it no longer runs nowhere until approved: it runs on the owner's machine, which costs nothing, when that machine is on, and is never published as the reference class.
 - **It is a Live check** (ADR 0064). It runs through `bench/`'s campaign runner under the reference host's gates, and declares in `bench/` before its first run:
   - **the control:** a pinned binary named in the declaration. Before the first release it is the build of a `main` commit named when the owner approves the series; from the first release on, the last release. The control changes only by a declared change in `bench/`, which starts a new series;
   - 10 trials per figure each night, interleaved in random order between `main`'s head and the control;
@@ -152,6 +155,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 
 - **Amends ADR 0032**, at two spots, each with a note:
   - the reference host is reached by tags, manual dispatch and, once the owner approves, a nightly schedule on `main`'s head, which runs only merged code. It still never runs pull-request code;
+    > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md), noted on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the reference host is declined; the nightly series runs on the owner's machine with no approval to wait for, and still runs only merged code.
   - the Performance series runs while the repository is private, though the nightly tier is off then, since it uses no hosted minutes.
 - **Amends ADR 0060 and `STYLE.md`:** bench targets may build a Tokio runtime, through the helper tests use. **Amends ADR 0062:** a bench target's root opts into `Clock::paused` and `Entropy::seeded` as a test module does. Notes mark both spots, and `STYLE.md` is edited in place.
 - **Adds to ADR 0025:** the Performance series uses the reference host and `bench/`'s runner, and its figures are never published as benchmark results. The release gate and every Δ are unchanged.
@@ -166,4 +170,11 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 - **Area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/goodfetch/goodfetch/issues/213)) gains benchmark scenarios for its hot paths (framing, dispatch, run-state writes, admission), the startup benchmarks and the three resident-memory scenarios.
 - **Area 12's spec** sets the initial route's ceiling and names the screens with render budgets.
 - **Owner approvals:** the reference host's nightly use, every resident-memory ceiling, and the Console's initial-route ceiling.
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md), noted on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the reference host's nightly use is no longer an owner approval, since the host is declined and the series runs on the owner's machine; the ceilings' approvals remain.
 - **The "Test infrastructure" spec** builds `xtask perf` and `just perf`, the comparison job and its base build, the admission run, the drift check, the reports, and the resident-memory check.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the bench target's Tokio runtime is a paused current-thread runtime, built through the helper tests use.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): `goodfetch-test-support` supplies values, the start time and the seed, not the handles: a bench target builds `Clock::paused` and `Entropy::seeded` from them, as a test does (ADR 0062).
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): `TESTING.md` names bench target roots in its rule on which roots opt into `Clock::paused` and `Entropy::seeded`.

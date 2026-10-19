@@ -3,7 +3,12 @@
 # repository beside this one (private until this one is public): one
 # compressed file per run attempt with its JUnit files as written, one record
 # per test run and one per job. Nothing is pruned. The scan then opens or
-# reopens the flaky-test and live-check issues. It runs none of the product,
+# reopens the flaky-test and live-check issues. After each manual-dispatch
+# Release run, the budget check follows (`xtask budgets`, ADR 0061): it
+# compares each job's median of its last 20 runs in its own tier with
+# TESTING.md's time budgets and opens or updates one needs-triage issue per
+# breached suite or job, and never fails. It moves to the nightly tier once
+# that is on. It runs none of the product,
 # so ADR 0043's deny does not apply, and only these jobs hold the store's
 # token, TEST_RESULTS_TOKEN.
 #
@@ -38,7 +43,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-      # The scan opens and reopens flaky-test and live-check issues.
+      # The scan opens and reopens flaky-test and live-check issues, and the
+      # budget check needs-triage ones.
       issues: write
     steps:
       - name: Check out main's head
@@ -72,6 +78,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
           cargo run --quiet --locked -p xtask -- results scan --store test-results
+          --repository "$GITHUB_REPOSITORY"
+      - name: Check the time budgets after the Release run
+        if: github.event.workflow_run.name == 'release suite'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- budgets --store test-results
           --repository "$GITHUB_REPOSITORY"
 
   daily:

@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "Feature": {
+      "additionalProperties": false,
+      "description": "One behaviour Goodfetch promises.",
+      "properties": {
+        "area": {
+          "description": "Its owning area's number: a story's file, a row's first spec area, a\ngenerated Feature's entry of `features/areas.toml`; none when no entry\nor several match it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "`<kind>:<id>`, as tests declare it.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind",
+          "description": "Its kind."
+        },
+        "milestone": {
+          "description": "The milestone of the ticket that finishes it, for a declared Feature;\na generated one is due in the pull request that adds it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "products": {
+          "description": "The Products that carry it (ADR 0094): Foxhound alone for a name of\nADR 0087's generated table of Foxhound's names, both otherwise.",
+          "items": {
+            "$ref": "#/$defs/Product"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "Whether it is still promised."
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "status",
+        "products"
+      ],
+      "type": "object"
+    },
+    "Kind": {
+      "description": "A Feature's kind, the part of its ID before the first `:`. Each later\ngenerator adds its kind here (ADR 0072's table).",
+      "oneOf": [
+        {
+          "const": "row",
+          "description": "An ADR 0037 matrix row that is not `excluded`.",
+          "type": "string"
+        },
+        {
+          "const": "story",
+          "description": "A spec's user story, `story:<area>-<n>`.",
+          "type": "string"
+        },
+        {
+          "const": "operation",
+          "description": "An operation of the Operation catalog.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "An Error code.",
+          "type": "string"
+        },
+        {
+          "const": "event",
+          "description": "A catalog event.",
+          "type": "string"
+        },
+        {
+          "const": "setting",
+          "description": "A setting of the settings schema.",
+          "type": "string"
+        },
+        {
+          "const": "exit",
+          "description": "An exit code of the exit-code table.",
+          "type": "string"
+        },
+        {
+          "const": "format",
+          "description": "A versioned format of the format registry.",
+          "type": "string"
+        }
+      ]
+    },
+    "Product": {
+      "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
+      "oneOf": [
+        {
+          "const": "collie",
+          "description": "Browser automation; Foxhound contains it.",
+          "type": "string"
+        },
+        {
+          "const": "foxhound",
+          "description": "Crawling, which contains Collie.",
+          "type": "string"
+        }
+      ]
+    },
+    "Status": {
+      "description": "Whether a Feature is still promised.",
+      "oneOf": [
+        {
+          "const": "active",
+          "description": "Promised.",
+          "type": "string"
+        },
+        {
+          "const": "retired",
+          "description": "A story removed from its spec, kept so its number is never reused.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`features/inventory.json`: every Feature, sorted by ID.",
+  "properties": {
+    "features": {
+      "description": "Every Feature.",
+      "items": {
+        "$ref": "#/$defs/Feature"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "features"
+  ],
+  "title": "Inventory",
+  "type": "object"
+}

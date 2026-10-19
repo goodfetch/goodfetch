@@ -1,0 +1,4 @@
+# The TLC job's self-test (ADR 0060): it traces no module, so only a change
+# to the models' tools or to xtask's TLC command selects it besides its own.
+spec = "Sample.tla"
+traces = []

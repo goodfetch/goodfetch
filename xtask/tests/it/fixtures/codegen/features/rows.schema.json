@@ -1,0 +1,37 @@
+{
+  "$defs": {
+    "Row": {
+      "additionalProperties": false,
+      "description": "One matrix row's milestone.",
+      "properties": {
+        "id": {
+          "description": "The row's ID in the matrix, such as `RT-10` or `durability-resume`.",
+          "type": "string"
+        },
+        "milestone": {
+          "description": "The GitHub milestone of the ticket that finishes it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "milestone"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`features/rows.toml`: each matrix row's milestone.",
+  "properties": {
+    "row": {
+      "description": "The rows given a milestone so far.",
+      "items": {
+        "$ref": "#/$defs/Row"
+      },
+      "type": "array"
+    }
+  },
+  "title": "RowsFile",
+  "type": "object"
+}

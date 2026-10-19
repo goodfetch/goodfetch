@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "Tools": {
+      "additionalProperties": false,
+      "description": "The commit's executables, each present when its crate exists in the\nworkspace. Tests of a Product's executable crate use its\n`CARGO_BIN_EXE_` path instead.",
+      "properties": {
+        "collie": {
+          "description": "`goodfetch-collie`, Collie's executable.",
+          "type": "string"
+        },
+        "foxhound": {
+          "description": "`goodfetch-foxhound`, Foxhound's executable.",
+          "type": "string"
+        },
+        "proving_ground": {
+          "description": "The Proving ground's executable.",
+          "type": "string"
+        },
+        "scripted_engine": {
+          "description": "`goodfetch-scripted-engine`, the Scripted engine.",
+          "type": "string"
+        },
+        "test_env": {
+          "description": "`goodfetch-test-env`.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One test's setup, as the TypeScript and Python packages read it.",
+  "properties": {
+    "env": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The cleared environment of every child the test starts.",
+      "type": "object"
+    },
+    "folder": {
+      "description": "The test's own folder, whose name holds a space and a non-ASCII\nletter; removed when the test ends.",
+      "type": "string"
+    },
+    "home": {
+      "description": "`<folder>/home`, the `GOODFETCH_HOME` of everything the test starts.",
+      "type": "string"
+    },
+    "seed": {
+      "description": "The test's seed, at most 2^53 - 1 so every language reads it exactly.",
+      "format": "uint64",
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "start_time": {
+      "description": "The test's start time, RFC 3339 in UTC.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "tools": {
+      "$ref": "#/$defs/Tools",
+      "description": "The commit's executables, from the test tool manifest."
+    }
+  },
+  "required": [
+    "folder",
+    "home",
+    "env",
+    "seed",
+    "start_time",
+    "tools"
+  ],
+  "title": "Description",
+  "type": "object"
+}

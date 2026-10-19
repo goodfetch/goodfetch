@@ -4,11 +4,13 @@
 //! Product mark (ADR 0095) and refers to its types in the bundle.
 //!
 //! The bundle's `files` maps each repository file a contract shapes to its
-//! schema: `compat/releases.toml` (ADR 0066) so far. What later decisions put
-//! in the bundle joins here once its types exist, through the same `xtask
-//! codegen`: the format registry (ADR 0066), the `--json` output types and the
-//! exit-code table (ADR 0069), and the Journey and Feature inventory schemas
-//! (ADRs 0063 and 0072). `xtask compat` reads the format registry as the
+//! schema: `compat/releases.toml` (ADR 0066), and the Journey catalog's
+//! files, every `journeys/J-*.toml` and `journeys/catalog.toml` (ADR 0063),
+//! whose Journey schema `xtask codegen` also writes on its own to
+//! `journeys/journey.schema.json`. What later decisions put in the bundle
+//! joins here once its types exist, through the same `xtask codegen`: the
+//! format registry (ADR 0066), the `--json` output types and the exit-code
+//! table (ADR 0069), and the Feature inventory schemas (ADR 0072). `xtask compat` reads the format registry as the
 //! bundle's `formats`: an array of `{name, version, storage, schema}`, where
 //! `storage` is `json`, `sqlite` or `transcript`; without it, no format is
 //! registered. A new catalog section
@@ -20,14 +22,18 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, Metric, Operation,
-    PROTOCOL_VERSION, PluginKind, Product,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Metric, Operation,
+    PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
+use crate::journey::{Journey, JourneyCatalog};
 use crate::releases::ReleasesFile;
 use crate::{foxhound, sample};
 
 /// Every module that defines entries.
 const MODULES: [&Entries; 2] = [&sample::ENTRIES, &foxhound::ENTRIES];
+
+/// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
+pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
 
 /// The two committed files, as JSON values.
 pub struct Emitted {
@@ -45,13 +51,19 @@ pub fn emit() -> Emitted {
         sections.add(entries, &mut generator);
     }
     let releases = generator.subschema_for::<ReleasesFile>();
+    let journey = generator.subschema_for::<Journey>();
+    let journey_catalog = generator.subschema_for::<JourneyCatalog>();
     let definitions = generator.take_definitions(true);
     Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "Goodfetch protocol",
             "protocol_version": PROTOCOL_VERSION.to_string(),
-            "files": { "compat/releases.toml": releases },
+            "files": {
+                "compat/releases.toml": releases,
+                JOURNEY_FILES: journey,
+                "journeys/catalog.toml": journey_catalog,
+            },
             "$defs": definitions,
         }),
         catalog: sections.into_catalog(),
@@ -65,6 +77,9 @@ struct Sections {
     error_codes: Vec<Value>,
     plugin_kinds: Vec<Value>,
     metrics: Vec<Value>,
+    settings: Vec<Value>,
+    hook_stages: Vec<Value>,
+    shared_type_values: Vec<Value>,
 }
 
 impl Sections {
@@ -100,6 +115,24 @@ impl Sections {
                 .iter()
                 .map(|metric| metric_entry(product, metric)),
         );
+        self.settings.extend(
+            entries
+                .settings
+                .iter()
+                .map(|setting| setting_entry(product, setting)),
+        );
+        self.hook_stages.extend(
+            entries
+                .hook_stages
+                .iter()
+                .map(|stage| hook_stage_entry(product, stage)),
+        );
+        self.shared_type_values.extend(
+            entries
+                .shared_type_values
+                .iter()
+                .map(|value| shared_type_value_entry(product, value)),
+        );
     }
 
     fn into_catalog(self) -> Value {
@@ -111,6 +144,9 @@ impl Sections {
             "error_codes": sorted(self.error_codes),
             "plugin_kinds": sorted(self.plugin_kinds),
             "metrics": sorted(self.metrics),
+            "settings": sorted(self.settings),
+            "hook_stages": sorted(self.hook_stages),
+            "shared_type_values": sorted(self.shared_type_values),
         })
     }
 }
@@ -217,6 +253,34 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
         "unit": metric.unit,
         "stability": metric.stability.as_str(),
         "arrived_in": metric.arrived_in.to_string(),
+    })
+}
+
+fn setting_entry(product: Product, setting: &Setting) -> Value {
+    json!({
+        "name": setting.name,
+        "product": product.as_str(),
+        "description": setting.description,
+        "arrived_in": setting.arrived_in.to_string(),
+    })
+}
+
+fn hook_stage_entry(product: Product, stage: &HookStage) -> Value {
+    json!({
+        "name": stage.name,
+        "product": product.as_str(),
+        "description": stage.description,
+        "arrived_in": stage.arrived_in.to_string(),
+    })
+}
+
+fn shared_type_value_entry(product: Product, value: &SharedTypeValue) -> Value {
+    json!({
+        "name": value.name,
+        "product": product.as_str(),
+        "type": value.shared_type.as_str(),
+        "description": value.description,
+        "arrived_in": value.arrived_in.to_string(),
     })
 }
 

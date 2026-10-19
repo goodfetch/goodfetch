@@ -1,0 +1,735 @@
+# Area 2's user stories (spec #152), the declared `story:2-<id>` Features of
+# ADR 0072. Each story's milestone is that of the ticket that finishes it.
+# Stories 51, 52 and 77 have a Journey; every other one carries ADR 0075's
+# reason `actor`, its actor being a reader of the benchmark, a competitor or
+# its maintainer or user, a contributor, a maintainer, an operator of CI, the
+# owner, an area, test support, a Journey's author or a surface's test runner,
+# never a person reaching a goal through a public surface. The spec's issue
+# keeps the full text; this copy is the one the Feature check reads. Never
+# renumber or reuse an ID: a removed story stays with `status = "retired"` and
+# a `reason`.
+
+[[story]]
+id = 1
+title = "As an evaluator, I want every figure Goodfetch publishes in three views (raw throughput or latency; time, CPU and memory per verified result; and dollars per 1,000 verified results), so that a tool that does less work never looks faster."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 2
+title = "As an evaluator, I want every raw figure shown with its verified count and its false-success count, so that I can see what the speed delivered."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 3
+title = "As an evaluator, I want a result counted as verified only when an oracle independent of the tool confirms it correct and complete, whatever status the tool gave it, so that a tool's own claim of success counts for nothing."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 4
+title = "As an evaluator, I want a false success defined as a result the tool reports as a success that the oracle refutes, so that the top pain of AI browser tools is measured."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 5
+title = "As an evaluator, I want Goodfetch's `needs-review` results (ADR 0013) counted as verified when the oracle confirms them, never as false successes, and shown in their own count, so that honest abstention is visible and not hidden."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 6
+title = "As an evaluator, I want every failed attempt and retry counted in the cost, so that cost is never computed on successes only."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 7
+title = "As an evaluator, I want figures only from the Proving ground, never from live third-party sites, so that runs are repeatable and nobody's site is scraped for marketing."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 8
+title = "As an evaluator, I want published figures only from the dedicated bare-metal reference host, with the Proving ground on a second machine on the same switch, so that the host measures only the tool."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 9
+title = "As an evaluator, I want the reference host's specification published (x86_64, 16 cores and 32 threads, 128 GB RAM, NVMe, Ubuntu 24.04 LTS, turbo off, SMT on, fixed for a series), so that I can judge or reproduce the figures."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 10
+title = "As an evaluator, I want arm64 runs kept as unpublished `local-controlled` checks, so that published figures share one host class."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 11
+title = "As an evaluator, I want the benchmark families (HTTP crawl; rendered crawl; extraction speed and quality; scripted actions; remote browser; AI; repeated runs with Drift; incident and recovery; startup and binding overhead; the cost of each switchable control; and Access), each run on the smallest Product that carries it, startup and binding overhead on each Product's executable, and every published result naming its Product (ADR 0094), so that every kind of work Goodfetch's Products do is measured."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 12
+title = "As an evaluator, I want an extraction-quality family scored against seeded ground truth, so that extraction quality is measured, not claimed (pain 14)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 13
+title = "As an AI user, I want ADR 0025's AI use cases benchmarked, each in all four combinations of a cloud or local model with a local or hosted browser where it applies, so that I see the cost and speed of my setup. The use cases are: first run that compiles a Plan; replay with Drift and Repair; autonomous Agent; Goodfetch driven by an outside Agent through MCP, CLI and skills, or Code mode; AI extraction to a schema; AI-guided Crawl; search then Crawl; vision against DOM actions; the Decision provider's fast path; AI safety against prompt injection, fake success messages and allowlist escapes; Human pause; an Agent woken by a change on a watched page; a fleet of Agents; an Agent resumed from a Checkpoint after the engine is killed; an authenticated Agent with MFA and account rotation; extraction rules written once by AI then run without a model; and documents and visuals."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 14
+title = "As an AI user, I want a Plan's one-time cost (compilation and Repairs) shown spread over 1, 10, 100 and 1,000 runs, counts declared before measuring, so that compile-and-replay is compared honestly with planning on each run."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 15
+title = "As an evaluator, I want model, proxy and CAPTCHA-service spend at list price (failed attempts included), hosted browsers at list price per browser-minute, and the reference host's public hourly price times wall time, so that the dollar view is reproducible."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 16
+title = "As an evaluator, I want human time reported separately and never folded into dollars, so that a Human pause is visible and not hidden in a price."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 17
+title = "As an evaluator, I want concurrency runs at 1, 8, 64 and 256, plus a search for the highest concurrency at which verified throughput still rises and false success stays at zero, so that I see how each tool scales without losing correctness."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 18
+title = "As an evaluator, I want each claim declared before measuring, with its metric, comparator, direction and minimum effect Δ, so that nobody picks the claim after seeing the numbers."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 19
+title = "As an evaluator, I want verdicts computed by fixed rules from block-bootstrap intervals, with at least five blocks (more when results scatter widely) and the page or task as the pairing unit, so that every verdict follows mechanically from the data."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 20
+title = "As an evaluator, I want every result published, losses and inconclusive verdicts included, with raw data, harness, configurations and redacted traces, so that nothing is hidden."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 21
+title = "As an evaluator, I want results on a Benchmarks page at the docs site's root, each result naming the Products it reaches (ADR 0097), and in `bench/results/<version>/`, with earlier results kept and dated, so that I can follow results over time."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 22
+title = "As an evaluator, I want every marketing figure to quote a published claim and link to it, so that marketing never runs ahead of the data."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a competitor's maintainer, I want my tool run in its best documented configuration for each family, pinned at its latest stable release when the benchmark freezes, so that it is not set up to lose."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 24
+title = "As a competitor's maintainer, I want my tool's configuration published and 14 days to review it before publication, so that I can correct a misconfiguration."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a competitor's user, I want the Product compared shown twice where a competitor lacks a guarantee (by default with every control on, and matched with the missing controls switched off and marked as ADR 0023 requires), with the matched rows setting Filter-list blocking and Consent prompt handling as each competitor's default does (ADRs 0047 and 0048), so that comparisons are made at equal guarantees."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a competitor, I want the Proving ground published as source and as a release binary with its seed, so that I can rerun the benchmark without the whole repository."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 27
+title = "As an evaluator, I want the competitor set covered: Crawlee (JavaScript and Python), Spider, Scrapy, Colly in async mode, Stagehand v4, Playwright, Crawl4AI, Browser Use, Vercel's `agent-browser`, Firecrawl self-hosted (with its cloud-only anti-bot engine noted as absent) and Scrapling, plus ScrapeGraphAI, Skyvern and changedetection.io where their use case applies, so that every tool users compare Goodfetch with is measured."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a contributor, I want millions of pages generated from a seed, generated on demand and not stored, so that the Proving ground scales without becoming the bottleneck."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a contributor, I want hand-made pages beside the seeded ones, with their expected results written by hand, so that situations a generator can't express are still covered."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a contributor, I want the same seed to always produce the same pages and the same expected results, so that every run is reproducible."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a contributor, I want expected results derived only from the seed data or written by hand, never from any tool's output (extractors included), so that the oracle can't inherit a tool's mistakes."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a contributor, I want an oracle that judges a submitted result for a task as verified, false success or incomplete, and names what is missing or wrong, so that a test failure explains itself."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a contributor, I want the Proving ground to cover ADR 0025's catalogue, so that every case named there has a page: CSS class churn and honeypot links; every kind of CAPTCHA and protection; flagged IPs and per-IP rate limits with `Retry-After`; every HTTP error, soft 404s, redirect loops, crawler traps and duplicate URLs; schema.org data and hidden APIs; the same entity under small structure changes; AJAX loading, infinite scroll, shadow DOM and iframes; logins with MFA and logins that expire; geo and language variants, odd encodings, huge pages, PDFs and downloads, sitemaps; content that changes on a known schedule; prompt-injection pages and fake success messages; and TLS and HTTP/2 fingerprint checks."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 34
+title = "As the Console's area, I want pages that try to escape the Console's content origin (ADR 0031), so that its header checks have something to resist."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 35
+title = "As the Collection area, I want pages with odd encodings (ADR 0037 / CO-24), so that detection and forced encodings are tested."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 36
+title = "As the Collection area, I want a page family where a URL parameter looks like it has no effect but separates distinct pages (ADR 0005), so that a wrongly learned frontier rule is caught."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 37
+title = "As the Stealth area, I want the first rung of the Access family on the local copy (ADR 0035), so that stealth regressions are caught without any outside network. That rung covers: JA4, HTTP/2, header order and client hints checked for consistency from HTTP to the browser; self-hosted probes such as CreepJS and BotD; CDP side-effect probes; the version check; and the block-detection corpus."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 38
+title = "As the Stealth area, I want the second rung on the online copy behind real vendor protections, read back through each vendor's own verdict on the server side. Those protections are Turnstile with Siteverify, the Cloudflare bot score, AWS WAF Bot Control labels, reCAPTCHA scores, Vercel BotID, hCaptcha, and the proof-of-work challenges Anubis, ALTCHA and Cap. Each vendor is used on its free tier only, and one with no free tier waits (ADR 0076); DataDome, Akamai, HUMAN and Kasada come only with trials that cost nothing, which the owner approves one by one. The online copy also carries real consent vendors' prompts, through their free tiers where their terms allow; a paid one is declined while there is no revenue (ADRs 0048 and 0076). This lets stealth and Consent prompt handling be judged against real vendors without scraping anyone's site."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 39
+title = "As the Stealth area, I want every Access result reported per Fingerprint method, engine, Access mode and build age, against stock headless and stock headful Chrome as controls, so that a stealth claim always has a baseline."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 40
+title = "As the Site access area, I want the lab's fixtures ported, so that ADR 0019's guard matrix, ADR 0020's transport gate and the identity checks keep their pages. Those fixtures are: the catalog and portal sites, the actionability, navigation, frames and files pages, the HTTP-incident pages, the access-policy pages, the TLS and HTTP/2 fingerprint relay, the identity site with Web Bot Auth verification, the Agent pages, the fake model and the replay proxy."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 41
+title = "As any later area, I want to add the page my feature's conformance test needs in the same pull request as the feature and its test (ADR 0032), so that a feature, its test and its page never drift apart."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a contributor, I want the Proving ground to depend on no engine crate, enforced by CI, so that the oracle stays independent of what it judges."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a contributor, I want the Proving ground served over HTTP/1.1, HTTP/2 and TLS (with a local certificate authority that tests trust explicitly), so that transport and fingerprint behaviour can be checked."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a contributor, I want declared network profiles (0, 20, 100 and 300 ms of added round-trip time, and loss) applied with `tc netem` on the reference host, and the measured added delay recorded with each run, so that latency claims are calibrated."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a contributor on macOS or Windows, I want the same network profiles available without privileges for unpublished runs, so that I can reproduce a latency case locally."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 46
+title = "As an operator of CI, I want the Proving ground to count as \"the fixtures\" under ADR 0043's outbound-traffic rule, so that every conformance job can reach it while everything else is denied."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 47
+title = "As the owner, I want the online copy deployed only from a release tag, only with my approval each time, with the challenge vendors' keys held in a protected GitHub environment, so that vendor credentials and deploys stay under control."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 48
+title = "As the owner, I want the online copy's deployment code public in `proving-ground/deploy/`, so that anyone can see how the challenge results were produced."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 49
+title = "As the owner, I want the online copy to read each challenge vendor's verdict on the server side and expose it to the oracle, and to read each consent vendor's recorded answer from the consent cookies that vendor sets on the Proving ground's own domain, so that the online conformance and the Access family's second rung judge by the vendor's own record, never by the tool's report."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 50
+title = "As an area that owns a contract, I want one harness that runs my suite against a target (either Product's engine over the protocol, the Browser host, a process Plugin, or Goodfetch Cloud's engine) and the Proving ground, so that I write test cases, not test infrastructure."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a Plugin author, I want `plugins test` of a Product's executable to run my Plugin kind's suite and report each declared capability as proved, unproved or failed, and Collie's to refuse a Sink or Fetch backend Plugin with `not_in_product` (ADRs 0087 and 0094), so that I know what my Plugin can claim and which Product's executable proves it."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 52
+title = "As a user, I want conformance results shown in the Plugin index, `plugins list` and the Console (ADR 0033), so that I can require a capability to be proved before a run uses it."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 53
+title = "As the Cloud-readiness area, I want the same suite to run against the local engine and against the engine as Goodfetch Cloud drives it, which is a published Product executable run unmodified (ADRs 0001 and 0096), and against the Browser host (ADR 0022), so that cloud behaviour can always be reproduced locally."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a maintainer, I want the conformance suites to run on every supported platform and runtime (ADR 0024), so that \"green on every platform\" is a fact the release gate can read."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 55
+title = "As a maintainer, I want the online conformance of fetch backends, browser backends and Challenge solvers against real vendors (ADR 0033) to run on every release candidate, on every patch with a new Chrome major or new stealth material, and on manual dispatch, reaching only the endpoints ADR 0043 lists, and to report in the release notes without ever blocking a release, so that a vendor's scoring change can't hold back a security patch. The Clean-up rules' daily channel is the one exception, and its online results gate only the channel (stories 73 and 74)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a maintainer, I want an unproved capability reported as unproved, never as passed, so that a gap in a suite is never mistaken for a pass."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a maintainer, I want a result document that names the suite, its version, the target and its version, the platform and runtime, the Proving ground's version and seed, and each capability's outcome with its evidence, so that any result can be traced and reproduced."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a maintainer, I want the benchmark rerun on every minor's release candidate during its beta week, for each Product against its previous release (ADR 0094) and the then-current competitor versions, on the owner's machine while the reference host is declined (ADR 0076), so that a regression is caught before stable."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a maintainer, I want a correctness failure (any false success, or any verified count lower than expected) to always block the release, so that correctness is never traded for speed."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a maintainer, I want a primary metric worse than the previous release by more than its Δ to block the release unless the release notes explain it, so that a slowdown is either fixed or owned (pain 21)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a maintainer, I want patches to run the correctness oracle only, each family on the smallest Product that carries it (ADR 0094), plus the guard when the patch carries a new Chrome major, so that patches ship fast but stay correct."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a maintainer, I want competitor rows rerun alongside the release candidate but never holding up a release, waiting for the 14-day review when a configuration changed, so that a competitor's schedule never delays Goodfetch."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a maintainer, I want the beta week's benchmark result to carry over to the stable build of the same commit (ADR 0032), so that promotion doesn't need a second reference-host run."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a maintainer, I want benchmark summaries committed to `bench/results/<version>/` and raw data and redacted traces attached as release assets linked by digest, so that history stays small and every figure stays reproducible."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 65
+title = "As the Site access area, I want the guard kept at 390 of 390 and no slower than Playwright on the lab's click and form tasks on the same machine, a miss reopening ADR 0019, so that the guard's claim keeps being checked."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 66
+title = "As the Site access area, I want a third-party remote browser driven over raw CDP with the guard measured against Stagehand v4 at equal guarantees, so that ADR 0022 knows whether to open an in-browser runtime ticket."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 67
+title = "As the Security area, I want the cost of every switchable control published (ADR 0023), including the TLS relay's cost for certificate exceptions (ADR 0042), what the clean-up (Filter-list blocking and Consent prompt handling) costs and saves in time and bytes (ADRs 0025, 0047 and 0048), and live hiding's cost measured against `live_hiding = off` (ADR 0047), so that users know what each control costs them."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 68
+title = "As the Engine runtime area, I want power-cut-safe and fast run state both measured on the owner's machine while the reference host is declined (ADRs 0002 and 0076), so that a large gap can reopen the separate-log option."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 69
+title = "As the Engine runtime area, I want the missing blocks of the fair per-domain admission verdict measured (ADR 0004), so that only a measurable slowdown on single-domain crawls reopens it."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 70
+title = "As the Engine runtime area, I want the concurrency search's result to set the governor's default ceilings (ADR 0040), so that defaults come from measurement."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 71
+title = "As the Scheduling area, I want the change-triggered Agent use case run as a Schedule with a Watch (ADR 0036), so that the benchmark measures the real feature."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 72
+title = "As the Console area, I want ADR 0029's Verdict (a run's claim about itself) kept separate from the oracle's verified result, so that the two are never conflated in reports."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 73
+title = "As the Site access area, I want the conformance harness to run a suite on the online copy in a gate mode, where each page's result is judged against the same page with Filter-list blocking off and a failure blocks, so that the Clean-up rules' daily channel publishes only rules that break nothing, while a vendor's own scoring change, which moves both results, never holds the channel back (ADR 0047)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 74
+title = "As a maintainer, I want only the nightly job that builds the daily channel to use the gate mode, and every other online result to keep only reporting, so that a vendor's scoring never blocks a release (ADRs 0043 and 0047)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 75
+title = "As an evaluator, I want bytes counted by the Proving ground for each task, from what it receives and sends, so that the clean-up's byte figures are independent of each tool and measured the same way for every competitor."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a competitor's maintainer, I want my tool's published configuration to record its default for blocking ads and trackers and for Consent prompts, so that the matched row of the Product compared follows my tool's real default (ADR 0025)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a Plugin author with only a Product's installed executable, I want its `plugins test` to run the suites embedded in that executable against a Proving ground it fetches as a digest-pinned download on first use, accepts from `browsers install` or `GOODFETCH_BROWSERS_PATH`, and refuses with `artifact_unavailable_offline` under `offline`, so that I can prove my Plugin without the repository or a hidden download (ADRs 0033 and 0043)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 78
+title = "As a maintainer, I want the suites' data embedded in each Product's executable stored compressed and counted toward that Product's Size budget, so that conformance never grows an executable unseen (ADRs 0057 and 0087)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a Journey's author, I want each task's ID to be `<family>/<ordinal>`, scoped by the seed and never reused, and each task to carry a digest that ignores the port, so that a Journey pins its data and a generator change that moves a task fails loudly (ADR 0063)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 80
+title = "As test support, I want `serve` to bind port 0 and print one JSON line with its address, version and seed, so that every test and Journey variant starts its own Proving ground (ADRs 0062 and 0063)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 81
+title = "As the AI area, I want the Fake model to speak ADR 0012's three formats, streamed and not, with tool calls and structured output, to count every call's tokens itself and to serve the faults a task asks for, so that AI features are tested end to end without a live model (ADR 0065)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 82
+title = "As the Site access and Security areas, I want a real forward proxy, a DNS fixture and a record of every connection, served by the Proving ground, so that proxies, rebinding and SSRF refusals are tested for real, never mocked (ADRs 0059 and 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 83
+title = "As the Security area, I want redirect, header, download-name and decompression-bomb pages, login flows that plant Secret canaries and a public page that calls the local Daemon, so that every trust boundary has its hostile input (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 84
+title = "As every surface's test runner, I want one result document with a `kind` (`conformance` or `journey`) whose outcome a constructor derives and every reader recomputes, so that no helper can report `proved` beside a `false_success` (ADR 0063)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 85
+title = "As the Client surfaces area, I want the harness to turn a case log another runner wrote into the result document, a declared case missing from the log leaving its capability `unproved`, and each case's `covers` list carried into it, so that every surface reports Client conformance one way (ADRs 0069 and 0072)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a maintainer, I want a false success or a safety violation found by an Evaluation at any size to block the next release candidate as a correctness failure, and an Evaluation regression to block only once the owner approves its Δ, so that AI correctness gates releases without noise (ADR 0065)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a maintainer, I want the benchmark, the online conformance and the daily channel's gate to report as Live checks (pass, fail or inconclusive) into the results store, an unavailable vendor or host being inconclusive and never a pass, so that their failures follow ADR 0064's `live-check` rules."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 88
+title = "As the Engine runtime area, I want a nightly Performance series on the owner's machine, standing in for the declined reference host (ADR 0076), run by `bench`'s campaign runner against a declared control and read by Apache Otava for lasting shifts of 5% or more, never published and never failing a change, so that a slowdown is caught between releases (ADR 0071)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 89
+title = "As the AI area, I want `bench`'s statistics to give the verified rate with its 95% Wilson interval, pass^k, and the paired difference in verified rate in percentage points with a block-bootstrap interval, so that Evaluations use the benchmark's one statistics engine (ADR 0065)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 90
+title = "As the Collection, Sinks and Console areas, I want ADR 0073's encodings family and language family, their expected text held in UTF-8 in the normalization form served, so that every script and encoding survives each step."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 91
+title = "As the Stealth area, I want consistency probe pages (frames and every worker kind), codec samples, font pages and a Google-host stand-in that records `X-Client-Data`, so that the Goodfetch Chromium's consistency, codec, font and quiet-browser tests have pages (ADR 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"

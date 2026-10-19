@@ -70,6 +70,8 @@ jobs:
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
         with:
           target: x86_64-unknown-linux-gnu
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -83,7 +85,7 @@ jobs:
         if: always()
         run: ci/junit-context.sh 50
       - name: Summarize the failed tests
-        if: failure()
+        if: always()
         run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
@@ -226,6 +228,8 @@ jobs:
       - name: Draw a fresh order seed
         id: seed
         run: echo "seed=$(shuf --input-range=1-2147483647 --head-count=1)" >>"$GITHUB_OUTPUT"
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -243,7 +247,7 @@ jobs:
           GOODFETCH_ORDER_SEED: ${{ steps.seed.outputs.seed }}
         run: ci/junit-context.sh
       - name: Summarize the failed tests
-        if: failure()
+        if: always()
         run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()

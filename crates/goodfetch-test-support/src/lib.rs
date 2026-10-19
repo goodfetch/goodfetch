@@ -8,11 +8,12 @@
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
-//! its runner and the Scripted resolver (ADR 0067); and `goodfetch-test-env`,
-//! which gives the same
-//! setup to TypeScript and Python as one JSON description. It works on
-//! values only: it depends on no Goodfetch crate and is only ever a
-//! dev-dependency.
+//! its runner and the Scripted resolver (ADR 0067); the Scripted engine's
+//! script format and its player (ADR 0069); `goodfetch-test-env`, which
+//! gives the same setup to TypeScript and Python as one JSON description;
+//! and `goodfetch-scripted-engine`, which plays a script over its stdio.
+//! It works on values only: it depends on no Goodfetch crate and is only
+//! ever a dev-dependency.
 
 mod crash_dumps;
 mod crash_vfs;
@@ -23,6 +24,7 @@ mod fuzz;
 mod invariants;
 mod kill;
 mod observation;
+mod player;
 mod process;
 mod resolver;
 mod runtime;
@@ -50,6 +52,7 @@ pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_with
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
 };
+pub use player::{ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play};
 pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,
     reported_address, reported_address_within,

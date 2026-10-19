@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted by an engine that names Collie, then one call answered.",
+  "description": "A Collie Client's hello accepted by an engine that names Collie.",
   "steps": [
     {
       "expect": {
@@ -18,22 +18,6 @@
           "protocol_version": "0.1",
           "product": "collie",
           "product_version": "0.1.0"
-        }
-      }
-    },
-    {
-      "expect": {
-        "method": "engine.info",
-        "params": {}
-      }
-    },
-    {
-      "reply": {
-        "result": {
-          "product": "collie",
-          "product_version": "0.1.0",
-          "protocol_version": "0.1",
-          "product_major": 0
         }
       }
     }

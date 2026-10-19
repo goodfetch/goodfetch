@@ -25,5 +25,6 @@ http1 = ["chunked"]
 http2 = []
 
 [submodules.portal]
+frontier = []
 listing = []
 sessions = []

@@ -3,9 +3,11 @@
 //! lab's portal variants. Session tasks hold reports behind a CSRF login
 //! whose sessions expire, refresh and are revoked, and their expected result
 //! names each sign-in the crawl needs. Routing tasks hold one listing behind
-//! six kinds of rendering. Pages and expected results come from the seed;
-//! the state the family keeps is its sessions.
+//! six kinds of rendering, and frontier tasks a crawler trap and a table
+//! that changes while it is paged. Pages and expected results come from the
+//! seed; the state the family keeps is its sessions and the table.
 
+mod frontier;
 mod listing;
 mod sessions;
 
@@ -41,10 +43,14 @@ const PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuv
 enum Variant {
     Session(Session),
     Listing(Rendering),
+    /// A crawler trap.
+    Trap,
+    /// A table that changes while it is paged.
+    Table,
 }
 
 /// The variants in ordinal order, from 1.
-const VARIANTS: [Variant; 11] = [
+const VARIANTS: [Variant; 13] = [
     Variant::Session(Session::LoginCsrf),
     Variant::Session(Session::Expiry),
     Variant::Session(Session::Refresh),
@@ -56,12 +62,18 @@ const VARIANTS: [Variant; 11] = [
     Variant::Listing(Rendering::StaleHtml),
     Variant::Listing(Rendering::Graphql),
     Variant::Listing(Rendering::InfiniteScroll),
+    Variant::Trap,
+    Variant::Table,
 ];
+
+/// The ordinal of the changing table's task.
+const TABLE_ORDINAL: usize = 13;
 
 /// The state the family keeps across requests.
 pub(crate) struct Portal {
     seed: u64,
     sessions: Mutex<sessions::Sessions>,
+    table: Mutex<frontier::Table>,
 }
 
 impl Portal {
@@ -69,6 +81,7 @@ impl Portal {
         Self {
             seed,
             sessions: Mutex::default(),
+            table: Mutex::new(frontier::Table::new(seed)),
         }
     }
 
@@ -87,7 +100,16 @@ impl Portal {
                 .lock()
                 .respond(self.seed, ordinal, session, request),
             Variant::Listing(rendering) => (listing::respond(self.seed, rendering, request), None),
+            Variant::Trap => (frontier::trap(self.seed, request), None),
+            Variant::Table => (self.table.lock().respond(request), None),
         })
+    }
+
+    /// The expected result of `task` as the family's state now makes it,
+    /// for a task whose expected result changes while it runs: the changing
+    /// table's.
+    pub(crate) fn expected_now(&self, task: &str) -> Option<Expected> {
+        (task == format!("{FAMILY}/{TABLE_ORDINAL}")).then(|| self.table.lock().expected())
     }
 
     /// Revokes every live session and refresh token of the family, as when a
@@ -154,7 +176,8 @@ fn token(seed: u64, ordinal: u32, count: u64) -> String {
     )
 }
 
-/// A report, the session tasks' Record: its ID and price.
+/// An item a portal page shows, the family's Record: its ID and price.
+#[derive(Clone)]
 struct Item {
     id: String,
     price: u64,
@@ -207,6 +230,8 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
             let spec = match variant {
                 Variant::Session(session) => sessions::task(seed, session),
                 Variant::Listing(rendering) => listing::task(seed, rendering),
+                Variant::Trap => frontier::trap_task(seed),
+                Variant::Table => frontier::table_task(seed),
             };
             Task {
                 host: task_host(ordinal),

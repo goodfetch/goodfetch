@@ -130,9 +130,11 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
+                let now = self.portal.expected_now(&task.entry.id);
+                let expected = now.as_ref().unwrap_or(&task.expected);
                 Reply::json(
                     StatusCode::OK,
-                    &oracle::judge(&task.expected, submission, &effects),
+                    &oracle::judge(expected, submission, &effects),
                 )
             }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),

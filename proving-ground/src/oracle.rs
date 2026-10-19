@@ -89,6 +89,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
     let by_id: BTreeMap<&str, &Record> = expected
         .records
         .iter()
+        .chain(&expected.tolerated)
         .map(|record| (record["id"].as_str(), record))
         .collect();
     let mut seen = BTreeSet::new();
@@ -116,10 +117,12 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
             }
         }
     }
-    let missing: Vec<String> = by_id
-        .keys()
-        .filter(|id| !seen.contains(*id))
-        .map(|id| (*id).to_owned())
+    let missing: Vec<String> = expected
+        .records
+        .iter()
+        .map(|record| record["id"].as_str())
+        .filter(|id| !seen.contains(id))
+        .map(str::to_owned)
         .collect();
     let mut missing_effects = expected.effects.clone();
     let mut extra_effects = Vec::new();

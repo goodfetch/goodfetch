@@ -628,3 +628,210 @@ fn an_infinite_feed_read_through_its_cursors_is_verified() {
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
+
+/// Every `href` of a page, resolved against `origin`, `&amp;` decoded.
+fn links(origin: &str, html: &str) -> Vec<String> {
+    Regex::new(r#"href="([^"]+)""#)
+        .expect("a valid pattern")
+        .captures_iter(html)
+        .map(|link| format!("{origin}{}", link[1].replace("&amp;", "&")))
+        .collect()
+}
+
+/// A URL without the parameters that never change the page: session IDs,
+/// tracking parameters and sort orders, as the lab's canonical frontier
+/// dropped them.
+fn canonical(url: &str) -> String {
+    let Some((path, query)) = url.split_once('?') else {
+        return url.to_owned();
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| {
+            let name = pair.split('=').next().unwrap_or_default();
+            !(name == "sid" || name.starts_with("utm_") || name == "sort" || name == "order")
+        })
+        .collect();
+    if kept.is_empty() {
+        path.to_owned()
+    } else {
+        format!("{path}?{}", kept.join("&"))
+    }
+}
+
+/// Crawls the shop breadth-first within `budget` requests, from its start
+/// page; `canonical_frontier` drops the parameters that never change a
+/// page and stops paging the calendar after three empty months. Answers the
+/// Records and whether the frontier emptied within the budget.
+fn crawl_shop(
+    client: &mut Client<'_>,
+    task: &Value,
+    canonical_frontier: bool,
+    budget: usize,
+) -> (Vec<Value>, bool) {
+    let origin = origin(task);
+    let normalize = |url: &str| {
+        if canonical_frontier {
+            canonical(url)
+        } else {
+            url.to_owned()
+        }
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let mut frontier = std::collections::VecDeque::from([normalize(start_url(task))]);
+    seen.insert(frontier[0].clone());
+    let mut found = std::collections::BTreeMap::new();
+    let mut empty_months = 0;
+    let mut requests = 0;
+    while let Some(url) = frontier.pop_front() {
+        if requests == budget {
+            return (found.into_values().collect(), false);
+        }
+        requests += 1;
+        let html = client.get(&url).text();
+        let page_records = records(&html);
+        if url.contains("/events") {
+            empty_months = if page_records.is_empty() {
+                empty_months + 1
+            } else {
+                0
+            };
+            if canonical_frontier && empty_months >= 3 {
+                continue;
+            }
+        }
+        for record in page_records {
+            found.insert(record["id"].as_str().expect("an ID").to_owned(), record);
+        }
+        for link in links(&origin, &html) {
+            let link = normalize(&link);
+            if seen.insert(link.clone()) {
+                frontier.push_back(link);
+            }
+        }
+    }
+    (found.into_values().collect(), true)
+}
+
+/// Covers: story:2-40
+#[test]
+fn the_canonical_frontier_ends_a_crawl_through_session_ids_sort_orders_and_an_endless_calendar() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = task(&proving_ground, "portal/12");
+    let mut client = Client::new(&proving_ground);
+
+    let (found, finished) = crawl_shop(&mut client, &task, true, 300);
+    let answer = judge(&proving_ground, &task, "success", &found);
+
+    assert!(finished, "the canonical frontier did not empty");
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+}
+
+/// Covers: story:2-40
+#[test]
+fn the_naive_frontier_runs_out_of_its_budget_in_the_crawler_trap() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = task(&proving_ground, "portal/12");
+    let mut client = Client::new(&proving_ground);
+
+    let (_, finished) = crawl_shop(&mut client, &task, false, 300);
+
+    assert!(!finished, "the naive frontier emptied within its budget");
+}
+
+/// Covers: story:2-40
+#[test]
+fn a_crawler_trap_page_is_the_same_for_the_same_url() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = task(&proving_ground, "portal/12");
+    let mut client = Client::new(&proving_ground);
+
+    let pages = (
+        client.get(start_url(&task)).text(),
+        client.get(start_url(&task)).text(),
+    );
+
+    assert_eq!(pages.0, pages.1);
+    assert!(pages.0.contains("sid="), "{}", pages.0);
+}
+
+/// Crawls the orders table, by its page numbers or by the `rel="next"`
+/// cursor link, until it ends.
+fn crawl_table(client: &mut Client<'_>, task: &Value, by_cursor: bool) -> Vec<Value> {
+    let origin = origin(task);
+    let cursor = Regex::new(r#"<link rel="next" href="([^"]+)">"#).expect("a valid pattern");
+    let mut found = Vec::new();
+    let mut next = Some(start_url(task).to_owned());
+    while let Some(url) = next {
+        let html = client.get(&url).text();
+        found.extend(records(&html));
+        next = if by_cursor {
+            cursor
+                .captures(&html)
+                .map(|link| format!("{origin}{}", &link[1]))
+        } else {
+            next_link(&origin, &html)
+        };
+    }
+    found
+}
+
+/// Covers: story:2-40
+#[test]
+fn offset_pagination_over_a_table_that_changes_while_it_is_paged_is_a_false_success() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = task(&proving_ground, "portal/13");
+    let mut client = Client::new(&proving_ground);
+
+    let found = crawl_table(&mut client, &task, false);
+    let answer = judge(&proving_ground, &task, "success", &found);
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+}
+
+/// Covers: story:2-40
+#[test]
+fn cursor_pagination_over_a_table_that_changes_while_it_is_paged_is_verified() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = task(&proving_ground, "portal/13");
+    let mut client = Client::new(&proving_ground);
+
+    let found = crawl_table(&mut client, &task, true);
+    let answer = judge(&proving_ground, &task, "success", &found);
+
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+}
+
+/// Covers: story:2-40
+#[test]
+fn the_table_oracle_counts_a_row_submitted_twice_as_extra() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = task(&proving_ground, "portal/13");
+    let mut client = Client::new(&proving_ground);
+    let mut found = crawl_table(&mut client, &task, true);
+    found.push(found[0].clone());
+
+    let answer = judge(&proving_ground, &task, "success", &found);
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(answer["extra"], json!([found[0]]), "{answer}");
+}
+
+/// Covers: story:2-40
+#[test]
+fn the_table_oracle_requires_the_rows_that_lived_through_the_whole_crawl() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = task(&proving_ground, "portal/13");
+    let mut client = Client::new(&proving_ground);
+    let first = records(&client.get(start_url(&task)).text());
+
+    let answer = judge(&proving_ground, &task, "needs-review", &first);
+
+    assert_eq!(first.len(), 50);
+    assert_eq!(answer["outcome"], "incomplete", "{answer}");
+    assert_eq!(
+        answer["missing"].as_array().map(Vec::len),
+        Some(1450),
+        "{answer}"
+    );
+}

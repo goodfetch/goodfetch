@@ -42,20 +42,22 @@ fn the_task_list_names_the_tasks_of_every_family() {
             "portal/9",
             "portal/10",
             "portal/11",
+            "portal/12",
+            "portal/13",
         ]
     );
     assert_eq!(
         each(&tasks, "family"),
         [
             "catalog", "catalog", "catalog", "portal", "portal", "portal", "portal", "portal",
-            "portal", "portal", "portal", "portal", "portal", "portal",
+            "portal", "portal", "portal", "portal", "portal", "portal", "portal", "portal",
         ]
     );
     assert_eq!(
         each(&tasks, "kind"),
         [
             "crawl", "extract", "submit", "crawl", "crawl", "crawl", "crawl", "crawl", "crawl",
-            "crawl", "crawl", "crawl", "crawl", "crawl",
+            "crawl", "crawl", "crawl", "crawl", "crawl", "crawl", "crawl",
         ]
     );
     assert_eq!(

@@ -27,7 +27,7 @@ import pytest
 pytestmark = pytest.mark.covers("story:3-18")
 
 
-@pytest.mark.journey("J-002")
+@pytest.mark.journey(id="J-002", surface="sdk-python")
 @pytest.mark.covers("operation:run.start", "error:run_not_found")
 def test_journey() -> None:
     pass
@@ -72,7 +72,7 @@ def test_marker_listing_names_each_test_with_its_journey_and_covers_values(
         "tests": [
             {
                 "id": "tests/test_sample.py::test_journey",
-                "journey": ["J-002"],
+                "journey": [{"id": "J-002", "surface": "sdk-python"}],
                 "covers": ["operation:run.start", "error:run_not_found", "story:3-18"],
             },
             {
@@ -82,3 +82,34 @@ def test_marker_listing_names_each_test_with_its_journey_and_covers_values(
             },
         ]
     }
+
+
+SELECTED = """
+import pytest
+
+
+@pytest.mark.journey(id="J-002", surface="sdk-python")
+def test_sdk_python() -> None:
+    pass
+
+
+@pytest.mark.journey(id="J-003", surface="sdk-python")
+def test_other_journey() -> None:
+    pass
+
+
+def test_unmarked() -> None:
+    pass
+"""
+
+
+def test_journey_filter_selects_only_its_variants_test(sample_run: "SampleRun") -> None:
+    """The `-m` filter `xtask journeys select` prints for J-002@sdk-python."""
+    outcome = sample_run.run(
+        SELECTED, args=["-m", 'journey(id="J-002", surface="sdk-python")']
+    )
+
+    assert (outcome.status, outcome.results) == (
+        0,
+        {"test_sdk_python": "passed"},
+    ), outcome.output

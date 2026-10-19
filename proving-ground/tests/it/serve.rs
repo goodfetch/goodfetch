@@ -21,7 +21,9 @@ fn serve_on_port_zero_first_prints_its_address_version_and_seed() {
         object.keys().collect::<Vec<_>>(),
         [
             "address",
+            "certificate_authority",
             "dns",
+            "hosts",
             "network",
             "proxies",
             "proxy_credentials",
@@ -99,4 +101,32 @@ fn the_proxy_credentials_are_derived_from_the_seed() {
     assert_eq!(credentials[0], credentials[1]);
     assert_ne!(credentials[0], credentials[2]);
     assert!(credentials[0]["username"].is_string() && credentials[0]["password"].is_string());
+}
+
+#[test]
+fn serve_first_prints_every_host_name_it_serves() {
+    let proving_ground = ProvingGround::start(341);
+
+    let line: Value = serde_json::from_str(proving_ground.line()).expect("the line is JSON");
+
+    let hosts: Vec<&str> = line["hosts"]
+        .as_array()
+        .expect("the host names are a list")
+        .iter()
+        .map(|host| host.as_str().expect("a host name is a string"))
+        .collect();
+    assert!(hosts.contains(&"catalog.test"), "{line}");
+    assert!(hosts.is_sorted(), "{line}");
+}
+
+#[test]
+fn serve_first_prints_the_certificate_authority_it_serves_under() {
+    let proving_ground = ProvingGround::start(341);
+
+    let line: Value = serde_json::from_str(proving_ground.line()).expect("the line is JSON");
+
+    assert_eq!(
+        line["certificate_authority"].as_str(),
+        Some(proving_ground.certificate_authority().as_str())
+    );
 }

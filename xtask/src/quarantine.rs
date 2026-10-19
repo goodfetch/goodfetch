@@ -27,7 +27,7 @@ use toml::value::Datetime;
 use crate::check::Finding;
 use crate::environment::Environment;
 use crate::github::{self, Api};
-use crate::issues::Label as IssueLabel;
+use crate::issues::{self, Label as IssueLabel};
 use crate::output;
 
 /// The list's file, at the workspace's root.
@@ -171,41 +171,22 @@ pub(crate) struct Sources<'a> {
     pub(crate) cargo_profile: Option<&'a str>,
 }
 
-#[derive(Deserialize)]
-struct Issue {
-    state: String,
-    #[serde(default)]
-    labels: Vec<Label>,
-    /// Present when the number is a pull request's.
-    pull_request: Option<serde::de::IgnoredAny>,
-}
-
-#[derive(Deserialize)]
-struct Label {
-    name: String,
-}
-
 pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> {
     let entries = read(root)?;
     let mut findings = Vec::new();
     for entry in &entries {
-        let path = format!("/repos/{}/issues/{}", sources.repository, entry.issue);
-        let issue: Option<Issue> = sources.api.find(&path)?;
+        let issue = issues::find(&sources.api, sources.repository, entry.issue)?;
         let problem = match issue {
-            None
-            | Some(Issue {
-                pull_request: Some(_),
-                ..
-            }) => Some((
+            None => Some((
                 "quarantine-issue-missing",
                 "is no issue of the repository, or the token cannot read it",
             )),
-            Some(issue) if issue.state != "open" => Some(("quarantine-issue-closed", "is closed")),
+            Some(issue) if !issue.open => Some(("quarantine-issue-closed", "is closed")),
             Some(issue)
                 if !issue
                     .labels
                     .iter()
-                    .any(|label| label.name == IssueLabel::FlakyTest.name()) =>
+                    .any(|label| label == IssueLabel::FlakyTest.name()) =>
             {
                 Some((
                     "quarantine-issue-not-flaky-test",

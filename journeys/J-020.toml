@@ -1,0 +1,44 @@
+#:schema ./journey.schema.json
+id = "J-020"
+title = "Run a TypeScript Script Hook in a Crawl"
+goal = """
+A person writes a Script Hook in TypeScript and runs a Crawl with it. The \
+engine MUST run the Hook with its types stripped and never checked, with \
+standard JavaScript and its `console` captured, and the Hook MUST behave the \
+same on every surface that starts the Crawl, so that what the person writes \
+runs the same everywhere."""
+area = 3
+product = "foxhound"
+status = "active"
+covers = ["story:3-125"]
+
+[proving_ground]
+seed = 20
+tasks = [
+  { id = "catalog/1", digest = "b249b70b1eefe3d334ca2a8c08593e058df4c7508d6ed2990704712478ba5a07" },
+]
+
+[surfaces]
+cli = "M4"
+sdk-rust = "M4"
+sdk-typescript = "M4"
+sdk-python = "M4"
+
+[[steps]]
+text = "Write a Script Hook in TypeScript, with type annotations and one type error, that writes each fetched page's URL and its fetch time as an `Intl`-formatted `Temporal` value through `console`"
+
+[[steps]]
+text = "Crawl the catalog with the Script Hook"
+
+[[steps]]
+text = "Read the Crawl's log"
+
+[[expect]]
+text = "The Script Hook ran despite its type error: its types were stripped, never checked"
+
+[[expect]]
+text = "The Crawl's log holds the Script Hook's `console` line once for each page the Crawl fetched, with its URL and fetch time"
+
+[[expect]]
+text = "The oracle verifies the Crawl's Records"
+task = "catalog/1"

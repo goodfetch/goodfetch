@@ -1,0 +1,59 @@
+#:schema ./journey.schema.json
+id = "J-013"
+title = "Run a one-off SDK script on an Attached engine, then two scripts that share the Daemon, both seen in one Console"
+goal = """
+A person runs a one-off script through an SDK with nothing set up, then runs \
+two scripts once the Daemon is running. The one-off script MUST run on an \
+Attached engine it starts itself, with no Daemon; the two scripts MUST share \
+the running Daemon, one engine for both; and the Daemon's Console MUST show \
+both scripts' runs."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["row:RT-19", "story:3-1", "story:3-2"]
+
+[proving_ground]
+seed = 13
+tasks = [
+  { id = "catalog/2", digest = "da97aed4a1a4fcf1282de49920044c523161344ea51a2ed8310a278c238a8924" },
+]
+
+[surfaces]
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+
+[[steps]]
+text = "With no Daemon running and nothing configured, run a one-off script that extracts the catalog's product page"
+
+[[steps]]
+text = "Start the Daemon"
+on = "cli"
+
+[[steps]]
+text = "Run two scripts at once, each extracting the catalog's product page"
+
+[[steps]]
+text = "Look at the two scripts' runs in the Console"
+on = "console"
+
+[[expect]]
+text = "The one-off script ran on an Attached engine it started over stdio, which stopped when the script ended, and no Daemon was started"
+
+[[expect]]
+text = "The oracle verifies the one-off script's result"
+task = "catalog/2"
+
+[[expect]]
+text = "Both scripts ran on the one running Daemon, and neither started an Attached engine"
+
+[[expect]]
+text = "The oracle verifies the first script's result"
+task = "catalog/2"
+
+[[expect]]
+text = "The oracle verifies the second script's result"
+task = "catalog/2"
+
+[[expect]]
+text = "The Daemon's Console shows both scripts' runs"

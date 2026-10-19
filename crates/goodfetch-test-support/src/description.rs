@@ -9,8 +9,12 @@ use std::path::PathBuf;
 
 use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
+use crate::locales::LocaleTable;
+use crate::proving_ground::ProvingGroundDescription;
+use crate::snapshot::SnapshotFilters;
 use crate::ssrf::SsrfTable;
 use crate::tools::Tools;
+use crate::unicode::UnicodeRecord;
 
 /// One test's setup, as the TypeScript and Python packages read it.
 #[derive(
@@ -33,6 +37,11 @@ pub struct Description {
     pub start_time: String,
     /// The commit's executables, from the test tool manifest.
     pub tools: Tools,
+    /// The Proving ground `--proving-ground <seed>` started, present only
+    /// when asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "ProvingGroundDescription")]
+    pub proving_ground: Option<ProvingGroundDescription>,
 }
 
 impl Description {
@@ -45,7 +54,15 @@ impl Description {
             seed: env.seed(),
             start_time: START_TIME.to_owned(),
             tools,
+            proving_ground: None,
         }
+    }
+
+    /// The same description with the Proving ground the test started.
+    #[must_use]
+    pub fn with_proving_ground(mut self, proving_ground: ProvingGroundDescription) -> Self {
+        self.proving_ground = Some(proving_ground);
+        self
     }
 }
 
@@ -58,6 +75,14 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
             schemars::schema_for!(EndpointTable).to_value(),
         ),
         (
+            "locales.schema.json",
+            schemars::schema_for!(LocaleTable).to_value(),
+        ),
+        (
+            "snapshot-filters.schema.json",
+            schemars::schema_for!(SnapshotFilters).to_value(),
+        ),
+        (
             "ssrf-cases.schema.json",
             schemars::schema_for!(SsrfTable).to_value(),
         ),
@@ -68,6 +93,10 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "test-tool-manifest.schema.json",
             schemars::schema_for!(Tools).to_value(),
+        ),
+        (
+            "unicode-record.schema.json",
+            schemars::schema_for!(UnicodeRecord).to_value(),
         ),
     ])
 }

@@ -5,6 +5,13 @@
 //! Feature no test declares, and every story carries the reason its flag
 //! needs. A file that breaks its schema fails it too.
 //!
+//! The Quick suite runs it without the runners' listings, which start
+//! processes: it then reads Rust's, the Journeys' and the conformance
+//! cases' declarations, and only notes a generated Feature none of them
+//! declares, since a Vitest, Playwright or pytest test may. The Pre-merge
+//! suite runs it with the listings (`just features-tests`), where such a
+//! Feature fails it.
+//!
 //! The inventory's staleness is `xtask codegen --check`'s, which regenerates
 //! it. A matrix row without a milestone is not checked yet: no ticket has
 //! given the rows theirs (ADR 0072's note, pending owner review).
@@ -20,7 +27,29 @@ use super::files::{
 use super::scan::Declaration;
 use crate::check::Finding;
 
-pub(crate) fn check(root: &Path, declarations: &[Declaration]) -> Result<Vec<Finding>> {
+/// Whether the declarations hold every runner's: without the runners'
+/// listings, a generated Feature only a Vitest, Playwright or pytest test
+/// declares would look untested.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Declarations {
+    /// Rust's, the Journeys' and the conformance cases' only.
+    WithoutListings,
+    /// Every idiom's, the runners' listings included.
+    All,
+}
+
+/// What the check found: the findings fail it; the notes, each an untested
+/// generated Feature the declarations it read may miss, do not.
+pub(crate) struct Verdict {
+    pub(crate) findings: Vec<Finding>,
+    pub(crate) notes: Vec<Finding>,
+}
+
+pub(crate) fn check(
+    root: &Path,
+    declarations: &[Declaration],
+    read: Declarations,
+) -> Result<Verdict> {
     let mut findings = Vec::new();
     let inventory = readable(files::read_inventory(root), files::INVENTORY, &mut findings)?;
     let areas: Option<AreasFile> = readable(
@@ -35,7 +64,10 @@ pub(crate) fn check(root: &Path, declarations: &[Declaration]) -> Result<Vec<Fin
     )?;
     stories(root, &mut findings)?;
     let Some(inventory) = inventory else {
-        return Ok(findings);
+        return Ok(Verdict {
+            findings,
+            notes: Vec::new(),
+        });
     };
     let features: BTreeMap<&str, &Feature> = inventory
         .features
@@ -51,14 +83,23 @@ pub(crate) fn check(root: &Path, declarations: &[Declaration]) -> Result<Vec<Fin
         .as_ref()
         .map(|file| excepted(file, &features, &tested, &mut findings))
         .unwrap_or_default();
+    let mut untested = Vec::new();
     generated(
         &inventory,
         areas.as_ref(),
         &tested,
         &excepted,
+        &mut untested,
         &mut findings,
     );
-    Ok(findings)
+    let notes = match read {
+        Declarations::All => {
+            findings.append(&mut untested);
+            Vec::new()
+        }
+        Declarations::WithoutListings => untested,
+    };
+    Ok(Verdict { findings, notes })
 }
 
 /// A file's value, or a `schema` finding when it breaks its schema.
@@ -137,13 +178,14 @@ fn excepted<'a>(
     excepted
 }
 
-/// Each generated Feature has a declaring test or an exception, and one
-/// owning area.
+/// Each generated Feature has a declaring test or an exception (else an
+/// `untested` entry), and one owning area.
 fn generated(
     inventory: &Inventory,
     areas: Option<&AreasFile>,
     tested: &BTreeSet<&str>,
     excepted: &BTreeSet<&str>,
+    untested: &mut Vec<Finding>,
     findings: &mut Vec<Finding>,
 ) {
     for feature in &inventory.features {
@@ -152,7 +194,7 @@ fn generated(
         }
         let id = feature.id.as_str();
         if !tested.contains(id) && !excepted.contains(id) {
-            findings.push(Finding::new(
+            untested.push(Finding::new(
                 "untested",
                 id,
                 "no test declares the generated Feature and no exception names it",

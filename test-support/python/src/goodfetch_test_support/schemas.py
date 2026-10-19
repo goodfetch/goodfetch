@@ -39,3 +39,21 @@ def validate(value: object, schema: str) -> None:
     except ValidationError as error:
         message = f"{schema} refuses the value at {error.json_path}: {error.message}"
         raise SchemaError(message) from error
+
+
+def shared_fixture(file: str, schema: str) -> object:
+    """Reads the shared fixture `file` of `test-support/fixtures/`.
+
+    Args:
+        file: The fixture's file name, such as `locales.json`.
+        schema: Its schema's file name, such as `locales.schema.json`.
+
+    Returns:
+        The parsed JSON value, checked against the committed schema.
+
+    Raises:
+        SchemaError: The fixture fails its schema.
+    """
+    value: object = json.loads((SCHEMAS.parent / file).read_text("utf-8"))
+    validate(value, schema)
+    return value

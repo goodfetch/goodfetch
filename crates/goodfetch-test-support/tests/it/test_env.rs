@@ -4,7 +4,9 @@
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 
-use goodfetch_test_support::{CRASH_DUMP_VARIABLE, Process, TOOLS_VARIABLE, TestEnv, command};
+use goodfetch_test_support::{
+    CRASH_DUMP_VARIABLE, Process, TOOLS_VARIABLE, TestEnv, Tool, command, tools,
+};
 use serde_json::Value;
 
 use crate::{TEST_ENV, manifest};
@@ -153,11 +155,154 @@ fn print_schemas_starts_nothing() {
         schemas.keys().collect::<Vec<_>>(),
         [
             "endpoint-table.schema.json",
+            "locales.schema.json",
+            "snapshot-filters.schema.json",
             "ssrf-cases.schema.json",
             "test-env-description.schema.json",
-            "test-tool-manifest.schema.json"
+            "test-tool-manifest.schema.json",
+            "unicode-record.schema.json"
         ]
     );
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(!stderr.contains("goodfetch-test-seed="), "{stderr}");
+}
+
+/// Writes a test tool manifest listing `goodfetch-test-env` and the commit's
+/// Proving ground, from the manifest `just test` writes, into the test's
+/// folder, and returns its path.
+fn manifest_with_proving_ground(env: &TestEnv) -> std::path::PathBuf {
+    let proving_ground = tools()
+        .unwrap()
+        .path(Tool::ProvingGround)
+        .unwrap()
+        .to_owned();
+    let path = env.folder().join("tools.json");
+    let manifest = serde_json::json!({ "test_env": TEST_ENV, "proving_ground": proving_ground });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    path
+}
+
+/// Starts `goodfetch-test-env --proving-ground <seed>` with that manifest.
+fn start_with_proving_ground(env: &TestEnv, seed: &str) -> Process {
+    let mut command = env.process_command(TEST_ENV);
+    command
+        .args(["--proving-ground", seed])
+        .env(TOOLS_VARIABLE, manifest_with_proving_ground(env));
+    env.spawn(&mut command).unwrap()
+}
+
+/// Reads a JSON answer to `GET <path>` on `address`.
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test reaches the described Proving ground over a plain socket"
+)]
+fn get_json(address: &str, path: &str) -> Value {
+    use std::io::{Read as _, Write as _};
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+}
+
+#[test]
+fn proving_ground_adds_a_started_proving_ground_that_validates_against_the_committed_schema() {
+    let env = TestEnv::new();
+    let process = start_with_proving_ground(&env, "7");
+
+    let line = first_line(&process);
+
+    let description: Value = serde_json::from_str(line.trim_end_matches('\n')).unwrap();
+    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
+    let errors: Vec<String> = jsonschema::validator_for(&schema)
+        .unwrap()
+        .iter_errors(&description)
+        .map(|error| error.to_string())
+        .collect();
+    let tasks = description["proving_ground"]["address"]
+        .as_str()
+        .map(|address| get_json(address, "/tasks"));
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(errors, Vec::<String>::new(), "{line}");
+    assert_eq!(description["proving_ground"]["seed"], 7, "{line}");
+    assert_eq!(tasks.unwrap()["proving_ground"]["seed"], 7);
+}
+
+#[test]
+fn closing_stdin_stops_the_proving_ground() {
+    let env = TestEnv::new();
+    let process = start_with_proving_ground(&env, "7");
+    let line = first_line(&process);
+    let description: Value = serde_json::from_str(&line).unwrap();
+    let address = description["proving_ground"]["address"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no Proving ground: {line}"))
+        .to_owned();
+
+    let status = process.close_stdin_and_wait().unwrap();
+
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the test checks that nothing answers on the address any more"
+    )]
+    let connected = std::net::TcpStream::connect(&address).map_err(|error| error.kind());
+    assert!(status.success());
+    assert_eq!(connected.err(), Some(std::io::ErrorKind::ConnectionRefused));
+}
+
+#[test]
+fn a_description_without_proving_ground_has_no_such_field() {
+    let env = TestEnv::new();
+    let process = start(&env, &[]);
+
+    let description: Value = serde_json::from_str(&first_line(&process)).unwrap();
+
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(description.get("proving_ground"), None);
+}
+
+#[test]
+fn a_proving_ground_without_its_resolve_mapping_fails_validation() {
+    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
+    let description = serde_json::json!({
+        "folder": "/tmp/x é 1", "home": "/tmp/x é 1/home", "env": {}, "seed": 1,
+        "start_time": "2026-01-05T09:00:00Z", "tools": {},
+        "proving_ground": {
+            "address": "127.0.0.1:4000", "version": "0.0.0+0", "seed": 7, "ca": "/tmp/ca.pem",
+            "fixtures": {
+                "proxies": {}, "proxy_credentials": { "username": "u", "password": "p" },
+                "dns": "127.0.0.1:4001", "target": "127.0.0.1:4002",
+                "connections": "http://127.0.0.1:4000/observations"
+            }
+        }
+    });
+    let mut complete = description.clone();
+    complete["proving_ground"]["resolve"] = serde_json::json!({ "catalog.test": "127.0.0.1" });
+    let validator = jsonschema::validator_for(&schema).unwrap();
+
+    let valid = (
+        validator.is_valid(&description),
+        validator.is_valid(&complete),
+    );
+
+    assert_eq!(valid, (false, true));
+}
+
+#[test]
+fn a_proving_ground_that_cannot_start_fails_the_start() {
+    let env = TestEnv::new();
+
+    let output = command(&env, TEST_ENV)
+        .args(["--proving-ground", "7"])
+        .env(TOOLS_VARIABLE, manifest(&env))
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.stdout, b"");
+    assert_ne!(output.stderr, b"");
 }

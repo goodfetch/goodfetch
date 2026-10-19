@@ -6,14 +6,15 @@
 //! Limits checkers, seeded kills of real processes and the crash VFS under
 //! SQLite (ADR 0060), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
-//! crashers (ADR 0067); and
-//! `goodfetch-test-env`, which gives the same
+//! crashers, and the endpoint table with `EndpointRunner`, which applies it
+//! to a listener (ADR 0067); and `goodfetch-test-env`, which gives the same
 //! setup to TypeScript and Python as one JSON description. It works on
 //! values only: it depends on no Goodfetch crate and is only ever a
 //! dev-dependency.
 
 mod crash_vfs;
 mod description;
+mod endpoints;
 mod env;
 mod fuzz;
 mod invariants;
@@ -30,6 +31,10 @@ pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
 };
 pub use description::{Description, schemas};
+pub use endpoints::{
+    AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
+    Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+};
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};

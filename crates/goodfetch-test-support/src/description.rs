@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
 use crate::tools::Tools;
 
@@ -51,6 +52,10 @@ impl Description {
 /// `xtask codegen` commits each under.
 pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
     BTreeMap::from([
+        (
+            "endpoint-table.schema.json",
+            schemars::schema_for!(EndpointTable).to_value(),
+        ),
         (
             "test-env-description.schema.json",
             schemars::schema_for!(Description).to_value(),

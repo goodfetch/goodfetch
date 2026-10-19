@@ -1,0 +1,76 @@
+# The endpoint table (ADR 0067; TESTING.md, Endpoints): one `[rule.<name>]`
+# row per refusal rule, and in each row one cell per listener the rule
+# applies to, which says what that listener must do with the attempt.
+# `EndpointRunner` in `goodfetch-test-support` reads this file, applies every
+# row of a listener's column to it, and checks each refusal in its Audit log.
+# A cell is `{ expect = "closed" }` (a JSON-RPC stream listener closes the
+# connection without answering), `{ expect = "status", status = <4xx> }` (an
+# HTTP listener refuses with that status) or `{ expect = "status_only" }` (an
+# HTTP answer with a status and no body, which is no refusal and has no Audit
+# log entry). A listener joins with its ticket; a rule joins with the first
+# listener it applies to. The Quick suite fails on a row with no cell, a
+# listener with no row, and a cell its listener cannot try.
+# Schema: `schemas/endpoint-table.schema.json`.
+
+[rule.token_missing]
+summary = "The first message or the request carries no token."
+adrs = [17, 24, 50]
+
+[rule.token_missing.listeners]
+daemon_socket = { expect = "closed" }
+private_endpoint = { expect = "closed" }
+ops_listener = { expect = "status", status = 401 }
+
+[rule.token_wrong]
+summary = "The token is one the listener never issued."
+adrs = [17, 24, 50]
+
+[rule.token_wrong.listeners]
+daemon_socket = { expect = "closed" }
+private_endpoint = { expect = "closed" }
+ops_listener = { expect = "status", status = 401 }
+
+[rule.token_from_another_listener]
+summary = "The token is valid, but for another listener."
+adrs = [17, 31, 50, 67]
+
+[rule.token_from_another_listener.listeners]
+daemon_socket = { expect = "closed" }
+private_endpoint = { expect = "closed" }
+ops_listener = { expect = "status", status = 401 }
+
+[rule.token_in_query_string]
+summary = "The valid token is sent in the query string (`access_token`) instead of a header."
+adrs = [17, 67]
+
+[rule.token_in_query_string.listeners]
+ops_listener = { expect = "status", status = 401 }
+
+[rule.host_foreign]
+summary = "The request names a foreign `Host`, as a DNS-rebinding page's does."
+adrs = [17]
+
+[rule.host_foreign.listeners]
+ops_listener = { expect = "status", status = 403 }
+
+[rule.origin_foreign]
+summary = "The request carries a foreign `Origin`."
+adrs = [17]
+
+[rule.origin_foreign.listeners]
+ops_listener = { expect = "status", status = 403 }
+
+[rule.hello_not_first]
+summary = "The connection's first message is not a `hello`."
+adrs = [17, 24]
+
+[rule.hello_not_first.listeners]
+daemon_socket = { expect = "closed" }
+private_endpoint = { expect = "closed" }
+
+[rule.probes_answer_status_only]
+summary = "`/livez` and `/readyz` answer without a token, with a status and no body."
+adrs = [50]
+
+[rule.probes_answer_status_only.listeners]
+ops_listener = { expect = "status_only" }

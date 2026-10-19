@@ -13,6 +13,8 @@
 
 mod case_log;
 mod journey_document;
+mod proving_ground;
+mod self_test;
 
 use std::path::Path;
 

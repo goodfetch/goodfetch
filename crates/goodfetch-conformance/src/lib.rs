@@ -11,7 +11,12 @@
 //! and known-wrong reference results.
 
 mod case_list;
+mod host;
+mod proving_ground;
+mod self_test;
 mod writer;
 
 pub use case_list::{CaseList, DeclaredCapability, DeclaredCase};
+pub use proving_ground::{ProvingGround, ProvingGroundError, Submission, Task, TaskList};
+pub use self_test::{Record, References, SelfTestError, run_self_test};
 pub use writer::{CaseLogError, WriteError, read_case_log, write_document};

@@ -9,7 +9,10 @@
 //! oracle answers; neither type can be deserialized. Every reader (the
 //! catalog report, the Feature check, the release gate) loads a document
 //! through [`read`], which recomputes each outcome and refuses a document
-//! whose stored outcome disagrees.
+//! whose stored outcome disagrees. A `journey` document then goes through
+//! [`read_journey_document`], the only way to a [`JourneyDocument`] from
+//! stored bytes, which refuses one whose steps, checks and named Proving
+//! ground tasks are not exactly its Journey's, in order (ADR 0063).
 //!
 //! The rules, which the TypeScript and Python helpers also follow and which
 //! the outcome vectors of `test-support/fixtures/outcome-vectors/` state as
@@ -33,7 +36,7 @@ use serde_json::{Map, Value};
 use schemars::JsonSchema;
 
 use crate::catalog::Product;
-use crate::journey::{FeatureId, JourneyId, TaskId};
+use crate::journey::{FeatureId, Journey, JourneyId, TaskId};
 use crate::releases::Sha256;
 
 /// One result document, of either kind.
@@ -46,18 +49,158 @@ pub enum ResultDocument {
     Journey(JourneyDocument),
 }
 
-/// Loads a result document, recomputing every outcome it stores.
+/// Loads a result document, recomputing every outcome it stores. A
+/// `journey` document comes back not yet compared with its Journey: only
+/// [`read_journey_document`] turns it into a [`JourneyDocument`].
 ///
 /// # Errors
 ///
 /// [`ReadError::Malformed`] when the bytes are not a result document, and
-/// the other variants when a stored outcome is not the one its document's
-/// contents give.
-pub fn read(bytes: &[u8]) -> Result<ResultDocument, ReadError> {
+/// [`ReadError::CaseOutcome`], [`ReadError::CapabilityOutcome`] or
+/// [`ReadError::JourneyOutcome`] when a stored outcome is not the one its
+/// document's contents give.
+pub fn read(bytes: &[u8]) -> Result<LoadedDocument, ReadError> {
     match serde_json::from_slice(bytes)? {
-        StoredDocument::Conformance(stored) => stored.verify().map(ResultDocument::Conformance),
-        StoredDocument::Journey(stored) => stored.verify().map(ResultDocument::Journey),
+        StoredDocument::Conformance(stored) => stored.verify().map(LoadedDocument::Conformance),
+        StoredDocument::Journey(stored) => stored
+            .verify()
+            .map(|document| LoadedDocument::Journey(UncomparedJourneyDocument(document))),
     }
+}
+
+/// What [`read`] loads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoadedDocument {
+    /// A `conformance` document, its outcomes recomputed.
+    Conformance(ConformanceDocument),
+    /// A `journey` document, its outcome recomputed, still to be compared
+    /// with its Journey.
+    Journey(UncomparedJourneyDocument),
+}
+
+/// A `journey` document whose outcome [`read`] recomputed but which is not
+/// compared with its Journey yet. A reader can only ask which Journey it
+/// names and pass both to [`read_journey_document`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UncomparedJourneyDocument(JourneyDocument);
+
+impl UncomparedJourneyDocument {
+    /// The Journey the document says it ran.
+    pub fn journey_id(&self) -> &JourneyId {
+        &self.0.facts.journey_id
+    }
+}
+
+/// Compares a loaded `journey` document with its Journey (ADR 0063). The
+/// document must name the Journey and hold exactly its steps, its checks
+/// and the Proving ground tasks it names, each in the Journey's order, with
+/// a step recorded `manual` exactly when the Journey marks it manual. A
+/// helper that leaves a failed or unreached step out of its document
+/// therefore writes one every reader refuses.
+///
+/// # Errors
+///
+/// [`ReadError::OtherJourney`] when the document names another Journey,
+/// [`ReadError::NotTheJourneys`] when a step, check or task is missing,
+/// extra or out of order, and [`ReadError::ManualStep`] when a step is
+/// recorded `manual` against its Journey's word, or the other way round.
+pub fn read_journey_document(
+    document: UncomparedJourneyDocument,
+    journey: &Journey,
+) -> Result<JourneyDocument, ReadError> {
+    let UncomparedJourneyDocument(document) = document;
+    let facts = &document.facts;
+    if facts.journey_id != journey.id {
+        return Err(ReadError::OtherJourney {
+            document: facts.journey_id.clone(),
+            journey: journey.id.clone(),
+        });
+    }
+    compare(
+        JourneyPart::Step,
+        &journey
+            .steps
+            .iter()
+            .map(|step| step.text.as_str())
+            .collect::<Vec<_>>(),
+        &facts
+            .steps
+            .iter()
+            .map(|step| step.text.as_str())
+            .collect::<Vec<_>>(),
+        |text| (*text).to_owned(),
+    )?;
+    for (index, (expected, found)) in journey.steps.iter().zip(&facts.steps).enumerate() {
+        let recorded_manual = found.outcome == StepOutcome::Manual;
+        if expected.manual.is_some() != recorded_manual {
+            return Err(ReadError::ManualStep {
+                number: index + 1,
+                text: found.text.clone(),
+                recorded_manual,
+            });
+        }
+    }
+    compare(
+        JourneyPart::Check,
+        &journey
+            .expect
+            .iter()
+            .map(|check| (check.text.as_str(), check.task.as_ref()))
+            .collect::<Vec<_>>(),
+        &facts
+            .checks
+            .iter()
+            .map(|check| (check.text.as_str(), check.task.as_ref()))
+            .collect::<Vec<_>>(),
+        |(text, _)| (*text).to_owned(),
+    )?;
+    let named: Vec<&TaskId> = journey
+        .proving_ground
+        .iter()
+        .flat_map(|proving_ground| proving_ground.tasks.iter().map(|task| &task.id))
+        .collect();
+    compare(
+        JourneyPart::Task,
+        &named,
+        &facts.tasks.iter().map(|task| &task.id).collect::<Vec<_>>(),
+        |id| id.as_str().to_owned(),
+    )?;
+    Ok(document)
+}
+
+/// Fails at the first place a document's list differs from its Journey's:
+/// an item the document holds more times than the Journey is extra, one it
+/// holds fewer times is missing, and otherwise the two hold the same items
+/// in another order.
+fn compare<T: PartialEq>(
+    part: JourneyPart,
+    expected: &[T],
+    found: &[T],
+    text: impl Fn(&T) -> String,
+) -> Result<(), ReadError> {
+    let count = |list: &[T], item: &T| list.iter().filter(|other| *other == item).count();
+    let differs = |difference: Difference, index: usize, item: &T| ReadError::NotTheJourneys {
+        part,
+        difference,
+        number: index + 1,
+        text: text(item),
+    };
+    for index in 0..expected.len().max(found.len()) {
+        match (expected.get(index), found.get(index)) {
+            (Some(wanted), Some(held)) if wanted == held => {}
+            (_, Some(held)) if count(found, held) > count(expected, held) => {
+                return Err(differs(Difference::Extra, index, held));
+            }
+            (Some(wanted), _) if count(found, wanted) < count(expected, wanted) => {
+                return Err(differs(Difference::Missing, index, wanted));
+            }
+            (_, Some(held)) => return Err(differs(Difference::OutOfOrder, index, held)),
+            (Some(wanted), None) => return Err(differs(Difference::Missing, index, wanted)),
+            // Below the longer list's length, one of the two is there.
+            (None, None) => {}
+        }
+    }
+    Ok(())
 }
 
 /// Why [`read`] refused a document.
@@ -96,6 +239,95 @@ pub enum ReadError {
         /// The outcome its contents give.
         derived: JourneyOutcome,
     },
+    /// A `journey` document compared with another Journey than the one it
+    /// names.
+    #[error("the document is Journey `{document}`'s, not `{journey}`'s")]
+    OtherJourney {
+        /// The Journey the document names.
+        document: JourneyId,
+        /// The Journey it was compared with.
+        journey: JourneyId,
+    },
+    /// A `journey` document's steps, checks or tasks are not exactly its
+    /// Journey's.
+    #[error("{}", difference.describe(*part, *number, text))]
+    NotTheJourneys {
+        /// The list that differs.
+        part: JourneyPart,
+        /// How it differs, at the first place it does.
+        difference: Difference,
+        /// The place, from 1, in the document's list or, for a missing
+        /// item, in the Journey's.
+        number: usize,
+        /// The step's or check's text, or the task's ID.
+        text: String,
+    },
+    /// A step recorded `manual` that its Journey does not mark manual, or
+    /// one the Journey marks manual recorded as an automated step.
+    #[error(
+        "step {number} `{text}` is {} in the document but not in its Journey",
+        if *recorded_manual { "manual" } else { "automated" }
+    )]
+    ManualStep {
+        /// The step's place, from 1.
+        number: usize,
+        /// The step's text.
+        text: String,
+        /// Whether the document records it `manual`.
+        recorded_manual: bool,
+    },
+}
+
+/// A list of a Journey that each of its `journey` documents holds exactly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JourneyPart {
+    /// Its steps.
+    Step,
+    /// Its checks.
+    Check,
+    /// The Proving ground tasks it names.
+    Task,
+}
+
+impl JourneyPart {
+    /// The part's name, as the reader's messages write it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Step => "step",
+            Self::Check => "check",
+            Self::Task => "task",
+        }
+    }
+}
+
+/// How a document's list first differs from its Journey's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Difference {
+    /// The document holds an item of the Journey fewer times than the
+    /// Journey does.
+    Missing,
+    /// The document holds an item the Journey does not, or holds it more
+    /// times.
+    Extra,
+    /// The document holds the Journey's items in another order.
+    OutOfOrder,
+}
+
+impl Difference {
+    fn describe(self, part: JourneyPart, number: usize, text: &str) -> String {
+        let part = part.as_str();
+        match self {
+            Self::Missing => {
+                format!("the Journey's {part} {number} `{text}` is missing from the document")
+            }
+            Self::Extra => {
+                format!("the document's {part} {number} `{text}` is not one of the Journey's")
+            }
+            Self::OutOfOrder => {
+                format!("the document's {part} {number} `{text}` is out of the Journey's order")
+            }
+        }
+    }
 }
 
 /// The operating system and architecture a document's tests ran on.

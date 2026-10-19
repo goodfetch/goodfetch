@@ -1,0 +1,16 @@
+# Commits whose messages `just commit-messages` does not judge (CONTRIBUTING.md,
+# Commit messages): each entry names one commit by its full hash, 40 lowercase
+# hexadecimal digits, with a one-line `reason`. A commit lands here only when
+# its message cannot be reworded without rewriting history other branches
+# hold; history is never rewritten. An entry whose commit is outside the
+# checked range is no error. No patterns and no extra types: one commit each.
+#
+# Agent decision, pending owner review (2026-10-19).
+
+[[exception]]
+commit = "73896ac7bb0036dc3e59a3c65aa4d974ecbbcdc9" # feat(collie,foxhound): add both Products' executable crates and their compositions
+reason = "merged into 14 unpushed branches before the check ran; history is never rewritten"
+
+[[exception]]
+commit = "c3c56422ad66376302673c7ac0f0befd95cbac62" # wip(proving-ground): raw server and delivery observations
+reason = "merged into 14 unpushed branches before the check ran; history is never rewritten"

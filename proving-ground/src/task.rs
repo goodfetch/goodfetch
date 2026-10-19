@@ -98,6 +98,31 @@ pub(crate) struct Expected {
     /// task's.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) refusal: bool,
+    /// The error a refusal must report, when only one is right.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) error: Option<ExpectedError>,
+    /// The path prefixes the task must never request, such as those its
+    /// site's robots.txt disallows.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) forbidden_paths: Vec<&'static str>,
+    /// The robots.txt the task's site serves, which judges each request of
+    /// the task by its `User-Agent` (RFC 9309).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) robots_txt: Option<&'static str>,
+    /// Whether every request of the task must carry a Web Bot Auth signature
+    /// its agent's key directory verifies (`true`), or none may be signed
+    /// (`false`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) signed: Option<bool>,
+}
+
+/// The error a refusal must report: its Error code and, for a navigation
+/// that failed, the browser's network error.
+#[derive(Clone, Serialize)]
+pub(crate) struct ExpectedError {
+    pub(crate) code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) network_error: Option<&'static str>,
 }
 
 impl Expected {

@@ -80,13 +80,18 @@ reason = "mocks owned code (ADR 0062)"
 
 # xtask codegen: begin, the crates under crates/foxhound/ (ADR 0087). Never edit by hand; run `xtask codegen`.
 [[bans.deny]]
+crate = "goodfetch-foxhound"
+wrappers = ["goodfetch-foxhound", "goodfetch-frontier", "goodfetch-sink", "xtask"]
+reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
 crate = "goodfetch-frontier"
-wrappers = ["goodfetch-frontier", "goodfetch-sink", "xtask"]
+wrappers = ["goodfetch-foxhound", "goodfetch-frontier", "goodfetch-sink", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-sink"
-wrappers = ["goodfetch-frontier", "goodfetch-sink", "xtask"]
+wrappers = ["goodfetch-foxhound", "goodfetch-frontier", "goodfetch-sink", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 # xtask codegen: end

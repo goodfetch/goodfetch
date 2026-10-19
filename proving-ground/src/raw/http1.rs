@@ -2,6 +2,7 @@
 //! a keep-alive connection, each answer written as its page and framing say.
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
@@ -21,7 +22,7 @@ where
         let Some(head) = read_head(&mut stream, &mut buffered).await else {
             return;
         };
-        let Some(mut request) = parse_head(&head) else {
+        let Some(mut request) = parse_head(&head, context, earlier) else {
             let _ = write(&mut stream, &Page::text(400, "malformed request")).await;
             return;
         };
@@ -29,9 +30,6 @@ where
             return;
         };
         request.body = body;
-        request.server_name.clone_from(&context.server_name);
-        request.earlier_on_connection = earlier;
-        request.recorded = context.observed.latest_request(0);
         earlier += 1;
         let closes = request
             .header("connection")
@@ -100,18 +98,13 @@ async fn read_head<S: AsyncRead + Unpin>(
 
 /// Reads more bytes; `false` at the connection's end or on an error.
 async fn fill<S: AsyncRead + Unpin>(stream: &mut S, buffered: &mut Vec<u8>) -> bool {
-    let mut chunk = [0; 16 * 1024];
-    match stream.read(&mut chunk).await {
-        Ok(0) | Err(_) => false,
-        Ok(read) => {
-            buffered.extend_from_slice(&chunk[..read]);
-            true
-        }
-    }
+    buffered.reserve(16 * 1024);
+    matches!(stream.read_buf(buffered).await, Ok(read) if read > 0)
 }
 
-/// The request a head holds, without its body.
-fn parse_head(head: &[u8]) -> Option<Request> {
+/// The request a head holds, without its body, the connection's
+/// `earlier`-th.
+fn parse_head(head: &[u8], context: &Context, earlier: usize) -> Option<Request> {
     let text = std::str::from_utf8(head).ok()?;
     let mut lines = text.split("\r\n");
     let mut start = lines.next()?.split(' ');
@@ -137,9 +130,10 @@ fn parse_head(head: &[u8]) -> Option<Request> {
         authority,
         headers,
         body: Vec::new(),
-        server_name: None,
-        earlier_on_connection: 0,
-        recorded: None,
+        server_name: context.server_name.clone(),
+        earlier_on_connection: earlier,
+        recorded: context.observed.latest_request(0),
+        observed: Arc::clone(&context.observed),
     })
 }
 

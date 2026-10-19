@@ -44,6 +44,8 @@ pub(crate) struct Request {
     pub(crate) earlier_on_connection: usize,
     /// The request's record in the observations, if it was recorded.
     pub(crate) recorded: Option<RequestId>,
+    /// The observer of the request's connection.
+    pub(crate) observed: Arc<Connection>,
 }
 
 impl Request {

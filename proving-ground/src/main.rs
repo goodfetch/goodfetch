@@ -5,6 +5,7 @@
 //! name, the task list at `/tasks` and the oracle at `/oracle`.
 
 mod authority;
+mod blackhole;
 mod catalog;
 mod client_hello;
 mod clock;
@@ -18,7 +19,10 @@ mod observation;
 mod oracle;
 mod output;
 mod portal;
+mod raw;
+mod raw_site;
 mod rendered;
+mod robots;
 mod schedule;
 mod server;
 mod site;

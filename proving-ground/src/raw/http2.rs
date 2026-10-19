@@ -3,6 +3,7 @@
 //! arrives, in turn. Header blocks are coded with HPACK (RFC 7541).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use loona_hpack::{Decoder, Encoder};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -43,6 +44,36 @@ struct Frame {
 struct Open {
     headers: Vec<(String, String)>,
     body: Vec<u8>,
+}
+
+impl Open {
+    /// The request of `stream`, the connection's `earlier`-th, now complete.
+    fn request(self, stream: u32, earlier: usize, context: &Context) -> Request {
+        let pseudo = |name: &str| {
+            self.headers
+                .iter()
+                .find(|(field, _)| field == name)
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default()
+        };
+        Request {
+            protocol: Protocol::Http2,
+            method: pseudo(":method"),
+            target: pseudo(":path"),
+            authority: pseudo(":authority"),
+            headers: self
+                .headers
+                .iter()
+                .filter(|(name, _)| !name.starts_with(':'))
+                .cloned()
+                .collect(),
+            body: self.body,
+            server_name: context.server_name.clone(),
+            earlier_on_connection: earlier,
+            recorded: context.observed.latest_request(stream),
+            observed: Arc::clone(&context.observed),
+        }
+    }
 }
 
 /// One connection's state.
@@ -191,30 +222,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         let Some(arrived) = open.remove(&stream) else {
             return Ok(false);
         };
-        let pseudo = |name: &str| {
-            arrived
-                .headers
-                .iter()
-                .find(|(field, _)| field == name)
-                .map(|(_, value)| value.clone())
-                .unwrap_or_default()
-        };
-        let request = Request {
-            protocol: Protocol::Http2,
-            method: pseudo(":method"),
-            target: pseudo(":path"),
-            authority: pseudo(":authority"),
-            headers: arrived
-                .headers
-                .iter()
-                .filter(|(name, _)| !name.starts_with(':'))
-                .cloned()
-                .collect(),
-            body: arrived.body,
-            server_name: context.server_name.clone(),
-            earlier_on_connection: self.requests,
-            recorded: context.observed.latest_request(stream),
-        };
+        let request = arrived.request(stream, self.requests, context);
         self.requests += 1;
         match settle(pages.answer(&request).await).await {
             Answer::Page(page) => {

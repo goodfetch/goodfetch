@@ -10,12 +10,16 @@
 mod actionability;
 mod browserless;
 mod clients;
+mod fetch_edge;
+mod identity;
+mod incidents;
 mod login;
 mod observations;
 mod oracle;
 mod pages;
 mod portal;
 mod proving_ground;
+mod raw_clients;
 mod rendered;
 mod schedule;
 mod serve;

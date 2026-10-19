@@ -21,15 +21,19 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto;
+use rustls::ServerConfig;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_rustls::TlsAcceptor;
+use tokio_rustls::LazyConfigAcceptor;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::authority::Authority;
+use crate::blackhole::Blackhole;
 use crate::clock;
 use crate::exchange::{self, Reply};
-use crate::observation::Observations;
+use crate::observation::{self, Observations};
+use crate::raw;
+use crate::raw_site::{self, RawSite};
 use crate::site::Site;
 use crate::tap::{Tap, Wire};
 
@@ -44,8 +48,20 @@ const TLS_HANDSHAKE: u8 = 0x16;
 pub(crate) struct Server {
     listener: TcpListener,
     site: Arc<Site>,
-    acceptor: TlsAcceptor,
+    tls: Tls,
     observations: Arc<Observations>,
+    /// The pages the raw server answers.
+    raw_site: Arc<RawSite>,
+    /// The IPv6 path that drops packets, kept while the server runs.
+    _blackhole: Option<Blackhole>,
+}
+
+/// The TLS configurations: one for most host names, one for those that
+/// offer HTTP/1.1 alone.
+#[derive(Clone)]
+struct Tls {
+    any: Arc<ServerConfig>,
+    http1: Arc<ServerConfig>,
 }
 
 impl Server {
@@ -60,8 +76,16 @@ impl Server {
             .port();
         let hosts = Site::hosts(seed);
         let authority = Authority::new(seed, hosts.keys().map(String::as_str), clock::wall_now())?;
-        let acceptor = TlsAcceptor::from(authority.server_config());
+        let tls = Tls {
+            any: authority.server_config(),
+            http1: authority.http1_server_config(),
+        };
         let observations = Arc::new(Observations::new(hosts));
+        let blackhole = if address.is_ipv4() {
+            Blackhole::bind(port).await
+        } else {
+            None
+        };
         Ok(Self {
             listener,
             site: Arc::new(Site::new(
@@ -70,8 +94,10 @@ impl Server {
                 authority.certificate_pem().to_owned(),
                 Arc::clone(&observations),
             )),
-            acceptor,
+            tls,
             observations,
+            raw_site: Arc::new(RawSite::new(seed)),
+            _blackhole: blackhole,
         })
     }
 
@@ -101,7 +127,7 @@ impl Server {
                     break;
                 }
                 accepted = self.listener.accept() => {
-                    let Ok((stream, _)) = accepted else {
+                    let Ok((stream, peer)) = accepted else {
                         // A connection that failed before it was accepted
                         // concerns only its client.
                         continue;
@@ -109,13 +135,14 @@ impl Server {
                     let connection = Connection {
                         site: Arc::clone(&self.site),
                         observations: Arc::clone(&self.observations),
-                        acceptor: self.acceptor.clone(),
+                        tls: self.tls.clone(),
+                        raw_site: Arc::clone(&self.raw_site),
                         executor: Tracked(tracker.clone()),
                     };
                     let stop = stop.clone();
                     tracker.spawn(async move {
                         tokio::select! {
-                            () = connection.serve(stream) => {}
+                            () = connection.serve(stream, peer) => {}
                             () = stop.cancelled() => {}
                         }
                     });
@@ -133,14 +160,15 @@ impl Server {
 struct Connection {
     site: Arc<Site>,
     observations: Arc<Observations>,
-    acceptor: TlsAcceptor,
+    tls: Tls,
+    raw_site: Arc<RawSite>,
     executor: Tracked,
 }
 
 impl Connection {
     /// Serves one connection to its end; a failed one concerns only its
-    /// client.
-    async fn serve(self, stream: TcpStream) {
+    /// client. A TLS connection to a host the raw server answers is its.
+    async fn serve(self, stream: TcpStream, peer: SocketAddr) {
         let mut first = [0; 1];
         let Ok(read) = stream.peek(&mut first).await else {
             return;
@@ -151,13 +179,40 @@ impl Connection {
             async move { Ok::<_, hyper::Error>(answer(&site, request).await) }
         });
         let builder = auto::Builder::new(self.executor);
-        let observed = self.observations.connection();
+        let observed = self.observations.connection_from(peer);
         let tls = read == 1 && first[0] == TLS_HANDSHAKE;
         let wire = Wire::new(stream, Arc::clone(&observed), tls);
         if tls {
-            let Ok(stream) = self.acceptor.accept(wire).await else {
+            let Ok(start) =
+                LazyConfigAcceptor::new(rustls::server::Acceptor::default(), wire).await
+            else {
                 return;
             };
+            let name = start
+                .client_hello()
+                .server_name()
+                .map(observation::host_name);
+            let config = if name.as_deref().is_some_and(raw_site::http1_only) {
+                Arc::clone(&self.tls.http1)
+            } else {
+                Arc::clone(&self.tls.any)
+            };
+            let Ok(stream) = start.into_stream(config).await else {
+                return;
+            };
+            if let Some(name) = name.filter(|name| raw_site::serves(name)) {
+                let http2 = stream.get_ref().1.alpn_protocol() == Some(b"h2");
+                let tapped = Tap::new(stream, Arc::clone(&observed));
+                Box::pin(raw::serve(
+                    tapped,
+                    http2,
+                    Some(name),
+                    observed,
+                    &*self.raw_site,
+                ))
+                .await;
+                return;
+            }
             let _ = builder
                 .serve_connection(TokioIo::new(Tap::new(stream, observed)), service)
                 .await;

@@ -137,8 +137,8 @@ struct Request {
     repeats: Option<usize>,
     /// The next request the same host received, and how long after this
     /// one's answer (or its arrival, if it had none) it arrived.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    next_request: Option<NextRequest>,
+    #[serde(rename = "next_request", skip_serializing_if = "Option::is_none")]
+    followed_by: Option<NextRequest>,
     /// What the raw server sent of the answer, for the hosts it answers.
     #[serde(skip_serializing_if = "Option::is_none")]
     delivery: Option<Delivery>,
@@ -170,8 +170,6 @@ pub(crate) enum End {
     Complete,
     /// The connection was closed after what was sent.
     ConnectionClosed,
-    /// The connection was reset (TCP `RST`) after what was sent.
-    ConnectionReset,
     /// Its HTTP/2 stream was reset with `RST_STREAM`.
     StreamReset { error_code: &'static str },
     /// The connection's `GOAWAY` named a last stream below the request's,
@@ -189,7 +187,8 @@ struct Accepted {
     host: Arc<str>,
     /// The client's address family; `null` when it was not read.
     family: Option<Family>,
-    accepted_microseconds: u64,
+    #[serde(rename = "accepted_microseconds")]
+    at_microseconds: u64,
 }
 
 /// An address family.
@@ -215,10 +214,9 @@ pub(crate) struct Verification {
 /// A task's request, as the oracle reads it.
 pub(crate) struct Seen {
     pub(crate) target: String,
+    pub(crate) user_agent: Option<String>,
     /// `None` when unsigned; else whether its signature was verified.
     pub(crate) signature: Option<bool>,
-    /// The key that signed it, when its signature was verified.
-    pub(crate) key_id: Option<String>,
 }
 
 /// The HTTP Message Signatures headers of a request (RFC 9421), as Web Bot
@@ -348,18 +346,19 @@ impl Observations {
             .requests
             .iter()
             .filter(|request| request.task.as_deref() == Some(task))
-            .map(|request| {
-                let verification = request
-                    .message_signature
-                    .as_ref()
-                    .map(|signature| signature.verification.as_ref());
-                Seen {
-                    target: request.target.clone(),
-                    signature: verification.map(|found| found.is_some_and(|found| found.verified)),
-                    key_id: verification
-                        .flatten()
-                        .and_then(|found| found.key_id.clone()),
-                }
+            .map(|request| Seen {
+                target: request.target.clone(),
+                user_agent: request
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+                    .map(|(_, value)| value.clone()),
+                signature: request.message_signature.as_ref().map(|signature| {
+                    signature
+                        .verification
+                        .as_ref()
+                        .is_some_and(|found| found.verified)
+                }),
             })
             .collect()
     }
@@ -469,7 +468,7 @@ impl Connection {
                     connection: self.id,
                     host: Arc::clone(&host),
                     family: state.family,
-                    accepted_microseconds: state.accepted_microseconds,
+                    at_microseconds: state.accepted_microseconds,
                 });
                 Host::Served(host)
             }
@@ -512,7 +511,7 @@ impl Connection {
                 .timing
                 .answered_microseconds
                 .unwrap_or(record.timing.arrived_microseconds);
-            record.next_request = Some(NextRequest {
+            record.followed_by = Some(NextRequest {
                 sequence,
                 after_microseconds: arrived.saturating_sub(since),
             });
@@ -542,7 +541,7 @@ impl Connection {
             },
             bytes: ByteCount::default(),
             repeats,
-            next_request: None,
+            followed_by: None,
             delivery: None,
         });
         drop(state);

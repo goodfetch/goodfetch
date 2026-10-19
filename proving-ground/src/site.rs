@@ -21,6 +21,7 @@ use crate::login::{self, Logins};
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::portal::{self, Portal};
+use crate::raw_site;
 use crate::rendered;
 use crate::schedule;
 use crate::sync::Mutex;
@@ -90,6 +91,7 @@ impl Site {
                 .chain(handmade::hosts())
                 .map(|(host, task)| (host, Some(task))),
         );
+        hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
         hosts
     }
 
@@ -105,12 +107,17 @@ impl Site {
         tasks.extend(schedule::tasks(seed, port));
         tasks.extend(portal::tasks(seed, port));
         tasks.extend(handmade::tasks(seed, port));
+        tasks.extend(raw_site::tasks(seed, port));
         tasks
     }
 
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
+        if raw_site::serves(&name) {
+            // The raw server answers these over TLS alone.
+            return Reply::error(StatusCode::MISDIRECTED_REQUEST, "tls_required");
+        }
         if let Some((reply, effect)) = self
             .portal
             .respond(&name, request)
@@ -201,11 +208,12 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
+                let requests = self.observations.requests_of(&task.entry.id);
                 let now = self.portal.expected_now(&task.entry.id);
                 let expected = now.as_ref().unwrap_or(&task.expected);
                 Reply::json(
                     StatusCode::OK,
-                    &oracle::judge(expected, submission, &effects),
+                    &oracle::judge(expected, submission, &effects, &requests),
                 )
             }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),

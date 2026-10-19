@@ -27,6 +27,8 @@ mod foxhound_side;
 mod github;
 mod issues;
 mod journeys;
+mod junit;
+mod junit_summary;
 mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
@@ -124,6 +126,10 @@ enum Command {
         #[command(subcommand)]
         command: journeys::Command,
     },
+    /// Appends the failed tests of a job's JUnit files to its summary page,
+    /// each with its failure's first lines and its seeds; fails on a JUnit
+    /// file it cannot read (ADR 0061).
+    JunitSummary(junit_summary::Arguments),
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -335,6 +341,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Egress { command } => egress::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::Journeys { command } => journeys::run(&command, environment),
+        Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),

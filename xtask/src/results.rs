@@ -6,7 +6,6 @@
 
 mod artifact;
 mod ingest;
-mod junit;
 mod store;
 
 pub(crate) use artifact::{Arch, Os};

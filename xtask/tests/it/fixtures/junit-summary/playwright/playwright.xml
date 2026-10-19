@@ -1,0 +1,37 @@
+<testsuites id="" name="" tests="2" failures="1" skipped="0" errors="0" time="0.8066010000000001">
+<testsuite name="page.spec.ts" timestamp="2026-10-19T10:43:01.347Z" hostname="" tests="2" failures="1" skipped="0" time="0.008" errors="0">
+<testcase name="page › title is read" classname="page.spec.ts" time="0.005">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|../../../../test-results/page-page-title-is-read/error-context.md]]
+]]>
+</system-out>
+<system-err>
+<![CDATA[goodfetch-test-seed=29
+]]>
+</system-err>
+<failure message="expect(received).toBe(expected) // Object.is equality" type="expect.toBe">
+<![CDATA[  page.spec.ts:4:3 › page › title is read ──────────────────────────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 3
+    Received: 2
+
+      4 |   test("title is read", () => {
+      5 |     console.error("goodfetch-test-seed=29");
+    > 6 |     expect(1 + 1).toBe(3);
+        |                   ^
+      7 |   });
+      8 |
+      9 |   test("steady", () => {
+        at /work/tests/page.spec.ts:6:19
+
+    Error Context: ../../../test-results/page-page-title-is-read/error-context.md
+]]>
+</failure>
+</testcase>
+<testcase name="page › steady" classname="page.spec.ts" time="0.003">
+</testcase>
+</testsuite>
+</testsuites>

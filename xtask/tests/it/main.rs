@@ -30,6 +30,7 @@ mod egress_rules;
 mod fixture_size;
 mod ingest;
 mod journeys;
+mod junit_summary;
 mod minute_ceiling;
 mod mocking_lockfile;
 mod modules;

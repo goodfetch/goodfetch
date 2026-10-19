@@ -190,7 +190,7 @@ impl JsonSchema for ProductVersion {
         json_schema!({
             "description": "A Product version of a stable release or patch, `X.Y.Z` (ADR 0030).",
             "type": "string",
-            "pattern": r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$",
+            "pattern": r"^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$",
         })
     }
 }
@@ -249,19 +249,24 @@ impl JsonSchema for FormatVersion {
         json_schema!({
             "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
             "type": "string",
-            "pattern": r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$",
+            "pattern": r"^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$",
         })
     }
 }
 
-/// `count` decimal numbers joined by dots, without leading zeros or signs.
+/// The most digits a version's number has, so every one fits a `u32` and
+/// the schema's pattern can state the same bound.
+const NUMBER_DIGITS: usize = 9;
+
+/// `count` decimal numbers joined by dots, without leading zeros or signs,
+/// each of at most `NUMBER_DIGITS` digits.
 fn numbers<const COUNT: usize>(text: &str) -> Option<[u32; COUNT]> {
     let mut parts = [0; COUNT];
     let mut pieces = text.split('.');
     for part in &mut parts {
         let piece = pieces.next()?;
         let canonical = piece == "0"
-            || (!piece.is_empty()
+            || ((1..=NUMBER_DIGITS).contains(&piece.len())
                 && !piece.starts_with('0')
                 && piece.bytes().all(|byte| byte.is_ascii_digit()));
         if !canonical {
@@ -434,3 +439,6 @@ impl JsonSchema for HttpsUrl {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod properties;

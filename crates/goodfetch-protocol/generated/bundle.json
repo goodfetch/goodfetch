@@ -74,7 +74,7 @@
     },
     "FormatVersion": {
       "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
     },
     "HttpsUrl": {
@@ -135,7 +135,7 @@
     },
     "ProductVersion": {
       "description": "A Product version of a stable release or patch, `X.Y.Z` (ADR 0030).",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
     },
     "Release": {

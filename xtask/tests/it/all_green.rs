@@ -64,17 +64,21 @@ fn job_that_did_not_succeed_fails(#[case] result: &str) {
     assert_eq!(outcome.code, 1);
 }
 
-#[test]
-fn job_the_selection_skipped_passes() {
+#[rstest]
+#[case::pre_merge("pre-merge")]
+#[case::visual("visual")]
+fn job_the_selection_skipped_passes(#[case] job: &str) {
     let workspace = Workspace::from_fixture("empty");
     let github = GitHub::serving(&[]);
-    let needs = r#"{
-      "affected": { "result": "success", "outputs": { "jobs": "[\"docs\"]" } },
-      "quick": { "result": "success", "outputs": {} },
-      "pre-merge": { "result": "skipped", "outputs": {} }
-    }"#;
+    let needs = format!(
+        r#"{{
+      "affected": {{ "result": "success", "outputs": {{ "jobs": "[\"docs\"]" }} }},
+      "quick": {{ "result": "success", "outputs": {{}} }},
+      "{job}": {{ "result": "skipped", "outputs": {{}} }}
+    }}"#
+    );
 
-    let outcome = all_green(&workspace, needs, "1", github.url());
+    let outcome = all_green(&workspace, &needs, "1", github.url());
 
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 0);

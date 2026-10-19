@@ -43,7 +43,7 @@ workflow = "pull-request.yml"
 job = "visual"
 events = ["pull_request"]
 refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository"
+if = "github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON(needs.affected.outputs.jobs), 'visual')"
 
 [[job]]
 workflow = "pull-request.yml"

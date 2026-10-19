@@ -5,6 +5,8 @@
 //! Quick suite.
 //! Covers: story:1-52
 
+use rstest::rstest;
+
 use crate::workspace::{Outcome, Workspace};
 
 /// The fixture as a git repository whose `main` is also `origin/main`.
@@ -135,4 +137,35 @@ fn local_mode_without_origin_main_is_an_error() {
     let outcome = workspace.xtask(&["affected", "--local"]);
 
     assert_eq!(outcome.code, 2);
+}
+
+/// The visual job runs when a change reaches a package holding a visual test,
+/// found where the `visual` projects look: never in a `fixtures/` folder.
+#[rstest]
+#[case::reaching_a_visual_test(
+    "sdks/typescript/foxhound/src/run.visual.spec.ts",
+    r#"["pre-merge","sinks","visual"]"#
+)]
+#[case::reaching_only_a_fixture_named_like_one(
+    "sdks/typescript/foxhound/tests/fixtures/page.visual.spec.ts",
+    r#"["pre-merge","sinks"]"#
+)]
+fn change_reaching_a_package_with_a_visual_test_selects_the_visual_job(
+    #[case] visual_test: &str,
+    #[case] jobs: &str,
+) {
+    let workspace = repository();
+    workspace.write(visual_test, b"// A visual test.\n");
+    commit_all(&workspace, "Add the visual test");
+    workspace.git(&["tag", "with-visual-test"]);
+    workspace.write(
+        "sdks/typescript/collie-client/src/index.ts",
+        b"// Changed.\n",
+    );
+    commit_all(&workspace, "Change the client the Foxhound SDK depends on");
+
+    let outcome = workspace.xtask(&["affected", "--base", "with-visual-test", "--head", "change"]);
+
+    assert_eq!(outcome.code, 0);
+    assert_eq!(value(&outcome, "jobs"), jobs);
 }

@@ -1,8 +1,9 @@
 //! What the rules need to know of the repository's three workspaces (ADR
 //! 0032): each Cargo crate, pnpm package and uv package, its folder and the
-//! members of its own workspace it depends on. Cargo's members come from
-//! `cargo metadata`; pnpm's from `pnpm-workspace.yaml` and uv's from the root
-//! `pyproject.toml`, whose patterns use `*` for one folder name.
+//! members of its own workspace it depends on, and where the visual tests are
+//! (ADR 0073). Cargo's members come from `cargo metadata`; pnpm's from
+//! `pnpm-workspace.yaml` and uv's from the root `pyproject.toml`, whose
+//! patterns use `*` for one folder name.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -21,6 +22,9 @@ use crate::{metadata, package_dependencies};
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
     pub(crate) packages: Vec<Package>,
+    /// Every visual test file, where Playwright's and Vitest's `visual`
+    /// projects look for them.
+    pub(crate) visual_tests: Vec<RepoPath>,
 }
 
 /// A member of the Cargo workspace.
@@ -59,10 +63,55 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
         .with_context(|| format!("reading {}", root.display()))?;
     let mut packages = typescript_packages(root)?;
     packages.extend(python_packages(root)?);
+    let mut visual_tests = Vec::new();
+    find_visual_tests(root, root, &mut visual_tests)?;
+    visual_tests.sort();
     Ok(Workspace {
         crates: crates(cargo, root)?,
         packages,
+        visual_tests,
     })
+}
+
+/// Folders the visual projects never look in, wherever they are: build
+/// outputs, installed packages and fixtures (`playwright.config.ts`'s
+/// `testIgnore`); dot-folders are skipped too.
+const NOT_SEARCHED_FOR_VISUAL_TESTS: [&str; 4] = ["target", "node_modules", ".venv", "fixtures"];
+
+/// Folders from the root the visual projects never look in: the frozen R&D
+/// archive and the static checks' proofs.
+const ROOT_FOLDERS_WITHOUT_VISUAL_TESTS: [&str; 2] = ["rnd", "ci/proofs"];
+
+/// Whether the file name is a visual test's: `*.visual.spec.ts` for
+/// Playwright, `*.visual.test.ts[x]` for Vitest (TESTING.md).
+pub(crate) fn is_visual_test(name: &str) -> bool {
+    [".visual.spec.ts", ".visual.test.ts", ".visual.test.tsx"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+}
+
+fn find_visual_tests(root: &Path, folder: &Path, found: &mut Vec<RepoPath>) -> Result<()> {
+    let entries =
+        std::fs::read_dir(folder).with_context(|| format!("reading {}", folder.display()))?;
+    for entry in entries {
+        let path = entry
+            .with_context(|| format!("reading {}", folder.display()))?
+            .path();
+        let name = path.file_name().and_then(OsStr::to_str).unwrap_or_default();
+        let metadata = std::fs::symlink_metadata(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        if metadata.is_dir() {
+            let skipped = name.starts_with('.')
+                || NOT_SEARCHED_FOR_VISUAL_TESTS.contains(&name)
+                || ROOT_FOLDERS_WITHOUT_VISUAL_TESTS.contains(&relative(root, &path)?.as_str());
+            if !skipped {
+                find_visual_tests(root, &path, found)?;
+            }
+        } else if metadata.is_file() && is_visual_test(name) {
+            found.push(relative(root, &path)?);
+        }
+    }
+    Ok(())
 }
 
 fn relative(root: &Path, folder: &Path) -> Result<RepoPath> {

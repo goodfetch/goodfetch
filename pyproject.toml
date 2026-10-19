@@ -50,6 +50,10 @@ minversion = "9.0"
 strict = true
 strict_markers = true
 addopts = ["--import-mode=importlib", "--junitxml=target/junit/pytest.xml"]
+# A failed test's captured output goes into the JUnit file, where
+# `xtask junit-summary` reads its `goodfetch-test-seed=<n>` line.
+junit_logging = "out-err"
+junit_log_passing_tests = false
 # pytest-timeout: killed at 5 min above the Quick suite; `just test quick`
 # passes `--timeout=10`.
 timeout = "300"

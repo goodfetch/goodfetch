@@ -50,3 +50,23 @@ class SampleCrawled(BaseModel):
     )
     visited: Annotated[int, Field(ge=0)]
     """How many pages were visited."""
+
+
+class SamplePageFilterAdmitParams(BaseModel):
+    """What a sample page filter is asked about a page."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    url: str
+    """The page's URL."""
+
+
+class SamplePageFilterAdmitResult(BaseModel):
+    """What a sample page filter answers about a page."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    admitted: bool
+    """Whether the sample crawl visits the page."""

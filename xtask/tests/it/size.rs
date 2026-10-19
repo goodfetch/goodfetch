@@ -361,6 +361,30 @@ fn each_products_file_is_compared_with_mains_file_of_the_same_product() {
     assert_eq!(outcome.code, 1);
 }
 
+/// A `main` whose tree no run saved a report for has no baseline: the check
+/// says so for each file and gates nothing on growth (ADR 0061, as ADR 0071
+/// treats a benchmark with no base).
+#[test]
+fn increase_with_no_baseline_for_mains_tree_reports_no_baseline_and_gates_nothing() {
+    let workspace = Workspace::from_fixture("empty");
+    write_files(
+        &workspace,
+        "ci",
+        &[built("collie", "wheel", "collie.whl", 40_000_000)],
+    );
+
+    let outcome = size(&workspace, "increase", &[]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    insta::assert_snapshot!(outcome.stdout, @"
+    | Product | Target | File | Size | main | Change | Limit | Verdict |
+    |---|---|---|---:|---:|---:|---:|---|
+    | Collie | x86_64-unknown-linux-gnu | collie.whl | 40.00 MB | — | — | +1 MB | no baseline |
+
+    No baseline: no report of `main`'s tree to compare with; nothing is gated on growth.
+    ");
+}
+
 #[test]
 fn file_main_has_no_figure_for_is_reported_never_gated() {
     let workspace = Workspace::from_fixture("empty");
@@ -768,8 +792,8 @@ fn estimate_is_a_pull_request_comment() {
 
     | Product | Target | File | Size | main | Change | Limit | Verdict |
     |---|---|---|---:|---:|---:|---:|---|
-    | Collie | x86_64-unknown-linux-gnu | collie.tar.gz | 31.23 MB | — | — | +1 MB | new |
+    | Collie | x86_64-unknown-linux-gnu | collie.tar.gz | 31.23 MB | — | — | +1 MB | no baseline |
 
-    No report of `main` to compare with; the merge queue's increase check decides.
+    No baseline: no report of `main`'s tree to compare with; the merge queue's increase check decides.
     ");
 }

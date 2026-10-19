@@ -68,7 +68,9 @@ while IFS=$'\t' read -r name comment <&3; do
   echo "  $what"
   printf '%s\n' "$rest" | tr '|' '\n' | sed 's/^ */  /'
   printf '  value (Enter keeps, - clears): '
-  if ! IFS= read -rs value; then
+  # `read` fails at the end of input even when it read a final value with no
+  # trailing newline, so only an empty read at the end of input is an error.
+  if ! IFS= read -rs value && [ -z "$value" ]; then
     echo
     echo "error: input ended before a value for $name; $target not changed" >&2
     exit 1

@@ -1,0 +1,23 @@
+---
+source: xtask/tests/it/junit_summary.rs
+expression: workspace.read_text(SUMMARY)
+---
+### Failed tests
+
+1 test failed in 1 JUnit file.
+
+#### `page > title is read`
+
+In `vitest.xml`, with `goodfetch-test-seed=23`.
+
+```text
+AssertionError: expected 2 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 2
+
+ ❯ page.test.ts:6:19
+```

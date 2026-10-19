@@ -32,6 +32,8 @@ goodfetch-collie = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 serde_json.workspace = true
+# The corpus writer's in-memory Client (examples/compat-protocol.rs).
+tokio = { workspace = true, features = ["io-util", "macros"] }
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

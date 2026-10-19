@@ -1,0 +1,6 @@
+{"id":0,"jsonrpc":"2.0","method":"hello","params":{"needs":"collie","product_version":"0.0.0","protocol_version":"0.1","surface":"sdk_python"}}
+{"id":1,"jsonrpc":"2.0","method":"engine.info","params":{}}
+{"jsonrpc":"2.0","method":"$/cancel","params":{"id":1}}
+{"id":"echo","jsonrpc":"2.0","method":"sample.echo","params":{"text":"é"}}
+{"id":2,"jsonrpc":"2.0","method":"sample.crawl","params":{"echo":{"text":"a"},"pages":1}}
+{"id":3,"jsonrpc":"2.0","method":"page.levitate","params":{}}

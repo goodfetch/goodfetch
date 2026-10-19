@@ -169,7 +169,8 @@ fn value(selection: &Selection, key: &str) -> String {
 }
 
 #[rstest]
-#[case::lab_ci_only_for_rnd(&["rnd/lab/src/cli.ts"], r#"["lab"]"#)]
+// The lab's own workflow runs on `rnd/` (ADR 0032); the tier selects nothing.
+#[case::nothing_for_rnd(&["rnd/lab/src/cli.ts"], "[]")]
 #[case::docs_jobs_only_for_docs(&["docs/collie/index.md", "website/index.html"], r#"["docs"]"#)]
 #[case::nothing_beyond_quick_for_top_level_markdown(&["TESTING.md"], "[]")]
 #[case::pre_merge_and_sinks_for_a_crate(&["crates/goodfetch-collie/src/main.rs"], r#"["pre-merge","sinks"]"#)]
@@ -177,9 +178,10 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::perf_for_a_crate_with_bench_targets(&["crates/foxhound/goodfetch-frontier/src/lib.rs"], r#"["pre-merge","sinks","perf"]"#)]
 #[case::evaluation_for_prompts(&["crates/goodfetch-engine/src/agent/prompts/act.md"], r#"["pre-merge","sinks","perf","evaluation"]"#)]
 #[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","evaluation"]"#)]
-#[case::evaluation_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","evaluation"]"#)]
+// The catalog is the docs' reference too (spec #130, Pre-merge suite).
+#[case::evaluation_and_docs_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","docs","evaluation"]"#)]
 #[case::evaluation_for_skills(&["skills/collie/SKILL.md"], r#"["pre-merge","sinks","perf","docs","evaluation"]"#)]
-#[case::every_job_but_lab_and_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","docs"]"#)]
+#[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","docs"]"#)]
 #[case::nothing_for_no_change(&[], "[]")]
 fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
     let selection = select_paths(paths);

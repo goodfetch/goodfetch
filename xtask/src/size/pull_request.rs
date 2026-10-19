@@ -8,26 +8,18 @@
 //! - and a comment by the repository's owner says "Size increase
 //!   accepted" and names the pull request's head SHA.
 
-use anyhow::Result;
-
 use crate::acceptance::{self, Acceptance, Rule};
-
-pub(crate) use crate::acceptance::PullRequest;
 
 use super::budget::Bytes;
 
-const RULE: Rule = Rule {
+/// The "Size increase" section and its acceptance comment.
+pub(crate) const RULE: Rule = Rule {
     heading: "size increase",
     phrase: "size increase accepted",
 };
 
 /// The ADRs' MB has six decimals of bytes.
 const MB_DECIMALS: usize = 6;
-
-/// Reads what the pull request accepts.
-pub(crate) fn read(pull_request: &PullRequest<'_>) -> Result<Acceptance> {
-    pull_request.read(&RULE)
-}
 
 /// Whether the file `id`, grown by `change`, is accepted.
 pub(crate) fn accepts(acceptance: &Acceptance, id: &str, change: Bytes) -> bool {

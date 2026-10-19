@@ -18,14 +18,13 @@ mod pull_request;
 mod report;
 mod table;
 
-use pull_request::PullRequest;
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 
+use crate::acceptance::PullRequest;
 use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::{github, output};
@@ -257,7 +256,7 @@ fn accept(rows: &mut [Row], pull_request: &PullRequest<'_>) -> Result<()> {
     if !rows.iter().any(tripped) {
         return Ok(());
     }
-    let acceptance = pull_request::read(pull_request)?;
+    let acceptance = pull_request.read(&pull_request::RULE)?;
     for row in rows.iter_mut().filter(|row| tripped(row)) {
         let change = row
             .change()

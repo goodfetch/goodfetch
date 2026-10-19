@@ -146,8 +146,17 @@ test suite *packages:
         fi
         ;;
       pre-merge|release)
+        # A quarantined test that owns an insta snapshot does not run, so its
+        # snapshot looks unreferenced: while nextest skips any quarantined
+        # test, unreferenced snapshots warn instead of failing (TESTING.md,
+        # Snapshots).
+        unreferenced=reject
+        if [[ ${#skip_nextest[@]} -gt 0 ]]; then
+          unreferenced=warn
+          echo "insta: unreferenced snapshots warn while the quarantine list skips a nextest test"
+        fi
         if $rust; then
-          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced reject \
+          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced "$unreferenced" \
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
           # nextest runs no doctests; cargo-insta's own doctest pass would take

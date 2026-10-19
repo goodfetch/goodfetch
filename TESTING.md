@@ -156,7 +156,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 - **Inline for short values** (about 20 lines); a file for longer ones: insta's `.snap` files, Vitest's `toMatchFileSnapshot` or `toMatchSnapshot`, inline-snapshot's `external()`.
 - **What snapshots cover:** structured outputs (JSON-RPC responses, CLI output, generated surfaces, extraction output). Never instead of a precise assertion on one value.
 - **Every varying value is redacted or filtered** (IDs, times, durations, temporary paths), with the shared settings of test support.
-- **CI never writes a snapshot and fails on a mismatched, missing or orphaned one:** `cargo insta test --check --unreferenced reject`; Vitest in CI; inline-snapshot, which raises on an empty `snapshot()` there.
+- **CI never writes a snapshot and fails on a mismatched, missing or orphaned one:** `cargo insta test --check --unreferenced reject`; Vitest in CI; inline-snapshot, which raises on an empty `snapshot()` there. While the quarantine list skips a nextest test, its snapshots look orphaned, so `just test` lets unreferenced insta snapshots warn instead, and says so, until the test leaves the list.
 - **Snapshots change only through the tool's update or review command, never by hand.** inline-snapshot updates run single-process (`-n0`), since under xdist it can neither create nor fix one.
 - **A snapshot change is reviewed as a change of expected behaviour.**
 

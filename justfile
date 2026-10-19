@@ -56,6 +56,7 @@ lint: fmt-check
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
+    cargo run --quiet -p xtask -- features check
     cargo run --quiet -p xtask -- compat check
     cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- journeys check
@@ -71,6 +72,27 @@ codegen:
     pnpm install --frozen-lockfile
     uv sync --frozen
     cargo run --quiet -p xtask -- codegen
+
+# What the changed packages declare, then the Feature check's verdict (ADR
+# 0072): the Features each crate `xtask affected` selects declares, one
+# `<feature> <level> <test>` line each, and the check's findings over the
+# workspace, which are the Features missing a test, an exception or an area.
+# Takes `xtask affected`'s change, `--local` by default.
+features *change:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    change=({{ change }})
+    [[ ${#change[@]} -gt 0 ]] || change=(--local)
+    selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
+    read -ra crates <<< "$(sed -n 's/^crates=//p' <<< "$selection")"
+    if [[ ${#crates[@]} -gt 0 ]]; then
+      echo "Declared by ${crates[*]}:"
+      cargo run --quiet -p xtask -- features scan "${crates[@]/#/--package=}"
+    else
+      echo "The change reaches no crate."
+    fi
+    echo "Missing:"
+    cargo run --quiet -p xtask -- features check && echo "nothing"
 
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the

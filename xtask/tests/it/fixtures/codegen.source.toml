@@ -1,10 +1,12 @@
 # The codegen fixture's generated files (TESTING.md, Fixtures and data files):
 # the marked regions of `deny.toml` and `ci/deny/collie.toml`, every file
-# under the `generated/` folders and `journeys/journey.schema.json` are
-# `xtask codegen`'s output for the fixture's `goodfetch-protocol`, crates and
-# `license-allowlist.toml`, and the rest is written by hand. Regenerate them
-# after changing the fixture's types or `xtask codegen` itself, from the
-# repository root after `just codegen` installed the generators.
+# under the `generated/` folders, `journeys/journey.schema.json`,
+# `features/inventory.json` and the `features/*.schema.json` files are `xtask
+# codegen`'s output for the fixture's `goodfetch-protocol`, crates,
+# `license-allowlist.toml`, `features/` files and matrix, and the rest is
+# written by hand. Regenerate them after changing the fixture's types or
+# `xtask codegen` itself, from the repository root after `just codegen`
+# installed the generators.
 generator = "xtask codegen"
 generators = ["json-schema-to-typescript 16.0.0", "datamodel-code-generator 0.86.0", "ruff 0.17.1"]
 date = "2026-10-19"

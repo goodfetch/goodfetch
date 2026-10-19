@@ -3,6 +3,8 @@
   "ignorePatterns": [
     "rnd/**",
     "**/generated/**",
+    "**/features/inventory.json",
+    "**/features/*.schema.json",
     "**/journeys/journey.schema.json",
     "**/compat/**",
     ".agents/**",

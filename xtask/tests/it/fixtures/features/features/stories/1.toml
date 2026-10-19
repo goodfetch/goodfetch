@@ -1,0 +1,23 @@
+[[story]]
+id = 1
+title = "As a user, I want to reach a goal, so that I am done."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a user, I want one setting's effect, so that it works."
+milestone = "M2 Next"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 3
+title = "As a user, I wanted something removed, so that it went."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "retired"
+reason = "Merged into story 1."

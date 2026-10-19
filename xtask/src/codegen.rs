@@ -40,6 +40,7 @@ use serde_json::{Map, Value};
 
 use crate::check::Finding;
 use crate::environment::Environment;
+use crate::features;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::emit::JOURNEY_FILES;
 use layer::Layer;
@@ -286,10 +287,24 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
+    let foxhound_names = names::table(&catalog);
     files.insert(
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
-        names::render(&catalog).into_bytes(),
+        names::render(&foxhound_names).into_bytes(),
     );
+    let sources = features::Sources {
+        root,
+        catalog: &catalog,
+        bundle: &bundle,
+        foxhound_names: &foxhound_names,
+    };
+    files.insert(
+        features::INVENTORY.to_owned(),
+        features::inventory_text(&sources)?,
+    );
+    for (path, schema) in features::schemas() {
+        files.insert(path.to_owned(), json_text(&schema)?);
+    }
     files.insert(
         JOURNEY_SCHEMA.to_owned(),
         json_text(&standalone(&bundle, JOURNEY_FILES)?)?,

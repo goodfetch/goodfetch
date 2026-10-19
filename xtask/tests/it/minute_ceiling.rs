@@ -1,9 +1,10 @@
 //! The minute ceiling of test health while the repository is private (ADRs
-//! 0064, 0072 and 0108): the month's hosted minutes of the test-health,
-//! diagnostic, coverage and mutation jobs, counted from the store in
-//! Linux-equivalent minutes, skip the constrained runs, then the diagnostic
-//! runs, as they near 1,000, and the coverage and mutation jobs from 550;
-//! a skip goes to the job summary.
+//! 0064, 0072 and 0108, as amended by ADR 0135): the month's hosted minutes
+//! of the test-health, diagnostic and coverage jobs, counted from the store
+//! in Linux-equivalent minutes, skip the constrained runs, then the
+//! diagnostic runs, as they near 1,000, and the coverage job from 550; a
+//! skip goes to the job summary. The in-diff mutation job runs on the
+//! owner's machine and counts nothing.
 //! Covers: story:1-113
 
 use rstest::rstest;
@@ -12,6 +13,11 @@ use crate::store::{Attempt, STORE, job, write_store};
 use crate::workspace::{Outcome, Workspace};
 
 fn ceiling(workspace: &Workspace, run: &str) -> Outcome {
+    ceiling_for_jobs(workspace, run, "1")
+}
+
+/// The ceiling's answer for a run of `jobs` hosted jobs.
+fn ceiling_for_jobs(workspace: &Workspace, run: &str, jobs: &str) -> Outcome {
     workspace.xtask(&[
         "results",
         "ceiling",
@@ -19,6 +25,8 @@ fn ceiling(workspace: &Workspace, run: &str) -> Outcome {
         STORE,
         "--run",
         run,
+        "--jobs",
+        jobs,
         "--today",
         "2026-10-18",
         "--summary",
@@ -123,7 +131,6 @@ fn month_counts_hosted_minutes_of_test_health_jobs_rounded_up_and_multiplied() {
 #[case::diagnostic_once_its_10_minutes_do_not_fit(991, "diagnostic", false)]
 #[case::coverage_below_550(549, "coverage", true)]
 #[case::coverage_from_550(550, "coverage", false)]
-#[case::mutation_from_550(550, "mutation", false)]
 fn run_starts_only_while_the_month_leaves_it_room(
     #[case] minutes: u64,
     #[case] run: &str,
@@ -133,6 +140,28 @@ fn run_starts_only_while_the_month_leaves_it_room(
     month_of(&workspace, minutes);
 
     let outcome = ceiling(&workspace, run);
+
+    assert_eq!(outcome.code, 0);
+    assert_eq!(
+        value(&outcome, "admitted").as_deref(),
+        Some(if admitted { "true" } else { "false" })
+    );
+}
+
+/// A failed run gets up to 20 hosted diagnostic jobs, each with a 10-minute
+/// timeout: the month must have room for all of them.
+#[rstest]
+#[case::while_every_jobs_10_minutes_fit(950, "5", true)]
+#[case::once_they_do_not_all_fit(951, "5", false)]
+fn diagnostic_run_starts_only_while_the_month_leaves_room_for_every_job(
+    #[case] minutes: u64,
+    #[case] jobs: &str,
+    #[case] admitted: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    month_of(&workspace, minutes);
+
+    let outcome = ceiling_for_jobs(&workspace, "diagnostic", jobs);
 
     assert_eq!(outcome.code, 0);
     assert_eq!(

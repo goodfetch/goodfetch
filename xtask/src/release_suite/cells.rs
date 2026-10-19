@@ -6,52 +6,7 @@ use std::fmt;
 
 use anyhow::{Result, bail};
 
-/// A hosted runner's rate in Linux-equivalent minutes (ADR 0108): its price
-/// per minute over Linux 2-core x64's, rounded up, kept at or above GitHub's
-/// earlier multipliers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Rate {
-    Linux,
-    Windows,
-    Macos,
-}
-
-impl Rate {
-    pub(crate) fn multiplier(self) -> u32 {
-        match self {
-            Self::Linux => 1,
-            Self::Windows => 2,
-            Self::Macos => 11,
-        }
-    }
-
-    /// The rate of a job from its runner labels; nothing for a self-hosted
-    /// runner, which uses no included minutes.
-    pub(crate) fn of_labels(labels: &[String]) -> Result<Option<Self>> {
-        let lowered: Vec<String> = labels
-            .iter()
-            .map(|label| label.to_ascii_lowercase())
-            .collect();
-        if lowered
-            .iter()
-            .any(|label| label == "self-hosted" || label == "owner-machine")
-        {
-            return Ok(None);
-        }
-        let Some(first) = lowered.first() else {
-            bail!("a job lists no runner labels");
-        };
-        if first.starts_with("ubuntu") {
-            Ok(Some(Self::Linux))
-        } else if first.starts_with("windows") {
-            Ok(Some(Self::Windows))
-        } else if first.starts_with("macos") {
-            Ok(Some(Self::Macos))
-        } else {
-            bail!("`{first}` is not a GitHub-hosted runner label the count knows")
-        }
-    }
-}
+pub(crate) use crate::rate::Rate;
 
 /// Where a cell runs while the repository is private (ADR 0108).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

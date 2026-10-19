@@ -126,8 +126,7 @@ impl TryFrom<JobJson> for Job {
             workflow::is_test_step(&step.name) && step.conclusion.as_deref() == Some("failure")
         });
         Ok(Self {
-            rate: Rate::of_labels(&job.labels)
-                .with_context(|| format!("reading the runner of job `{}`", job.name))?,
+            rate: Rate::of_labels(&job.labels),
             name: job.name,
             attempt: job.run_attempt.unwrap_or(1),
             minutes,

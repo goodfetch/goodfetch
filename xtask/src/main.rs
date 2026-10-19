@@ -36,6 +36,7 @@ mod output;
 mod package_dependencies;
 mod perf;
 mod quarantine;
+mod rate;
 mod release_suite;
 mod repeat;
 mod results;
@@ -204,6 +205,9 @@ enum ResultsCommand {
         store: PathBuf,
         #[arg(long, value_enum)]
         run: ceiling::Run,
+        /// The hosted jobs the run would start, each held to its timeout.
+        #[arg(long, default_value_t = 1)]
+        jobs: u64,
         /// Today's date in UTC, `YYYY-MM-DD`, whose month is counted.
         #[arg(long)]
         today: jiff::civil::Date,
@@ -344,11 +348,12 @@ fn run_results(command: ResultsCommand, environment: &Environment) -> anyhow::Re
         ResultsCommand::Ceiling {
             store,
             run,
+            jobs,
             today,
             summary,
         } => {
             let summary = summary.as_ref().map(path);
-            ceiling::check(&path(&store), run, today, summary.as_deref())?;
+            ceiling::check(&path(&store), run, jobs, today, summary.as_deref())?;
             Ok(ExitCode::SUCCESS)
         }
         ResultsCommand::Failed { attempt, os, arch } => {

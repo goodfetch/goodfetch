@@ -5,7 +5,11 @@
 # both runner configs define their `visual` project only when it is set.
 #   run.sh install  installs pnpm and the locked packages, before ADR 0043's
 #                   deny
-#   run.sh test     compares every Reference screenshot; writes none
+#   run.sh test     compares every Reference screenshot; writes none. It
+#                   skips the tests on the test quarantine list (ADR 0064),
+#                   through target/visual/quarantine.tsv, which
+#                   ci/vm/visual.sh install wrote with `xtask quarantine
+#                   exclude`: the image has no Rust to run it
 #   run.sh update   rewrites the Reference screenshots that changed or are
 #                   missing (the `update-screenshots` workflow only)
 # Each Reference screenshot a test reads is recorded under target/visual/read/
@@ -26,6 +30,14 @@ case "$mode" in
   test)
     vitest_flags=()
     playwright_flags=()
+    if [[ -f target/visual/quarantine.tsv ]]; then
+      while IFS=$'\t' read -r runner argument; do
+        case "$runner" in
+          vitest) vitest_flags+=("$argument") ;;
+          playwright) playwright_flags+=("$argument") ;;
+        esac
+      done <target/visual/quarantine.tsv
+    fi
     ;;
   update)
     vitest_flags=(--update)
@@ -56,6 +68,6 @@ rm -rf target/visual/read
 mkdir -p target/visual/read
 
 status=0
-pnpm exec vitest run --project visual "${vitest_flags[@]}" || status=1
-pnpm exec playwright test --project visual "${playwright_flags[@]}" || status=1
+pnpm exec vitest run --project visual ${vitest_flags[@]+"${vitest_flags[@]}"} || status=1
+pnpm exec playwright test --project visual ${playwright_flags[@]+"${playwright_flags[@]}"} || status=1
 exit "$status"

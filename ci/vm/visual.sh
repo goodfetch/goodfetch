@@ -6,7 +6,10 @@
 #   ci/vm/visual.sh test     compares every Reference screenshot (the visual job)
 #   ci/vm/visual.sh update   rewrites the changed ones (`update-screenshots`)
 # The container runs ci/visual/run.sh on the workspace at /work; the cache
-# folder is read-only to it. Under the deny, pnpm runs offline.
+# folder is read-only to it. Under the deny, pnpm runs offline. The pinned
+# image has no Rust, so `install` also writes the test quarantine list's
+# exclusions (`xtask quarantine exclude`, in the CI image's container) to
+# target/visual/quarantine.tsv, which `test` reads (ADR 0064).
 set -euo pipefail
 
 mode=${1:?usage: ci/vm/visual.sh install|test|update}
@@ -15,6 +18,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 source "$here/common.sh"
 
 if [[ "$mode" == install ]]; then
+  "$here/exec.sh" bash -c \
+    "mkdir -p target/visual && cargo run --quiet -p xtask -- quarantine exclude >target/visual/quarantine.tsv"
   vm_shell nerdctl run --detach --name "$VISUAL_CONTAINER" --platform linux/amd64 --ipc=host \
     --volume /work:/work --volume /cache:/cache:ro \
     --env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST" \

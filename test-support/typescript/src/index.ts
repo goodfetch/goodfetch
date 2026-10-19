@@ -8,6 +8,12 @@ export {
   type RecordedProcess,
   type SpawnOptions,
 } from "./process-record.ts";
+export {
+  journeyDocument,
+  writeJourneyDocument,
+  type JourneyFacts,
+  type JourneyResultDocument,
+} from "./journey-document.ts";
 export { productEnv, type Product } from "./product-env.ts";
 export {
   startTestEnv,

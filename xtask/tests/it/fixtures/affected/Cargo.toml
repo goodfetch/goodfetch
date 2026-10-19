@@ -4,4 +4,5 @@ members = [
   "crates/goodfetch-*",
   "crates/foxhound/goodfetch-*",
   "crates/foxhound/sinks/goodfetch-*",
+  "proving-ground",
 ]

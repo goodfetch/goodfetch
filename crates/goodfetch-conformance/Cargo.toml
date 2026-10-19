@@ -26,3 +26,8 @@ rstest.workspace = true
 
 [lints]
 workspace = true
+
+# Its tests run the Proving ground's executable through the test tool
+# manifest, so a change to the Proving ground runs them (`xtask affected`).
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]

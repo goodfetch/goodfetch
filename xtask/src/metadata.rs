@@ -23,6 +23,34 @@ pub(crate) struct Package {
     pub(crate) manifest_path: PathBuf,
     pub(crate) dependencies: Vec<Dependency>,
     pub(crate) targets: Vec<Target>,
+    /// `[package.metadata]`.
+    #[serde(default)]
+    metadata: Option<PackageMetadata>,
+}
+
+impl Package {
+    /// The workspace crates whose executables the package's tests run, from
+    /// `[package.metadata.goodfetch] runs`.
+    pub(crate) fn runs(&self) -> Vec<String> {
+        self.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.goodfetch.as_ref())
+            .map(|goodfetch| goodfetch.runs.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Deserialize)]
+struct PackageMetadata {
+    goodfetch: Option<GoodfetchMetadata>,
+}
+
+/// `[package.metadata.goodfetch]`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GoodfetchMetadata {
+    #[serde(default)]
+    runs: Vec<String>,
 }
 
 #[derive(Deserialize)]

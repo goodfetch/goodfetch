@@ -262,6 +262,14 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             None => everything = true,
         }
     }
+    // A crate whose tests run a changed crate's executable is reached by it.
+    let running: Vec<String> = workspace
+        .crates
+        .iter()
+        .filter(|krate| krate.runs.iter().any(|run| changed.crates.contains(run)))
+        .map(|krate| krate.name.clone())
+        .collect();
+    changed.crates.extend(running);
     if everything {
         // A path no member owns, such as a lockfile, a tool's settings or a
         // workflow, may change any test: every one of the Products' runs.

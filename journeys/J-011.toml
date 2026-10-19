@@ -1,0 +1,72 @@
+#:schema ./journey.schema.json
+id = "J-011"
+title = "Extract fields and page metadata (JSON-LD, Open Graph) from product pages into Records"
+goal = """
+A person extracts each product's fields and page metadata from product pages \
+into Records. The Records MUST hold every field the pages state, in their \
+text, their schema.org JSON-LD and their Open Graph metadata, and they MUST \
+stay right when the pages' class names churn, their layout changes, their \
+products load from a hidden API, a page is huge, or a price is written in \
+another region's format."""
+area = 6
+product = "foxhound"
+status = "active"
+covers = ["row:CO-14", "row:CO-19", "row:data-extraction-quality"]
+
+[proving_ground]
+seed = 11
+tasks = [
+  { id = "extraction/1", digest = "c834067ae84ac5ec2a2fd317097c91e2657c082e9faf6f8cea303622e56ee3a1" },
+  { id = "extraction/2", digest = "9dbd188823fe4bcf422affa87307b8d2692d7d67cbd3edb3f61cf0cce2716e7f" },
+  { id = "extraction/3", digest = "4f411991bacbe0bbc5084292468c79120106bf9b4fef563cf174e793a5ddc2da" },
+  { id = "extraction/4", digest = "b25603e490fb23de6f63d0b9e3604fee45bddb080957b6bd40af1befd68964da" },
+  { id = "extraction/5", digest = "0146bf7ad23d850e75e6b44cf3233dbe1f00a3fdb4583a88072a4fabc92c6cdb" },
+  { id = "extraction/6", digest = "9c4ff6281c4666098defb6990402c5074ac712eb9fd96f389221a7085e05425f" },
+]
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+mcp-stdio = "M2"
+mcp-http = "M2"
+
+[[steps]]
+text = "Crawl the product pages, extracting each product's fields from its text, its JSON-LD and its Open Graph metadata"
+
+[[steps]]
+text = "Extract the products the shop's script loads from its API"
+
+[[steps]]
+text = "Crawl the product pages whose class names churn, and those whose layout changes, extracting the same fields from each"
+
+[[steps]]
+text = "Extract every product of the huge page"
+
+[[steps]]
+text = "Crawl the product's regional pages, extracting each region's price as a plain decimal"
+
+[[expect]]
+text = "The oracle verifies the Records of the pages with metadata"
+task = "extraction/1"
+
+[[expect]]
+text = "The oracle verifies the Records of the products the hidden API serves"
+task = "extraction/2"
+
+[[expect]]
+text = "The oracle verifies the Records of the pages whose class names churn"
+task = "extraction/3"
+
+[[expect]]
+text = "The oracle verifies the Records of the pages whose layout changes"
+task = "extraction/4"
+
+[[expect]]
+text = "The oracle verifies the Records of the huge page"
+task = "extraction/5"
+
+[[expect]]
+text = "The oracle verifies the Records of the regional pages"
+task = "extraction/6"

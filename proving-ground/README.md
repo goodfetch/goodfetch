@@ -22,18 +22,36 @@ Each family is served on its own host name, and each of its tasks on a host name
 
 - `catalog.test`, and `1.catalog.test` to `3.catalog.test` for its tasks: the `catalog` family, ported from the lab's HTTP catalog. Listing pages `/catalog/1` to `/catalog/10` link ten products each and the next page (`rel="next"`); product pages `/products/P-0001` to `/products/P-0100` show each product's ID, name and price; `/products/P-NNNN/order` is the product's order form, which posts `product=P-NNNN` to `/orders` and orders it once.
 
+- `extraction.test`, and `1.extraction.test` to `6.extraction.test`: the `extraction` family, ADR 0025's Extraction cases on seeded products (J-011). `/products` links product pages carrying schema.org JSON-LD (brand, GTIN, rating, currency) and Open Graph metadata (description); `/shop` loads its products only from its hidden API, `/api/products/1` and `/api/products/2`; `/churn` links pages whose class names differ on every page; `/variants` links pages in six layouts; `/huge` is one table of 2,000 products, over 5 MiB, generated on request; `/<region>/products/X-0100` shows one product in `us`, `de`, `fr`, `jp` and `in`, each in its locale's language, currency and number format, linked by `hreflang` alternates.
+- `encodings.test`, `1.encodings.test` and `2.encodings.test`: the `encodings` family (ADRs 0073 and 0119, CO-24). `/pages` links one page per case: Shift_JIS, EUC-KR, GB18030, Big5, windows-1251, ISO-8859-2, ISO-8859-15, UTF-16 with a BOM, a charset that contradicts its `<meta>`, no declared charset in UTF-8 and in a legacy encoding, the `latin1` and `ascii` labels with byte 0x80, a `<meta>` UTF-16 label, `x-user-defined`, a `<meta charset>` past the first 1,024 bytes among head tags and one after the body tag, and a byte UTF-8 cannot decode. Each page's expected text is held in UTF-8, with the encoding ADR 0119's order reads it with and where that comes from (`bom`, `header`, `meta`, `utf8` or `detected`).
+- `languages.test` and `1.languages.test`, and the IDN host name `bücher.languages.test` (`xn--bcher-kva.languages.test`): the `languages` family (ADR 0073). `/pages` links Arabic and Hebrew with their marks, Japanese and Chinese without spaces, Devanagari, Thai, combining marks served decomposed (NFD), emoji sequences, astral characters, the Unicode record (bidi text with marks, NFC and NFD forms of one word, a ZWJ sequence, an astral character, a zero-width joiner, a BOM, a tab and a newline), and a page at the non-ASCII path `/wörter/日本語?q=café&ort=Zürich`, which needs its query. Every expected text is in the normalization form served.
+- `files.test`, and `1.files.test` to `3.files.test`: the `files` family (ADRs 0025 and 0119). `/files` links a PDF, a ZIP, a JSON response, a 404 typed `text/csv`, an HTML page and a PDF served with no `Content-Type`, and a page whose `<a download>` link offers `/files/export.csv`.
+
 ## Task list and oracle
 
 On any other host name, such as the bound address itself:
 
 - `GET /tasks` lists the tasks: `proving_ground` (`version`, `seed`) and `tasks`, each with `id` (`<family>/<ordinal>`), `family`, `kind` (`crawl`, `extract` or `submit`), `start_url` (on the task's host name, with the bound port), `description` and `digest`. The digest is the lowercase hex SHA-256 of `{"entry": …, "expected": …}`, every URL's port removed, in RFC 8785's canonical JSON, so it is the same on every port.
-- `POST /oracle` judges a result: `{"task": "catalog/1", "status": "success" | "needs-review" | "failure", "records": [{"id": …, "name": …, "price": …}]}`. The answer names the `task`, its `outcome` (`verified`, `incomplete`, `false_success` or `failed`), the `tool_status` it recorded, the `missing` Record IDs, the `extra` Records, the `wrong` fields (`id`, `field`, `expected`, `submitted`), the `missing_effects` and `extra_effects`, and `oracle_time_microseconds`. A correct result is `verified` whatever status the tool gave; only a result the tool calls a success is a false success. Effects are judged from the Proving ground's own record of what it carried out for the task, never from the tool's report, so an order placed twice is an extra Effect. An unknown task answers `404` with `unknown_task`, an unreadable submission `400` with `malformed_submission`.
+- `POST /oracle` judges a result: `{"task": "catalog/1", "status": "success" | "needs-review" | "failure", "records": [{"id": …, "name": …, "price": …}]}`. The answer names the `task`, its `outcome` (`verified`, `incomplete`, `false_success` or `failed`), the `tool_status` it recorded, the `missing` Record IDs, the `extra` Records, the `wrong` fields (`id`, `field`, `expected`, `submitted`, and for a submitted text the `difference`: the index `at` of the first character that differs and the `expected` and `submitted` characters there as `U+XXXX`), the `missing_effects` and `extra_effects`, the `quality` of the extraction, scored field by field against the ground truth (for each field, and in all, how many of the `expected` values are `correct`; a missing Record's fields count as missing values), and `oracle_time_microseconds`. A correct result is `verified` whatever status the tool gave; only a result the tool calls a success is a false success. Effects are judged from the Proving ground's own record of what it carried out for the task, never from the tool's report, so an order placed twice is an extra Effect. An unknown task answers `404` with `unknown_task`, an unreadable submission `400` with `malformed_submission`.
 
 | Task | Kind | Start page | Expected |
 |---|---|---|---|
 | `catalog/1` | `crawl` | `/catalog/1` | a Record of every product |
 | `catalog/2` | `extract` | one product page, chosen by the seed | that product's Record |
 | `catalog/3` | `submit` | one product's order form, chosen by the seed | one order of that product |
+| `extraction/1` | `crawl` | `/products` | each product's text, JSON-LD and Open Graph fields |
+| `extraction/2` | `extract` | `/shop` | the products its hidden API serves |
+| `extraction/3` | `crawl` | `/churn` | each product, whatever its class names |
+| `extraction/4` | `crawl` | `/variants` | each product, whatever its layout |
+| `extraction/5` | `extract` | `/huge` | its 2,000 products |
+| `extraction/6` | `crawl` | `/us/products/X-0100` | the product's price in each region, as a plain decimal |
+| `encodings/1` | `crawl` | `/pages` | each page's title and text in UTF-8 |
+| `encodings/2` | `crawl` | `/pages` | the same, with each page's encoding and its source |
+| `languages/1` | `crawl` | `/pages` | each page's title and text as served |
+| `languages/2` | `extract` | `/` on `xn--bcher-kva.languages.test` | the page on the IDN host name |
+| `files/1` | `crawl` | `/files` | each linked response's status, type as a navigation computes it, and SHA-256 |
+| `files/2` | `extract` | `/files/report.pdf` | the PDF's title and text |
+| `files/3` | `extract` | `/files/download` | the download's suggested name and SHA-256 |
 
 ## Observations
 

@@ -33,6 +33,9 @@ publish = false
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
+# A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
+# chacha20, portable across versions).
+chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.

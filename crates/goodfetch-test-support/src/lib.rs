@@ -2,12 +2,14 @@
 //! folder, Goodfetch home, cleared environment, printed seed and start
 //! time), the processes a test starts and the addresses they report, the
 //! test tool manifest, the paused runtime, proptest's configuration and the
-//! test `tracing` subscriber; and `goodfetch-test-env`, which gives the same
+//! test `tracing` subscriber, the endpoint table and `EndpointRunner`, which
+//! applies it to a listener; and `goodfetch-test-env`, which gives the same
 //! setup to TypeScript and Python as one JSON description. It works on
 //! values only: it depends on no Goodfetch crate and is only ever a
 //! dev-dependency.
 
 mod description;
+mod endpoints;
 mod env;
 mod process;
 mod runtime;
@@ -16,6 +18,10 @@ mod trace;
 mod variables;
 
 pub use description::{Description, schemas};
+pub use endpoints::{
+    AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
+    Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+};
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
 pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,

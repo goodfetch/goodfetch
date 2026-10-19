@@ -1,0 +1,180 @@
+{
+  "$defs": {
+    "Expected": {
+      "description": "What a listener must do with a rule's attempt: a table cell.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A JSON-RPC stream listener closes the connection without answering.",
+          "properties": {
+            "expect": {
+              "const": "closed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An HTTP listener refuses the request with this status.",
+          "properties": {
+            "expect": {
+              "const": "status",
+              "type": "string"
+            },
+            "status": {
+              "description": "A 4xx status.",
+              "format": "uint16",
+              "maximum": 499,
+              "minimum": 400,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "expect",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An HTTP listener answers with a status and no body. No refusal, so\nno Audit log entry.",
+          "properties": {
+            "expect": {
+              "const": "status_only",
+              "type": "string"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ListenerKind": {
+      "description": "A listener with a column in the endpoint table. Listeners join as their\ntickets land.",
+      "oneOf": [
+        {
+          "const": "daemon_socket",
+          "description": "The Daemon's protocol socket: a `0600` Unix socket, or loopback TCP\non Windows (ADR 0024).",
+          "type": "string"
+        },
+        {
+          "const": "private_endpoint",
+          "description": "An Attached engine's private endpoint, for its workers and the\nDaemon's forwarded live actions (ADR 0031).",
+          "type": "string"
+        },
+        {
+          "const": "ops_listener",
+          "description": "The Daemon's ops listener: its probes and `/metrics` (ADR 0050).",
+          "type": "string"
+        }
+      ]
+    },
+    "Row": {
+      "additionalProperties": false,
+      "description": "One rule's row.",
+      "properties": {
+        "adrs": {
+          "description": "The ADRs the rule comes from.",
+          "items": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "listeners": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Expected"
+          },
+          "default": {},
+          "description": "The cell of each listener the rule applies to.",
+          "propertyNames": {
+            "$ref": "#/$defs/ListenerKind"
+          },
+          "type": "object"
+        },
+        "summary": {
+          "description": "What the attempt does, in one sentence.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "adrs"
+      ],
+      "type": "object"
+    },
+    "Rule": {
+      "description": "A refusal rule: a row of the endpoint table, which the runner knows how\nto try.",
+      "oneOf": [
+        {
+          "const": "token_missing",
+          "description": "The first message or the request carries no token.",
+          "type": "string"
+        },
+        {
+          "const": "token_wrong",
+          "description": "The token is one the listener never issued.",
+          "type": "string"
+        },
+        {
+          "const": "token_from_another_listener",
+          "description": "The token is valid, but for another listener.",
+          "type": "string"
+        },
+        {
+          "const": "token_in_query_string",
+          "description": "The valid token is sent in the query string.",
+          "type": "string"
+        },
+        {
+          "const": "host_foreign",
+          "description": "The request names a foreign `Host`.",
+          "type": "string"
+        },
+        {
+          "const": "origin_foreign",
+          "description": "The request carries a foreign `Origin`.",
+          "type": "string"
+        },
+        {
+          "const": "hello_not_first",
+          "description": "The connection's first message is not a `hello`.",
+          "type": "string"
+        },
+        {
+          "const": "probes_answer_status_only",
+          "description": "The ops listener's probes answer with a status and no body.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The endpoint table: a row per rule, a column per listener.",
+  "properties": {
+    "rule": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Row"
+      },
+      "description": "Each rule's row, by the rule's name.",
+      "propertyNames": {
+        "$ref": "#/$defs/Rule"
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "rule"
+  ],
+  "title": "EndpointTable",
+  "type": "object"
+}

@@ -1,10 +1,11 @@
 use std::net::IpAddr;
 
 use super::{
-    EgressRule, Family, LetThrough, Miss, Outcome, Refusal, SsrfCase, SsrfTable, SsrfTableError,
-    run_cases,
+    CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome, Refusal, SsrfCase,
+    SsrfTable, SsrfTableError, run_cases,
 };
 use crate::resolver::ScriptedResolver;
+use crate::special_purpose::SpecialPurposeRegistries;
 
 fn address(text: &str) -> IpAddr {
     text.parse().unwrap()
@@ -230,6 +231,114 @@ fn a_runner_passes_a_layer_that_refuses_every_case_before_any_connection() {
     let result = run_cases(&table.cases, |_| Outcome::refused(PRIVATE_ADDRESS));
 
     assert_eq!(result, Ok(()));
+}
+
+/// A registry of two blocks that are not globally reachable and one that
+/// is.
+const REGISTRY: &str = "Address Block,Name,RFC,Allocation Date,Termination Date,Source,Destination,Forwardable,Globally Reachable,Reserved-by-Protocol\r
+10.0.0.0/8,Private-Use,[RFC 1918],1996-02,N/A,True,True,True,False,False\r
+fe80::/10,Link-Local Unicast,[RFC 4291],2006-02,N/A,True,True,False,False,True\r
+192.31.196.0/24,AS112-v4,[RFC 7535],2014-12,N/A,True,True,True,True,False\r
+";
+
+/// A special-purpose case of `block` aimed at `target`.
+fn block_case(name: &str, block: &str, target: &str) -> String {
+    format!(
+        r#"
+        [[cases]]
+        name = "{name}"
+        family = "special_purpose_block"
+        url = "http://example.ssrf.test/"
+        target = "{target}"
+        block = "{block}"
+        refusal = {{ code = "egress_refused", rule = "private_address" }}
+        "#
+    )
+}
+
+fn coverage(table: &str) -> Result<(), CoverageGaps> {
+    let registries = SpecialPurposeRegistries::parse_csv(REGISTRY).unwrap();
+    SsrfTable::parse(table).unwrap().coverage(&registries)
+}
+
+#[test]
+fn a_table_with_a_case_for_every_block_not_globally_reachable_covers_the_registries() {
+    let table = block_case("private_use", "10.0.0.0/8", "10.0.0.1")
+        + &block_case("link_local", "fe80::/10", "fe80::1");
+
+    let result = coverage(&table);
+
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn a_block_not_globally_reachable_without_a_case_is_a_gap() {
+    let table = block_case("private_use", "10.0.0.0/8", "10.0.0.1");
+
+    let result = coverage(&table);
+
+    assert_eq!(
+        result,
+        Err(CoverageGaps {
+            gaps: vec![CoverageGap::Uncovered {
+                block: "fe80::/10".to_owned()
+            }]
+        })
+    );
+}
+
+#[test]
+fn a_case_naming_a_block_the_registries_do_not_list_is_a_gap() {
+    let table = block_case("private_use", "10.0.0.0/8", "10.0.0.1")
+        + &block_case("link_local", "fe80::/10", "fe80::1")
+        + &block_case("site_local", "fec0::/10", "fec0::1");
+
+    let result = coverage(&table);
+
+    assert_eq!(
+        result,
+        Err(CoverageGaps {
+            gaps: vec![CoverageGap::UnknownBlock {
+                case: "site_local".to_owned(),
+                block: "fec0::/10".to_owned()
+            }]
+        })
+    );
+}
+
+#[test]
+fn a_case_whose_target_lies_outside_its_block_is_a_gap() {
+    let table = block_case("private_use", "10.0.0.0/8", "11.0.0.1")
+        + &block_case("link_local", "fe80::/10", "fe80::1");
+
+    let result = coverage(&table);
+
+    assert_eq!(
+        result,
+        Err(CoverageGaps {
+            gaps: vec![CoverageGap::OutsideBlock {
+                case: "private_use".to_owned(),
+                block: "10.0.0.0/8".to_owned()
+            }]
+        })
+    );
+}
+
+#[test]
+fn two_cases_of_one_name_are_a_gap() {
+    let table = block_case("private_use", "10.0.0.0/8", "10.0.0.1")
+        + &block_case("private_use", "fe80::/10", "fe80::1");
+
+    let result = coverage(&table);
+
+    assert_eq!(
+        result,
+        Err(CoverageGaps {
+            gaps: vec![CoverageGap::DuplicateName {
+                case: "private_use".to_owned()
+            }]
+        })
+    );
 }
 
 #[test]

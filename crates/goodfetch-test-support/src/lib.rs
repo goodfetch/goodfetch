@@ -40,8 +40,8 @@ pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
 };
 pub use ssrf::{
-    Answer, CaseLookup, EgressRule, Family, LetThrough, Miss, Outcome, Redirect, Refusal, Route,
-    SsrfCase, SsrfTable, SsrfTableError, run_cases,
+    Answer, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome,
+    Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
 };
 pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};

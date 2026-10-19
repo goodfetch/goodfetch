@@ -3,6 +3,7 @@
 //! refusal every layer must give, which each layer's thin runner applies.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::fmt;
 use std::net::IpAddr;
 
@@ -10,6 +11,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::resolver::Lookup;
+use crate::special_purpose::{Cidr, Reachability, SpecialPurposeRegistries};
 
 /// The SSRF case table: every case, in the committed file's order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -259,6 +261,132 @@ impl SsrfTable {
         Ok(toml::from_str(text)?)
     }
 }
+
+/// A way the table falls short of IANA's special-purpose registries, or of
+/// itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CoverageGap {
+    /// A block that is not globally reachable has no case.
+    Uncovered {
+        /// The block.
+        block: String,
+    },
+    /// A case names a block the registries do not list.
+    UnknownBlock {
+        /// The case.
+        case: String,
+        /// The block it names.
+        block: String,
+    },
+    /// A case's target lies outside the block it names, or it has none.
+    OutsideBlock {
+        /// The case.
+        case: String,
+        /// The block it names.
+        block: String,
+    },
+    /// Two cases share a name.
+    DuplicateName {
+        /// The name.
+        case: String,
+    },
+}
+
+/// Every gap of a table, in the table's then the registries' order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoverageGaps {
+    /// The gaps.
+    pub gaps: Vec<CoverageGap>,
+}
+
+impl SsrfTable {
+    /// Checks that every block of `registries` that is not globally
+    /// reachable has a case whose target lies in it, and that the table's
+    /// names are unique.
+    ///
+    /// # Errors
+    ///
+    /// [`CoverageGaps`] listing every gap.
+    pub fn coverage(&self, registries: &SpecialPurposeRegistries) -> Result<(), CoverageGaps> {
+        let mut gaps = Vec::new();
+        let mut names = HashSet::new();
+        for case in &self.cases {
+            if !names.insert(case.name.as_str()) {
+                gaps.push(CoverageGap::DuplicateName {
+                    case: case.name.clone(),
+                });
+            }
+            let Some(block) = &case.block else {
+                continue;
+            };
+            if !registries
+                .blocks
+                .iter()
+                .any(|listed| &listed.block == block)
+            {
+                gaps.push(CoverageGap::UnknownBlock {
+                    case: case.name.clone(),
+                    block: block.clone(),
+                });
+            } else if !Cidr::parse(block)
+                .zip(case.target)
+                .is_some_and(|(cidr, target)| cidr.contains(target))
+            {
+                gaps.push(CoverageGap::OutsideBlock {
+                    case: case.name.clone(),
+                    block: block.clone(),
+                });
+            }
+        }
+        for listed in &registries.blocks {
+            let covered = self
+                .cases
+                .iter()
+                .any(|case| case.block.as_ref() == Some(&listed.block));
+            if listed.globally_reachable == Reachability::NotGlobal && !covered {
+                gaps.push(CoverageGap::Uncovered {
+                    block: listed.block.clone(),
+                });
+            }
+        }
+        if gaps.is_empty() {
+            Ok(())
+        } else {
+            Err(CoverageGaps { gaps })
+        }
+    }
+}
+
+impl fmt::Display for CoverageGap {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Uncovered { block } => write!(
+                formatter,
+                "{block} is not globally reachable and has no case"
+            ),
+            Self::UnknownBlock { case, block } => write!(
+                formatter,
+                "{case} names {block}, which IANA's registries do not list"
+            ),
+            Self::OutsideBlock { case, block } => {
+                write!(formatter, "{case}'s target lies outside {block}")
+            }
+            Self::DuplicateName { case } => write!(formatter, "two cases are named {case}"),
+        }
+    }
+}
+
+impl fmt::Display for CoverageGaps {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the SSRF case table falls short:")?;
+        for gap in &self.gaps {
+            write!(formatter, "\n  {gap}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for CoverageGaps {}
 
 /// What a layer did with one case, as its runner observed it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

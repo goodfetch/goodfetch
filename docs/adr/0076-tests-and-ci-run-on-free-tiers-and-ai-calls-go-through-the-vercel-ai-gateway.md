@@ -77,3 +77,7 @@ Facts this rests on, checked on 2026-10-14:
 - **Adds to ADR 0032:** the tree gains `scripts/` for repository helper scripts, and `.gitignore` ignores `.env` and `.env.*` except `.env.example`.
 - **`AGENTS.md`** states the no-paid-resources rule; **`TESTING.md`** gains a section on free tiers and local secrets, and every rule that listed a declined resource as awaiting the owner is edited in place.
 - **Owner tickets:** [Owner purchases for security testing](https://github.com/goodfetch/goodfetch/issues/441) and [Owner accounts for Integration tests](https://github.com/goodfetch/goodfetch/issues/442) record the purchases as declined and the free accounts as M4 work; [Owner confirmations and decisions](https://github.com/goodfetch/goodfetch/issues/392) records this decision.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the table's last row declines resources of ADR 0060 (Antithesis), ADR 0061 (a larger cache), ADR 0066 (larger runners) and ADR 0073 (a hosted visual service), so this ADR adds to those four ADRs too.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): ADR 0032's paid LocalStack token, which the owner was to approve, is overridden, so this ADR amends ADR 0032 there rather than only adding to it; a one-line note sits at its LocalStack line.

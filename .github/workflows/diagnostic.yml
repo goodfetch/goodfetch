@@ -138,12 +138,12 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh 20
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -191,12 +191,12 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh 20
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

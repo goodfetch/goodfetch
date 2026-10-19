@@ -1,9 +1,11 @@
 //! A Proving ground task's digest (ADR 0063): the lowercase hex SHA-256 of
-//! `{"entry": …, "expected": …}`, with every URL's port removed, serialized
-//! in the JSON Canonicalization Scheme (RFC 8785). It is the same on every
-//! port, and a changed entry or expected result changes it.
+//! `{"entry": …, "expected": …}`, with every URL's port removed wherever it
+//! appears in a string, serialized in the JSON Canonicalization Scheme
+//! (RFC 8785). It is the same on every port, and a changed entry or expected
+//! result changes it.
 
 use std::fmt::Write as _;
+use std::ops::Range;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -23,35 +25,75 @@ pub(crate) fn of(entry: &impl Serialize, expected: &impl Serialize) -> String {
         })
 }
 
-/// Removes the port of every `http` or `https` URL among the strings.
+/// Removes the port of every `http` or `https` URL in the strings, wherever
+/// it appears in one, such as an absolute link inside a Markdown body.
 fn remove_ports(value: &mut Value) {
     match value {
-        Value::String(text) => {
-            if let Some(url) = without_port(text) {
-                *text = url;
-            }
-        }
+        Value::String(text) => *text = without_ports(text),
         Value::Array(values) => values.iter_mut().for_each(remove_ports),
         Value::Object(fields) => fields.values_mut().for_each(remove_ports),
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
 
-/// The URL without its port, or `None` when the text is no `http` or `https`
-/// URL with a port.
-fn without_port(text: &str) -> Option<String> {
-    let (scheme, rest) = text.split_once("://")?;
-    if !(scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")) {
-        return None;
+/// The text with the port of each `http` or `https` URL in it removed.
+fn without_ports(text: &str) -> String {
+    let mut portless = String::with_capacity(text.len());
+    let mut copied = 0;
+    let mut searched = 0;
+    while let Some(found) = text[searched..].find("://") {
+        let authority = searched + found + "://".len();
+        searched = authority;
+        if !ends_with_http_scheme(&text[..authority - "://".len()]) {
+            continue;
+        }
+        if let Some(port) = port_span(&text[authority..]) {
+            portless.push_str(&text[copied..authority + port.start]);
+            copied = authority + port.end;
+            searched = copied;
+        }
     }
-    let (authority, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    portless.push_str(&text[copied..]);
+    portless
+}
+
+/// Whether the scheme just before a `://` is `http` or `https`.
+fn ends_with_http_scheme(before: &str) -> bool {
+    let start = before
+        .char_indices()
+        .rev()
+        .take_while(|&(_, c)| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        .last()
+        .map_or(before.len(), |(index, _)| index);
+    let scheme = &before[start..];
+    scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+}
+
+/// Where the port (its colon included) sits in the text after a URL's `://`,
+/// or `None` when the URL has none.
+fn port_span(after: &str) -> Option<Range<usize>> {
+    let authority_end = after
+        .find(|c: char| c.is_whitespace() || matches!(c, '/' | '?' | '#'))
+        .unwrap_or(after.len());
+    let host_start = after[..authority_end].rfind('@').map_or(0, |at| at + 1);
+    let host = &after[host_start..];
     // An IPv6 host is bracketed, and its colons are not the port's.
-    let host_end = authority.rfind(']').map_or(0, |bracket| bracket + 1);
-    let colon = host_end + authority[host_end..].rfind(':')?;
-    let port = &authority[colon + 1..];
-    port.bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| format!("{scheme}://{}{tail}", &authority[..colon]))
+    let host_length = if host.starts_with('[') {
+        host.find(']')? + 1
+    } else {
+        host.find(|c: char| {
+            !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '~' | '%'))
+        })
+        .unwrap_or(host.len())
+    };
+    let colon = host_start + host_length;
+    let digits = after[colon..].strip_prefix(':')?;
+    let digit_count = digits.bytes().take_while(u8::is_ascii_digit).count();
+    let ends_the_authority = digits[digit_count..]
+        .chars()
+        .next()
+        .is_none_or(|c| !c.is_ascii_alphanumeric());
+    (digit_count > 0 && ends_the_authority).then_some(colon..colon + 1 + digit_count)
 }
 
 #[cfg(test)]
@@ -99,6 +141,22 @@ mod tests {
         "http://user:secret@catalog.test:80/",
         "http://user:secret@catalog.test/"
     )]
+    #[case::inside_a_markdown_link(
+        "[Next](http://catalog.test:8080/catalog/2)",
+        "[Next](http://catalog.test/catalog/2)"
+    )]
+    #[case::two_in_one_string(
+        "From https://catalog.test:8443/ to http://[::1]:51234/tasks.",
+        "From https://catalog.test/ to http://[::1]/tasks."
+    )]
+    #[case::at_a_sentences_end(
+        "Start at http://catalog.test:8080.",
+        "Start at http://catalog.test."
+    )]
+    #[case::before_an_address_in_prose(
+        "See http://catalog.test:8080 or ask me@catalog.test",
+        "See http://catalog.test or ask me@catalog.test"
+    )]
     fn the_digest_ignores_a_urls_port(#[case] with_port: &str, #[case] without: &str) {
         let digests = (
             of(&entry(with_port), &expected("12.34")),
@@ -112,6 +170,8 @@ mod tests {
     #[case::not_a_url("catalog.test:8080", "catalog.test")]
     #[case::another_scheme("ftp://catalog.test:21/", "ftp://catalog.test/")]
     #[case::another_path("http://catalog.test/catalog/1", "http://catalog.test/catalog/2")]
+    #[case::an_empty_port("http://catalog.test:/catalog/1", "http://catalog.test/catalog/1")]
+    #[case::digits_then_letters("http://catalog.test:8080x/", "http://catalog.testx/")]
     fn the_digest_keeps_everything_but_a_urls_port(#[case] one: &str, #[case] other: &str) {
         let digests = (
             of(&entry(one), &expected("12.34")),

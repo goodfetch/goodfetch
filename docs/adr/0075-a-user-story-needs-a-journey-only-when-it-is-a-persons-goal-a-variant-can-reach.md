@@ -120,3 +120,5 @@ Each area's `/to-spec` applies the three tests to every story it writes, records
   - The spec's Journeys paragraph lists these Journeys. Its Further Notes replace "`journey = true` for every story whose actor is a person using Goodfetch" with the lists above.
 - **The size of the change:** across areas 1 to 3, 32 stories are flagged instead of 132 (4 in area 1, 3 in area 2, 25 in area 3). They are covered by 20 Journeys: J-002, the 6 existing Journeys that gain area 3 stories, area 2's planned Journey, the 2 planned M4 Journeys and the 10 new ones.
 - **No new glossary term.** The flag and its reasons are fields, not domain terms.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the `part` row's integration tests include the Simulation, and the binary's tests include each Product's executable's crash tests (`kill -9`, LazyFS); several `part` stories (9, 22, 26, 72, 112) are proven only there.

@@ -153,3 +153,7 @@ This settles the map's fog "Where test results are kept over time and shown".
 - **ADR 0037's table** lists ADR 0064 in area 1's row, which builds its checks, jobs and store.
 - **`docs/agents/issue-tracker.md`** puts `flaky-test` issues first on the frontier and `live-check` issues right after, and names both labels.
 - **The "Test infrastructure" spec** builds: the `xtask` checks and scan, the stress selection per runner, the order seed, the ingest workflow, the `test-results` repository and its token, the daily test-health job, the Allure build, the diagnostic jobs, the quarantine-list format and its exclusion per runner, the minute ceiling's count and skips, and the two labels.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the live-model rows of the Live check table and the live-model measurement rule, left to [#281](https://github.com/goodfetch/goodfetch/issues/281), are decided since in [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md), which lists the live-model checks; `TESTING.md` says the Live checks are listed in ADRs 0064 and 0065.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the 2,000 included minutes are GitHub Free's, and every ceiling here assumes the account stays on it: GitHub Pro bills, so it is declined (ADR 0076).

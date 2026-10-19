@@ -850,7 +850,9 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "crc32fast",
  "data-encoding",
+ "encoding_rs",
  "form_urlencoded",
  "h2",
  "hmac",

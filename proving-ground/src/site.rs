@@ -19,8 +19,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent;
 use crate::catalog;
+use crate::encodings;
 use crate::exchange::{Reply, Request};
+use crate::extraction;
+use crate::files;
 use crate::handmade;
+use crate::languages;
 use crate::login::{self, Logins};
 use crate::model::{self, Candidate, FakeModel};
 use crate::observation::{self, Observations};
@@ -84,7 +88,14 @@ impl Site {
     pub(crate) fn hosts(seed: u64) -> BTreeMap<String, Option<String>> {
         let mut hosts: BTreeMap<_, _> = FAMILY_HOSTS
             .into_iter()
-            .chain([agent::HOST, model::HOST])
+            .chain([
+                agent::HOST,
+                model::HOST,
+                encodings::HOST,
+                extraction::HOST,
+                files::HOST,
+                languages::HOST,
+            ])
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
@@ -115,7 +126,40 @@ impl Site {
         tasks.extend(handmade::tasks(seed, port));
         tasks.extend(agent::tasks(seed, port));
         tasks.extend(replay::tasks());
+        tasks.extend(extraction::tasks(seed, port));
+        tasks.extend(encodings::tasks(seed, port));
+        tasks.extend(languages::tasks(seed, port));
+        tasks.extend(files::tasks(seed, port));
         tasks
+    }
+
+    /// The reply of an Extraction family (#165) to a request on `name`, one
+    /// of its host names; `None` when `name` is another family's.
+    fn extraction(&self, name: &str, request: &Request<'_>) -> Option<Reply> {
+        let (method, path, query) = (request.method, request.path, request.query);
+        let of = |family: &str| name == family || name.ends_with(&format!(".{family}"));
+        let ok = |(content_type, body)| (StatusCode::OK, content_type, body);
+        let html = |page: String| ok(("text/html; charset=utf-8", page.into_bytes()));
+        let page = if of(extraction::HOST) {
+            extraction::page(self.seed, path).map(ok)
+        } else if of(encodings::HOST) {
+            encodings::page(self.seed, path).map(ok)
+        } else if of(languages::HOST) {
+            languages::page(self.seed, name, path, query).map(html)
+        } else if of(files::HOST) {
+            files::page(self.seed, path).map(|file| (file.status, file.content_type, file.body))
+        } else {
+            return None;
+        };
+        Some(match (method, page) {
+            (&Method::GET, Some((status, content_type, body))) => Reply {
+                status,
+                content_type,
+                headers: Vec::new(),
+                body: body.into(),
+            },
+            _ => Reply::not_found(),
+        })
     }
 
     /// Answers one request, given its `Host` header.
@@ -142,6 +186,9 @@ impl Site {
             return self.agent(host, &name, request);
         }
         if self.hosts.contains_key(&name) {
+            if let Some(reply) = self.extraction(&name, request) {
+                return reply;
+            }
             let family = FAMILY_HOSTS
                 .into_iter()
                 .find(|family| {

@@ -23,7 +23,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::check::{self, Finding};
@@ -235,7 +235,7 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
     let text = text.trim_end();
     output::line(text);
     if let Some(summary) = &reports.summary {
-        append(&root.join(summary), text)?;
+        output::append(&root.join(summary), &format!("{text}\n"))?;
     }
     let mut findings: Vec<Finding> = rows.iter().filter_map(finding).collect();
     findings.extend(ceilings::findings(&ceilings));
@@ -261,14 +261,4 @@ fn finding(row: &Row) -> Option<Finding> {
         | Verdict::New
         | Verdict::Accepted => None,
     }
-}
-
-fn append(path: &Path, text: &str) -> Result<()> {
-    use std::io::Write as _;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    writeln!(file, "{text}").with_context(|| format!("writing {}", path.display()))
 }

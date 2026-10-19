@@ -16,7 +16,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use super::RepoPath;
-use crate::metadata;
+use crate::{metadata, package_dependencies};
 
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
@@ -226,14 +226,7 @@ fn python_name(requirement: &str) -> String {
         .chars()
         .take_while(|character| character.is_ascii_alphanumeric() || "-_.".contains(*character))
         .collect();
-    let mut normalized = String::new();
-    for part in name.split(['-', '_', '.']).filter(|part| !part.is_empty()) {
-        if !normalized.is_empty() {
-            normalized.push('-');
-        }
-        normalized.push_str(&part.to_ascii_lowercase());
-    }
-    normalized
+    package_dependencies::pep503(&name)
 }
 
 fn python_packages(root: &Path) -> Result<Vec<Package>> {

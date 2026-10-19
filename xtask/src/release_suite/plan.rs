@@ -7,7 +7,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-use std::io::Write as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
@@ -18,6 +17,7 @@ use super::time::Month;
 use crate::check::Finding;
 use crate::github::Api;
 use crate::issues::{Issues, Label};
+use crate::output;
 
 /// The included minutes a month that manual-dispatch Release runs' hosted
 /// jobs may use (ADR 0108).
@@ -258,16 +258,6 @@ fn hosted_cells_started_on_main(
     Ok(false)
 }
 
-fn append(path: &Path, text: &str) -> Result<()> {
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    file.write_all(text.as_bytes())
-        .with_context(|| format!("writing {}", path.display()))
-}
-
 /// The job's outputs, which the cells' jobs read: the commit, the started
 /// cells, each Linux job's matrix, and the count.
 fn write_outputs(
@@ -305,7 +295,7 @@ fn write_outputs(
         count.needed,
         month.next()
     );
-    append(path, &text)
+    output::append(path, &text)
 }
 
 struct Summary<'a> {
@@ -359,7 +349,7 @@ fn write_summary(path: &Path, summary: &Summary<'_>) -> Result<()> {
         }
         Decision::Start => {}
     }
-    append(path, &text)
+    output::append(path, &text)
 }
 
 /// Opens the `needs-triage` issue, or brings it up to date, as a budget

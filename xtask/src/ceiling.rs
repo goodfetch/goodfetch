@@ -11,10 +11,9 @@
 //! asked: its timeout bounds it.
 
 use std::fmt;
-use std::io::Write as _;
 use std::path::Path;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
 
@@ -98,17 +97,13 @@ pub(crate) fn check(
         let next_month = today
             .first_of_month()
             .checked_add(jiff::Span::new().months(1))?;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(summary)
-            .with_context(|| format!("opening {}", summary.display()))?;
-        writeln!(
-            file,
-            "### Skipped: the {run}\n\nThis month's test-health jobs have used {used} of their {CEILING} included minutes (ADR 0064), \
-             which leaves no room for the {run}'s {jobs} hosted jobs. It runs again from {next_month}."
-        )
-        .with_context(|| format!("writing {}", summary.display()))?;
+        output::append(
+            summary,
+            &format!(
+                "### Skipped: the {run}\n\nThis month's test-health jobs have used {used} of their {CEILING} included minutes (ADR 0064), \
+                 which leaves no room for the {run}'s {jobs} hosted jobs. It runs again from {next_month}.\n"
+            ),
+        )?;
     }
     Ok(())
 }

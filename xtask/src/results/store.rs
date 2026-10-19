@@ -29,6 +29,18 @@ pub(crate) enum Outcome {
     Inconclusive,
 }
 
+impl Outcome {
+    /// Its name, as the store's records write it.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+            Self::Inconclusive => "inconclusive",
+        }
+    }
+}
+
 /// One run of one test, in one job of one run attempt.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]

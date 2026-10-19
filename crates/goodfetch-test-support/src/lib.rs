@@ -4,7 +4,7 @@
 //! test tool manifest, the paused runtime, proptest's configuration, the
 //! test `tracing` subscriber, the Observation log with its fencing and
 //! Limits checkers, seeded kills of real processes and the crash VFS under
-//! SQLite (ADR 0060), the strict reader of a child's JSON-RPC stdout
+//! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
@@ -27,6 +27,7 @@ mod process;
 mod resolver;
 mod runtime;
 mod special_purpose;
+mod sql_dump;
 mod ssrf;
 mod strict_stdout;
 mod tools;
@@ -58,6 +59,7 @@ pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
 };
+pub use sql_dump::sql_dump;
 pub use ssrf::{
     Answer, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome,
     Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,

@@ -1,0 +1,7 @@
+{
+  "description": "A step not reached fails the variant",
+  "steps": ["passed", "not_reached"],
+  "checks": ["passed"],
+  "tasks": ["verified"],
+  "outcome": "failed"
+}

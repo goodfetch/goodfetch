@@ -9,11 +9,13 @@
 //! defines its own contracts.
 #![warn(missing_docs)]
 
+pub mod case_log;
 pub mod catalog;
 pub mod emit;
 pub mod foxhound;
 pub mod foxhound_names;
 pub mod journey;
 pub mod releases;
+pub mod result_document;
 pub mod routing;
 pub mod sample;

@@ -1,0 +1,14 @@
+{
+  "description": "An entry that records no check proves nothing: its case fails",
+  "cases": [
+    {
+      "entries": [
+        {
+          "checks": []
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["failed"],
+  "outcome": "failed"
+}

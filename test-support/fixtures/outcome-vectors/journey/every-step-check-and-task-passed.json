@@ -1,0 +1,7 @@
+{
+  "description": "Every automated step and check passed and every named task is verified",
+  "steps": ["passed", "passed"],
+  "checks": ["passed"],
+  "tasks": ["verified"],
+  "outcome": "proved"
+}

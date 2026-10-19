@@ -1,0 +1,21 @@
+{
+  "description": "Every declared case ran and every check passed: the capability is proved",
+  "cases": [
+    {
+      "entries": [
+        {
+          "checks": [true, true]
+        }
+      ]
+    },
+    {
+      "entries": [
+        {
+          "checks": [true]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["passed", "passed"],
+  "outcome": "proved"
+}

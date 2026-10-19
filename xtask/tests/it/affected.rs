@@ -78,6 +78,23 @@ fn base_and_head_mode_selects_what_the_head_changed() {
 }
 
 #[test]
+fn change_to_an_executable_selects_the_crates_whose_tests_run_it() {
+    let workspace = repository();
+    workspace.write("proving-ground/src/main.rs", b"fn main() { }\n");
+    commit_all(&workspace, "Change the Proving ground");
+
+    let outcome = workspace.xtask(&["affected", "--base", "main", "--head", "change"]);
+
+    assert_eq!(
+        (value(&outcome, "nextest-filter"), value(&outcome, "crates")),
+        (
+            "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-proving-ground)".to_owned(),
+            "goodfetch-conformance goodfetch-proving-ground".to_owned()
+        )
+    );
+}
+
+#[test]
 fn base_and_head_mode_ignores_what_the_base_changed_since_the_merge_base() {
     let workspace = repository();
     workspace.write(

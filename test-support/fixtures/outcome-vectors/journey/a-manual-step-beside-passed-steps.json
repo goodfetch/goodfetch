@@ -1,0 +1,7 @@
+{
+  "description": "A manual step leaves the variant proved on its automated steps",
+  "steps": ["passed", "manual", "passed"],
+  "checks": ["passed"],
+  "tasks": ["verified"],
+  "outcome": "proved"
+}

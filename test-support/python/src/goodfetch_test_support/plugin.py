@@ -52,7 +52,7 @@ def env(test_env: TestEnv, product: Product) -> Mapping[str, str]:
 
 
 LISTING_OPTION = "--marker-listing"
-"""Where `--collect-only` writes each test's `journey` and `covers` values."""
+"""Where `--collect-only` writes each test's `journey` and `covers` markers."""
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -68,7 +68,8 @@ def pytest_configure(config: pytest.Config) -> None:
     """Registers the `journey` and `covers` markers, which `strict_markers` checks."""
     config.addinivalue_line(
         "markers",
-        "journey(id): the Journey whose variant the test runs, as J-002 (ADR 0063)",
+        "journey(id, surface): the Journey variant the test runs, as "
+        'journey(id="J-002", surface="sdk-python"), which -m selects (ADR 0063)',
     )
     config.addinivalue_line(
         "markers",
@@ -79,9 +80,10 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_collection_finish(session: pytest.Session) -> None:
     """Writes the marker listing that the Feature scanner and the Journey check read.
 
-    It lists every collected test by node ID, with the arguments of its
-    `journey` and `covers` markers, its own nearest first. An xdist worker
-    never writes it; `--collect-only` runs no worker.
+    It lists every collected test by node ID, with the keyword arguments of
+    each of its `journey` markers and the arguments of its `covers` markers,
+    its own nearest first. An xdist worker never writes it; `--collect-only`
+    runs no worker.
     """
     path = cast("str | None", session.config.getoption(LISTING_OPTION))
     if path is None or hasattr(session.config, "workerinput"):
@@ -89,7 +91,7 @@ def pytest_collection_finish(session: pytest.Session) -> None:
     tests = [
         {
             "id": item.nodeid,
-            "journey": _marker_values(item, "journey"),
+            "journey": [dict(marker.kwargs) for marker in item.iter_markers("journey")],
             "covers": _marker_values(item, "covers"),
         }
         for item in sorted(session.items, key=lambda item: item.nodeid)

@@ -1,0 +1,33 @@
+{
+  "rust-suites": {
+    "goodfetch-collie::it": {
+      "package-name": "goodfetch-collie",
+      "binary-id": "goodfetch-collie::it",
+      "binary-name": "it",
+      "kind": "test",
+      "testcases": {
+        "journeys::j001::cli": {},
+        "journeys::j001::foxhound_cli": {},
+        "version::prints_the_version": {}
+      }
+    },
+    "goodfetch-foxhound::it": {
+      "package-name": "goodfetch-foxhound",
+      "binary-id": "goodfetch-foxhound::it",
+      "binary-name": "it",
+      "kind": "test",
+      "testcases": {
+        "journeys::j003::cli": {}
+      }
+    },
+    "goodfetch-foxhound-client::it": {
+      "package-name": "goodfetch-foxhound-client",
+      "binary-id": "goodfetch-foxhound-client::it",
+      "binary-name": "it",
+      "kind": "test",
+      "testcases": {
+        "journeys::j003::sdk_rust": {}
+      }
+    }
+  }
+}

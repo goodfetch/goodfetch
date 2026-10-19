@@ -148,7 +148,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
   - `goodfetch-test-support` (`test-support/python/`, never published) is a pytest plugin registered through `pytest11`.
     - `test_env` is the test's `TestEnv`: `folder`, `home`, the cleared `env` map, `seed`, `start_time` and `tools`, from the description `goodfetch-test-env --test-name <node ID>` prints, checked against `test-support/fixtures/schemas/`. `test_env.start(args)` starts a process in the folder with the cleared map, and the teardown, which closes `goodfetch-test-env`'s stdin, fails the test when one is still alive.
     - `env` is the map an SDK takes as `env=`: the cleared map with the engine-path variable of the test's `product`, `GOODFETCH_COLLIE_ENGINE_PATH` or `GOODFETCH_FOXHOUND_ENGINE_PATH`, naming that Product's executable from the test tool manifest. `product` is `Product.COLLIE`; a test that needs Foxhound overrides the fixture with `Product.FOXHOUND`.
-    - It registers the `journey` and `covers` markers, and `pytest --collect-only --marker-listing=<file>` writes every collected test's node ID with its `journey` and `covers` values as JSON, for the Feature scanner and the Journey check.
+    - It registers the `journey` and `covers` markers, and `pytest --collect-only --marker-listing=<file>` writes every collected test's node ID with each `journey` marker's keywords and the `covers` values as JSON, for the Feature scanner and the Journey check.
 - **The `test-util` feature of `goodfetch-collie` and `goodfetch-foxhound` is for people who embed them**, never Goodfetch's own helper home.
 - **Expected results of Proving ground pages come from its oracle**, never copied into test code.
 - **A helper written twice moves into test support.**
@@ -459,7 +459,7 @@ Each suite runs everything the suite before it runs.
 | Suite | What it adds | Command | Runs in CI |
 |---|---|---|---|
 | Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check`, `xtask wording` (ADR 0097), `xtask journeys check` (ADR 0063) and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
-| Pre-merge | The `tests/it` of every touched crate and its dependants; conformance on the local Proving ground; touched Sinks against their containers (every Sink until the merge queue exists, ADR 0032); touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks; the Journey task lists' drift check, `just journeys-tasks --check` (ADR 0063) | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
+| Pre-merge | The `tests/it` of every touched crate and its dependants; conformance on the local Proving ground; touched Sinks against their containers (every Sink until the merge queue exists, ADR 0032); touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks; the Journey task lists' drift check, `just journeys-tasks --check`, and the rule on each Journey variant's tests, `just journeys-tests` (ADR 0063) | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
 | Release | Everything, for every package, on the full matrix of ADR 0024; deployment-target smoke runs; tests that need released binaries | `just release` (this host's cell), `just release-ci` (the whole matrix on CI) | Merge queue, nightly, every release |
 
 - **A Quick-suite test starts no process, browser or container and binds no socket.** Anything that does is a `tests/it` test, or its runner's equivalent.
@@ -662,17 +662,19 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 
 ### Tests and results
 
-- **Carry the ID where the runner selects by it:**
-  - nextest: a module `j002` (the ID lowercased, hyphen dropped) in the test's path;
-  - Vitest: the tag `J-002`, declared from the catalog, `strictTags` on;
-  - pytest: `@pytest.mark.journey("J-002")`, registered, `strict_markers` on;
-  - Playwright Test: the tag `@J-002`.
+- **Carry the variant, its Journey's ID and its surface, where the runner selects by them:**
+  - nextest: a module `j002` (the ID lowercased, hyphen dropped) in the test's path, and the test named after the surface with `_` for `-`: `journeys::j002::cli`, `journeys::j002::foxhound_cli`;
+  - Vitest: the tags `J-002` and `sdk-typescript`, which `vitest.config.ts` declares from the catalog's files and the surfaces Vitest runs, `strictTags` on;
+  - pytest: `@pytest.mark.journey(id="J-002", surface="sdk-python")`, registered, `strict_markers` on; keywords, since `-m` matches only those;
+  - Playwright Test: the tags `@J-002` and `@console`.
+  _Why:_ one Journey file holds several variants, such as `cli` and `foxhound-cli` in one executable crate, so the ID alone cannot select one.
 - **Put a surface's Journey tests in a `journeys` folder of the package that ships it**, one file per Journey: `tests/it/journeys/j002.rs` in Rust, `tests/journeys/J-002.test.ts` (Vitest) or `J-002.spec.ts` (Playwright) in TypeScript, `tests/journeys/test_j002.py` in Python.
 - **Start a variant's Proving ground, home and environment through test support** (`goodfetch-test-support`, or `goodfetch-test-env` through the `test-support/` packages), and drive the shipped binary.
 - **Journey tests run with their package's integration tests**: in the Pre-merge suite when the package is touched, and in the Release suite.
 - **One test per variant.**
 - **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome by hand: derive it from the steps, the checks and the oracle's answers, through the Rust constructor (`goodfetch_protocol::result_document::JourneyDocument::new`) or a helper that passes the shared outcome vectors. A step not reached, or any Proving ground task not `verified`, fails the variant. Readers load documents through `goodfetch_protocol::result_document::read`, which recomputes the outcome and rejects a document that disagrees, then pass each `journey` document with its typed Journey to `read_journey_document`, the only way to a `JourneyDocument` from stored bytes, which rejects one whose steps, checks and named Proving ground tasks are not exactly its Journey's, in order, or that records a step `manual` the Journey does not mark manual (or the reverse). The shared outcome vectors, the comparison's among them, are in `test-support/fixtures/outcome-vectors/`.
-- **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface (`foxhound-cli` counts as listed only on a Collie Journey that lists `cli`, with `cli`'s first milestone), two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
+- **Run chosen variants with `just journeys`:** `--id J-002`, `--surface cli`, `--milestone M1` and `--area 3`, each repeatable (values of one flag add variants, different flags intersect). It runs `xtask journeys select`'s filters, one per runner, through `just test pre-merge`. `--engine <path>` runs them against that executable; `--tag <tag> --engine <path>` runs the tag's own Journey tests and helpers, from a temporary worktree it removes, against it (ADR 0066). The runners of `mcp-*`, `skills`, `adapter-*` and `integration-*` variants are named by their own tickets; until then `select` lists those variants as skipped.
+- **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface (`foxhound-cli` counts as listed only on a Collie Journey that lists `cli`, with `cli`'s first milestone), two tests for one variant, a Journey test that carries no single variant, a variant milestone earlier than its surface, or a retired Journey without a reason. The rules on tests read the runners' listings, so they run in the Pre-merge suite (`just journeys-tests`, which also notes each variant no test carries yet); the others run in the Quick suite.
 
 ### Owner tests
 

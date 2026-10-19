@@ -13,6 +13,8 @@ tasks = [{ id = "catalog/1", digest = "00000000000000000000000000000000000000000
 [surfaces]
 cli = "M1"
 sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
 adapter-langchain = "M4"
 
 [[steps]]

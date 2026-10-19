@@ -21,7 +21,7 @@ fixture_size = ["check", "screenshots"]
 foxhound_side = []
 github = []
 issues = ["github"]
-journeys = ["check", "environment"]
+journeys = ["check", "environment", "output", "quarantine"]
 junit = []
 junit_summary = ["check", "environment", "junit", "output"]
 license_allowlist = []
@@ -53,6 +53,12 @@ workflow = []
 # Which of `budgets`'s own modules may import which.
 [submodules.budgets]
 table = []
+
+# Which of `journeys`'s own modules may import which.
+[submodules.journeys]
+listings = ["variants"]
+select = ["variants"]
+variants = []
 
 # Which of `size`'s own modules may import which.
 [submodules.size]

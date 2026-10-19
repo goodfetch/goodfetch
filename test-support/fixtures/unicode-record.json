@@ -2,14 +2,35 @@
   "fields": [
     {
       "name": "bidi",
-      "text": "שלום ‏world‎ مرحبا ⁧עברית⁩ end"
+      "text": "\u05e9\u05dc\u05d5\u05dd \u200fworld\u200e \u0645\u0631\u062d\u0628\u0627 \u2067\u05e2\u05d1\u05e8\u05d9\u05ea\u2069 end"
     },
-    { "name": "nfc", "text": "café" },
-    { "name": "nfd", "text": "café" },
-    { "name": "zwj_emoji", "text": "👩‍👩‍👧" },
-    { "name": "astral", "text": "𝄞" },
-    { "name": "zero_width_joiner", "text": "a‍b" },
-    { "name": "bom", "text": "﻿leads with a byte order mark" },
-    { "name": "tab_and_newline", "text": "one\ttwo\nthree" }
+    {
+      "name": "nfc",
+      "text": "caf\u00e9"
+    },
+    {
+      "name": "nfd",
+      "text": "cafe\u0301"
+    },
+    {
+      "name": "zwj_emoji",
+      "text": "\ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67"
+    },
+    {
+      "name": "astral",
+      "text": "\ud834\udd1e"
+    },
+    {
+      "name": "zero_width_joiner",
+      "text": "a\u200db"
+    },
+    {
+      "name": "bom",
+      "text": "\ufeffleads with a byte order mark"
+    },
+    {
+      "name": "tab_and_newline",
+      "text": "one\ttwo\nthree"
+    }
   ]
 }

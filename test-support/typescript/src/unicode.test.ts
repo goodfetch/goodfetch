@@ -12,7 +12,7 @@ afterEach(() => {
 
 /** Writes each field to its own file and reads it back through `decode`. */
 function roundTrip(decode: (bytes: Uint8Array) => string): UnicodeField[] {
-  const folder = mkdtempSync(join(tmpdir(), "unicode record é "));
+  const folder = mkdtempSync(join(tmpdir(), "unicode record \u00e9 "));
   folders.push(folder);
   return unicodeRecord().fields.map(({ name, text }) => {
     const path = join(folder, `${name}.txt`);
@@ -28,14 +28,14 @@ describe("unicodeRecord", () => {
     expect(record.fields).toEqual([
       {
         name: "bidi",
-        text: "שלום ‏world‎ مرحبا ⁧עברית⁩ end",
+        text: "\u05e9\u05dc\u05d5\u05dd \u200fworld\u200e \u0645\u0631\u062d\u0628\u0627 \u2067\u05e2\u05d1\u05e8\u05d9\u05ea\u2069 end",
       },
-      { name: "nfc", text: "café" },
-      { name: "nfd", text: "café" },
-      { name: "zwj_emoji", text: "\u{1f469}‍\u{1f469}‍\u{1f467}" },
+      { name: "nfc", text: "caf\u00e9" },
+      { name: "nfd", text: "cafe\u0301" },
+      { name: "zwj_emoji", text: "\u{1f469}\u200d\u{1f469}\u200d\u{1f467}" },
       { name: "astral", text: "\u{1d11e}" },
-      { name: "zero_width_joiner", text: "a‍b" },
-      { name: "bom", text: "﻿leads with a byte order mark" },
+      { name: "zero_width_joiner", text: "a\u200db" },
+      { name: "bom", text: "\ufeffleads with a byte order mark" },
       { name: "tab_and_newline", text: "one\ttwo\nthree" },
     ]);
   });

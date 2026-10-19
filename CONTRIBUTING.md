@@ -28,6 +28,8 @@ feat(collie)!: rename the session's timeout setting
 
 The supply-chain job checks every commit a pull request adds but merges (`just commit-messages` checks yours since `origin/main`). The rule holds from the owner's decision of 2026-10-19: commits up to its recorded starting point, `9e62a6c5` (`conventional_commits_since` in the `justfile`), keep their messages, since history is never rewritten.
 
+A commit after the starting point whose message cannot be reworded without rewriting history that other branches hold is listed in `ci/commit-messages.toml`, by its full hash with a one-line `reason`, and is not judged (agent decision, pending owner review). Each entry names one commit: the file takes no patterns and adds no type. An entry without a reason or with a short hash is an error; an entry whose commit is outside the checked range is not.
+
 ## One entry point: `just`
 
 Install [`just`](https://just.systems), Rust through `rustup` (the toolchain is pinned in `rust-toolchain.toml`), Node 24 with pnpm, and uv. CI calls the same recipes:

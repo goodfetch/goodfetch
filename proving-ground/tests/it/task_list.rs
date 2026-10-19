@@ -4,7 +4,7 @@
 //! Covers: story:2-79
 
 use regex::Regex;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::proving_ground::ProvingGround;
 
@@ -18,25 +18,39 @@ fn each(tasks: &Value, field: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Each task's `field`, in list order, joined by spaces.
+fn joined(tasks: &Value, field: &str) -> String {
+    each(tasks, field)
+        .iter()
+        .map(|value| value.as_str().expect("a string field"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The task list's IDs, in order.
+const IDS: &str = "catalog/1 catalog/2 catalog/3 \
+    adversarial/1 adversarial/2 adversarial/3 adversarial/4 \
+    protection/1 protection/2";
+
+/// Each task's kind, in the same order.
+const KINDS: &str = "crawl extract submit \
+    extract submit extract extract \
+    crawl extract";
+
 #[test]
-fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
+fn the_task_list_names_the_tasks_of_every_family() {
     let proving_ground = ProvingGround::start(158);
 
     let tasks = proving_ground.tasks();
 
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
-    assert_eq!(
-        each(&tasks, "id"),
-        [json!("catalog/1"), json!("catalog/2"), json!("catalog/3")]
-    );
-    assert_eq!(
-        each(&tasks, "family"),
-        [json!("catalog"), json!("catalog"), json!("catalog")]
-    );
-    assert_eq!(
-        each(&tasks, "kind"),
-        [json!("crawl"), json!("extract"), json!("submit")]
-    );
+    assert_eq!(joined(&tasks, "id"), IDS);
+    assert_eq!(joined(&tasks, "kind"), KINDS);
+    let families: Vec<&str> = IDS
+        .split(' ')
+        .map(|id| id.split('/').next().expect("a family"))
+        .collect();
+    assert_eq!(joined(&tasks, "family"), families.join(" "));
     assert_eq!(
         tasks["tasks"][0]["start_url"],
         format!("http://1.catalog.test:{}/catalog/1", proving_ground.port())

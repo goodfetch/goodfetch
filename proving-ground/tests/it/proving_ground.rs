@@ -17,9 +17,10 @@ pub(crate) struct ProvingGround {
     agent: ureq::Agent,
 }
 
-/// A response's status and body.
+/// A response's status, `Set-Cookie` values and body.
 pub(crate) struct Answer {
     pub(crate) status: u16,
+    pub(crate) set_cookies: Vec<String>,
     pub(crate) body: String,
 }
 
@@ -88,15 +89,21 @@ impl ProvingGround {
     /// Fetches a URL on one of the Proving ground's host names, connecting to
     /// the reported address with the URL's host in the `Host` header.
     pub(crate) fn get(&self, url: &str) -> Answer {
+        self.get_with(url, &[])
+    }
+
+    /// Fetches a URL as [`Self::get`] does, with `headers` after `Host`.
+    pub(crate) fn get_with(&self, url: &str, headers: &[(&str, &str)]) -> Answer {
         let rest = url.strip_prefix("http://").expect("an http URL");
         let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
-        let response = self
+        let mut request = self
             .agent
             .get(format!("http://{}{path}", self.address))
-            .header("host", host)
-            .call()
-            .expect("the Proving ground answers");
-        Self::answer(response)
+            .header("host", host);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        Self::answer(request.call().expect("the Proving ground answers"))
     }
 
     /// The task list, from the Proving ground's own address.
@@ -148,6 +155,20 @@ impl ProvingGround {
         Self::answer(response)
     }
 
+    /// Posts a JSON body to a URL on one of the Proving ground's host names,
+    /// as a page's script does.
+    pub(crate) fn post_json(&self, url: &str, body: &Value) -> Answer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let response = self
+            .agent
+            .post(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .send_json(body)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// Submits a result to the oracle.
     pub(crate) fn judge(&self, submission: &Value) -> Answer {
         let response = self
@@ -160,11 +181,21 @@ impl ProvingGround {
 
     fn answer(mut response: ureq::http::Response<ureq::Body>) -> Answer {
         let status = response.status().as_u16();
+        let set_cookies = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .map(|value| value.to_str().expect("a visible ASCII cookie").to_owned())
+            .collect();
         let body = response
             .body_mut()
             .read_to_string()
             .expect("the body is UTF-8");
-        Answer { status, body }
+        Answer {
+            status,
+            set_cookies,
+            body,
+        }
     }
 }
 

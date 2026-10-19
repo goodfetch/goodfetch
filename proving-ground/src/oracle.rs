@@ -6,7 +6,9 @@
 //! Effect carried out twice is an extra one. The tool's status is recorded, never what
 //! makes a result verified: a correct `needs-review` result is verified
 //! (ADR 0013), and only a result the tool calls a success can be a false
-//! success.
+//! success. What else the Proving ground's own record refutes, such as a
+//! fingerprint that changed between requests or an escape a page's script
+//! reported, is a finding, and a result with a finding is never verified.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -26,6 +28,17 @@ pub(crate) struct Submission {
     /// The Records the tool returned, each with its fields by name.
     #[serde(default)]
     records: Vec<Value>,
+}
+
+impl Submission {
+    /// The `id` of each submitted Record that has one, in order.
+    pub(crate) fn record_ids(&self) -> Vec<String> {
+        self.records
+            .iter()
+            .filter_map(|record| record.get("id").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 /// What the tool said of its own result.
@@ -69,7 +82,45 @@ pub(crate) struct Answer {
     /// Effects it carried out beyond the expected ones: another, or one
     /// again.
     extra_effects: Vec<Effect>,
+    /// What the Proving ground's own record refutes beside the Records and
+    /// Effects.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    findings: Vec<Finding>,
     oracle_time_microseconds: u64,
+}
+
+/// Something the Proving ground's own record refutes: a fingerprint that
+/// changed between a task's requests, a probe's signal, an escape or a call
+/// to the Daemon a page's script reported, a Record of a page no request
+/// cleared.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct Finding {
+    /// What was checked, such as `ja4` or `escape`.
+    pub(crate) check: String,
+    /// The page or request target it was found on.
+    pub(crate) at: String,
+    /// What the check expected, when it compares with a value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) expected: Option<Value>,
+    pub(crate) observed: Value,
+}
+
+impl Answer {
+    /// The answer with `findings` added: a result they refute is no longer
+    /// verified nor incomplete, but a false success when the tool claimed a
+    /// success and failed otherwise.
+    #[must_use]
+    pub(crate) fn refuted_by(mut self, findings: Vec<Finding>) -> Self {
+        if !findings.is_empty() && matches!(self.outcome, Outcome::Verified | Outcome::Incomplete) {
+            self.outcome = if self.tool_status == ToolStatus::Success {
+                Outcome::FalseSuccess
+            } else {
+                Outcome::Failed
+            };
+        }
+        self.findings.extend(findings);
+        self
+    }
 }
 
 /// A field of a Record whose submitted value is not the expected one.
@@ -162,6 +213,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         wrong,
         missing_effects,
         extra_effects,
+        findings: Vec::new(),
         oracle_time_microseconds: stopwatch.microseconds(),
     }
 }

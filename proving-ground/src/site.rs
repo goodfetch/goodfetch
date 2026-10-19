@@ -8,11 +8,13 @@ use std::sync::Arc;
 
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
-use serde::Serialize;
 
+use crate::adversarial;
 use crate::catalog;
+use crate::exchange::{Reply, Request};
 use crate::observation::{self, Observations};
-use crate::oracle::{self, Submission};
+use crate::oracle::{self, Finding, Submission};
+use crate::protection;
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -25,38 +27,6 @@ pub(crate) struct Site {
     /// The seed's certificate authority, as PEM.
     certificate_authority: String,
     observations: Arc<Observations>,
-}
-
-/// A reply's status, media type and body.
-pub(crate) struct Reply {
-    pub(crate) status: StatusCode,
-    pub(crate) content_type: &'static str,
-    pub(crate) body: Bytes,
-}
-
-impl Reply {
-    fn json(status: StatusCode, value: &impl Serialize) -> Self {
-        Self {
-            status,
-            content_type: "application/json",
-            body: serde_json::to_vec(value)
-                .expect("invariant: the Proving ground's own values serialize")
-                .into(),
-        }
-    }
-
-    fn html(page: String) -> Self {
-        Self {
-            status: StatusCode::OK,
-            content_type: "text/html; charset=utf-8",
-            body: page.into(),
-        }
-    }
-
-    /// A JSON error naming its code.
-    pub(crate) fn error(status: StatusCode, code: &str) -> Self {
-        Self::json(status, &serde_json::json!({ "error": code }))
-    }
 }
 
 impl Site {
@@ -85,49 +55,63 @@ impl Site {
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
+        hosts.extend(adversarial::hosts());
+        hosts.extend(protection::hosts());
         hosts
     }
 
     /// Every family's tasks, in the task list's order.
     fn tasks(&self) -> Vec<Task> {
-        catalog::tasks(self.seed, self.port)
+        let mut tasks = catalog::tasks(self.seed, self.port);
+        tasks.extend(adversarial::tasks(self.seed, self.port));
+        tasks.extend(protection::tasks(self.seed, self.port));
+        tasks
     }
 
-    /// Answers one request, given its `Host` header, path and body.
-    pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
+    /// Answers one request, given its `Host` header.
+    pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
+        let name = observation::host_name(host);
+        if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
+            .or_else(|| protection::respond(self.seed, &name, request))
+        {
+            if let Some(recorded) = recorded {
+                self.observations.record(host, recorded);
+            }
+            return reply;
+        }
         if self.hosts.contains_key(&observation::host_name(host)) {
-            return match (method, path) {
-                (&Method::POST, "/orders") => match catalog::order(body) {
+            return match (request.method, request.path) {
+                (&Method::POST, "/orders") => match catalog::order(request.body) {
                     Some((effect, page)) => {
                         self.observations.effect(host, effect);
                         Reply::html(page)
                     }
                     None => Reply::error(StatusCode::BAD_REQUEST, "unknown_product"),
                 },
-                (&Method::GET, _) => catalog::page(self.seed, path).map_or_else(
-                    || Reply::error(StatusCode::NOT_FOUND, "not_found"),
-                    Reply::html,
-                ),
-                _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
+                (&Method::GET, _) => catalog::page(self.seed, request.path)
+                    .map_or_else(Reply::not_found, Reply::html),
+                _ => Reply::not_found(),
             };
         }
-        match (method, path) {
+        match (request.method, request.path) {
             (&Method::GET, "/tasks") => Reply::json(
                 StatusCode::OK,
                 &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
-            (&Method::POST, "/oracle") => self.judge(body),
+            (&Method::POST, "/oracle") => self.judge(request.body),
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
+                headers: Vec::new(),
                 body: self.observations.document().into(),
             },
             (&Method::GET, "/certificate-authority") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",
+                headers: Vec::new(),
                 body: self.certificate_authority.clone().into(),
             },
-            _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
+            _ => Reply::not_found(),
         }
     }
 
@@ -140,12 +124,33 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
-                Reply::json(
-                    StatusCode::OK,
-                    &oracle::judge(&task.expected, submission, &effects),
-                )
+                let submitted = submission.record_ids();
+                let answer = oracle::judge(&task.expected, submission, &effects)
+                    .refuted_by(self.reported(&task.entry.id));
+                if task.entry.id == protection::TIER_MOVE_TASK {
+                    let answer =
+                        protection::judge_tier_move(answer, &submitted, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
+                Reply::json(StatusCode::OK, &answer)
             }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),
         }
+    }
+
+    /// What the pages of `task` reported beyond having run: each a finding,
+    /// since a page's script reports only what must not have worked.
+    fn reported(&self, task: &str) -> Vec<Finding> {
+        self.observations
+            .reports_of(task)
+            .into_iter()
+            .filter(|report| report.check != observation::RAN)
+            .map(|report| Finding {
+                check: report.check,
+                at: report.page,
+                expected: None,
+                observed: report.observed.into(),
+            })
+            .collect()
     }
 }

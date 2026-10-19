@@ -111,6 +111,43 @@ impl ProvingGround {
         answer.json()
     }
 
+    /// The certificate authority the Proving ground made from its seed, as
+    /// PEM.
+    pub(crate) fn certificate_authority(&self) -> String {
+        self.control("/certificate-authority").body
+    }
+
+    /// Every request the Proving ground recorded, with its sums.
+    pub(crate) fn observations(&self) -> Value {
+        let answer = self.control("/observations");
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        answer.json()
+    }
+
+    /// Fetches a path on the Proving ground's own address.
+    fn control(&self, path: &str) -> Answer {
+        let response = self
+            .agent
+            .get(format!("http://{}{path}", self.address))
+            .call()
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
+    /// Posts a form to a URL on one of the Proving ground's host names.
+    pub(crate) fn post_form(&self, url: &str, form: &str) -> Answer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let response = self
+            .agent
+            .post(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .content_type("application/x-www-form-urlencoded")
+            .send(form)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// Submits a result to the oracle.
     pub(crate) fn judge(&self, submission: &Value) -> Answer {
         let response = self

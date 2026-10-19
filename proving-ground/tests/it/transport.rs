@@ -1,0 +1,107 @@
+//! Pages over HTTP/1.1, HTTP/2 and TLS, the TLS from a certificate
+//! authority the Proving ground makes from its seed, which a client trusts
+//! explicitly and never by turning verification off.
+
+use crate::clients::{self, Http2Settings};
+use crate::proving_ground::ProvingGround;
+
+const SEED: u64 = 159;
+
+const HTTP2: Http2Settings = Http2Settings {
+    initial_window_size: 1_048_576,
+    initial_connection_window_size: 2_097_152,
+    max_concurrent_streams: 77,
+    header_table_size: 4096,
+};
+
+/// Covers: story:2-43
+#[test]
+fn the_same_seed_makes_the_same_certificate_authority() {
+    let first = ProvingGround::start(SEED);
+    let second = ProvingGround::start(SEED);
+
+    let authority = first.certificate_authority();
+
+    assert!(
+        authority.starts_with("-----BEGIN CERTIFICATE-----"),
+        "{authority}"
+    );
+    assert_eq!(authority, second.certificate_authority());
+}
+
+/// Covers: story:2-43
+#[test]
+fn another_seed_makes_another_certificate_authority() {
+    let first = ProvingGround::start(SEED);
+    let second = ProvingGround::start(SEED + 1);
+
+    assert_ne!(
+        first.certificate_authority(),
+        second.certificate_authority()
+    );
+}
+
+/// Covers: story:2-43
+#[test]
+fn a_client_trusting_the_certificate_authority_reads_the_same_page_over_tls() {
+    let proving_ground = ProvingGround::start(SEED);
+    let config = clients::trusting(&proving_ground.certificate_authority(), &["http/1.1"]);
+    let plain = proving_ground.get("http://catalog.test/catalog/1");
+
+    let exchange = clients::raw_tls(
+        proving_ground.address(),
+        "catalog.test",
+        config,
+        b"GET /catalog/1 HTTP/1.1\r\nHost: catalog.test\r\nConnection: close\r\n\r\n",
+    )
+    .expect("the certificate verifies");
+
+    assert_eq!(exchange.status(), 200);
+    assert_eq!(exchange.body(), plain.body.as_bytes());
+}
+
+/// Covers: story:2-43
+#[test]
+fn a_client_trusting_another_seeds_certificate_authority_is_refused() {
+    let proving_ground = ProvingGround::start(SEED);
+    let other = ProvingGround::start(SEED + 1);
+    let config = clients::trusting(&other.certificate_authority(), &["http/1.1"]);
+
+    let refused = clients::raw_tls(
+        proving_ground.address(),
+        "catalog.test",
+        config,
+        b"GET /catalog/1 HTTP/1.1\r\nHost: catalog.test\r\nConnection: close\r\n\r\n",
+    );
+
+    assert!(
+        matches!(
+            refused,
+            Err(rustls::Error::InvalidCertificate(
+                rustls::CertificateError::BadSignature | rustls::CertificateError::UnknownIssuer
+            ))
+        ),
+        "{:?}",
+        refused.err()
+    );
+}
+
+/// Covers: story:2-43
+#[test]
+fn a_client_offering_h2_reads_the_same_page_over_http2() {
+    let proving_ground = ProvingGround::start(SEED);
+    let config = clients::trusting(&proving_ground.certificate_authority(), &["h2"]);
+    let plain = proving_ground.get("http://catalog.test/catalog/1");
+
+    let answers = clients::http2(
+        proving_ground.address(),
+        "catalog.test",
+        config,
+        &HTTP2,
+        &["/catalog/1"],
+        &[],
+    );
+
+    assert_eq!(answers[0].status, 200);
+    assert_eq!(answers[0].body, plain.body.as_bytes());
+}

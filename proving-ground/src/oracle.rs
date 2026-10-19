@@ -1,7 +1,9 @@
 //! The oracle (spec #152): judges a submitted result for a task against the
 //! task's expected result, and answers `verified`, `incomplete`,
 //! `false_success` or `failed` with what was missing, extra or wrong, the task
-//! it judged and its own time. The tool's status is recorded, never what
+//! it judged and its own time. Effects are judged from the Proving ground's
+//! own record of what it carried out, never from the tool's report: an
+//! Effect carried out twice is an extra one. The tool's status is recorded, never what
 //! makes a result verified: a correct `needs-review` result is verified
 //! (ADR 0013), and only a result the tool calls a success can be a false
 //! success.
@@ -12,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::clock::Stopwatch;
-use crate::task::{Expected, Record};
+use crate::task::{Effect, Expected, Record};
 
 /// A tool's result for one task, as submitted to `POST /oracle`.
 #[derive(Deserialize)]
@@ -62,6 +64,11 @@ pub(crate) struct Answer {
     /// Submitted Records with no expected Record, or one already submitted.
     extra: Vec<Value>,
     wrong: Vec<Wrong>,
+    /// Expected Effects the Proving ground did not carry out.
+    missing_effects: Vec<Effect>,
+    /// Effects it carried out beyond the expected ones: another, or one
+    /// again.
+    extra_effects: Vec<Effect>,
     oracle_time_microseconds: u64,
 }
 
@@ -75,8 +82,9 @@ struct Wrong {
     submitted: Value,
 }
 
-/// Judges `submission` against `expected`.
-pub(crate) fn judge(expected: &Expected, submission: Submission) -> Answer {
+/// Judges `submission` against `expected`, and the Effects carried out for
+/// its task, `effects`, against the expected ones.
+pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effect]) -> Answer {
     let stopwatch = Stopwatch::start();
     let by_id: BTreeMap<&str, &Record> = expected
         .records
@@ -113,11 +121,34 @@ pub(crate) fn judge(expected: &Expected, submission: Submission) -> Answer {
         .filter(|id| !seen.contains(*id))
         .map(|id| (*id).to_owned())
         .collect();
-    let outcome = if missing.is_empty() && extra.is_empty() && wrong.is_empty() {
+    let mut missing_effects = expected.effects.clone();
+    let mut extra_effects = Vec::new();
+    for effect in effects {
+        match missing_effects
+            .iter()
+            .position(|expected| expected == effect)
+        {
+            Some(at) => {
+                missing_effects.remove(at);
+            }
+            None => extra_effects.push(effect.clone()),
+        }
+    }
+    let carried_out = effects.len() > extra_effects.len();
+    let outcome = if missing.is_empty()
+        && extra.is_empty()
+        && wrong.is_empty()
+        && missing_effects.is_empty()
+        && extra_effects.is_empty()
+    {
         Outcome::Verified
     } else if submission.status == ToolStatus::Success {
         Outcome::FalseSuccess
-    } else if extra.is_empty() && wrong.is_empty() && !seen.is_empty() {
+    } else if extra.is_empty()
+        && wrong.is_empty()
+        && extra_effects.is_empty()
+        && (!seen.is_empty() || carried_out)
+    {
         Outcome::Incomplete
     } else {
         Outcome::Failed
@@ -129,6 +160,8 @@ pub(crate) fn judge(expected: &Expected, submission: Submission) -> Answer {
         missing,
         extra,
         wrong,
+        missing_effects,
+        extra_effects,
         oracle_time_microseconds: stopwatch.microseconds(),
     }
 }

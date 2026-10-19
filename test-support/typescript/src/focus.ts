@@ -57,32 +57,53 @@ export async function keyboardWalk(page: Page): Promise<readonly FocusStop[]> {
  * it shows the stop on top through `elementsFromPoint`) or whose screenshot,
  * with a margin of 8 CSS pixels for its focus ring, is the same focused and
  * unfocused (`focus_not_visible`). A walk's own failures fail it too.
+ *
+ * On WebKit it checks only that focus is not obscured: Playwright adds a
+ * style element to the page before each WebKit screenshot, which the
+ * production CSP refuses, so `failOnErrors` would fail every test.
  */
 export async function focusChecks(page: Page): Promise<void> {
+  const screenshots = browserName(page) !== "webkit";
   await walk(page, "forward");
   await walk(page, "forward", async (stop) => {
     if (await stop.evaluate(isEntirelyCovered)) {
       throw new TestSupportError("focus_obscured", `${await describe(stop)} is entirely covered`);
     }
-    const clip = await stop.evaluate(focusArea, FOCUS_RING_MARGIN);
-    if (clip.width === 0 || clip.height === 0) {
-      throw new TestSupportError(
-        "focus_not_visible",
-        `${await describe(stop)} has no visible area`,
-      );
-    }
-    const screenshot = { clip, animations: "disabled", scale: "css" } as const;
-    const focused = await page.screenshot(screenshot);
-    await stop.evaluate(blur);
-    const unfocused = await page.screenshot(screenshot);
-    await stop.evaluate(focus);
-    if (focused.equals(unfocused)) {
-      throw new TestSupportError(
-        "focus_not_visible",
-        `${await describe(stop)} looks the same focused and unfocused`,
-      );
+    if (screenshots) {
+      await expectFocusVisible(page, stop);
     }
   });
+}
+
+/** Fails with `focus_not_visible` when the area of the stop and its focus ring looks the same focused and unfocused. */
+async function expectFocusVisible(page: Page, stop: ElementHandle<Element>): Promise<void> {
+  const clip = await stop.evaluate(focusArea, FOCUS_RING_MARGIN);
+  if (clip.width === 0 || clip.height === 0) {
+    throw new TestSupportError("focus_not_visible", `${await describe(stop)} has no visible area`);
+  }
+  // Playwright's own `animations: "disabled"` and `caret: "hide"` add a style
+  // element too; the page's animations are finished and the stop's caret
+  // hidden through the CSSOM instead, which the CSP allows.
+  const screenshot = { clip, animations: "allow", caret: "initial", scale: "css" } as const;
+  const caret = await stop.evaluate(hideCaret);
+  let focused: Buffer;
+  let unfocused: Buffer;
+  try {
+    await page.evaluate(finishAnimations);
+    focused = await page.screenshot(screenshot);
+    await stop.evaluate(blur);
+    await page.evaluate(finishAnimations);
+    unfocused = await page.screenshot(screenshot);
+    await stop.evaluate(focus);
+  } finally {
+    await stop.evaluate(showCaret, caret);
+  }
+  if (focused.equals(unfocused)) {
+    throw new TestSupportError(
+      "focus_not_visible",
+      `${await describe(stop)} looks the same focused and unfocused`,
+    );
+  }
 }
 
 /** How far outside its box a stop's focus ring may be drawn, in CSS pixels. */
@@ -129,8 +150,13 @@ async function walk(
 }
 
 function tabKey(page: Page, direction: Direction): string {
-  const tab = page.context().browser()?.browserType().name() === "webkit" ? "Alt+Tab" : "Tab";
+  const tab = browserName(page) === "webkit" ? "Alt+Tab" : "Tab";
   return direction === "forward" ? tab : `Shift+${tab}`;
+}
+
+/** `chromium`, `firefox` or `webkit`. */
+function browserName(page: Page): string | undefined {
+  return page.context().browser()?.browserType().name();
 }
 
 /** The focused element through open shadow roots, or `null` when focus is on the body or nowhere. Runs in the page. */
@@ -380,6 +406,32 @@ function focusArea(
   const right = Math.min(window.innerWidth, box.right + margin);
   const bottom = Math.min(window.innerHeight, box.bottom + margin);
   return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
+}
+
+/** Ends each of the page's finite animations and transitions, so a screenshot shows their end state. Runs in the page. */
+function finishAnimations(): void {
+  for (const animation of document.getAnimations()) {
+    if (animation.effect?.getComputedTiming().endTime !== Infinity) {
+      animation.finish();
+    }
+  }
+}
+
+/** Makes the element's text caret transparent and gives its previous `caret-color`. Runs in the page. */
+function hideCaret(element: Element): string {
+  if (!(element instanceof HTMLElement)) {
+    return "";
+  }
+  const previous = element.style.caretColor;
+  element.style.caretColor = "transparent";
+  return previous;
+}
+
+/** Runs in the page. */
+function showCaret(element: Element, previous: string): void {
+  if (element instanceof HTMLElement) {
+    element.style.caretColor = previous;
+  }
 }
 
 /** Runs in the page. */

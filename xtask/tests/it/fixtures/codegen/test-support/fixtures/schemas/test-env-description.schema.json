@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One test's setup.",
+  "properties": {
+    "seed": {
+      "description": "The test's seed.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "seed"
+  ],
+  "title": "Description",
+  "type": "object"
+}

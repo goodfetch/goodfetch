@@ -70,6 +70,8 @@ jobs:
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
         with:
           target: x86_64-unknown-linux-gnu
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -226,6 +228,8 @@ jobs:
       - name: Draw a fresh order seed
         id: seed
         run: echo "seed=$(shuf --input-range=1-2147483647 --head-count=1)" >>"$GITHUB_OUTPUT"
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary

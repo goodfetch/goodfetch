@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "NotJourney": {
+      "description": "ADR 0075's three tests, by the name of the one a story fails.",
+      "oneOf": [
+        {
+          "const": "actor",
+          "description": "Its actor is no person using a shipped surface.",
+          "type": "string"
+        },
+        {
+          "const": "part",
+          "description": "It states only part of a goal.",
+          "type": "string"
+        },
+        {
+          "const": "reach",
+          "description": "No Journey variant can reach its outcome.",
+          "type": "string"
+        }
+      ]
+    },
+    "Status": {
+      "description": "Whether a Feature is still promised.",
+      "oneOf": [
+        {
+          "const": "active",
+          "description": "Promised.",
+          "type": "string"
+        },
+        {
+          "const": "retired",
+          "description": "A story removed from its spec, kept so its number is never reused.",
+          "type": "string"
+        }
+      ]
+    },
+    "Story": {
+      "additionalProperties": false,
+      "description": "One user story of a spec.",
+      "properties": {
+        "id": {
+          "description": "The spec's own number for it, never reused.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "journey": {
+          "description": "Whether it needs a Journey (ADR 0075).",
+          "type": "boolean"
+        },
+        "milestone": {
+          "description": "The GitHub milestone of the ticket that finishes it.",
+          "type": "string"
+        },
+        "not_journey": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotJourney"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The first of ADR 0075's three tests it fails; required exactly when\n`journey` is false."
+        },
+        "reason": {
+          "description": "Why it was retired; required exactly when it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "Whether it is still promised."
+        },
+        "title": {
+          "description": "The story's sentence.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "milestone",
+        "journey",
+        "status"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`features/stories/<area number>.toml`: one area's user stories.",
+  "properties": {
+    "story": {
+      "description": "Its stories, each under its spec's own number.",
+      "items": {
+        "$ref": "#/$defs/Story"
+      },
+      "type": "array"
+    }
+  },
+  "title": "StoryFile",
+  "type": "object"
+}

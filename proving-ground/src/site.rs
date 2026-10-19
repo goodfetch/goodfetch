@@ -7,6 +7,7 @@ use hyper::{Method, StatusCode};
 use serde::Serialize;
 
 use crate::catalog;
+use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
 /// The site of one `serve`: its seed and the port it bound.
@@ -52,6 +53,11 @@ impl Site {
         Self { seed, port }
     }
 
+    /// Every family's tasks, in the task list's order.
+    fn tasks(&self) -> Vec<Task> {
+        catalog::tasks(self.seed, self.port)
+    }
+
     /// Answers one request, given its `Host` header, path and body.
     pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, _body: &Bytes) -> Reply {
         let name = host.rsplit_once(':').map_or(host, |(name, _)| name);
@@ -64,10 +70,7 @@ impl Site {
         match (method, path) {
             (&Method::GET, "/tasks") => Reply::json(
                 StatusCode::OK,
-                &serde_json::json!({
-                    "proving_ground": { "version": VERSION, "seed": self.seed },
-                    "tasks": [],
-                }),
+                &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
             _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
         }

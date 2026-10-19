@@ -6,21 +6,26 @@
 use std::fmt::Write as _;
 
 use crate::generator;
+use crate::task::{Entry, Expected, Kind, Record, Task};
 
 /// The host name the family is served on, which tests map to loopback with
 /// the `resolve` setting (ADR 0059).
 pub(crate) const HOST: &str = "catalog.test";
+
+const FAMILY: &str = "catalog";
 
 const LISTING_PAGES: u64 = 10;
 const PRODUCTS_PER_PAGE: u64 = 10;
 const PRODUCTS: u64 = LISTING_PAGES * PRODUCTS_PER_PAGE;
 
 /// The generator places of the family's values: the family's own first, then
-/// the product's number and the value's.
+/// the product's number (0 for the family's own values) and the value's.
 const FAMILY_PLACE: u64 = 1;
 const ADJECTIVE_PLACE: u64 = 1;
 const NOUN_PLACE: u64 = 2;
 const PRICE_PLACE: u64 = 3;
+/// Which product the extract task's page shows.
+const EXTRACT_PLACE: u64 = 4;
 
 const ADJECTIVES: [&str; 16] = [
     "Amber", "Brisk", "Cedar", "Dusky", "Ember", "Frosted", "Gilded", "Hazel", "Ivory", "Jade",
@@ -116,4 +121,48 @@ fn product_page(seed: u64, number: u64) -> String {
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{name}</title></head>\n<body>\n<main>\n<article class=\"product\" data-id=\"{id}\">\n<h1 class=\"name\">{name}</h1>\n<p>Product ID: <span class=\"id\">{id}</span></p>\n<p>Price: <span class=\"price\" data-price=\"{price}\">${price}</span></p>\n</article>\n<a href=\"/catalog/{page}\">Back to page {page} of the catalog</a>\n</main>\n</body>\n</html>\n"
     )
+}
+
+/// The family's tasks for `seed`, their start URLs on `port`. Ordinals are
+/// append-only: a new task takes the next one, and a removed one is never
+/// reused (ADR 0063).
+pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+    let origin = format!("http://{HOST}:{port}");
+    let extracted = 1 + generator::below(seed, &[FAMILY_PLACE, 0, EXTRACT_PLACE], PRODUCTS);
+    vec![
+        Task {
+            entry: Entry {
+                id: format!("{FAMILY}/1"),
+                family: FAMILY,
+                kind: Kind::Crawl,
+                start_url: format!("{origin}/catalog/1"),
+                description: "Crawl the catalog from its first listing page, following each page's \
+                    Next link, and return one Record per product, read from its product page, \
+                    with the fields `id`, `name` and `price`.",
+            },
+            expected: Expected {
+                records: (1..=PRODUCTS).map(|number| record(seed, number)).collect(),
+            },
+        },
+        Task {
+            entry: Entry {
+                id: format!("{FAMILY}/2"),
+                family: FAMILY,
+                kind: Kind::Extract,
+                start_url: format!("{origin}/products/{}", product_id(extracted)),
+                description: "Extract the product this page shows as one Record with the fields \
+                    `id`, `name` and `price`.",
+            },
+            expected: Expected {
+                records: vec![record(seed, extracted)],
+            },
+        },
+    ]
+}
+
+/// The expected Record of a product: its fields as its product page shows
+/// them, the price without its currency sign.
+fn record(seed: u64, number: u64) -> Record {
+    let Product { id, name, price } = product(seed, number);
+    Record::from([("id", id), ("name", name), ("price", price)])
 }

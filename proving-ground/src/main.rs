@@ -6,10 +6,12 @@
 
 mod catalog;
 mod command;
+mod digest;
 mod generator;
 mod output;
 mod server;
 mod site;
+mod task;
 mod version;
 
 use anyhow::{Context as _, Result};

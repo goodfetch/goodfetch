@@ -84,7 +84,9 @@ impl TestEnv {
         let mut env = BTreeMap::new();
         for (name, path) in folders {
             std::fs::create_dir_all(&path)?;
-            let value = path.to_str().ok_or_else(|| TestEnvError::NotUnicode(path.clone()))?;
+            let value = path
+                .to_str()
+                .ok_or_else(|| TestEnvError::NotUnicode(path.clone()))?;
             env.insert(name.to_owned(), value.to_owned());
         }
         restrict_to_owner(&root.join("runtime"))?;
@@ -112,8 +114,10 @@ impl TestEnv {
     /// `tr_TR.UTF-8`).
     #[must_use]
     pub fn with_locale(mut self, tag: &str) -> Self {
-        self.env
-            .insert("LANG".to_owned(), format!("{}.UTF-8", tag.replace('-', "_")));
+        self.env.insert(
+            "LANG".to_owned(),
+            format!("{}.UTF-8", tag.replace('-', "_")),
+        );
         self
     }
 

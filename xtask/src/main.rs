@@ -44,6 +44,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod test_tools;
 mod tree;
 mod wording;
 mod workflow;
@@ -177,6 +178,10 @@ enum Command {
         #[command(subcommand)]
         mode: size::Command,
     },
+    /// Builds the commit's executables that tests run with the tests' own
+    /// Cargo profile and writes the test tool manifest of their paths, which
+    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
+    TestTools(test_tools::Arguments),
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
     Wording,
@@ -334,6 +339,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

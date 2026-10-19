@@ -67,8 +67,9 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
     files
 }
 
-const GENERATED_FOLDERS: [&str; 5] = [
+const GENERATED_FOLDERS: [&str; 6] = [
     "crates/goodfetch-protocol/generated",
+    "test-support/fixtures/schemas",
     "sdks/typescript/collie-client/src/generated",
     "sdks/typescript/foxhound/src/generated",
     "sdks/python/collie-client/src/goodfetch_collie_client/generated",
@@ -215,6 +216,42 @@ fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &
         outcome.stderr
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// The type `goodfetch-test-env` describes a test's setup with, in the
+/// fixture's stand-in of test support.
+const DESCRIPTION: &str = "crates/goodfetch-test-support/src/lib.rs";
+const DESCRIPTION_SCHEMA: &str = "test-support/fixtures/schemas/test-env-description.schema.json";
+
+#[test]
+fn check_fails_when_the_committed_description_schema_drifts_from_the_type() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        DESCRIPTION,
+        "    pub seed: u64,\n",
+        "    pub seed: u64,\n    /// The test's label.\n    pub label: String,\n",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", DESCRIPTION_SCHEMA)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn codegen_writes_the_description_schema_test_env_prints() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.remove(DESCRIPTION_SCHEMA);
+
+    codegen(&workspace);
+
+    let schema: Value = serde_json::from_str(&workspace.read_text(DESCRIPTION_SCHEMA)).unwrap();
+    assert_eq!(schema["title"], "Description");
 }
 
 #[test]

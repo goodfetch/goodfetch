@@ -126,10 +126,7 @@ pub fn reported_address_within(
     child: &mut Child,
     deadline: Duration,
 ) -> Result<Reported, ReportedAddressError> {
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(ReportedAddressError::NoStdout)?;
+    let stdout = child.stdout.take().ok_or(ReportedAddressError::NoStdout)?;
     let (sender, receiver) = mpsc::sync_channel(1);
     #[expect(
         clippy::disallowed_methods,

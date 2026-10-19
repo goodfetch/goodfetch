@@ -24,10 +24,8 @@ fn a_trace_carries_the_simulated_time_the_closure_reads() {
     let (sender, receiver) = mpsc::channel();
     let writer = Lines(sender);
     let simulated: jiff::Timestamp = "2026-01-05T09:00:00Z".parse().unwrap();
-    let subscriber = subscriber_writing_to(
-        move || SystemTime::from(simulated),
-        move || writer.clone(),
-    );
+    let subscriber =
+        subscriber_writing_to(move || SystemTime::from(simulated), move || writer.clone());
 
     tracing::subscriber::with_default(subscriber, || tracing::info!("hello"));
 

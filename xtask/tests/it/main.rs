@@ -46,4 +46,5 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod test_tools;
 mod wording;

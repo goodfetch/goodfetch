@@ -1,8 +1,9 @@
 # The codegen fixture's generated files (TESTING.md, Fixtures and data files):
 # the marked regions of `deny.toml` and `ci/deny/collie.toml` and every file
-# under the `generated/` folders are `xtask codegen`'s output for the
-# fixture's `goodfetch-protocol`, crates and `license-allowlist.toml`, and the
-# rest is written by hand. Regenerate them after changing the fixture's types
+# under the `generated/` folders and `test-support/fixtures/schemas/` are
+# `xtask codegen`'s output for the fixture's `goodfetch-protocol`, its
+# stand-in of `goodfetch-test-support`, crates and `license-allowlist.toml`,
+# and the rest is written by hand. Regenerate them after changing the fixture's types
 # or `xtask codegen` itself, from the repository root after `just codegen`
 # installed the generators.
 generator = "xtask codegen"

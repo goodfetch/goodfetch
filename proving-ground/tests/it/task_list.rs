@@ -19,7 +19,7 @@ fn each(tasks: &Value, field: &str) -> Vec<Value> {
 }
 
 #[test]
-fn the_task_list_names_each_familys_tasks() {
+fn the_task_list_names_the_tasks_of_every_family() {
     let proving_ground = ProvingGround::start(158);
 
     let tasks = proving_ground.tasks();

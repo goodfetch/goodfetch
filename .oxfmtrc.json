@@ -4,6 +4,7 @@
     "rnd/**",
     "**/generated/**",
     "**/fixtures/schemas/**",
+    "**/journeys/journey.schema.json",
     "**/compat/**",
     ".agents/**",
     "ci/proofs/**",

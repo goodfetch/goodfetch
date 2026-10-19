@@ -13,5 +13,6 @@ pub mod catalog;
 pub mod emit;
 pub mod foxhound;
 pub mod foxhound_names;
+pub mod journey;
 pub mod releases;
 pub mod sample;

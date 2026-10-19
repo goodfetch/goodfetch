@@ -1,0 +1,18 @@
+id = "J-002"
+title = "Crawl a site to Markdown"
+goal = "A person crawls a site, and every page MUST become a Record in Markdown."
+area = 6
+product = "foxhound"
+status = "retired"
+replaced_by = ["J-003"]
+reason = "Its goal now includes exporting the Dataset, which J-003 holds"
+covers = ["row:SA-01"]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Crawl the site"
+
+[[expect]]
+text = "Every page is a Record in Markdown"

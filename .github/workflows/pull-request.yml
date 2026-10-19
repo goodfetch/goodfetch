@@ -93,6 +93,7 @@ jobs:
     outputs:
       jobs: ${{ steps.select.outputs.jobs }}
       bench-targets: ${{ steps.select.outputs.bench-targets }}
+      models: ${{ steps.select.outputs.models }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -234,6 +235,51 @@ jobs:
         if: always()
         run: ci/vm/stop.sh
 
+  # TLC on the TLA+ models the change reaches (ADR 0060): `xtask affected`
+  # selects a model when its own folder, a module it traces (its
+  # model.toml's `traces`), the pinned tools or xtask's TLC command
+  # changes. Each runs with its small constants within 10 minutes, then the
+  # sample's broken variant must fail, so the job is shown able to fail. In
+  # M1 the job is model checking only; trace validation of the Simulation's
+  # traces joins it in M4.
+  tlc:
+    name: tlc
+    needs: [quick, affected]
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && contains(fromJSON(needs.affected.outputs.jobs), 'tlc')
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Fetch the pinned TLA+ tools
+        run: ci/vm/exec.sh just tlc-fetch
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: TLC on the selected models"
+        timeout-minutes: 10
+        env:
+          MODELS: ${{ needs.affected.outputs.models }}
+        # `just` splits the space-separated names into its arguments.
+        run: ci/vm/exec.sh just tlc "$MODELS"
+      - name: "Test: the sample's broken variant fails TLC"
+        run: ci/vm/exec.sh just tlc-self-test
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
   # The visual projects of the Pre-merge suite (ADR 0073): Chromium screenshots,
   # compared with zero mismatched pixels, only inside the Playwright image
   # pinned by digest in ci/visual/image.toml, on Linux x86-64. No other job
@@ -361,7 +407,7 @@ jobs:
   all-green:
     name: all green
     if: always()
-    needs: [quick, affected, pre-merge, perf, visual, supply-chain]
+    needs: [quick, affected, pre-merge, perf, visual, tlc, supply-chain]
     runs-on: [self-hosted, owner-machine]
     timeout-minutes: 20
     permissions:

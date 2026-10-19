@@ -1,8 +1,9 @@
 //! `xtask codegen` and its drift check (ADRs 0038, 0087 and 0095): the
 //! committed bundle, catalog and per-Product outputs, each SDK package's
 //! generated layer, and the lists only `xtask codegen` writes: the
-//! `wrappers` list and Collie's ban of Foxhound's crates (ADR 0087), and
-//! cargo-deny's copy of ADR 0018's license allowlist.
+//! `wrappers` list and Collie's ban of Foxhound's crates (ADR 0087),
+//! cargo-deny's copy of ADR 0018's license allowlist, and the Journey files'
+//! schema on its own (ADR 0063).
 //! Covers: story:1-57
 
 use std::fmt::Write as _;
@@ -51,6 +52,10 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
     let mut files = vec![
         ("deny.toml".to_owned(), workspace.read_text("deny.toml")),
         (COLLIE_DENY.to_owned(), workspace.read_text(COLLIE_DENY)),
+        (
+            JOURNEY_SCHEMA.to_owned(),
+            workspace.read_text(JOURNEY_SCHEMA),
+        ),
     ];
     for folder in GENERATED_FOLDERS {
         let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
@@ -99,6 +104,8 @@ fn check_passes_on_a_clean_tree() {
 
 const SAMPLE: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
+const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
+const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
 
 #[rstest]
 #[case::field_added_to_a_collie_type(
@@ -133,6 +140,15 @@ const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
         finding("drift", "crates/goodfetch-protocol/generated/foxhound_names.rs"),
         finding("drift", "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py"),
         finding("drift", "sdks/typescript/foxhound/src/generated/operations.ts"),
+    ],
+)]
+#[case::field_added_to_the_journey_type(
+    JOURNEY,
+    "    /// What the person achieves.\n    pub goal: String,\n",
+    "    /// What the person achieves.\n    pub goal: String,\n    /// Its Product.\n    pub product: String,\n",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
+        finding("drift", JOURNEY_SCHEMA),
     ],
 )]
 fn check_fails_after_a_type_change_that_was_not_regenerated(
@@ -202,6 +218,7 @@ fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
     "drift"
 )]
 #[case::catalog("crates/goodfetch-protocol/generated/catalog.json", "drift")]
+#[case::journey_schema(JOURNEY_SCHEMA, "drift")]
 fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("codegen");
     let edited = format!("{}\n", workspace.read_text(path));

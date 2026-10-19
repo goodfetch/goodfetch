@@ -270,9 +270,11 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
 
 ### Model checking
 
-- **The five protocols have TLA+ models checked by TLC:** run fencing, lead epoch, Partition handoff, slices and reclaim, degraded shares. The TLA+ tools and the CommunityModules release are pinned as one pair, which the "Test infrastructure" spec chooses (whether stable 1.7.4 runs trace validation is unverified).
+- **The five protocols have TLA+ models checked by TLC:** run fencing, lead epoch, Partition handoff, slices and reclaim, degraded shares. The TLA+ tools and the CommunityModules release are pinned as one pair in `test-support/models/tools.toml`, each a URL with its SHA-256: TLA+ 1.8.0 with CommunityModules 202610131629, the pair that runs NDJSON trace validation (stable 1.7.4 loads no current CommunityModules release). `just tlc-fetch` downloads them before the deny and fails on a download whose SHA-256 differs from its pin.
+- **Each model is a folder of `test-support/models/`** with a `model.toml` (`spec`, its TLA+ module, and `traces`, the files and folders of the modules it describes), a `small.cfg` for the Pre-merge and Release suites and a `large.cfg` for the nightly job. Run `just tlc <model>` (Java 11 or later); `--config large` takes the larger constants.
+- **The `tlc` job runs only when a model, a module it traces, the pinned tools or xtask's TLC command changes** (`xtask affected`'s `models=`), and the Release suite runs every model. Each run ends with the job's self-test, `just tlc-self-test`: the `sample` model's `broken.cfg` must fail on its invariant. In M1 the job is model checking only; trace validation joins it with the Simulation in M4. The nightly job with `large.cfg` waits for the nightly tier.
 - **Trace validation:** TLC checks the Simulation's NDJSON traces against the model. Real-process traces are not validated, since several processes' events have no single order.
-- **Change a model in the same pull request as the behaviour it describes.**
+- **Change a model in the same pull request as the behaviour it describes,** and list a module it starts to describe in its `traces`.
 
 ### Model-based tests and crashes in one process
 
@@ -439,7 +441,7 @@ Each suite runs everything the suite before it runs.
 
 | Suite | What it adds | Command | Runs in CI |
 |---|---|---|---|
-| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check`, `xtask wording` (ADR 0097) and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
+| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check`, `xtask wording` (ADR 0097), `xtask journeys check` (ADR 0063) and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
 | Pre-merge | The `tests/it` of every touched crate and its dependants; conformance on the local Proving ground; touched Sinks against their containers (every Sink until the merge queue exists, ADR 0032); touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
 | Release | Everything, for every package, on the full matrix of ADR 0024; deployment-target smoke runs; tests that need released binaries | `just release` (this host's cell), `just release-ci` (the whole matrix on CI) | Merge queue, nightly, every release |
 

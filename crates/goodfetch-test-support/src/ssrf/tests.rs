@@ -1,5 +1,7 @@
 use std::net::IpAddr;
 
+use rstest::rstest;
+
 use super::{
     CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome, Refusal, SsrfCase,
     SsrfTable, SsrfTableError, run_cases,
@@ -339,6 +341,34 @@ fn two_cases_of_one_name_are_a_gap() {
             }]
         })
     );
+}
+
+#[test]
+fn the_committed_table_covers_the_committed_iana_registries() {
+    let registries = SpecialPurposeRegistries::committed().unwrap();
+    let table = SsrfTable::committed().unwrap();
+
+    let result = table.coverage(&registries);
+
+    assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
+}
+
+#[rstest]
+#[case::encoding(Family::Encoding)]
+#[case::ipv6_form(Family::Ipv6Form)]
+#[case::special_purpose_block(Family::SpecialPurposeBlock)]
+#[case::mixed_answers(Family::MixedAnswers)]
+#[case::redirect(Family::Redirect)]
+#[case::rebinding(Family::Rebinding)]
+#[case::upstream_proxy(Family::UpstreamProxy)]
+#[case::plugin_traffic(Family::PluginTraffic)]
+#[case::lent_page_client(Family::LentPageClient)]
+fn the_committed_table_has_cases_of_every_family(#[case] family: Family) {
+    let table = SsrfTable::committed().unwrap();
+
+    let cases = table.cases_of(family).count();
+
+    assert_ne!(cases, 0);
 }
 
 #[test]

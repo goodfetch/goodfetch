@@ -1,0 +1,853 @@
+# The SSRF case table (ADR 0067), which every layer's thin runner applies
+# through `goodfetch-test-support`'s `SsrfTable::committed()` and
+# `run_cases`. Its format is `SsrfTable`, whose JSON Schema `xtask codegen`
+# commits as `../schemas/ssrf-cases.schema.json`. The Quick suite fails when a
+# block of the IANA registries beside this file that is not globally
+# reachable has no case, when a case names an unknown family or block, or
+# when two cases share a name.
+#
+# Each case gives:
+# - `url`, what the run requests, and `route`, how the request leaves it
+#   (`direct` when absent);
+# - `lookups`, the DNS answers its names get, in order, where `public` is the
+#   layer's public stand-in (the Proving ground's address end to end);
+# - `redirect`, how the public stand-in answers `url`, when it redirects;
+# - `fetches`, how many times the run requests `url` (1 when absent);
+# - `target`, the address no connection may reach, and `block`, the IANA
+#   block it lies in;
+# - `refusal`, the typed refusal every layer gives.
+#
+# Host names are under `.test` (RFC 6761), so no case resolves outside its
+# script.
+
+# Encodings: spellings of 127.0.0.1 that a URL parser reads as that address.
+
+[[cases]]
+name = "dotted_loopback"
+family = "encoding"
+url = "http://127.0.0.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "decimal_integer"
+family = "encoding"
+url = "http://2130706433/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "hexadecimal_integer"
+family = "encoding"
+url = "http://0x7f000001/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "octal_integer"
+family = "encoding"
+url = "http://017700000001/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "octal_parts"
+family = "encoding"
+url = "http://0177.0.0.01/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "hexadecimal_parts"
+family = "encoding"
+url = "http://0x7f.0x0.0x0.0x1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "two_part_short_form"
+family = "encoding"
+url = "http://127.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "three_part_short_form"
+family = "encoding"
+url = "http://127.0.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "trailing_dot"
+family = "encoding"
+url = "http://127.0.0.1./"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "percent_encoded_host"
+family = "encoding"
+url = "http://%31%32%37.0.0.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "full_width_digits"
+family = "encoding"
+url = "http://１２７.０.０.１/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ideographic_full_stops"
+family = "encoding"
+url = "http://127。0。0。1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "tab_inside_the_host"
+family = "encoding"
+url = "http://12\t7.0.0.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "backslashes"
+family = "encoding"
+url = "http:\\\\127.0.0.1\\"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "userinfo_naming_a_public_host"
+family = "encoding"
+url = "http://public.ssrf.test@127.0.0.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "zero_for_this_host"
+family = "encoding"
+url = "http://0/"
+target = "0.0.0.0"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "localhost_name"
+family = "encoding"
+url = "http://localhost/"
+lookups = [{ name = "localhost", answers = ["127.0.0.1", "::1"] }]
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# IPv6 forms: addresses that embed or stand for a private one.
+
+[[cases]]
+name = "ipv6_loopback"
+family = "ipv6_form"
+url = "http://[::1]/"
+target = "::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "expanded_ipv6_loopback"
+family = "ipv6_form"
+url = "http://[0:0:0:0:0:0:0:1]/"
+target = "::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ipv4_mapped_dotted"
+family = "ipv6_form"
+url = "http://[::ffff:127.0.0.1]/"
+target = "::ffff:127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ipv4_mapped_hexadecimal"
+family = "ipv6_form"
+url = "http://[::ffff:7f00:1]/"
+target = "::ffff:127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ipv4_mapped_metadata"
+family = "ipv6_form"
+url = "http://[::ffff:169.254.169.254]/"
+target = "::ffff:169.254.169.254"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ipv4_compatible"
+family = "ipv6_form"
+url = "http://[::127.0.0.1]/"
+target = "::7f00:1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "nat64_well_known_prefix_loopback"
+family = "ipv6_form"
+url = "http://[64:ff9b::127.0.0.1]/"
+target = "64:ff9b::7f00:1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "nat64_well_known_prefix_metadata"
+family = "ipv6_form"
+url = "http://[64:ff9b::a9fe:a9fe]/"
+target = "64:ff9b::a9fe:a9fe"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "six_to_four_loopback"
+family = "ipv6_form"
+url = "http://[2002:7f00:1::]/"
+target = "2002:7f00:1::"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "six_to_four_metadata"
+family = "ipv6_form"
+url = "http://[2002:a9fe:a9fe::1]/"
+target = "2002:a9fe:a9fe::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# The client address 127.0.0.1, obfuscated as Teredo writes it (RFC 4380).
+[[cases]]
+name = "teredo_loopback_client"
+family = "ipv6_form"
+url = "http://[2001:0:4136:e378:8000:63bf:80ff:fffe]/"
+target = "2001:0:4136:e378:8000:63bf:80ff:fffe"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "zone_id"
+family = "ipv6_form"
+url = "http://[fe80::1%25eth0]/"
+target = "fe80::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# Site-local, deprecated (RFC 3879) and not in the special-purpose registry.
+[[cases]]
+name = "site_local"
+family = "ipv6_form"
+url = "http://[fec0::1]/"
+target = "fec0::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# Special-purpose blocks: one case at least for every block of IANA's
+# registries that is not globally reachable, aimed at an address no more
+# specific block of the registries holds.
+
+[[cases]]
+name = "this_network"
+family = "special_purpose_block"
+url = "http://0.1.2.3/"
+target = "0.1.2.3"
+block = "0.0.0.0/8"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "this_host_on_this_network"
+family = "special_purpose_block"
+url = "http://0.0.0.0/"
+target = "0.0.0.0"
+block = "0.0.0.0/32"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "private_use_10"
+family = "special_purpose_block"
+url = "http://10.0.0.1/"
+target = "10.0.0.1"
+block = "10.0.0.0/8"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "shared_address_space"
+family = "special_purpose_block"
+url = "http://100.64.0.1/"
+target = "100.64.0.1"
+block = "100.64.0.0/10"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "cloud_metadata_in_shared_address_space"
+family = "special_purpose_block"
+url = "http://100.100.100.200/latest/meta-data/"
+target = "100.100.100.200"
+block = "100.64.0.0/10"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "loopback"
+family = "special_purpose_block"
+url = "http://127.1.2.3/"
+target = "127.1.2.3"
+block = "127.0.0.0/8"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "link_local"
+family = "special_purpose_block"
+url = "http://169.254.1.1/"
+target = "169.254.1.1"
+block = "169.254.0.0/16"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "cloud_metadata"
+family = "special_purpose_block"
+url = "http://169.254.169.254/latest/meta-data/"
+target = "169.254.169.254"
+block = "169.254.0.0/16"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "private_use_172"
+family = "special_purpose_block"
+url = "http://172.16.0.1/"
+target = "172.16.0.1"
+block = "172.16.0.0/12"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ietf_protocol_assignments"
+family = "special_purpose_block"
+url = "http://192.0.0.100/"
+target = "192.0.0.100"
+block = "192.0.0.0/24"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ipv4_service_continuity_prefix"
+family = "special_purpose_block"
+url = "http://192.0.0.1/"
+target = "192.0.0.1"
+block = "192.0.0.0/29"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ipv4_dummy_address"
+family = "special_purpose_block"
+url = "http://192.0.0.8/"
+target = "192.0.0.8"
+block = "192.0.0.8/32"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "nat64_discovery_170"
+family = "special_purpose_block"
+url = "http://192.0.0.170/"
+target = "192.0.0.170"
+block = "192.0.0.170/32"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "nat64_discovery_171"
+family = "special_purpose_block"
+url = "http://192.0.0.171/"
+target = "192.0.0.171"
+block = "192.0.0.171/32"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "documentation_test_net_1"
+family = "special_purpose_block"
+url = "http://192.0.2.1/"
+target = "192.0.2.1"
+block = "192.0.2.0/24"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "six_a_four_four_relay_anycast"
+family = "special_purpose_block"
+url = "http://192.88.99.2/"
+target = "192.88.99.2"
+block = "192.88.99.2/32"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "private_use_192"
+family = "special_purpose_block"
+url = "http://192.168.0.1/"
+target = "192.168.0.1"
+block = "192.168.0.0/16"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "benchmarking"
+family = "special_purpose_block"
+url = "http://198.18.0.1/"
+target = "198.18.0.1"
+block = "198.18.0.0/15"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "documentation_test_net_2"
+family = "special_purpose_block"
+url = "http://198.51.100.1/"
+target = "198.51.100.1"
+block = "198.51.100.0/24"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "documentation_test_net_3"
+family = "special_purpose_block"
+url = "http://203.0.113.1/"
+target = "203.0.113.1"
+block = "203.0.113.0/24"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "reserved"
+family = "special_purpose_block"
+url = "http://240.0.0.1/"
+target = "240.0.0.1"
+block = "240.0.0.0/4"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "limited_broadcast"
+family = "special_purpose_block"
+url = "http://255.255.255.255/"
+target = "255.255.255.255"
+block = "255.255.255.255/32"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "loopback_address"
+family = "special_purpose_block"
+url = "http://[::1]/"
+target = "::1"
+block = "::1/128"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "unspecified_address"
+family = "special_purpose_block"
+url = "http://[::]/"
+target = "::"
+block = "::/128"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ipv4_mapped_address"
+family = "special_purpose_block"
+url = "http://[::ffff:a00:1]/"
+target = "::ffff:a00:1"
+block = "::ffff:0:0/96"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "nat64_local_use_prefix"
+family = "special_purpose_block"
+url = "http://[64:ff9b:1::1]/"
+target = "64:ff9b:1::1"
+block = "64:ff9b:1::/48"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "discard_only"
+family = "special_purpose_block"
+url = "http://[100::1]/"
+target = "100::1"
+block = "100::/64"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "dummy_ipv6_prefix"
+family = "special_purpose_block"
+url = "http://[100:0:0:1::1]/"
+target = "100:0:0:1::1"
+block = "100:0:0:1::/64"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "ietf_protocol_assignments_ipv6"
+family = "special_purpose_block"
+url = "http://[2001:100::1]/"
+target = "2001:100::1"
+block = "2001::/23"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "benchmarking_ipv6"
+family = "special_purpose_block"
+url = "http://[2001:2::1]/"
+target = "2001:2::1"
+block = "2001:2::/48"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "documentation_ipv6"
+family = "special_purpose_block"
+url = "http://[2001:db8::1]/"
+target = "2001:db8::1"
+block = "2001:db8::/32"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "documentation_ipv6_3fff"
+family = "special_purpose_block"
+url = "http://[3fff::1]/"
+target = "3fff::1"
+block = "3fff::/20"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "segment_routing_sids"
+family = "special_purpose_block"
+url = "http://[5f00::1]/"
+target = "5f00::1"
+block = "5f00::/16"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "unique_local"
+family = "special_purpose_block"
+url = "http://[fd00::1]/"
+target = "fd00::1"
+block = "fc00::/7"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "cloud_metadata_ipv6"
+family = "special_purpose_block"
+url = "http://[fd00:ec2::254]/latest/meta-data/"
+target = "fd00:ec2::254"
+block = "fc00::/7"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "link_local_unicast"
+family = "special_purpose_block"
+url = "http://[fe80::1]/"
+target = "fe80::1"
+block = "fe80::/10"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# Mixed answers: a name with a private answer is refused, never reached
+# through its public one.
+
+[[cases]]
+name = "public_then_private_answer"
+family = "mixed_answers"
+url = "http://mixed.ssrf.test/"
+lookups = [{ name = "mixed.ssrf.test", answers = ["public", "10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "private_then_public_answer"
+family = "mixed_answers"
+url = "http://mixed.ssrf.test/"
+lookups = [{ name = "mixed.ssrf.test", answers = ["127.0.0.1", "public"] }]
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "public_and_unique_local_answer"
+family = "mixed_answers"
+url = "http://mixed.ssrf.test/"
+lookups = [{ name = "mixed.ssrf.test", answers = ["public", "fd00::1"] }]
+target = "fd00::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "only_a_private_answer"
+family = "mixed_answers"
+url = "http://internal.ssrf.test/"
+lookups = [{ name = "internal.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# Redirects: each status and kind from the public stand-in to a private
+# address, and to schemes other than HTTP.
+
+[[cases]]
+name = "moved_permanently"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 301, location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "found"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 302, location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "see_other"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 303, location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "temporary_redirect"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 307, location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "permanent_redirect"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 308, location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "refresh_header"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "refresh_header", location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "meta_refresh"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "meta_refresh", location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "script_location"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "script", location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "to_a_private_name"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [
+    { name = "redirect.ssrf.test", answers = ["public"] },
+    { name = "internal.ssrf.test", answers = ["10.0.0.1"] },
+]
+redirect = { kind = "status", status = 302, location = "http://internal.ssrf.test/" }
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "to_an_encoded_address"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 307, location = "http://[::ffff:127.0.0.1]/" }
+target = "::ffff:127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "to_file"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 302, location = "file:///etc/passwd" }
+refusal = { code = "egress_refused", rule = "scheme" }
+
+[[cases]]
+name = "meta_refresh_to_file"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "meta_refresh", location = "file:///etc/passwd" }
+refusal = { code = "egress_refused", rule = "scheme" }
+
+[[cases]]
+name = "to_data"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 302, location = "data:text/html,<p>redirected</p>" }
+refusal = { code = "egress_refused", rule = "scheme" }
+
+[[cases]]
+name = "to_javascript"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 302, location = "javascript:fetch('http://127.0.0.1/')" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "scheme" }
+
+[[cases]]
+name = "to_gopher"
+family = "redirect"
+url = "http://redirect.ssrf.test/"
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 302, location = "gopher://127.0.0.1:6379/_INFO" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "scheme" }
+
+# Rebinding: a TTL-0 name whose answer turns private between fetches.
+
+[[cases]]
+name = "public_then_loopback"
+family = "rebinding"
+url = "http://rebind.ssrf.test/"
+lookups = [
+    { name = "rebind.ssrf.test", answers = ["public"] },
+    { name = "rebind.ssrf.test", answers = ["127.0.0.1"] },
+]
+fetches = 2
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "public_then_metadata"
+family = "rebinding"
+url = "http://rebind.ssrf.test/latest/meta-data/"
+lookups = [
+    { name = "rebind.ssrf.test", answers = ["public"] },
+    { name = "rebind.ssrf.test", answers = ["169.254.169.254"] },
+]
+fetches = 2
+target = "169.254.169.254"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "public_then_ipv6_loopback"
+family = "rebinding"
+url = "http://rebind.ssrf.test/"
+lookups = [
+    { name = "rebind.ssrf.test", answers = ["public"] },
+    { name = "rebind.ssrf.test", answers = ["::1"] },
+]
+fetches = 2
+target = "::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# The upstream proxy path: the run resolves and checks the name itself, never
+# leaving it to the proxy.
+
+[[cases]]
+name = "private_name_through_the_proxy"
+family = "upstream_proxy"
+url = "http://internal.ssrf.test/"
+route = { via = "upstream_proxy" }
+lookups = [{ name = "internal.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "private_name_through_a_connect_tunnel"
+family = "upstream_proxy"
+url = "https://internal.ssrf.test/"
+route = { via = "upstream_proxy" }
+lookups = [{ name = "internal.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "loopback_through_the_proxy"
+family = "upstream_proxy"
+url = "http://127.0.0.1/"
+route = { via = "upstream_proxy" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "encoded_address_through_the_proxy"
+family = "upstream_proxy"
+url = "http://2130706433/"
+route = { via = "upstream_proxy" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# Plugin traffic: a Plugin's own requests meet the same checks.
+
+[[cases]]
+name = "plugin_to_loopback"
+family = "plugin_traffic"
+url = "http://127.0.0.1/"
+route = { via = "plugin" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "plugin_to_cloud_metadata"
+family = "plugin_traffic"
+url = "http://169.254.169.254/latest/meta-data/"
+route = { via = "plugin" }
+target = "169.254.169.254"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "plugin_to_an_encoded_address"
+family = "plugin_traffic"
+url = "http://0x7f000001/"
+route = { via = "plugin" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "plugin_to_a_private_name"
+family = "plugin_traffic"
+url = "http://internal.ssrf.test/"
+route = { via = "plugin" }
+lookups = [{ name = "internal.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "plugin_redirected_to_loopback"
+family = "plugin_traffic"
+url = "http://redirect.ssrf.test/"
+route = { via = "plugin" }
+lookups = [{ name = "redirect.ssrf.test", answers = ["public"] }]
+redirect = { kind = "status", status = 302, location = "http://127.0.0.1/" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# A Lent page's client: a browser context with its own proxy, or an
+# extension, would leave through no relay; the endpoint refuses both (ADR
+# 0089).
+
+[[cases]]
+name = "browser_context_with_its_own_proxy"
+family = "lent_page_client"
+url = "http://public.ssrf.test/"
+route = { via = "browser_context", proxy_server = "http://10.0.0.9:3128" }
+lookups = [{ name = "public.ssrf.test", answers = ["public"] }]
+target = "10.0.0.9"
+refusal = { code = "cdp_command_refused" }
+
+[[cases]]
+name = "browser_context_with_its_own_socks_proxy"
+family = "lent_page_client"
+url = "http://public.ssrf.test/"
+route = { via = "browser_context", proxy_server = "socks5://127.0.0.1:1080" }
+lookups = [{ name = "public.ssrf.test", answers = ["public"] }]
+target = "127.0.0.1"
+refusal = { code = "cdp_command_refused" }
+
+[[cases]]
+name = "extension_request"
+family = "lent_page_client"
+url = "http://127.0.0.1/"
+route = { via = "extension" }
+target = "127.0.0.1"
+refusal = { code = "cdp_command_refused" }

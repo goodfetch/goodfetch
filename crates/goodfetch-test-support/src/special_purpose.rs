@@ -49,7 +49,27 @@ pub enum RegistryError {
     },
 }
 
+/// The committed registries' text, IPv4's then IPv6's, as IANA publishes
+/// them; `test-support/fixtures/ssrf/` holds them with their date.
+const COMMITTED: [&str; 2] = [
+    include_str!("../../../test-support/fixtures/ssrf/iana-ipv4-special-registry-1.csv"),
+    include_str!("../../../test-support/fixtures/ssrf/iana-ipv6-special-registry-1.csv"),
+];
+
 impl SpecialPurposeRegistries {
+    /// The committed IPv4 and IPv6 registries, in that order.
+    ///
+    /// # Errors
+    ///
+    /// A [`RegistryError`] when a committed file is not of IANA's form.
+    pub fn committed() -> Result<Self, RegistryError> {
+        let mut blocks = Vec::new();
+        for text in COMMITTED {
+            blocks.extend(Self::parse_csv(text)?.blocks);
+        }
+        Ok(Self { blocks })
+    }
+
     /// The blocks of the registry file `text`, IANA's CSV form.
     ///
     /// # Errors

@@ -260,7 +260,26 @@ impl SsrfTable {
     pub fn parse(text: &str) -> Result<Self, SsrfTableError> {
         Ok(toml::from_str(text)?)
     }
+
+    /// The committed table, `test-support/fixtures/ssrf/cases.toml`, which
+    /// every layer's runner applies.
+    ///
+    /// # Errors
+    ///
+    /// [`SsrfTableError::Malformed`] when the committed file is, which the
+    /// Quick suite catches.
+    pub fn committed() -> Result<Self, SsrfTableError> {
+        Self::parse(COMMITTED)
+    }
+
+    /// The table's cases of `family`.
+    pub fn cases_of(&self, family: Family) -> impl Iterator<Item = &SsrfCase> {
+        self.cases.iter().filter(move |case| case.family == family)
+    }
 }
+
+/// The committed table's text.
+const COMMITTED: &str = include_str!("../../../test-support/fixtures/ssrf/cases.toml");
 
 /// A way the table falls short of IANA's special-purpose registries, or of
 /// itself.

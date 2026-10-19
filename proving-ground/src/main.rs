@@ -11,6 +11,7 @@ mod clock;
 mod command;
 mod digest;
 mod encodings;
+mod extraction;
 mod generator;
 mod languages;
 mod observation;

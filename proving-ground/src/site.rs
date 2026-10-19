@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::catalog;
 use crate::encodings;
+use crate::extraction;
 use crate::languages;
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
@@ -84,6 +85,7 @@ impl Site {
         let mut hosts = BTreeMap::from([
             (catalog::HOST.to_owned(), None),
             (encodings::HOST.to_owned(), None),
+            (extraction::HOST.to_owned(), None),
             (languages::HOST.to_owned(), None),
         ]);
         hosts.extend(
@@ -102,6 +104,7 @@ impl Site {
     /// Every family's tasks for `seed` on `port`, in the task list's order.
     fn tasks_of(seed: u64, port: u16) -> Vec<Task> {
         let mut tasks = catalog::tasks(seed, port);
+        tasks.extend(extraction::tasks(seed, port));
         tasks.extend(encodings::tasks(seed, port));
         tasks.extend(languages::tasks(seed, port));
         tasks
@@ -112,7 +115,9 @@ impl Site {
     fn extraction(&self, name: &str, method: &Method, path: &str, query: &str) -> Option<Reply> {
         let of = |family: &str| name == family || name.ends_with(&format!(".{family}"));
         let html = |page: String| ("text/html; charset=utf-8", page.into_bytes());
-        let page = if of(encodings::HOST) {
+        let page = if of(extraction::HOST) {
+            extraction::page(self.seed, path)
+        } else if of(encodings::HOST) {
             encodings::page(self.seed, path)
         } else if of(languages::HOST) {
             languages::page(self.seed, name, path, query).map(html)

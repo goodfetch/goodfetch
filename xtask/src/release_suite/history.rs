@@ -11,6 +11,7 @@ use serde::Deserialize;
 use super::cells::Rate;
 use super::time::{Month, Timestamp};
 use crate::github::Api;
+use crate::workflow;
 
 /// The Release suite's workflow file.
 pub(crate) const WORKFLOW: &str = "release-suite.yml";
@@ -131,7 +132,7 @@ impl TryFrom<JobJson> for Job {
             _ => None,
         };
         let failed_test_step = job.steps.iter().any(|step| {
-            step.name.starts_with("Test") && step.conclusion.as_deref() == Some("failure")
+            workflow::is_test_step(&step.name) && step.conclusion.as_deref() == Some("failure")
         });
         Ok(Self {
             rate: Rate::of_labels(&job.labels)

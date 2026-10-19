@@ -288,8 +288,8 @@ jobs:
   # third-party notice inventory's license check over every ecosystem and
   # declared input (#137). cargo-deny's licenses, bans, sources and the
   # boundary checks run in the Quick job's lints.
-  # The audits read public advisory databases and the job runs none of the
-  # product, so it runs outside the egress deny (ci/egress/endpoints.toml).
+  # The audits read public advisory databases, so they run before the egress
+  # deny; Miri runs tests, so it runs under it (ci/egress/endpoints.toml).
   supply-chain:
     name: supply-chain
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -314,10 +314,19 @@ jobs:
         run: ci/vm/exec.sh just msrv
       - name: Check every feature combination
         run: ci/vm/exec.sh just feature-combinations
-      - name: Run Miri on opted-in unsafe code
-        run: ci/vm/exec.sh just miri
       - name: Check the third-party notice inventory's licenses
         run: ci/vm/exec.sh just notices
+      - name: Set up Miri's sysroot
+        run: ci/vm/exec.sh just miri-setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: Miri on opted-in unsafe code"
+        run: ci/vm/exec.sh just miri
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

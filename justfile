@@ -359,9 +359,23 @@ miri:
       exit 0
     fi
     toolchain=$(read_list 'print(miri["toolchain"])')
-    while IFS=$'\t' read -r crate filter; do
-      cargo "+$toolchain" miri test --package "$crate" --lib -- "$filter"
-    done <<< "$modules"
+    # Each module runs once; a `for` loop with no `break` retries nothing
+    # (xtask no-retry).
+    set -f
+    IFS=$'\n'
+    for module in $modules; do
+      cargo "+$toolchain" miri test --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
+    done
+
+# Builds Miri's sysroot, which fetches the standard library's dependencies,
+# so CI runs it before the egress deny; nothing while no module opts in.
+miri-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    opted_in=$(uv run --frozen --quiet python -c "import tomllib; miri = tomllib.load(open('ci/miri.toml', 'rb')); print(miri['toolchain'] if miri['module'] else '')")
+    if [[ -n "$opted_in" ]]; then
+      cargo "+$opted_in" miri setup
+    fi
 
 # Checks that every commit from `base` to `head`, merges aside, is signed off
 # by its author (ADR 0018). Locally: since the merge base with `origin/main`.

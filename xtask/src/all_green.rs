@@ -4,8 +4,9 @@
 //! step, read through GitHub's attempts API: a job is re-run only when no test
 //! step failed in it (ADR 0064).
 //!
-//! A test step is a step whose name starts with `Test` (TESTING.md, No
-//! retries); every step that runs a suite or a test runner is named so.
+//! A test step is one `workflow::is_test_step` names (TESTING.md, No
+//! retries); `xtask no-retry` refuses a step that runs a suite or a test
+//! runner under another name.
 //!
 //! A job `xtask affected` did not select is skipped, and passes: the
 //! `affected` job's `jobs` output lists the selected jobs' IDs (ADR 0032).
@@ -24,12 +25,10 @@ use serde::Deserialize;
 use crate::affected;
 use crate::check::Finding;
 use crate::github::Api;
+use crate::workflow;
 
 /// The change-detection job, whose `jobs` output is the selection.
 const AFFECTED_JOB: &str = "affected";
-
-/// The prefix that marks a test step.
-const TEST_STEP_PREFIX: &str = "Test";
 
 /// GitHub's largest page of jobs.
 const PAGE_SIZE: usize = 100;
@@ -93,8 +92,7 @@ pub(crate) fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
     for attempt in 1..run.attempt {
         for job in attempt_jobs(run, attempt)? {
             let failed_test_step = job.steps.iter().any(|step| {
-                step.name.starts_with(TEST_STEP_PREFIX)
-                    && step.conclusion.as_deref() == Some("failure")
+                workflow::is_test_step(&step.name) && step.conclusion.as_deref() == Some("failure")
             });
             if failed_test_step {
                 findings.push(Finding::new(

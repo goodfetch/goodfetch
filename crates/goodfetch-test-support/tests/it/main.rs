@@ -22,7 +22,7 @@ mod tools;
 
 use std::path::PathBuf;
 
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{Process, TestEnv};
 
 /// This commit's `goodfetch-test-env`.
 const TEST_ENV: &str = env!("CARGO_BIN_EXE_goodfetch-test-env");
@@ -46,4 +46,18 @@ fn probe(env: &TestEnv, name: &str) -> std::process::Command {
         .env("TMP", env.folder())
         .env("TEMP", env.folder());
     command
+}
+
+/// Starts the OS's own shell on a script: `sh` on Unix, `cmd` on Windows.
+fn shell(env: &TestEnv, unix: &str, windows: &str) -> Process {
+    let mut command = if cfg!(windows) {
+        let mut command = env.process_command(&env.env()["ComSpec"]);
+        command.args(["/C", windows]);
+        command
+    } else {
+        let mut command = env.process_command("/bin/sh");
+        command.args(["-c", unix]);
+        command
+    };
+    env.spawn(&mut command).unwrap()
 }

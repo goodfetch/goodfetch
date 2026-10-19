@@ -7,9 +7,22 @@
 // ci/visual/run.sh sets GOODFETCH_VISUAL_IMAGE. No suite writes a Reference
 // screenshot (`updateSnapshots: 'none'`); only the `update-screenshots`
 // workflow does, and references are named without the platform.
+import { sep } from "node:path";
 import { defineConfig, type PlaywrightTestConfig, type Project } from "@playwright/test";
 
-const ignored = ["**/node_modules/**", ".*/**", "**/fixtures/**", "rnd/**", "ci/proofs/**"];
+// Playwright matches a glob against a test file's absolute path, from any
+// folder (it prefixes `**/`), so a glob of a folder at the repository's root
+// would also ignore a checkout inside such a folder (a worktree under
+// `.claude/`): those folders are matched from the root, as a pattern.
+const root = import.meta.dirname
+  .split(sep)
+  .join("/")
+  .replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const ignored = [
+  "**/node_modules/**",
+  "**/fixtures/**",
+  new RegExp(`^${root}/(?:\\.[^/]+|rnd|ci/proofs)/`),
+];
 
 const visual: Project = {
   name: "visual",
@@ -25,10 +38,23 @@ const visual: Project = {
   },
 };
 
+// The Release suite runs every test on every browser Playwright ships; the
+// Pre-merge suite on Chromium alone (TESTING.md, Browsers).
+const releaseBrowsers: Project[] =
+  process.env["GOODFETCH_TEST_SUITE"] === "release"
+    ? (["firefox", "webkit"] as const).map((browserName) => ({
+        name: browserName,
+        testIgnore: [...ignored, "**/*.visual.spec.ts"],
+        use: { browserName },
+      }))
+    : [];
+
 const config: PlaywrightTestConfig = defineConfig({
   testMatch: "**/*.spec.ts",
   testIgnore: ignored,
-  outputDir: "target/playwright",
+  // Each test's output, a failed test's trace among it, sits beside the JUnit
+  // files, which every job uploads pass or fail (ADR 0068).
+  outputDir: "target/junit/playwright",
   retries: 0,
   failOnFlakyTests: true,
   fullyParallel: true,
@@ -36,6 +62,7 @@ const config: PlaywrightTestConfig = defineConfig({
   reportSlowTests: { max: 0, threshold: 30_000 },
   reporter: [["list"], ["junit", { outputFile: "target/junit/playwright.xml" }]],
   updateSnapshots: "none",
+  use: { trace: "retain-on-failure" },
   expect: {
     toHaveScreenshot: {
       pathTemplate: "{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{-projectName}{ext}",
@@ -43,6 +70,7 @@ const config: PlaywrightTestConfig = defineConfig({
   },
   projects: [
     { name: "default", testIgnore: [...ignored, "**/*.visual.spec.ts"] },
+    ...releaseBrowsers,
     ...(process.env["GOODFETCH_VISUAL_IMAGE"] === undefined ? [] : [visual]),
   ],
 });

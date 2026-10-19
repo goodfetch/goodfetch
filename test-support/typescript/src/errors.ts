@@ -16,7 +16,11 @@ export type TestSupportErrorCode =
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */
-  | "processes_alive";
+  | "processes_alive"
+  /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */
+  | "bypass_csp_refused"
+  /** A served test's page logged an error, threw, broke its CSP or had a same-origin request fail (ADR 0068). */
+  | "page_errors";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

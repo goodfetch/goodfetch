@@ -1,0 +1,30 @@
+---
+source: xtask/tests/it/junit_summary.rs
+expression: workspace.read_text(SUMMARY)
+---
+### Failed tests
+
+1 test failed in 1 JUnit file.
+
+#### `page.spec.ts › page › title is read`
+
+In `playwright.xml`, with `goodfetch-test-seed=29`.
+
+```text
+expect(received).toBe(expected) // Object.is equality
+page.spec.ts:4:3 › page › title is read ──────────────────────────────────────────────────────────
+
+  Error: expect(received).toBe(expected) // Object.is equality
+
+  Expected: 3
+  Received: 2
+
+    4 |   test("title is read", () => {
+    5 |     console.error("goodfetch-test-seed=29");
+  > 6 |     expect(1 + 1).toBe(3);
+      |                   ^
+    7 |   });
+    8 |
+    9 |   test("steady", () => {
+…
+```

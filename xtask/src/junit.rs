@@ -6,9 +6,14 @@
 //! - pytest: the node ID, `<module path>.py::<name>`, from the dotted class
 //!   name;
 //! - any other runner: the class name and the name, joined by a space.
+//!
+//! Each case keeps its first failure and what it printed, which the failure
+//! summary shows. A file that is not well-formed XML, or holds no test
+//! suite, is an error, never an empty file.
 
-use anyhow::{Context as _, Result};
-use quick_xml::events::{BytesStart, Event};
+use anyhow::{Context as _, Result, bail};
+use quick_xml::escape::resolve_predefined_entity;
+use quick_xml::events::{BytesRef, BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 
 /// How a test case ended, as its JUnit file says.
@@ -27,6 +32,20 @@ pub(crate) struct TestCase {
     /// Vitest repeated.
     pub(crate) failures: u32,
     pub(crate) duration_seconds: f64,
+    /// Its first `<failure>` or `<error>`.
+    pub(crate) first_failure: Option<Failure>,
+    /// The text of its `<system-out>` and `<system-err>` elements, where a
+    /// test prints its seed.
+    pub(crate) output: String,
+}
+
+/// A `<failure>` or an `<error>` element.
+pub(crate) struct Failure {
+    /// Its `message` attribute, which runners fill with the failure's first
+    /// line.
+    pub(crate) message: Option<String>,
+    /// Its text: the runner's report of the failure.
+    pub(crate) text: String,
 }
 
 /// The runner that wrote a JUnit file, from its name: the part before the
@@ -50,19 +69,39 @@ pub(crate) fn file_runtime(file_name: &str) -> Option<&str> {
         .filter(|runtime| !runtime.is_empty())
 }
 
+/// Where the text being read goes.
+#[derive(Clone, Copy)]
+enum Capture {
+    FirstFailure,
+    Output,
+}
+
 /// Every test case of `text`, in document order.
 pub(crate) fn test_cases(runner: &str, text: &str) -> Result<Vec<TestCase>> {
     let mut reader = Reader::from_str(text);
     let mut suite = String::new();
+    let mut has_suite = false;
     let mut cases = Vec::new();
     let mut open: Option<TestCase> = None;
+    let mut capture: Option<Capture> = None;
+    // The elements open where the reader is: a file a killed runner left
+    // unfinished ends with some still open, which quick-xml accepts.
+    let mut depth = 0_usize;
     loop {
         let event = reader.read_event().context("parsing the JUnit XML")?;
+        match &event {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
         match event {
             Event::Start(element) | Event::Empty(element)
-                if element.local_name().as_ref() == b"testsuite" =>
+                if matches!(element.local_name().as_ref(), b"testsuite" | b"testsuites") =>
             {
-                suite = attribute(&element, "name")?.unwrap_or_default();
+                has_suite = true;
+                if element.local_name().as_ref() == b"testsuite" {
+                    suite = attribute(&element, "name")?.unwrap_or_default();
+                }
             }
             Event::Start(element) if element.local_name().as_ref() == b"testcase" => {
                 open = Some(test_case(runner, &suite, &element)?);
@@ -70,28 +109,102 @@ pub(crate) fn test_cases(runner: &str, text: &str) -> Result<Vec<TestCase>> {
             Event::Empty(element) if element.local_name().as_ref() == b"testcase" => {
                 cases.push(test_case(runner, &suite, &element)?);
             }
-            Event::Start(element) | Event::Empty(element) => {
+            Event::Start(element) => {
                 if let Some(case) = open.as_mut() {
-                    match element.local_name().as_ref() {
-                        b"failure" | b"error" => {
-                            case.ending = Ending::Failed;
-                            case.failures += 1;
-                        }
-                        b"skipped" if case.ending == Ending::Passed => {
-                            case.ending = Ending::Skipped;
-                        }
-                        _ => {}
-                    }
+                    capture = child(case, &element)?;
+                }
+            }
+            Event::Empty(element) => {
+                if let Some(case) = open.as_mut() {
+                    child(case, &element)?;
                 }
             }
             Event::End(element) if element.local_name().as_ref() == b"testcase" => {
                 cases.extend(open.take());
+                capture = None;
+            }
+            Event::End(_) => capture = None,
+            Event::Text(text) => {
+                append(
+                    open.as_mut(),
+                    capture,
+                    &text.xml_content(XmlVersion::Implicit1_0)?,
+                );
+            }
+            Event::CData(data) => {
+                append(
+                    open.as_mut(),
+                    capture,
+                    &data.xml_content(XmlVersion::Implicit1_0)?,
+                );
+            }
+            Event::GeneralRef(reference) => {
+                append(open.as_mut(), capture, &resolve(&reference)?);
             }
             Event::Eof => break,
             _ => {}
         }
     }
+    if depth > 0 {
+        bail!("the file ends inside an element");
+    }
+    if !has_suite {
+        bail!("the file holds no <testsuites> or <testsuite> element");
+    }
     Ok(cases)
+}
+
+/// Records a child element of an open test case, and says where its text
+/// goes.
+fn child(case: &mut TestCase, element: &BytesStart<'_>) -> Result<Option<Capture>> {
+    Ok(match element.local_name().as_ref() {
+        b"failure" | b"error" => {
+            case.ending = Ending::Failed;
+            case.failures += 1;
+            if case.first_failure.is_some() {
+                None
+            } else {
+                case.first_failure = Some(Failure {
+                    message: attribute(element, "message")?,
+                    text: String::new(),
+                });
+                Some(Capture::FirstFailure)
+            }
+        }
+        b"skipped" => {
+            if case.ending == Ending::Passed {
+                case.ending = Ending::Skipped;
+            }
+            None
+        }
+        b"system-out" | b"system-err" => Some(Capture::Output),
+        _ => None,
+    })
+}
+
+fn append(case: Option<&mut TestCase>, capture: Option<Capture>, text: &str) {
+    let Some(case) = case else { return };
+    match capture {
+        Some(Capture::FirstFailure) => {
+            if let Some(failure) = case.first_failure.as_mut() {
+                failure.text.push_str(text);
+            }
+        }
+        Some(Capture::Output) => case.output.push_str(text),
+        None => {}
+    }
+}
+
+/// The text an entity or character reference stands for.
+fn resolve(reference: &BytesRef<'_>) -> Result<String> {
+    if let Some(character) = reference.resolve_char_ref()? {
+        return Ok(character.to_string());
+    }
+    let name = reference.decode()?;
+    match resolve_predefined_entity(&name) {
+        Some(text) => Ok(text.to_owned()),
+        None => bail!("the file uses the undeclared entity `&{name};`"),
+    }
 }
 
 fn test_case(runner: &str, suite: &str, element: &BytesStart<'_>) -> Result<TestCase> {
@@ -116,6 +229,8 @@ fn test_case(runner: &str, suite: &str, element: &BytesStart<'_>) -> Result<Test
         ending: Ending::Passed,
         failures: 0,
         duration_seconds,
+        first_failure: None,
+        output: String::new(),
     })
 }
 

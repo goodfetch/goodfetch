@@ -11,8 +11,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, Instrument, Metric, Operation,
-    OperationClass, PluginKind, PluginMethod, ProtocolVersion, Stability, schema_of,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric,
+    Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
+    SharedTypeValue, Stability, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -110,6 +111,22 @@ pub const ENTRIES: Entries = Entries {
         instrument: Instrument::Counter,
         unit: "{echo}",
         stability: Stability::Stable,
+        arrived_in: ARRIVED_IN,
+    }],
+    settings: &[Setting {
+        name: "sample.echo_repeats",
+        description: "How many times the sample operation repeats a text.",
+        arrived_in: ARRIVED_IN,
+    }],
+    hook_stages: &[HookStage {
+        name: "sample_before_echo",
+        description: "Before the sample operation repeats a text.",
+        arrived_in: ARRIVED_IN,
+    }],
+    shared_type_values: &[SharedTypeValue {
+        shared_type: SharedType::UsageKind,
+        name: "sample_echoes",
+        description: "Texts the sample operation repeated.",
         arrived_in: ARRIVED_IN,
     }],
 };

@@ -1934,6 +1934,27 @@
       ]
     },
     {
+      "id": "setting:crawl.sample_pages",
+      "kind": "setting",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:sample.echo_repeats",
+      "kind": "setting",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:1-1",
       "kind": "story",
       "area": 1,
@@ -3269,6 +3290,50 @@
       "kind": "story",
       "area": 1,
       "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-15",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-17",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-18",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-21",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",

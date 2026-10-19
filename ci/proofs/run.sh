@@ -16,7 +16,8 @@
 #     direction; each Product's bans (ci/deny/products.sh); cargo-audit, pnpm
 #     audit and pip-audit (ci/audit.sh, which need their advisory databases,
 #     so this runs before the egress deny); cargo-hack over feature
-#     combinations; the MSRV build; the Console packages (ADR 0087).
+#     combinations; the MSRV build; cargo-shear on an unused dependency; the
+#     Console packages (ADR 0087).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 
@@ -152,6 +153,14 @@ else
   pass "the MSRV build refuses code that needs a newer Rust"
 fi
 
+# cargo-shear (#133): a dependency a crate declares and never uses fails.
+codes=$(cargo shear --format json ci/proofs/cargo-shear 2>/dev/null | jq -r '.findings[] | .code + " " + .file' | tally)
+if [[ "$codes" == "1 shear/unused_dependency declares-it/Cargo.toml" ]]; then
+  pass "cargo-shear refuses a dependency no code uses"
+else
+  fail cargo-shear "findings: ${codes:-none}"
+fi
+
 # The Console's packages (ADR 0087): Collie's build cannot resolve Foxhound's
 # screens' package, which Foxhound's build declares and resolves; the lint
 # configuration refuses a relative import that leaves its package.
@@ -190,35 +199,41 @@ else
   fail ruff "findings: ${codes:-none}"
 fi
 
-for fault in mismatched missing orphaned; do
-  if (cd ci/proofs/insta && CI=true INSTA_UPDATE=no cargo insta test -p "$fault" --check --unreferenced reject \
-    --test-runner nextest --disable-nextest-doctest >/dev/null 2>&1); then
-    fail "insta-$fault" "the run passed"
+# Each snapshot proof fails for its own reason, the message its tool gives
+# that fault, and writes nothing.
+snapshot_proof() {
+  local name=$1 expected=$2 output
+  shift 2
+  if output=$("$@" 2>&1); then
+    fail "$name" "the run passed"
+  elif ! grep -q -- "$expected" <<<"$output"; then
+    fail "$name" "the run failed without saying \"$expected\""
   elif ! unchanged; then
-    fail "insta-$fault" "the run wrote a file"
+    fail "$name" "the run wrote a file"
   else
-    pass "insta fails its $fault-snapshot case and writes nothing"
+    pass "$name fails for its fault and writes nothing"
   fi
-
-  if CI=true pnpm exec vitest run --root "ci/proofs/vitest/$fault" >/dev/null 2>&1; then
-    fail "vitest-$fault" "the run passed"
-  elif ! unchanged; then
-    fail "vitest-$fault" "the run wrote a file"
-  else
-    pass "Vitest fails its $fault-snapshot case and writes nothing"
-  fi
-done
-
-for fault in mismatched missing; do
-  if CI=true uv run pytest -p no:randomly -p no:cacheprovider -o addopts=--import-mode=importlib -q \
-    "ci/proofs/inline-snapshot/$fault" >/dev/null 2>&1; then
-    fail "inline-snapshot-$fault" "the run passed"
-  elif ! unchanged; then
-    fail "inline-snapshot-$fault" "the run wrote a file"
-  else
-    pass "inline-snapshot fails its $fault-snapshot case and writes nothing"
-  fi
-done
+}
+# shellcheck disable=SC2329 # called through snapshot_proof
+insta_run() {
+  (cd ci/proofs/insta && CI=true INSTA_UPDATE=no cargo insta test -p "$1" --check --unreferenced reject \
+    --test-runner nextest --disable-nextest-doctest)
+}
+# shellcheck disable=SC2329 # called through snapshot_proof
+vitest_run() { CI=true pnpm exec vitest run --root "ci/proofs/vitest/$1"; }
+# shellcheck disable=SC2329 # called through snapshot_proof
+inline_run() {
+  CI=true uv run pytest -p no:randomly -p no:cacheprovider -o addopts=--import-mode=importlib -q \
+    "ci/proofs/inline-snapshot/$1"
+}
+snapshot_proof insta-mismatched "-old snapshot" insta_run mismatched
+snapshot_proof insta-missing "+new results" insta_run missing
+snapshot_proof insta-orphaned "aborting because of unreferenced snapshots" insta_run orphaned
+snapshot_proof vitest-mismatched "Snapshot \`greeting 1\` mismatched" vitest_run mismatched
+snapshot_proof vitest-missing "Snapshot \`greeting 1\` mismatched" vitest_run missing
+snapshot_proof vitest-orphaned "Obsolete snapshots found" vitest_run orphaned
+snapshot_proof inline-snapshot-mismatched "assert 'goodbye' == 'hello'" inline_run mismatched
+snapshot_proof inline-snapshot-missing "your snapshot is missing a value" inline_run missing
 
 codes=$(zizmor --config zizmor.yml --format json ci/proofs/zizmor/tag-pinned.yml 2>/dev/null | jq -r '.[].ident' | tally)
 if [[ "$codes" == "1 unpinned-uses" ]]; then

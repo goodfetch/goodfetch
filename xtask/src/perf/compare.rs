@@ -4,7 +4,7 @@
 //! is reported, never gated.
 
 use super::budget;
-use super::figure::{Figure, Measured};
+use super::figure::{Figure, Measured, away_from_zero};
 
 /// How far a figure may grow over the base's before it trips.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,23 +66,15 @@ impl Row {
     }
 }
 
-fn away_from_zero(numerator: i128, denominator: i128) -> i128 {
-    let quotient = numerator
-        .unsigned_abs()
-        .div_ceil(denominator.unsigned_abs());
-    let quotient = i128::try_from(quotient).unwrap_or(i128::MAX);
-    if (numerator < 0) == (denominator < 0) {
-        quotient
-    } else {
-        -quotient
-    }
-}
-
 /// The limits a figure is held to.
 pub(crate) fn limit(measured: &Measured) -> Limit {
     let increase = match measured.figure {
         Figure::Brotli => Increase::Bytes(budget::BUNDLE_INCREASE_BYTES),
-        _ => Increase::Percent(budget::INCREASE_PERCENT),
+        Figure::Instructions
+        | Figure::TotalAllocations
+        | Figure::TotalBytes
+        | Figure::GlobalMaximumBytes
+        | Figure::ResidentMemory => Increase::Percent(budget::INCREASE_PERCENT),
     };
     Limit {
         increase,

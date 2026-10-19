@@ -8,12 +8,14 @@ use std::path::Path;
 
 use super::RepoPath;
 use super::workspace::{Crate, Ecosystem, Package, Workspace};
-use crate::foxhound_side;
+use crate::{foxhound_side, perf};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
-/// (Sinks, perf, docs, the Evaluation) are selected already, so the tickets
-/// adding them only read the selection.
+/// (Sinks, docs, the Evaluation) are selected already, so the tickets adding
+/// them only read the selection. `rnd/`'s lab CI is no job of this tier: its
+/// own workflow runs when `rnd/` changes, and it is never required (ADR
+/// 0032).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Job {
     /// The rest of the Pre-merge suite: the Rust tests of `nextest-filter`,
@@ -28,18 +30,15 @@ pub(crate) enum Job {
     Docs,
     /// The pull-request Evaluation (ADR 0065).
     Evaluation,
-    /// `rnd/`'s lab CI, run only when `rnd/` changes and never required.
-    Lab,
 }
 
 impl Job {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 5] = [
         Self::PreMerge,
         Self::Sinks,
         Self::Perf,
         Self::Docs,
         Self::Evaluation,
-        Self::Lab,
     ];
 
     const fn id(self) -> &'static str {
@@ -49,7 +48,6 @@ impl Job {
             Self::Perf => "perf",
             Self::Docs => "docs",
             Self::Evaluation => "evaluation",
-            Self::Lab => "lab",
         }
     }
 }
@@ -97,7 +95,11 @@ const SINKS_FOLDER: &str = "crates/foxhound/sinks";
 /// protocol crate whose doc comments are the catalog's descriptions, prompts
 /// and request snapshots. A ticket that adds prompts or request snapshots
 /// keeps them in a folder named so.
-const PROMPT_FOLDERS: [&str; 2] = ["skills", "crates/goodfetch-protocol"];
+const PROMPT_FOLDERS: [&str; 2] = ["skills", CATALOG_CRATE];
+
+/// The crate whose types are the catalog, from which the docs' reference and
+/// samples are generated too.
+const CATALOG_CRATE: &str = "crates/goodfetch-protocol";
 const PROMPT_SEGMENTS: [&str; 2] = ["prompts", "request-snapshots"];
 
 /// Paths no test reads: the Quick suite, which always runs, checks them.
@@ -203,10 +205,7 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
     };
     let mut everything = false;
     for path in paths {
-        if path.is_in("rnd") {
-            changed.jobs.insert(Job::Lab);
-        }
-        if path.is_in("docs") || path.is_in("website") {
+        if path.is_in("docs") || path.is_in("website") || path.is_in(CATALOG_CRATE) {
             changed.jobs.insert(Job::Docs);
         }
         if is_prompt_affecting(path) {
@@ -314,8 +313,21 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
     if !sinks.is_empty() {
         jobs.insert(Job::Sinks);
     }
+    // A changed ceiling is checked at once, on the crates it reads.
+    let ceilinged: BTreeSet<&str> = if paths.iter().any(|path| path.as_str() == perf::BUDGET_FILE) {
+        perf::ceilinged_crates()
+    } else {
+        BTreeSet::new()
+    };
     let bench_targets: BTreeSet<String> = reached
         .iter()
+        .copied()
+        .chain(
+            members
+                .iter()
+                .copied()
+                .filter(|krate| ceilinged.contains(krate.name.as_str())),
+        )
         .flat_map(|krate| {
             krate
                 .benches

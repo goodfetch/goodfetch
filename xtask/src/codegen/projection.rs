@@ -7,9 +7,10 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context as _, Result, bail};
+use serde::Deserialize as _;
 use serde_json::{Map, Value};
 
-use super::layer::Product;
+use goodfetch_protocol::catalog::Product;
 
 const DEFINITIONS: &str = "#/$defs/";
 
@@ -23,7 +24,7 @@ pub(super) fn project(catalog: &Value, bundle: &Value, product: Product) -> Resu
             Value::Array(entries) => Value::Array(
                 entries
                     .iter()
-                    .filter(|entry| product.carries(entry))
+                    .filter(|entry| carries(product, entry))
                     .cloned()
                     .collect(),
             ),
@@ -47,6 +48,20 @@ pub(super) fn project(catalog: &Value, bundle: &Value, product: Product) -> Resu
         ),
     );
     Ok(Value::Object(projection))
+}
+
+/// Whether `product`'s catalog holds `entry`: Collie's holds Collie's entries,
+/// Foxhound's every entry, since Foxhound contains Collie.
+fn carries(product: Product, entry: &Value) -> bool {
+    match product {
+        Product::Collie => {
+            entry
+                .get("product")
+                .and_then(|mark| Product::deserialize(mark).ok())
+                == Some(Product::Collie)
+        }
+        Product::Foxhound => true,
+    }
 }
 
 /// The names of every type `value` refers to, directly or through other

@@ -5,6 +5,28 @@
 use anyhow::{Context as _, Result};
 use serde::de::DeserializeOwned;
 
+/// The arguments of every command that reads or writes GitHub.
+#[derive(clap::Args)]
+#[group(skip)]
+pub(crate) struct Arguments {
+    /// The repository, as `owner/name`.
+    #[arg(long, default_value = "goodfetch/goodfetch")]
+    pub(crate) repository: String,
+    /// GitHub's API, or a stand-in's address.
+    #[arg(long, default_value = "https://api.github.com")]
+    pub(crate) api_url: String,
+}
+
+impl Arguments {
+    /// The API, read and written with `token` when there is one.
+    pub(crate) fn api<'a>(&'a self, token: Option<&'a str>) -> Api<'a> {
+        Api {
+            url: &self.api_url,
+            token,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Api<'a> {
     /// `https://api.github.com`, or a stand-in's address.
@@ -23,14 +45,7 @@ impl Api<'_> {
     /// not exist, or the token cannot see it.
     pub(crate) fn find<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>> {
         let url = self.url(path);
-        let mut request = ureq::get(&url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "goodfetch-xtask");
-        if let Some(token) = self.token {
-            request = request.header("Authorization", format!("Bearer {token}"));
-        }
-        match request.call() {
+        match self.headers(ureq::get(&url)).call() {
             Ok(mut response) => response
                 .body_mut()
                 .read_json()
@@ -56,12 +71,6 @@ impl Api<'_> {
             .with_context(|| format!("reading GitHub's answer from {url}"))
     }
 
-    /// POSTs `body` as JSON to `path`; the token needs the matching write
-    /// permission.
-    pub(crate) fn post(&self, path: &str, body: &serde_json::Value) -> Result<()> {
-        self.write(Write::Post, &self.url(path), body).map(drop)
-    }
-
     fn write(
         &self,
         method: Write,
@@ -72,21 +81,71 @@ impl Api<'_> {
             Write::Post => ureq::post(url),
             Write::Patch => ureq::patch(url),
         };
-        let mut request = request
+        self.headers(request)
+            .send_json(body)
+            .with_context(|| format!("writing {url}"))
+    }
+
+    /// Every item of the list at `path`, read a page of [`PAGE_SIZE`] at a
+    /// time until a short page or the list's `total_count`. A list GitHub
+    /// wraps in an object, such as `{"total_count": 2, "jobs": [...]}`, is
+    /// read from its `key`.
+    pub(crate) fn get_all<T: DeserializeOwned>(&self, path: &str, key: List) -> Result<Vec<T>> {
+        let separator = if path.contains('?') { '&' } else { '?' };
+        let mut items = Vec::new();
+        for page in 1.. {
+            let page: serde_json::Value = self.get(&format!(
+                "{path}{separator}per_page={PAGE_SIZE}&page={page}"
+            ))?;
+            let (listed, total) = match key {
+                List::Array => (page, None),
+                List::In(key) => {
+                    let total = page.get("total_count").and_then(serde_json::Value::as_u64);
+                    (page.get(key).cloned().unwrap_or_default(), total)
+                }
+            };
+            let listed: Vec<T> = serde_json::from_value(listed)
+                .with_context(|| format!("reading the list at {path}"))?;
+            let short = listed.len() < PAGE_SIZE;
+            items.extend(listed);
+            let complete = total
+                .is_some_and(|total| u64::try_from(items.len()).is_ok_and(|read| read >= total));
+            if short || complete {
+                break;
+            }
+        }
+        Ok(items)
+    }
+
+    /// The headers of every request: GitHub's media type and API version,
+    /// the user agent, and the token when there is one.
+    fn headers<B>(&self, request: ureq::RequestBuilder<B>) -> ureq::RequestBuilder<B> {
+        let request = request
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "goodfetch-xtask");
-        if let Some(token) = self.token {
-            request = request.header("Authorization", format!("Bearer {token}"));
+        match self.token {
+            Some(token) => request.header("Authorization", format!("Bearer {token}")),
+            None => request,
         }
-        request
-            .send_json(body)
-            .with_context(|| format!("writing {url}"))
     }
 
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.url.trim_end_matches('/'))
     }
+}
+
+/// GitHub's largest page.
+const PAGE_SIZE: usize = 100;
+
+/// Where a page of a list holds its items.
+#[derive(Clone, Copy)]
+pub(crate) enum List {
+    /// The page is the array.
+    Array,
+    /// The page is an object holding the array under this key, beside the
+    /// list's `total_count`.
+    In(&'static str),
 }
 
 /// The HTTP methods that write through GitHub's interface.

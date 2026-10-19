@@ -18,13 +18,10 @@ use anyhow::{Context as _, Result, bail};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::artifact;
+use super::artifact::{self, Arch, Os};
 use super::junit::{self, Ending, TestCase};
 use super::store::{self, Attempt, JobRun, KeptFile, Outcome, RunAttempt, TestRun};
-use crate::github::Api;
-
-/// GitHub's largest page.
-const PAGE: usize = 100;
+use crate::github::{Api, List};
 
 /// The file each JUnit artifact holds beside its JUnit files.
 const CONTEXT: &str = "context.json";
@@ -57,22 +54,12 @@ struct HeadCommit {
 }
 
 #[derive(Deserialize)]
-struct ApiJobs {
-    jobs: Vec<ApiJob>,
-}
-
-#[derive(Deserialize)]
 struct ApiJob {
     name: String,
     labels: Vec<String>,
     conclusion: Option<String>,
     started_at: Option<Timestamp>,
     completed_at: Option<Timestamp>,
-}
-
-#[derive(Deserialize)]
-struct ApiArtifacts {
-    artifacts: Vec<ApiArtifact>,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +73,12 @@ struct ApiArtifact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Context {
+    /// The commit the job checked out and tested, which may differ from its
+    /// run's head: a Release run tests its `commit` input, a pull-request
+    /// run its merge commit.
+    commit: String,
+    /// That commit's tree hash.
+    tree: String,
     job: String,
     order_seed: Option<String>,
     entropy_seed: Option<String>,
@@ -101,44 +94,42 @@ pub(crate) fn ingest(source: &Source<'_>, store: &Path) -> Result<PathBuf> {
 }
 
 #[derive(Deserialize)]
-struct ApiRuns {
-    workflow_runs: Vec<ApiRun>,
-}
-
-#[derive(Deserialize)]
 struct ApiRun {
     id: u64,
     run_attempt: u32,
 }
 
-/// Every attempt of the runs that finished since `since` (a day, UTC) that
-/// the store at `store` lacks, for the daily ingest (ADR 0135): the runs no
+/// Every attempt of the runs created since `since` (a day, UTC) that the
+/// store at `store` lacks, for the daily ingest (ADR 0135): the runs no
 /// per-run ingest follows, such as the pull-request tier's, and any a
-/// per-run ingest missed.
+/// per-run ingest missed. With no `since`, it lists from the day before the
+/// first of the store's newest month, so a missed ingest or a run queued for
+/// a day loses nothing; an empty store lists every finished run.
 pub(crate) fn pending(
     api: &Api<'_>,
     repository: &str,
     store: &Path,
-    since: jiff::civil::Date,
+    since: Option<jiff::civil::Date>,
 ) -> Result<Vec<(u64, u32)>> {
     let stored = store::stored(store)?;
-    let mut pending = BTreeSet::new();
-    for page in 1.. {
-        let listed: ApiRuns = api.get(&format!(
-            "/repos/{repository}/actions/runs?status=completed&created=%3E%3D{since}&per_page={PAGE}&page={page}"
-        ))?;
-        let full = listed.workflow_runs.len() == PAGE;
-        for run in listed.workflow_runs {
-            for attempt in 1..=run.run_attempt {
-                if !stored.contains(&(run.id, attempt)) {
-                    pending.insert((run.id, attempt));
-                }
-            }
-        }
-        if !full {
-            break;
-        }
-    }
+    let since = match since {
+        Some(since) => Some(since),
+        None => store::newest_month(store)?
+            .map(jiff::civil::Date::yesterday)
+            .transpose()?,
+    };
+    let created = since
+        .map(|since| format!("&created=%3E%3D{since}"))
+        .unwrap_or_default();
+    let runs: Vec<ApiRun> = api.get_all(
+        &format!("/repos/{repository}/actions/runs?status=completed{created}"),
+        List::In("workflow_runs"),
+    )?;
+    let pending: BTreeSet<(u64, u32)> = runs
+        .iter()
+        .flat_map(|run| (1..=run.run_attempt).map(|attempt| (run.id, attempt)))
+        .filter(|attempt| !stored.contains(attempt))
+        .collect();
     Ok(pending.into_iter().collect())
 }
 
@@ -147,6 +138,8 @@ pub(crate) fn pending(
 pub(crate) struct Failed {
     /// `<runner>=<test ID>`, as `xtask repeat --test` takes it.
     test: String,
+    /// The commit the failed run tested, which its diagnostic job checks out.
+    commit: String,
     suite: String,
     tier: String,
     os: String,
@@ -155,24 +148,25 @@ pub(crate) struct Failed {
 }
 
 /// The OS and architecture a diagnostic job runs on, each `None` for any.
-pub(crate) struct Platform<'a> {
-    pub(crate) os: Option<&'a str>,
-    pub(crate) arch: Option<&'a str>,
+pub(crate) struct Platform {
+    pub(crate) os: Option<Os>,
+    pub(crate) arch: Option<Arch>,
 }
 
 /// The tests that failed in the attempt on `platform`, once each per
 /// configuration, of the runners `xtask repeat` repeats; never a Live check's.
-pub(crate) fn failed(source: &Source<'_>, platform: &Platform<'_>) -> Result<Vec<Failed>> {
+pub(crate) fn failed(source: &Source<'_>, platform: &Platform) -> Result<Vec<Failed>> {
     let (attempt, _) = read(source)?;
     let failed: BTreeSet<Failed> = attempt
         .test_runs
         .into_iter()
         .filter(|run| run.outcome == Outcome::Failed && run.tier != LIVE_TIER)
-        .filter(|run| platform.os.is_none_or(|os| run.os == os))
-        .filter(|run| platform.arch.is_none_or(|arch| run.arch == arch))
+        .filter(|run| platform.os.is_none_or(|os| run.os == os.name()))
+        .filter(|run| platform.arch.is_none_or(|arch| run.arch == arch.name()))
         .filter(|run| ["nextest", "vitest", "playwright", "pytest"].contains(&run.runner.as_str()))
         .map(|run| Failed {
             test: format!("{}={}", run.runner, run.test),
+            commit: run.commit,
             suite: run.suite,
             tier: run.tier,
             os: run.os,
@@ -198,38 +192,23 @@ fn read(source: &Source<'_>) -> Result<(Attempt, Vec<KeptFile>)> {
         tree: api_attempt.head_commit.tree_id,
         started_at: api_attempt.run_started_at,
     };
-    let mut jobs = Vec::new();
-    for page in 1.. {
-        let listed: ApiJobs = source
-            .api
-            .get(&format!("{attempt_path}/jobs?per_page={PAGE}&page={page}"))?;
-        let full = listed.jobs.len() == PAGE;
-        jobs.extend(listed.jobs.into_iter().map(job_run));
-        if !full {
-            break;
-        }
-    }
-    let mut names = Vec::new();
-    for page in 1.. {
-        let listed: ApiArtifacts = source
-            .api
-            .get(&format!("{base}/artifacts?per_page={PAGE}&page={page}"))?;
-        let full = listed.artifacts.len() == PAGE;
-        names.extend(
-            listed
-                .artifacts
-                .into_iter()
-                .filter(|artifact| {
-                    artifact::is_junit(&artifact.name)
-                        && !artifact.expired
-                        && artifact.created_at >= run.started_at
-                })
-                .map(|artifact| artifact.name),
-        );
-        if !full {
-            break;
-        }
-    }
+    let jobs: Vec<JobRun> = source
+        .api
+        .get_all::<ApiJob>(&format!("{attempt_path}/jobs"), List::In("jobs"))?
+        .into_iter()
+        .map(job_run)
+        .collect();
+    let mut names: Vec<String> = source
+        .api
+        .get_all::<ApiArtifact>(&format!("{base}/artifacts"), List::In("artifacts"))?
+        .into_iter()
+        .filter(|artifact| {
+            artifact::is_junit(&artifact.name)
+                && !artifact.expired
+                && artifact.created_at >= run.started_at
+        })
+        .map(|artifact| artifact.name)
+        .collect();
     names.sort();
     let mut test_runs = Vec::new();
     let mut kept = Vec::new();
@@ -264,12 +243,7 @@ fn read_artifact(
     let mut files = Vec::new();
     collect(folder, folder, &mut files)?;
     files.sort();
-    let context_path = folder.join(CONTEXT);
-    let context: Context = serde_json::from_slice(
-        &std::fs::read(&context_path)
-            .with_context(|| format!("artifact `{name}` lacks its {CONTEXT}"))?,
-    )
-    .with_context(|| format!("parsing {}", context_path.display()))?;
+    let context = read_context(name, folder)?;
     let mut test_runs = Vec::new();
     let mut kept = Vec::new();
     for relative in files {
@@ -311,8 +285,8 @@ fn read_artifact(
                     arch: configuration.arch.clone(),
                     runtime: runtime.clone(),
                     shard: configuration.shard.clone(),
-                    commit: run.commit.clone(),
-                    tree: run.tree.clone(),
+                    commit: context.commit.clone(),
+                    tree: context.tree.clone(),
                     workflow: run.workflow.clone(),
                     run: run.run,
                     attempt: run.attempt,
@@ -330,6 +304,43 @@ fn read_artifact(
         });
     }
     Ok((test_runs, kept))
+}
+
+fn read_context(name: &str, folder: &Path) -> Result<Context> {
+    let path = folder.join(CONTEXT);
+    serde_json::from_slice(
+        &std::fs::read(&path).with_context(|| format!("artifact `{name}` lacks its {CONTEXT}"))?,
+    )
+    .with_context(|| format!("parsing {}", path.display()))
+}
+
+/// The one commit that the JUnit artifacts downloaded into `artifacts`, one
+/// folder each, name as tested: what a constrained run after a Release run
+/// checks out. Fails when they name none, or more than one.
+pub(crate) fn tested_commit(artifacts: &Path) -> Result<String> {
+    let mut commits = BTreeSet::new();
+    for entry in
+        std::fs::read_dir(artifacts).with_context(|| format!("reading {}", artifacts.display()))?
+    {
+        let folder = entry?.path();
+        let Some(name) = folder.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if folder.is_dir() && artifact::is_junit(name) {
+            commits.insert(read_context(name, &folder)?.commit);
+        }
+    }
+    let mut commits = commits.into_iter();
+    match (commits.next(), commits.next()) {
+        (Some(commit), None) => Ok(commit),
+        (None, _) => bail!(
+            "no JUnit artifact in {} names its commit",
+            artifacts.display()
+        ),
+        (Some(first), Some(second)) => {
+            bail!("the JUnit artifacts name more than one tested commit: {first}, {second}")
+        }
+    }
 }
 
 /// The test runs one JUnit test case records. A test the job repeated

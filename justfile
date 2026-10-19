@@ -60,6 +60,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
+    ci/tool-versions.sh
 
 # Regenerates every file generated from goodfetch-protocol's types: the JSON
 # Schema bundle and catalog, each Product's projection, the names only
@@ -107,6 +108,12 @@ test suite *packages:
     else
       packages=(--workspace)
     fi
+    # Vitest, Playwright and pytest run their tests in an order seeded from
+    # the tree under test (TESTING.md, Before merge); nextest runs each test
+    # in its own process.
+    GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
+    export GOODFETCH_ORDER_SEED
+    echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
     # Each runner skips the tests on the test quarantine list through its own
     # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
     skip_nextest=() skip_vitest=() skip_playwright=() skip_pytest=()
@@ -136,12 +143,21 @@ test suite *packages:
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 --randomly-seed="$GOODFETCH_ORDER_SEED" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
+        # A quarantined test that owns an insta snapshot does not run, so its
+        # snapshot looks unreferenced: while nextest skips any quarantined
+        # test, unreferenced snapshots warn instead of failing (TESTING.md,
+        # Snapshots).
+        unreferenced=reject
+        if [[ ${#skip_nextest[@]} -gt 0 ]]; then
+          unreferenced=warn
+          echo "insta: unreferenced snapshots warn while the quarantine list skips a nextest test"
+        fi
         if $rust; then
-          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced reject \
+          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced "$unreferenced" \
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
           # nextest runs no doctests; cargo-insta's own doctest pass would take
@@ -150,10 +166,10 @@ test suite *packages:
         fi
         if $typescript; then
           pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
-          pnpm exec playwright test --pass-with-no-tests ${vitest[@]+"${vitest[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
-          uv run pytest ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)
@@ -216,20 +232,54 @@ test-affected suite *change:
     fi
     {{ just_executable() }} test {{ suite }} "${packages[@]}"
 
+# Each suite lists the parts it could not run on this host, with the reason,
+# even when a part fails: the list is printed when the suite stops.
+
 # The Quick suite: lints and in-process tests of what changed (`all`: the
 # whole workspace).
-quick *all: _skips-reset lint (_suite "quick" all) _skips-report
+quick *all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    rm -f target/skipped.txt
+    trap '"$just" _skips-report' EXIT
+    "$just" lint
+    "$just" _suite quick "{{ all }}"
 
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
-pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco perf _visual-elsewhere _skips-report
+pre-merge *all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    rm -f target/skipped.txt
+    trap '"$just" _skips-report' EXIT
+    "$just" lint
+    "$just" _suite quick "{{ all }}"
+    "$just" _suite pre-merge "{{ all }}"
+    "$just" proofs
+    "$just" supply-chain
+    "$just" dco
+    "$just" commit-messages
+    "$just" perf
+    "$just" _visual-elsewhere
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
-release: _skips-reset lint (test "quick") (test "release") proofs _visual-elsewhere _skips-report
-    @echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
+release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    rm -f target/skipped.txt
+    trap '"$just" _skips-report' EXIT
+    "$just" lint
+    "$just" test quick
+    "$just" test release
+    "$just" proofs
+    "$just" _visual-elsewhere
+    echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
 # Dispatches the Release suite's workflow on the current branch and follows
 # it; the exit code is the run's verdict (ADRs 0061 and 0108). `cells` is
@@ -291,15 +341,16 @@ perf base="":
     ci/perf.sh {{ base }}
 
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
-# dependencies, tests and benchmark targets with its profiles, run by nothing;
-# the benchmark targets twice, the second time into the target folder's
-# perf-base/, where `xtask perf build` builds the base.
+# dependencies, tests and benchmark targets with its profiles, run by nothing:
+# the Pre-merge job's own `just build ci` among them; the benchmark targets
+# twice, the second time into the target folder's perf-base/, where `xtask
+# perf build` builds the base.
 warm:
     pnpm exec tsc -p tsconfig.json
     cargo clippy --workspace --all-targets --all-features
     cargo build -p xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
-    cargo build --workspace --profile ci
+    {{ just_executable() }} build ci
     cargo bench --workspace --no-run
     CARGO_TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/perf-base" cargo bench --workspace --no-run
     ci/msrv.sh
@@ -359,9 +410,23 @@ miri:
       exit 0
     fi
     toolchain=$(read_list 'print(miri["toolchain"])')
-    while IFS=$'\t' read -r crate filter; do
-      cargo "+$toolchain" miri test --package "$crate" --lib -- "$filter"
-    done <<< "$modules"
+    # Each module runs once; a `for` loop with no `break` retries nothing
+    # (xtask no-retry).
+    set -f
+    IFS=$'\n'
+    for module in $modules; do
+      cargo "+$toolchain" miri test --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
+    done
+
+# Builds Miri's sysroot, which fetches the standard library's dependencies,
+# so CI runs it before the egress deny; nothing while no module opts in.
+miri-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    opted_in=$(uv run --frozen --quiet python -c "import tomllib; miri = tomllib.load(open('ci/miri.toml', 'rb')); print(miri['toolchain'] if miri['module'] else '')")
+    if [[ -n "$opted_in" ]]; then
+      cargo "+$opted_in" miri setup
+    fi
 
 # Checks that every commit from `base` to `head`, merges aside, is signed off
 # by its author (ADR 0018). Locally: since the merge base with `origin/main`.
@@ -371,6 +436,23 @@ dco base="" head="HEAD":
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
     cargo run --quiet -p xtask -- dco --base "$base" --head "{{ head }}"
+
+# The recorded starting point of the Conventional Commits rule
+# (CONTRIBUTING.md): this commit, the tip of spec #130's integration branch
+# when the owner adopted the rule on 2026-10-19, and its ancestors keep their
+# messages, since history is never rewritten.
+conventional_commits_since := "9e62a6c527577f8dc08b119bdf2acb952fcc62b1"
+
+# Checks that every commit from `base` to `head`, merges aside, after the
+# rule's starting point has a Conventional Commits subject (CONTRIBUTING.md).
+# Locally: since the merge base with `origin/main`.
+commit-messages base="" head="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
+    cargo run --quiet -p xtask -- commit-messages --base "$base" --head "{{ head }}" \
+      --since "{{ conventional_commits_since }}"
 
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.
@@ -401,9 +483,6 @@ _suite suite all:
       "") {{ just_executable() }} test-affected {{ suite }} ;;
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
-
-_skips-reset:
-    @rm -f target/skipped.txt
 
 # Runner configs define the `visual` projects only inside the pinned image
 # (ci/visual/run.sh), so no host test command runs them.

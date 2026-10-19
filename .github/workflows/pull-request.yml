@@ -45,7 +45,9 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
-      # Before the deny: the quarantine-list check reads GitHub's issues.
+      # `just quick all` in its two parts, around the deny: `just lint` before
+      # it, since the quarantine-list check reads GitHub's issues, then
+      # `just test quick` under it.
       - name: Lint
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -59,6 +61,11 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      # The parts `just lint` and `just test` could not run here, as `just
+      # quick all` lists them.
+      - name: List the parts the job skipped
+        if: always()
+        run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh
@@ -161,7 +168,9 @@ jobs:
   # build's 1 MB ceiling. Its steps are not test steps: a tripped figure
   # passes on a re-run of this job once the owner has accepted the pull
   # request's "Performance change" section on the head, since the figures
-  # repeat exactly. It reads that section before the deny.
+  # repeat exactly. It reads that section before the deny. It is one job
+  # while the selected bench targets fit it, and becomes a matrix over
+  # `bench-targets` once they do not (TESTING.md, Benchmarks).
   perf:
     name: perf
     needs: [quick, affected]
@@ -284,12 +293,12 @@ jobs:
 
   # The supply-chain gates (#133): the advisories of every lockfile, the MSRV
   # build, cargo-hack over each Product's SDK crate, Miri on opted-in
-  # `unsafe`, the DCO sign-off of every commit the pull request adds, and the
-  # third-party notice inventory's license check over every ecosystem and
-  # declared input (#137). cargo-deny's licenses, bans, sources and the
+  # `unsafe`, the DCO sign-off and the Conventional Commits subject of every
+  # commit the pull request adds, and the third-party notice inventory's
+  # license check over every ecosystem and declared input (#137). cargo-deny's licenses, bans, sources and the
   # boundary checks run in the Quick job's lints.
-  # The audits read public advisory databases and the job runs none of the
-  # product, so it runs outside the egress deny (ci/egress/endpoints.toml).
+  # The audits read public advisory databases, so they run before the egress
+  # deny; Miri runs tests, so it runs under it (ci/egress/endpoints.toml).
   supply-chain:
     name: supply-chain
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -308,16 +317,27 @@ jobs:
         run: ci/vm/start.sh read-only
       - name: Check every commit's sign-off
         run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
+      - name: Check every commit's message
+        run: ci/vm/exec.sh just commit-messages HEAD^1 HEAD^2
       - name: Audit the locked dependencies
         run: ci/vm/exec.sh just audit
       - name: Build on the MSRV
         run: ci/vm/exec.sh just msrv
       - name: Check every feature combination
         run: ci/vm/exec.sh just feature-combinations
-      - name: Run Miri on opted-in unsafe code
-        run: ci/vm/exec.sh just miri
       - name: Check the third-party notice inventory's licenses
         run: ci/vm/exec.sh just notices
+      - name: Set up Miri's sysroot
+        run: ci/vm/exec.sh just miri-setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: Miri on opted-in unsafe code"
+        run: ci/vm/exec.sh just miri
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

@@ -67,7 +67,9 @@ crate = "alloy"
 reason = "only Foxhound's Paid fetches use alloy (ADR 0088)"
 
 # The in-binary Sinks' database and object-store drivers (ADRs 0026 and
-# 0088). SQLite is not one: Collie's Run index uses it.
+# 0088). SQLite is not one: Collie's Run index uses it. The SFTP and FTP
+# Sinks' drivers join once their tickets choose the crates; webhooks, SMTP
+# and the Notification channels are not banned, since Collie carries them.
 [[bans.deny]]
 crate = "object_store"
 reason = "only Foxhound's object-store Sinks use it (ADRs 0026 and 0088)"

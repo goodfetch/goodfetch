@@ -6,8 +6,44 @@
 use anyhow::{Result, bail};
 
 const PREFIX: &str = "junit-";
-const OPERATING_SYSTEMS: [&str; 3] = ["linux", "macos", "windows"];
-const ARCHITECTURES: [&str; 2] = ["x64", "arm64"];
+
+/// The OS a JUnit artifact names.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Os {
+    Linux,
+    Macos,
+    Windows,
+}
+
+impl Os {
+    const ALL: [Self; 3] = [Self::Linux, Self::Macos, Self::Windows];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Linux => "linux",
+            Self::Macos => "macos",
+            Self::Windows => "windows",
+        }
+    }
+}
+
+/// The architecture a JUnit artifact names.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Arch {
+    X64,
+    Arm64,
+}
+
+impl Arch {
+    const ALL: [Self; 2] = [Self::X64, Self::Arm64];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::X64 => "x64",
+            Self::Arm64 => "arm64",
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Configuration {
@@ -30,7 +66,8 @@ pub(crate) fn parse(name: &str) -> Result<Configuration> {
     };
     let parts: Vec<&str> = rest.split('-').collect();
     let Some(os_at) = (1..parts.len().saturating_sub(2)).find(|&at| {
-        OPERATING_SYSTEMS.contains(&parts[at]) && ARCHITECTURES.contains(&parts[at + 1])
+        Os::ALL.iter().any(|os| os.name() == parts[at])
+            && Arch::ALL.iter().any(|arch| arch.name() == parts[at + 1])
     }) else {
         bail!("`{name}` is not `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`");
     };

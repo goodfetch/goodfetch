@@ -1,6 +1,7 @@
-//! The fixture-size check (ADR 0062): no file under a `fixtures/` folder
-//! exceeds 256 KiB. A Reference screenshot is not a fixture, wherever it
-//! sits, and keeps its own limit (ADR 0073); frozen `rnd/` is never read.
+//! The fixture-size check (ADR 0062): no file under a `fixtures/` folder, or
+//! under `ci/proofs/`, which holds the static checks' fixtures, exceeds 256
+//! KiB. A Reference screenshot is not a fixture, wherever it sits, and keeps
+//! its own limit (ADR 0073); frozen `rnd/` is never read.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -22,6 +23,9 @@ const SKIPPED: [&str; 4] = [".git", "target", "node_modules", ".venv"];
 
 /// The frozen R&D archive at the root (ADR 0032).
 const FROZEN: &str = "rnd";
+
+/// The static checks' proofs (`just proofs`), whose every file is a fixture.
+const PROOFS: &str = "ci/proofs";
 
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
@@ -46,7 +50,11 @@ fn walk(root: &Path, folder: &Path, in_fixtures: bool, findings: &mut Vec<Findin
             if SKIPPED.contains(&name) || (folder == root && name == FROZEN) {
                 continue;
             }
-            walk(root, &path, in_fixtures || name == "fixtures", findings)?;
+            let fixture_root = name == "fixtures"
+                || path
+                    .strip_prefix(root)
+                    .is_ok_and(|relative| relative == Path::new(PROOFS));
+            walk(root, &path, in_fixtures || fixture_root, findings)?;
             continue;
         }
         let relative = path.strip_prefix(root).unwrap_or(&path);

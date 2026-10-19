@@ -4,8 +4,9 @@
 //!
 //! - **build**, before the deny: checks the base out into its own worktree
 //!   under the output folder, fetches what its lockfile needs, and builds the
-//!   selected bench targets of the base and of the head, into the one target
-//!   folder, so the base's dependencies come from the same cache;
+//!   head's selected bench targets and every bench target the base has in a
+//!   selected crate, into the one target folder, so the base's dependencies
+//!   come from the same cache;
 //! - **run**, under the deny: runs each base target with
 //!   `--save-baseline=base`, then each head target with `--baseline=base`,
 //!   twenty more runs of each head target holding a benchmark the base lacks
@@ -109,14 +110,23 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
     )?;
     let target_directory = metadata::target_directory(cargo, root)?;
     let base_target_directory = target_directory.join(BASE_TARGET);
+    // Every bench target the base has in a selected crate, so a target the
+    // change renamed or removed is still measured on the base, and its
+    // ceilings find their figures missing from the head (ADR 0134).
     let base_targets: Vec<String> = if targets.is_empty() {
         Vec::new()
     } else {
-        let present = bench_targets(cargo, &tree)?;
-        targets
+        let crates: BTreeSet<&str> = targets
             .iter()
-            .filter(|target| present.contains(*target))
-            .cloned()
+            .filter_map(|target| target.split_once('/').map(|(package, _)| package))
+            .collect();
+        bench_targets(cargo, &tree)?
+            .into_iter()
+            .filter(|target| {
+                target
+                    .split_once('/')
+                    .is_some_and(|(package, _)| crates.contains(package))
+            })
             .collect()
     };
     if !base_targets.is_empty() {

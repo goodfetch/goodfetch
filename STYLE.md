@@ -185,6 +185,8 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/`
 - **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` and `typescript/no-deprecated` are errors.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
 - **Libraries build with tsdown. Outside `console/` and `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
+- **Console code never imports with `../`:** a module reaches the rest of its own package through the package's `imports` aliases (`#…`), and other packages by name (oxlint's `import/no-relative-parent-imports` on `console/**`).
+  _Why:_ a parent path is how an import leaves its package, which would let Collie's Console build reach Foxhound's screens (ADR 0087); refusing every `../` is a rule a linter checks, where "leaves its package" is not.
 - **The Console and the docs site are tested in browsers, on one Node line:** Vitest Browser Mode and Playwright Test, against the binary for the served Console (ADR 0068, rules in [`TESTING.md`](TESTING.md)).
 - **Packages are ESM-only** (ADR 0024) and pass `publint` and `@arethetypeswrong/cli` before publishing. npm is the only registry.
 - **Named exports only; no TypeScript `enum`s** (string-literal unions instead).

@@ -27,11 +27,14 @@ mod writer;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use goodfetch_protocol::releases::{FormatName, FormatVersion, ReleasesFile};
 
-use crate::check::Finding;
+use crate::check::{self, Finding};
+use crate::environment::Environment;
+use crate::output;
 use registry::Format;
 use tree::Tree;
 use writer::Writers;
@@ -344,4 +347,52 @@ pub(crate) fn write(cargo: &OsStr, root: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `xtask compat`'s commands.
+#[derive(clap::Subcommand)]
+pub(crate) enum Command {
+    /// Regenerates each registered format's `head/` set by running its
+    /// writer, the `compat-<format>` example of the package that owns it.
+    Write,
+    /// Fails on a `head/` set that differs from what `write` produces, a
+    /// changed frozen byte, a missing set, incomplete schema coverage, and a
+    /// schema changed without a version bump.
+    Check,
+    /// Copies each format's `head/` set from a stable release's or patch's
+    /// tag, not from the working tree, to `compat/<format>/<major>.<minor>/`
+    /// with its `SHA256SUMS`, for every shipped version not frozen yet. A
+    /// release candidate's or nightly's tag freezes nothing.
+    Freeze {
+        /// The release tag, `vX.Y.Z`.
+        #[arg(long)]
+        tag: String,
+    },
+}
+
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
+    match command {
+        Command::Write => {
+            write(cargo, root)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Check => Ok(check::report(&check(cargo, root)?)),
+        Command::Freeze { tag } => {
+            match freeze(root, &tag)? {
+                Freeze::Prerelease => output::line(&format!(
+                    "{tag} is a release candidate or a nightly: nothing to freeze"
+                )),
+                Freeze::Frozen(sets) if sets.is_empty() => {
+                    output::line(&format!("every version {tag} shipped is frozen already"));
+                }
+                Freeze::Frozen(sets) => {
+                    for set in sets {
+                        output::line(&format!("froze {set} from {tag}"));
+                    }
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
 }

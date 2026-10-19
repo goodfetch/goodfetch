@@ -11,6 +11,18 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
+/// What marks a test step: a step whose name starts with it (TESTING.md, No
+/// retries). "all green" refuses a run whose earlier attempt failed one, the
+/// egress check puts one after the deny, and `xtask no-retry` refuses a step
+/// that runs a test runner under another name.
+const TEST_STEP_PREFIX: &str = "Test";
+
+/// Whether a step named `name` is a test step, the one rule every check of
+/// test steps reads: of the workflow files, and of GitHub's record of a run.
+pub(crate) fn is_test_step(name: &str) -> bool {
+    name.starts_with(TEST_STEP_PREFIX)
+}
+
 pub(crate) struct Workflow {
     /// The file name under `.github/workflows/`, such as `pull-request.yml`.
     pub(crate) file: String,

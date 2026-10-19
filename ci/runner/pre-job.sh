@@ -64,18 +64,26 @@ limactl delete --force goodfetch-job >/dev/null 2>&1 || true
 
 # One job at a time on the machine, across its runner instances: the lock is
 # a folder whose holder file names the runner worker holding it. A holder
-# whose worker is gone left it behind, and it is taken over.
+# whose worker is gone left it behind, and it is taken over: renamed away,
+# which only one waiter can do, then removed. The lock and its holder file
+# are writable by every user, since each runner instance runs as its own
+# user and either may take over the other's.
 mkdir -p "$lock_parent" 2>/dev/null || true
 holder_of() { cat "$lock_parent/held/holder" 2>/dev/null || true; }
-while ! mkdir "$lock_parent/held" 2>/dev/null; do
+while ! mkdir -m 0777 "$lock_parent/held" 2>/dev/null; do
   holder=$(holder_of)
   holder_pid=${holder##* }
   if [[ -n "$holder_pid" ]] && ! ps -p "$holder_pid" >/dev/null 2>&1; then
-    rm -rf "$lock_parent/held"
+    stale="$lock_parent/stale.$$"
+    if mv "$lock_parent/held" "$stale" 2>/dev/null; then
+      echo "goodfetch pre-job: took over the lock ${holder} left behind" >&2
+      rm -rf "$stale" 2>/dev/null || echo "goodfetch pre-job: could not remove $stale" >&2
+    fi
     continue
   fi
   echo "goodfetch pre-job: waiting for the job of ${holder:-another runner} to end" >&2
   sleep 15
 done
 echo "$(id -un) $PPID" >"$lock_parent/held/holder"
+chmod 0666 "$lock_parent/held/holder"
 echo "goodfetch pre-job: admitted $workflow#$job on $event at $ref" >&2

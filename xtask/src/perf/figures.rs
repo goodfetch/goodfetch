@@ -14,7 +14,7 @@ use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 
 use super::compare::Row;
-use super::figure::Figure;
+use super::figure::{self, Figure};
 
 /// The file's name inside a JUnit artifact.
 pub(crate) const FILE_NAME: &str = "perf-figures.json";
@@ -37,7 +37,7 @@ pub(crate) struct Recorded {
 
 impl Recorded {
     pub(crate) fn id(&self) -> String {
-        format!("{} {}", self.subject, self.figure)
+        figure::id(&self.subject, self.figure)
     }
 }
 

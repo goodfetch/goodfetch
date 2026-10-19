@@ -21,9 +21,11 @@ pub(crate) enum Verdict {
     Within,
     /// No figure of `main` to compare with: reported, never gated.
     New,
-    /// Over its limit.
-    Over,
-    /// Over its increase threshold, with the pull request's acceptance.
+    /// Past its increase threshold over `main`'s figure.
+    Tripped,
+    /// Over its ceiling, which no acceptance passes.
+    OverCeiling,
+    /// Past its increase threshold, with the pull request's acceptance.
     Accepted,
 }
 
@@ -44,7 +46,7 @@ pub(crate) fn render(rows: &[Row]) -> String {
         let _ = writeln!(
             table,
             "| {} | {} | {} | {} | {} | {} | {} | {} |",
-            row.file.product,
+            row.file.product.name(),
             row.file.target.as_deref().unwrap_or("—"),
             row.file.name,
             row.file.bytes.megabytes(),
@@ -54,7 +56,8 @@ pub(crate) fn render(rows: &[Row]) -> String {
             match row.verdict {
                 Verdict::Within => "within",
                 Verdict::New => "new",
-                Verdict::Over => "over",
+                Verdict::Tripped => "over",
+                Verdict::OverCeiling => "over its ceiling",
                 Verdict::Accepted => "accepted",
             },
         );

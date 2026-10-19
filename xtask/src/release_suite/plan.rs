@@ -7,7 +7,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-use std::io::Write as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
@@ -17,6 +16,8 @@ use super::history::{Ended, History, Run};
 use super::time::Month;
 use crate::check::Finding;
 use crate::github::Api;
+use crate::issues::{Issues, Label};
+use crate::output;
 
 /// The included minutes a month that manual-dispatch Release runs' hosted
 /// jobs may use (ADR 0108).
@@ -32,7 +33,8 @@ pub(crate) const MAIN_REF: &str = "refs/heads/main";
 /// opens or updates.
 const ISSUE_TITLE: &str = "A Release run's estimate passes the 600-minute ceiling";
 
-const TRIAGE_LABEL: &str = "needs-triage";
+/// The marker key of that issue.
+const ISSUE_KEY: &str = "release-ceiling";
 
 pub(crate) struct Dispatch<'a> {
     pub(crate) repository: &'a str,
@@ -158,7 +160,7 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
         },
     )?;
     if decision == Decision::StartOverCeiling {
-        open_issue(api, dispatch.repository, this.id, &count)?;
+        keep_issue(api, dispatch.repository, &this, &count)?;
     }
     Ok(Vec::new())
 }
@@ -256,16 +258,6 @@ fn hosted_cells_started_on_main(
     Ok(false)
 }
 
-fn append(path: &Path, text: &str) -> Result<()> {
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    file.write_all(text.as_bytes())
-        .with_context(|| format!("writing {}", path.display()))
-}
-
 /// The job's outputs, which the cells' jobs read: the commit, the started
 /// cells, each Linux job's matrix, and the count.
 fn write_outputs(
@@ -303,7 +295,7 @@ fn write_outputs(
         count.needed,
         month.next()
     );
-    append(path, &text)
+    output::append(path, &text)
 }
 
 struct Summary<'a> {
@@ -357,40 +349,24 @@ fn write_summary(path: &Path, summary: &Summary<'_>) -> Result<()> {
         }
         Decision::Start => {}
     }
-    append(path, &text)
+    output::append(path, &text)
 }
 
-#[derive(serde::Deserialize)]
-struct Issue {
-    number: u64,
-    title: String,
-}
-
-/// Opens the `needs-triage` issue, or comments on it when it is open, as a
-/// budget breach does (ADR 0061).
-fn open_issue(api: Api<'_>, repository: &str, run: u64, count: &Count) -> Result<()> {
+/// Opens the `needs-triage` issue, or brings it up to date, as a budget
+/// breach does (ADR 0061), found again by its marker.
+fn keep_issue(api: Api<'_>, repository: &str, run: &Run, count: &Count) -> Result<()> {
     let body = format!(
-        "Release run {run} estimated its hosted cells at {} Linux-equivalent minutes, past the ceiling of {CEILING} included minutes a month (ADR 0108). It started as the month's first Release run on `main` whose hosted cells start. Merge shards or speed up the tests (ADR 0061).",
-        count.estimate
+        "Release run {} estimated its hosted cells at {} Linux-equivalent minutes, past the ceiling of {CEILING} included minutes a month (ADR 0108). It started as the month's first Release run on `main` whose hosted cells start. Merge shards or speed up the tests (ADR 0061).",
+        run.id, count.estimate
     );
-    let open: Vec<Issue> = api
-        .get(&format!(
-            "/repos/{repository}/issues?labels={TRIAGE_LABEL}&state=open&per_page=100"
-        ))
-        .context("listing the open `needs-triage` issues")?;
-    match open.iter().find(|issue| issue.title == ISSUE_TITLE) {
-        Some(issue) => api.post(
-            &format!("/repos/{repository}/issues/{}/comments", issue.number),
-            &serde_json::json!({ "body": body }),
-        ),
-        None => api.post(
-            &format!("/repos/{repository}/issues"),
-            &serde_json::json!({
-                "title": ISSUE_TITLE,
-                "body": body,
-                "labels": [TRIAGE_LABEL],
-            }),
-        ),
-    }
-    .context("opening or updating the ceiling's `needs-triage` issue")
+    let mut issues = Issues::new(&api, repository);
+    issues
+        .keep(
+            Label::NeedsTriage,
+            ISSUE_KEY,
+            ISSUE_TITLE,
+            &body,
+            run.created_at,
+        )
+        .context("opening or updating the ceiling's `needs-triage` issue")
 }

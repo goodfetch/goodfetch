@@ -1,8 +1,9 @@
 //! Workflow files and composite actions: no step retries a test through a
 //! retry action, and no test step or job with one carries
-//! `continue-on-error`. Their commands and variables are read as commands
-//! are everywhere else. A test step's name starts with `Test` (TESTING.md, No
-//! retries), or its script runs a test runner.
+//! `continue-on-error`, and every step whose script runs a test runner is a
+//! test step by its name (`workflow::is_test_step`), so "all green" sees it
+//! fail. Their commands and variables are read as commands are everywhere
+//! else.
 
 use anyhow::{Context as _, Result};
 use serde_json::Value;
@@ -10,9 +11,7 @@ use serde_json::Value;
 use super::File;
 use super::commands::{self, Reading};
 use crate::check::Finding;
-
-/// The prefix that marks a test step.
-const TEST_STEP_PREFIX: &str = "Test";
+use crate::workflow;
 
 pub(super) fn check(file: &File, findings: &mut Vec<Finding>) -> Result<()> {
     let document: Value =
@@ -38,8 +37,18 @@ pub(super) fn check(file: &File, findings: &mut Vec<Finding>) -> Result<()> {
         let steps = job.get("steps").and_then(Value::as_array);
         let mut has_test_step = false;
         for step in steps.into_iter().flatten() {
-            let test_step = is_test_step(step);
+            let test_step = workflow::is_test_step(step_name(step));
             has_test_step |= test_step;
+            if !test_step && runs_test(step) {
+                findings.push(Finding::new(
+                    "unnamed-test-step",
+                    &file.path,
+                    format!(
+                        "step `{}` of job `{job_id}` runs a test runner, so its name starts with `Test` and \"all green\" sees it fail (ADR 0064)",
+                        step_name(step)
+                    ),
+                ));
+            }
             if let Some(action) = step.get("uses").and_then(Value::as_str)
                 && is_retry_action(action)
             {
@@ -77,12 +86,10 @@ fn step_name(step: &Value) -> &str {
     step.get("name").and_then(Value::as_str).unwrap_or_default()
 }
 
-fn is_test_step(step: &Value) -> bool {
-    step_name(step).starts_with(TEST_STEP_PREFIX)
-        || step
-            .get("run")
-            .and_then(Value::as_str)
-            .is_some_and(commands::script_runs_test)
+fn runs_test(step: &Value) -> bool {
+    step.get("run")
+        .and_then(Value::as_str)
+        .is_some_and(commands::script_runs_test)
 }
 
 /// An action whose repository's name holds `retry`, such as `nick-fields/retry`.

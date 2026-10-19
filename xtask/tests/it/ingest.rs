@@ -66,8 +66,8 @@ fn test_run(test: &str, runner: &str, outcome: &str, duration: f64) -> Value {
         "arch": "x64",
         "runtime": null,
         "shard": "1",
-        "commit": "c1",
-        "tree": "t1",
+        "commit": "c2",
+        "tree": "t2",
         "workflow": ".github/workflows/test-health.yml",
         "run": 42,
         "attempt": 2,
@@ -99,7 +99,7 @@ fn ingest_a_passing_third_attempt(workspace: &Workspace) {
             ("nextest-ci.xml", passing.as_bytes()),
             (
                 "context.json",
-                br#"{ "job": "quarantined", "order_seed": "99", "entropy_seed": null }"#,
+                br#"{ "commit": "c2", "tree": "t2", "job": "quarantined", "order_seed": "99", "entropy_seed": null }"#,
             ),
         ],
     );
@@ -183,6 +183,40 @@ fn daily_ingest_lists_the_finished_attempts_the_store_lacks() {
     assert_eq!(outcome.stdout, "50 2\n52 1\n");
 }
 
+/// A missed daily ingest, or a run queued for a day while the runner was
+/// offline, loses nothing: with no `--since`, the runs are listed from the
+/// day before the first of the store's newest month.
+#[test]
+fn daily_ingest_lists_from_the_stores_newest_month() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[
+            Attempt::new(50, "2026-09-20T09:00:00Z"),
+            Attempt::new(51, "2026-10-17T10:00:00Z"),
+        ],
+    );
+    let github = GitHub::serving(&[(
+        "/repos/goodfetch/goodfetch/actions/runs?status=completed&created=%3E%3D2026-09-30&per_page=100&page=1",
+        r#"{ "total_count": 2, "workflow_runs": [
+          { "id": 51, "run_attempt": 1 },
+          { "id": 53, "run_attempt": 1 }
+        ] }"#,
+    )]);
+
+    let outcome = workspace.xtask(&[
+        "results",
+        "pending",
+        "--store",
+        STORE,
+        "--api-url",
+        github.url(),
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "53 1\n");
+}
+
 /// A Release cell runs Vitest on each Node.js line and pytest on each
 /// Python version, one JUnit file each (`vitest-node24.xml`): the file's runtime
 /// joins the artifact's, so each is a configuration of its own; nextest's
@@ -207,7 +241,7 @@ fn runtime_of_a_runners_file_joins_its_artifacts() {
         &[
             (
                 "context.json",
-                br#"{ "job": "linux-x64-gnu", "order_seed": null, "entropy_seed": null }"#,
+                br#"{ "commit": "c2", "tree": "t2", "job": "linux-x64-gnu", "order_seed": null, "entropy_seed": null }"#,
             ),
             ("nextest-linux-x64-gnu.xml", nextest.as_bytes()),
             ("vitest-node24.xml", vitest.as_bytes()),
@@ -251,7 +285,7 @@ fn repeated_runs_become_one_record_each() {
         &[
             (
                 "context.json",
-                br#"{ "job": "rerun", "order_seed": null, "entropy_seed": null, "repeat": 3 }"#,
+                br#"{ "commit": "c2", "tree": "t2", "job": "rerun", "order_seed": null, "entropy_seed": null, "repeat": 3 }"#,
             ),
             ("pytest.xml", pytest.as_bytes()),
             ("vitest.xml", vitest.as_bytes()),
@@ -332,6 +366,35 @@ fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_in
         opened,
         vec![json!("Flaky test: sample tests::flaky (nextest)")]
     );
+}
+
+/// A run's head is not always what its jobs tested: a Release run tests the
+/// commit its `commit` input names, a pull-request run its merge commit. Each
+/// test run records the commit and tree its job checked out (`context.json`).
+#[test]
+fn test_runs_record_the_commit_and_tree_their_job_tested() {
+    let workspace = Workspace::from_fixture("results-ingest");
+    let github = GitHub::serving(&[
+        (ATTEMPT, RUN_ATTEMPT),
+        (JOBS, ATTEMPT_JOBS),
+        (ARTIFACTS, RUN_ARTIFACTS),
+    ]);
+
+    let outcome = ingest(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/10/42-2.tar.gz"));
+    let tested: std::collections::BTreeSet<(&str, &str)> = file
+        .test_runs
+        .iter()
+        .map(|run| {
+            (
+                run["commit"].as_str().unwrap(),
+                run["tree"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(tested, [("c2", "t2")].into());
 }
 
 #[test]

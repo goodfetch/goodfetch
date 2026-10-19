@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The rest of .github/actions/host-tools: pnpm at package.json's version, the
-# CPython lines of $RUNTIMES (one, ends or all; the free-threaded builds from
-# 3.14t join on Linux), recorded in GOODFETCH_PYTHONS, then `just fetch`,
+# CPython lines of $RUNTIMES (one, ends or all; the free-threaded build of
+# 3.14 joins on Linux) at ci/host/runtimes.env's exact versions, recorded in
+# GOODFETCH_PYTHONS, then `just fetch`,
 # every download before ADR 0043's deny. With ARCHITECTURE=x64 on Apple
 # silicon, the CPython builds are x86-64, run under Rosetta 2.
 set -euo pipefail
@@ -14,16 +15,19 @@ environment=${GITHUB_ENV:?the runner sets GITHUB_ENV}
 pnpm_version=$(sed -n 's/^  "packageManager": "pnpm@\(.*\)"$/\1/p' "$root/package.json")
 npm install --global "pnpm@$pnpm_version"
 
+pinned() { sed -n "s/^$1=//p" "$root/ci/host/runtimes.env"; }
+cpython_311=$(pinned CPYTHON_311) cpython_312=$(pinned CPYTHON_312)
+cpython_313=$(pinned CPYTHON_313) cpython_314=$(pinned CPYTHON_314)
 case "$runtimes" in
-  one) lines=(3.14) ;;
-  ends) lines=(3.11 3.14) ;;
-  all) lines=(3.11 3.12 3.13 3.14) ;;
+  one) lines=("$cpython_314") ;;
+  ends) lines=("$cpython_311" "$cpython_314") ;;
+  all) lines=("$cpython_311" "$cpython_312" "$cpython_313" "$cpython_314") ;;
   *)
     echo "error: the runtimes are one, ends or all, not $runtimes" >&2
     exit 2
     ;;
 esac
-[[ "$(uname -s)" == Linux ]] && lines+=(3.14t)
+[[ "$(uname -s)" == Linux ]] && lines+=("${cpython_314}t")
 
 pythons=()
 for line in "${lines[@]}"; do

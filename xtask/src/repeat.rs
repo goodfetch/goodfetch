@@ -13,9 +13,12 @@
 
 use std::num::NonZeroU32;
 use std::path::Path;
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 
+use crate::environment::Environment;
+use crate::output;
 use crate::quarantine::{self, Runner, TestId, alternation};
 
 /// The tests to repeat: the given ones, or the oldest quarantined ones.
@@ -26,7 +29,7 @@ pub(crate) enum Selection {
 }
 
 /// A `--test` value, `<runner>=<test ID>`.
-pub(crate) fn parse_test(value: &str) -> Result<(Runner, TestId)> {
+fn parse_test(value: &str) -> Result<(Runner, TestId)> {
     let (runner, id) = value
         .split_once('=')
         .with_context(|| format!("`{value}` is not `<runner>=<test ID>`"))?;
@@ -88,17 +91,13 @@ pub(crate) fn arguments(
         arguments.push(("vitest", format!("--testNamePattern=^(?:{names})$")));
     }
 
-    // Playwright matches its pattern against the project, the file and the
-    // titles joined by spaces.
     let playwright = of(Runner::Playwright);
     if !playwright.is_empty() {
-        let paths = alternation(
-            playwright
-                .iter()
-                .map(|test| test.as_str().replace(" › ", " ")),
-        );
         arguments.push(("playwright", format!("--repeat-each={count}")));
-        arguments.push(("playwright", format!("--grep=(?:^| )(?:{paths})(?: |$)")));
+        arguments.push((
+            "playwright",
+            format!("--grep={}", quarantine::playwright_pattern(&playwright)),
+        ));
     }
 
     let pytest = of(Runner::Pytest);
@@ -109,4 +108,29 @@ pub(crate) fn arguments(
         }
     }
     Ok(arguments)
+}
+
+/// `xtask repeat`'s arguments: `--test`, repeatable, or `--quarantined`.
+#[derive(clap::Args)]
+#[command(group(clap::ArgGroup::new("tests").required(true).args(["test", "quarantined"])))]
+pub(crate) struct Arguments {
+    #[arg(long)]
+    count: NonZeroU32,
+    /// A test, as `<runner>=<test ID>` (the quarantine list's IDs).
+    #[arg(long, value_parser = parse_test)]
+    test: Vec<(Runner, TestId)>,
+    /// The quarantine list's oldest entries, at most this many.
+    #[arg(long)]
+    quarantined: Option<usize>,
+}
+
+pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<ExitCode> {
+    let selection = match arguments.quarantined {
+        Some(limit) => Selection::Quarantined(limit),
+        None => Selection::Tests(arguments.test),
+    };
+    for (runner, argument) in self::arguments(&environment.root, selection, arguments.count)? {
+        output::line(&format!("{runner}\t{argument}"));
+    }
+    Ok(ExitCode::SUCCESS)
 }

@@ -1,0 +1,9 @@
+[package]
+name = "declares-it"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+unused-dependency = { path = "../unused-dependency" }

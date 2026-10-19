@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use super::budget::{Bytes, Kind, Product};
+use goodfetch_protocol::catalog::Product;
+
+use super::budget::{Bytes, Kind};
 
 /// The Cargo profile the files were built with.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -62,8 +64,8 @@ pub(crate) struct Measured {
 impl Measured {
     pub(crate) fn id(&self) -> String {
         match &self.target {
-            Some(target) => format!("{}/{target}/{}", self.product.key(), self.name),
-            None => format!("{}/{}", self.product.key(), self.name),
+            Some(target) => format!("{}/{target}/{}", self.product.as_str(), self.name),
+            None => format!("{}/{}", self.product.as_str(), self.name),
         }
     }
 }

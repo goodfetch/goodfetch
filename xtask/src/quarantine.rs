@@ -18,19 +18,20 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::num::NonZeroU64;
 use std::path::Path;
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use toml::value::Datetime;
 
 use crate::check::Finding;
-use crate::github::Api;
+use crate::environment::Environment;
+use crate::github::{self, Api};
+use crate::issues::Label as IssueLabel;
+use crate::output;
 
 /// The list's file, at the workspace's root.
 pub(crate) const LIST: &str = "quarantine.toml";
-
-/// The label every quarantined test's issue carries (ADR 0064).
-const FLAKY_TEST_LABEL: &str = "flaky-test";
 
 /// A test runner whose tests the list may name.
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -130,12 +131,7 @@ impl TryFrom<RawEntry> for Entry {
     type Error = anyhow::Error;
 
     fn try_from(raw: RawEntry) -> Result<Self> {
-        if raw.id.trim().is_empty() {
-            bail!("an entry has an empty test ID");
-        }
-        if raw.runner == Runner::Nextest && !raw.id.contains(' ') {
-            bail!("nextest test `{}` is not `<binary ID> <test name>`", raw.id);
-        }
+        let test = TestId::parse(raw.runner, &raw.id)?;
         if raw.date.date.is_none() || raw.date.time.is_some() {
             bail!(
                 "test `{}` has a date with a time; give the day only",
@@ -144,7 +140,7 @@ impl TryFrom<RawEntry> for Entry {
         }
         Ok(Self {
             runner: raw.runner,
-            test: TestId(raw.id),
+            test,
             issue: raw.issue,
             date: raw.date,
         })
@@ -209,7 +205,7 @@ pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> 
                 if !issue
                     .labels
                     .iter()
-                    .any(|label| label.name == FLAKY_TEST_LABEL) =>
+                    .any(|label| label.name == IssueLabel::FlakyTest.name()) =>
             {
                 Some((
                     "quarantine-issue-not-flaky-test",
@@ -298,14 +294,11 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
         arguments.push(("vitest", format!("--testNamePattern=^(?!(?:{names})$)")));
     }
 
-    // Playwright matches its pattern against the project, the file and the
-    // titles joined by spaces.
     let playwright = tests(Runner::Playwright);
     if !playwright.is_empty() {
-        let paths = alternation(playwright.iter().map(|test| test.0.replace(" › ", " ")));
         arguments.push((
             "playwright",
-            format!("--grep-invert=(?:^| )(?:{paths})(?: |$)"),
+            format!("--grep-invert={}", playwright_pattern(&playwright)),
         ));
     }
 
@@ -313,6 +306,13 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
         arguments.push(("pytest", format!("--deselect={test}")));
     }
     Ok(arguments)
+}
+
+/// The pattern that matches exactly `tests` of Playwright, which matches a
+/// pattern against the project, the file and the titles joined by spaces.
+pub(crate) fn playwright_pattern(tests: &[&TestId]) -> String {
+    let paths = alternation(tests.iter().map(|test| test.0.replace(" › ", " ")));
+    format!("(?:^| )(?:{paths})(?: |$)")
 }
 
 /// The texts as a JavaScript regular expression's alternatives, each literal.
@@ -328,4 +328,46 @@ pub(crate) fn alternation(texts: impl Iterator<Item = String>) -> String {
         })
         .collect::<Vec<_>>()
         .join("|")
+}
+
+/// `xtask quarantine`'s commands.
+#[derive(clap::Subcommand)]
+pub(crate) enum Command {
+    /// Fails on an entry whose issue is not an open `flaky-test` issue, or
+    /// whose test its runner no longer lists.
+    Check {
+        /// The repository whose issues the entries name, and GitHub's API.
+        #[command(flatten)]
+        github: github::Arguments,
+        /// The Cargo profile nextest builds its listing with.
+        #[arg(long)]
+        cargo_profile: Option<String>,
+    },
+    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
+    /// runner skip the listed tests.
+    Exclude,
+}
+
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let root = environment.root.as_path();
+    match command {
+        Command::Check {
+            github,
+            cargo_profile,
+        } => {
+            let sources = Sources {
+                api: github.api(environment.token()),
+                repository: &github.repository,
+                cargo: &environment.cargo,
+                cargo_profile: cargo_profile.as_deref(),
+            };
+            Ok(crate::check::report(&check(root, &sources)?))
+        }
+        Command::Exclude => {
+            for (runner, argument) in exclusions(root)? {
+                output::line(&format!("{runner}\t{argument}"));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
 }

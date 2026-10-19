@@ -19,18 +19,31 @@ mod measure;
 mod pull_request;
 mod table;
 
-use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::check::{self, Finding};
-use crate::output;
+use crate::environment::Environment;
+use crate::{github, output};
 
 use compare::{Row, Verdict};
+
+/// The file that holds the absolute ceilings, relative to the repository.
+pub(crate) const BUDGET_FILE: &str = "xtask/src/perf/budget.rs";
+
+/// The crates whose benchmarks an absolute ceiling reads, so a change to the
+/// ceilings selects their bench targets (`xtask affected`).
+pub(crate) fn ceilinged_crates() -> std::collections::BTreeSet<&'static str> {
+    budget::ceilings()
+        .flat_map(budget::Ceiling::subjects)
+        .filter_map(|subject| subject.split_once('/').map(|(package, _)| package))
+        .filter(|package| *package != "size-limit")
+        .collect()
+}
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
@@ -70,11 +83,8 @@ pub(crate) enum Command {
         /// A commit of `main`: the pull request that merged it.
         #[arg(long)]
         commit: Option<String>,
-        /// The repository, as `owner/name`.
-        #[arg(long)]
-        repository: String,
-        #[arg(long, default_value = "https://api.github.com")]
-        api_url: String,
+        #[command(flatten)]
+        github: github::Arguments,
         #[arg(long)]
         save: PathBuf,
     },
@@ -85,11 +95,8 @@ pub(crate) enum Command {
         /// The results store's checkout.
         #[arg(long)]
         store: PathBuf,
-        /// The repository, as `owner/name`.
-        #[arg(long)]
-        repository: String,
-        #[arg(long, default_value = "https://api.github.com")]
-        api_url: String,
+        #[command(flatten)]
+        github: github::Arguments,
     },
 }
 
@@ -130,12 +137,8 @@ pub(crate) struct Reports {
     save: Option<PathBuf>,
 }
 
-pub(crate) fn run(
-    command: Command,
-    root: &Path,
-    cargo: &OsStr,
-    token: Option<&str>,
-) -> Result<ExitCode> {
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let (root, cargo) = (environment.root.as_path(), environment.cargo.as_os_str());
     match command {
         Command::Build {
             base,
@@ -169,8 +172,7 @@ pub(crate) fn run(
         Command::PullRequest {
             number,
             commit,
-            repository,
-            api_url,
+            github,
             save,
         } => {
             // clap requires one of `--number` and `--commit`.
@@ -179,23 +181,13 @@ pub(crate) fn run(
                 (None, Some(commit)) => pull_request::Source::MergedCommit(commit),
                 (None, None) => anyhow::bail!("give --number or --commit"),
             };
-            let api = crate::github::Api {
-                url: &api_url,
-                token,
-            };
-            pull_request::save(api, &repository, &source, &root.join(save))?;
+            let api = github.api(environment.token());
+            pull_request::save(api, &github.repository, &source, &root.join(save))?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Drift {
-            store,
-            repository,
-            api_url,
-        } => drift::check(
-            &crate::github::Api {
-                url: &api_url,
-                token,
-            },
-            &repository,
+        Command::Drift { store, github } => drift::check(
+            &github.api(environment.token()),
+            &github.repository,
             &root.join(store),
         ),
     }
@@ -243,7 +235,7 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
     let text = text.trim_end();
     output::line(text);
     if let Some(summary) = &reports.summary {
-        append(&root.join(summary), text)?;
+        output::append(&root.join(summary), &format!("{text}\n"))?;
     }
     let mut findings: Vec<Finding> = rows.iter().filter_map(finding).collect();
     findings.extend(ceilings::findings(&ceilings));
@@ -269,14 +261,4 @@ fn finding(row: &Row) -> Option<Finding> {
         | Verdict::New
         | Verdict::Accepted => None,
     }
-}
-
-fn append(path: &Path, text: &str) -> Result<()> {
-    use std::io::Write as _;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    writeln!(file, "{text}").with_context(|| format!("writing {}", path.display()))
 }

@@ -17,10 +17,13 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
-# The checkout keeps no credential; the token goes in this command's header only.
+# The checkout keeps no credential; the token goes in the push's and pull's
+# header only, through git's configuration variables rather than its command
+# line, which other processes can read.
 authorization="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
 remote() {
-  git -c "http.https://github.com/.extraheader=$authorization" "$@"
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+    GIT_CONFIG_VALUE_0="$authorization" git "$@"
 }
 
 # The store's commits, and their rebases, are the workflow's own.

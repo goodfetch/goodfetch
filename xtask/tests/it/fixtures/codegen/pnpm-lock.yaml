@@ -1,0 +1,10 @@
+---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    devDependencies:
+      json-schema-to-typescript:
+        specifier: 16.0.0
+        version: 16.0.0

@@ -4,8 +4,9 @@
 //! step, read through GitHub's attempts API: a job is re-run only when no test
 //! step failed in it (ADR 0064).
 //!
-//! A test step is a step whose name starts with `Test` (TESTING.md, No
-//! retries); every step that runs a suite or a test runner is named so.
+//! A test step is one `workflow::is_test_step` names (TESTING.md, No
+//! retries); `xtask no-retry` refuses a step that runs a suite or a test
+//! runner under another name.
 //!
 //! A job `xtask affected` did not select is skipped, and passes: the
 //! `affected` job's `jobs` output lists the selected jobs' IDs (ADR 0032).
@@ -16,31 +17,27 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::affected;
 use crate::check::Finding;
-use crate::github::Api;
+use crate::environment::Environment;
+use crate::github::{self, Api, List};
+use crate::workflow;
 
 /// The change-detection job, whose `jobs` output is the selection.
 const AFFECTED_JOB: &str = "affected";
 
-/// The prefix that marks a test step.
-const TEST_STEP_PREFIX: &str = "Test";
-
-/// GitHub's largest page of jobs.
-const PAGE_SIZE: usize = 100;
-
-pub(crate) struct Run<'a> {
-    pub(crate) api_url: &'a str,
-    pub(crate) token: Option<&'a str>,
-    pub(crate) repository: &'a str,
-    pub(crate) id: u64,
+struct Run<'a> {
+    api: Api<'a>,
+    repository: &'a str,
+    id: u64,
     /// This attempt's number, from 1.
-    pub(crate) attempt: u32,
+    attempt: u32,
 }
 
 /// One entry of `${{ toJSON(needs) }}`.
@@ -49,12 +46,6 @@ struct Need {
     result: String,
     #[serde(default)]
     outputs: BTreeMap<String, String>,
-}
-
-#[derive(Deserialize)]
-struct JobsPage {
-    total_count: usize,
-    jobs: Vec<Job>,
 }
 
 #[derive(Deserialize)]
@@ -70,7 +61,7 @@ struct Step {
     conclusion: Option<String>,
 }
 
-pub(crate) fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
+fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
     let text = std::fs::read_to_string(needs_file)
         .with_context(|| format!("reading {}", needs_file.display()))?;
     let needs: BTreeMap<String, Need> =
@@ -93,8 +84,7 @@ pub(crate) fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
     for attempt in 1..run.attempt {
         for job in attempt_jobs(run, attempt)? {
             let failed_test_step = job.steps.iter().any(|step| {
-                step.name.starts_with(TEST_STEP_PREFIX)
-                    && step.conclusion.as_deref() == Some("failure")
+                workflow::is_test_step(&step.name) && step.conclusion.as_deref() == Some("failure")
             });
             if failed_test_step {
                 findings.push(Finding::new(
@@ -133,23 +123,41 @@ fn not_selected(needs: &BTreeMap<String, Need>) -> Result<BTreeSet<&str>> {
 }
 
 fn attempt_jobs(run: &Run<'_>, attempt: u32) -> Result<Vec<Job>> {
-    let api = Api {
-        url: run.api_url,
-        token: run.token,
-    };
-    let mut jobs = Vec::new();
-    for page in 1.. {
-        let page: JobsPage = api
-            .get(&format!(
-                "/repos/{}/actions/runs/{}/attempts/{attempt}/jobs?per_page={PAGE_SIZE}&page={page}",
+    run.api
+        .get_all(
+            &format!(
+                "/repos/{}/actions/runs/{}/attempts/{attempt}/jobs",
                 run.repository, run.id,
-            ))
-            .with_context(|| format!("reading the jobs of attempt {attempt}"))?;
-        let last = page.jobs.len() < PAGE_SIZE;
-        jobs.extend(page.jobs);
-        if last || jobs.len() >= page.total_count {
-            break;
-        }
-    }
-    Ok(jobs)
+            ),
+            List::In("jobs"),
+        )
+        .with_context(|| format!("reading the jobs of attempt {attempt}"))
+}
+
+/// `xtask all-green`'s arguments.
+#[derive(clap::Args)]
+pub(crate) struct Arguments {
+    /// A file holding the workflow's `${{ toJSON(needs) }}`.
+    #[arg(long)]
+    needs: PathBuf,
+    #[command(flatten)]
+    github: github::Arguments,
+    #[arg(long)]
+    run_id: u64,
+    /// This run attempt's number.
+    #[arg(long)]
+    attempt: u32,
+}
+
+pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    let run = Run {
+        api: arguments.github.api(environment.token()),
+        repository: &arguments.github.repository,
+        id: arguments.run_id,
+        attempt: arguments.attempt,
+    };
+    Ok(crate::check::report(&check(
+        &environment.path(&arguments.needs),
+        &run,
+    )?))
 }

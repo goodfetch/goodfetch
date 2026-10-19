@@ -20,8 +20,12 @@ pub(crate) struct Attempt {
     pub(crate) started_at: &'static str,
     pub(crate) test_runs: Vec<Value>,
     pub(crate) jobs: Vec<Value>,
-    /// The commit the attempt tested, and the branch and event of its run.
+    /// The commit the attempt's jobs tested, which each kept artifact's
+    /// `context.json` names, and the branch and event of its run.
     pub(crate) commit: &'static str,
+    /// The run's head, when it is not the commit its jobs tested, as for a
+    /// Release run given a `commit`.
+    pub(crate) head: Option<&'static str>,
     pub(crate) branch: Option<&'static str>,
     pub(crate) event: &'static str,
     /// Files kept beside the JUnit files: `(<artifact>/<file>, contents)`,
@@ -39,6 +43,7 @@ impl Attempt {
             test_runs: Vec::new(),
             jobs: Vec::new(),
             commit: "c0",
+            head: None,
             branch: Some("main"),
             event: "schedule",
             kept: Vec::new(),
@@ -104,7 +109,7 @@ pub(crate) fn write_store(workspace: &Workspace, attempts: &[Attempt]) {
             "attempt": attempt.number,
             "event": attempt.event,
             "branch": attempt.branch,
-            "commit": attempt.commit,
+            "commit": attempt.head.unwrap_or(attempt.commit),
             "tree": "0",
             "started_at": attempt.started_at,
         });
@@ -127,8 +132,21 @@ pub(crate) fn write_store(workspace: &Workspace, attempts: &[Attempt]) {
         add(&mut archive, "run.json", run.to_string().as_bytes());
         add(&mut archive, "test-runs.jsonl", &lines(&test_runs));
         add(&mut archive, "jobs.jsonl", &lines(&attempt.jobs));
+        let mut artifacts = std::collections::BTreeSet::new();
         for (path, contents) in &attempt.kept {
             add(&mut archive, &format!("junit/{path}"), contents);
+            artifacts.extend(path.split_once('/').map(|(artifact, _)| artifact));
+        }
+        for artifact in artifacts {
+            let context = json!({
+                "commit": attempt.commit, "tree": "0", "job": "fixture",
+                "order_seed": null, "entropy_seed": null,
+            });
+            add(
+                &mut archive,
+                &format!("junit/{artifact}/context.json"),
+                context.to_string().as_bytes(),
+            );
         }
         let bytes = archive.into_inner().unwrap().finish().unwrap();
         workspace.write(&name, &bytes);

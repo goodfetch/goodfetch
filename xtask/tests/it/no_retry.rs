@@ -185,6 +185,18 @@ fn workspace_whose_runners_never_retry_passes() {
     "chromium/expectations.txt",
     "retry-expectation"
 )]
+// "all green" refuses a re-run only after a failed step named `Test…`
+// (ADR 0064), so a step that runs a test runner must be named so.
+#[case::runner_step_without_a_test_name(
+    "workflows/runner-step-without-a-test-name.yml",
+    ".github/workflows/pull-request.yml",
+    "unnamed-test-step"
+)]
+#[case::miri_step_without_a_test_name(
+    "workflows/miri-step-without-a-test-name.yml",
+    ".github/workflows/pull-request.yml",
+    "unnamed-test-step"
+)]
 fn refused_retry_fails(#[case] case: &str, #[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("no-retry");
     workspace.add_fixture_file(&format!("no-retry-cases/{case}"), path);

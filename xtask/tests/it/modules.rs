@@ -87,6 +87,60 @@ fn modules_file_that_does_not_match_the_crate_fails(
     assert_eq!(outcome.code, 1);
 }
 
+/// A module's `[submodules.<module>]` table holds its own submodules to the
+/// same rules (ADR 0126).
+#[rstest]
+#[case::through_a_crate_path("policy-uses-backoff.rs")]
+#[case::through_super("policy-reaches-backoff-through-super.rs")]
+fn submodule_import_the_table_does_not_allow_fails(#[case] case: &str) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.add_fixture_file(
+        &format!("modules-cases/{case}"),
+        "crates/goodfetch-engine/src/retry/policy.rs",
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/retry::policy->backoff"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[rstest]
+#[case::submodule_missing_from_the_table(
+    "unlisted-submodule.toml",
+    "module-not-listed",
+    "goodfetch-engine/retry::policy"
+)]
+#[case::name_that_is_no_submodule(
+    "unknown-submodule.toml",
+    "unknown-module",
+    "goodfetch-engine/retry::jitter"
+)]
+#[case::cycle_among_allowed_submodule_imports(
+    "submodule-cycle.toml",
+    "import-cycle",
+    "goodfetch-engine/retry"
+)]
+fn submodule_table_that_does_not_match_the_module_fails(
+    #[case] case: &str,
+    #[case] kind: &str,
+    #[case] subject: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.add_fixture_file(&format!("modules-cases/{case}"), MODULES_FILE);
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![finding(kind, subject)]);
+    assert_eq!(outcome.code, 1);
+}
+
 #[test]
 fn crate_without_a_modules_file_fails() {
     let workspace = Workspace::from_fixture("modules");

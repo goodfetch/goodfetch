@@ -266,6 +266,26 @@ fn console_build_over_1_mb_brotli_fails(#[case] entry: &str) {
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
 }
 
+/// A size over its ceiling never shows as at it: brotli kB round up.
+#[test]
+fn console_build_5_bytes_over_its_ceiling_shows_over_it() {
+    let workspace = Workspace::from_fixture("empty");
+    write_bundles(
+        &workspace,
+        &[("collie-console", 999_000)],
+        &[("collie-console", 1_000_005)],
+    );
+
+    let outcome = compare(&workspace, &BUNDLES);
+
+    let row = outcome
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("| size-limit/collie-console | brotli |"))
+        .unwrap_or_default();
+    assert!(row.contains("| 1000.01 kB |"), "{}", outcome.stdout);
+}
+
 #[test]
 fn console_build_of_exactly_1_mb_brotli_passes() {
     let workspace = Workspace::from_fixture("empty");
@@ -363,6 +383,10 @@ fn tripped_figure_listed_and_accepted_on_the_head_passes(#[case] comment: &str) 
     &format!("Performance change accepted for {HEAD_SHA}.")
 )]
 #[case::no_acceptance(SECTION, &format!("Looks fine at {HEAD_SHA}."))]
+#[case::section_line_without_a_reason(
+    "## Performance change\n\n- goodfetch-frontier/instructions::frontier::push instructions: +5.10%\n",
+    &format!("Performance change accepted for {HEAD_SHA}.")
+)]
 fn tripped_figure_without_a_matching_acceptance_fails(#[case] body: &str, #[case] comment: &str) {
     let workspace = Workspace::from_fixture("empty");
     write_gungraun(

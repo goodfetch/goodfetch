@@ -1,7 +1,7 @@
 //! The Quick-suite check that every workflow job is declared under or outside
 //! the deny, and that a job under it denies before its first test step, runs
 //! the Egress canary right after, and checks the deny's log at its end
-//! (ADR 0043). A test step is one whose name starts with "Test" (TESTING.md).
+//! (ADR 0043). A test step is one `workflow::is_test_step` names.
 
 use std::path::Path;
 
@@ -29,9 +29,7 @@ fn runs(step: &Step, script: &str) -> bool {
 }
 
 fn is_test(step: &Step) -> bool {
-    step.name
-        .as_deref()
-        .is_some_and(|name| name.starts_with("Test"))
+    step.name.as_deref().is_some_and(workflow::is_test_step)
 }
 
 fn always(step: &Step) -> bool {

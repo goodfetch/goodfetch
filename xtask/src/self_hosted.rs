@@ -9,11 +9,14 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::check::Finding;
+use crate::environment::Environment;
+use crate::output;
 use crate::workflow::{self, Runner};
 
 pub(crate) const ALLOWLIST: &str = ".github/self-hosted-allowlist.toml";
@@ -127,4 +130,24 @@ pub(crate) fn export(root: &Path) -> Result<String> {
         }
     }
     Ok(lines.join("\n"))
+}
+
+/// `xtask self-hosted`'s commands.
+#[derive(Clone, Copy, clap::Subcommand)]
+pub(crate) enum Command {
+    /// Fails on any job that may reach a self-hosted runner off the allowlist.
+    Check,
+    /// Prints the flat copy of the allowlist that the pre-job script reads.
+    Export,
+}
+
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let root = environment.root.as_path();
+    match command {
+        Command::Check => Ok(crate::check::report(&check(root)?)),
+        Command::Export => {
+            output::line(&export(root)?);
+            Ok(ExitCode::SUCCESS)
+        }
+    }
 }

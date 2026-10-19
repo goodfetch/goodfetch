@@ -1,4 +1,7 @@
 //! A fixture workspace in its own temporary folder, and `xtask` run on it.
+//! Its per-test folder and cleared-environment commands stay here until the
+//! Test infrastructure spec fills `goodfetch-test-support` (TESTING.md,
+//! Shared helpers), whose interface that spec designs.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -186,12 +189,6 @@ impl Workspace {
         self.git(&["init", "--quiet"]);
         self.git(&["add", "--all"]);
         self.git(&[
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "-c",
-            "commit.gpgsign=false",
             "commit",
             "--quiet",
             "--no-verify",

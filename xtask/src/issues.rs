@@ -1,8 +1,9 @@
-//! The issues the results store's readers keep: one per flaky test or Live
-//! check (`xtask results scan`) and one per drifting performance figure
-//! (`xtask perf drift`), found again by a marker line in its body, so its
-//! title can be edited. A new one goes to
-//! the current milestone, the earliest open milestone with an open issue
+//! The issues the checks keep: one per flaky test or Live check (`xtask
+//! results scan`), one per drifting performance figure (`xtask perf drift`)
+//! and one for a Release run past the minute ceiling (`xtask release-suite
+//! plan`), each found again by a marker line in its body, so its title can
+//! be edited. A new one goes to the current milestone, the earliest open
+//! milestone with an open issue
 //! (docs/agents/issue-tracker.md, Frontier); an open one gets the current
 //! results; a closed one reopens only for a result after it closed.
 
@@ -11,10 +12,7 @@ use jiff::Timestamp;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::github::{Api, Write};
-
-/// GitHub's largest page.
-const PAGE: usize = 100;
+use crate::github::{Api, List, Write};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Label {
@@ -24,7 +22,7 @@ pub(crate) enum Label {
 }
 
 impl Label {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::FlakyTest => "flaky-test",
             Self::LiveCheck => "live-check",
@@ -168,24 +166,13 @@ impl<'a> Issues<'a> {
 
     fn issues(&mut self, label: Label) -> Result<&[Issue]> {
         if !self.listed.iter().any(|(listed, _)| *listed == label) {
-            let mut issues = Vec::new();
-            for page in 1.. {
-                let path = format!(
-                    "/repos/{}/issues?labels={}&state=all&per_page={PAGE}&page={page}",
-                    self.repository,
-                    label.name()
-                );
-                let listed: Vec<Issue> = self.api.get(&path)?;
-                let full = listed.len() == PAGE;
-                issues.extend(
-                    listed
-                        .into_iter()
-                        .filter(|issue| issue.pull_request.is_none()),
-                );
-                if !full {
-                    break;
-                }
-            }
+            let path = format!(
+                "/repos/{}/issues?labels={}&state=all",
+                self.repository,
+                label.name()
+            );
+            let mut issues: Vec<Issue> = self.api.get_all(&path, List::Array)?;
+            issues.retain(|issue| issue.pull_request.is_none());
             self.listed.push((label, issues));
         }
         Ok(self
@@ -201,19 +188,13 @@ impl<'a> Issues<'a> {
         if let CurrentMilestone::Read(milestone) = self.milestone {
             return Ok(milestone);
         }
-        let mut milestones = Vec::new();
-        for page in 1.. {
-            let path = format!(
-                "/repos/{}/milestones?state=open&per_page={PAGE}&page={page}",
-                self.repository
-            );
-            let listed: Vec<Milestone> = self.api.get(&path).context("reading the milestones")?;
-            let full = listed.len() == PAGE;
-            milestones.extend(listed);
-            if !full {
-                break;
-            }
-        }
+        let milestones: Vec<Milestone> = self
+            .api
+            .get_all(
+                &format!("/repos/{}/milestones?state=open", self.repository),
+                List::Array,
+            )
+            .context("reading the milestones")?;
         let current = milestones
             .iter()
             .filter(|milestone| milestone.open_issues > 0)

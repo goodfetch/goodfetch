@@ -168,11 +168,7 @@ fn rules_with_nothing_resolved_accept_no_address() {
         "501",
     ]);
 
-    assert!(
-        outcome
-            .stdout
-            .contains("\tset allowed_ipv4 {\n\t\ttype ipv4_addr . inet_service\n\t}\n")
-    );
+    insta::assert_snapshot!(outcome.stdout);
     assert_eq!(outcome.code, 0);
 }
 

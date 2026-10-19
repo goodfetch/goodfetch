@@ -59,31 +59,43 @@ impl Name {
     }
 
     fn pypi(text: &str) -> Self {
-        let mut normalized = String::with_capacity(text.len());
-        let mut separator = false;
-        for character in text.chars() {
-            if matches!(character, '-' | '_' | '.') {
-                separator = true;
-            } else {
-                if separator && !normalized.is_empty() {
-                    normalized.push('-');
-                }
-                separator = false;
-                normalized.push(character.to_ascii_lowercase());
-            }
-        }
         Self {
             registry: Registry::PyPi,
-            text: normalized,
+            text: pep503(text),
         }
     }
 }
 
+/// A Python distribution's name normalized by PEP 503: lowercase, each run
+/// of `-`, `_` and `.` one `-`, which `xtask affected` reads names by too.
+pub(crate) fn pep503(text: &str) -> String {
+    let mut normalized = String::with_capacity(text.len());
+    let mut separator = false;
+    for character in text.chars() {
+        if matches!(character, '-' | '_' | '.') {
+            separator = true;
+        } else {
+            if separator && !normalized.is_empty() {
+                normalized.push('-');
+            }
+            separator = false;
+            normalized.push(character.to_ascii_lowercase());
+        }
+    }
+    normalized
+}
+
+/// What a manifest declares: the package's name and its dependencies.
+struct Declared {
+    name: Name,
+    dependencies: Vec<Name>,
+}
+
+/// A package with the side its folder gives it.
 struct Package {
     manifest: String,
-    name: Name,
     side: Side,
-    dependencies: Vec<Name>,
+    declared: Declared,
 }
 
 #[derive(Deserialize)]
@@ -118,11 +130,15 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut packages = Vec::new();
     for folder in ROOTS {
         for manifest in tree::files(root, folder)? {
-            let Some(package) = read(root, &manifest)? else {
+            let Some(declared) = read(root, &manifest)? else {
                 continue;
             };
             match side(&manifest) {
-                Some(side) => packages.push(Package { side, ..package }),
+                Some(side) => packages.push(Package {
+                    manifest,
+                    side,
+                    declared,
+                }),
                 None => findings.push(Finding::new(
                     "package-of-no-product",
                     manifest,
@@ -133,10 +149,10 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     }
     let sides: BTreeMap<&Name, Side> = packages
         .iter()
-        .map(|package| (&package.name, package.side))
+        .map(|package| (&package.declared.name, package.side))
         .collect();
     for package in &packages {
-        for dependency in &package.dependencies {
+        for dependency in &package.declared.dependencies {
             let Some(&target) = sides.get(dependency) else {
                 continue;
             };
@@ -148,7 +164,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
             };
             findings.push(Finding::new(
                 kind,
-                &package.name.text,
+                &package.declared.name.text,
                 format!(
                     "{} depends on `{}`, against ADR 0095's package rule",
                     package.manifest, dependency.text
@@ -159,21 +175,18 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     Ok(findings)
 }
 
-/// The package a manifest declares, or `None` when the file is no manifest.
-/// Its side is set by the caller.
-fn read(root: &Path, manifest: &str) -> Result<Option<Package>> {
+/// What a manifest declares, or `None` when the file is no manifest.
+fn read(root: &Path, manifest: &str) -> Result<Option<Declared>> {
     let file_name = manifest.rsplit('/').next().unwrap_or(manifest);
     let read_text = || {
         std::fs::read_to_string(root.join(manifest)).with_context(|| format!("reading {manifest}"))
     };
-    let package = match file_name {
+    let declared = match file_name {
         "package.json" => {
             let json: PackageJson = serde_json::from_str(&read_text()?)
                 .with_context(|| format!("reading {manifest}"))?;
-            Package {
-                manifest: manifest.to_owned(),
+            Declared {
                 name: Name::npm(&json.name),
-                side: Side::Client,
                 dependencies: json
                     .dependencies
                     .keys()
@@ -187,10 +200,8 @@ fn read(root: &Path, manifest: &str) -> Result<Option<Package>> {
             let toml: PyProject =
                 toml::from_str(&read_text()?).with_context(|| format!("reading {manifest}"))?;
             let project = toml.project;
-            Package {
-                manifest: manifest.to_owned(),
+            Declared {
                 name: Name::pypi(&project.name),
-                side: Side::Client,
                 dependencies: project
                     .dependencies
                     .iter()
@@ -201,7 +212,7 @@ fn read(root: &Path, manifest: &str) -> Result<Option<Package>> {
         }
         _ => return Ok(None),
     };
-    Ok(Some(package))
+    Ok(Some(declared))
 }
 
 /// The distribution a PEP 508 requirement names: what comes before its

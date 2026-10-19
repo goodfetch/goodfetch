@@ -19,7 +19,7 @@ link = ".github/workflows/pull-request.yml#quick"
 [[exception]]
 feature = "story:1-50"
 evidence = "check"
-reason = "`just` is the entry point CI calls: every job of the pull-request tier runs a `just` recipe."
+reason = "`just` is the entry point for every suite and gate CI runs: the Quick, Pre-merge, visual and supply-chain jobs run `just` recipes (the Quick job `just quick all` in its two parts around the egress deny). The affected, perf and all-green jobs call the `xtask` commands those recipes call, since each splits a check around the deny or reads the run's own context."
 link = ".github/workflows/pull-request.yml#quick"
 
 [[exception]]
@@ -73,5 +73,23 @@ link = ".github/workflows/pull-request.yml#quick"
 [[exception]]
 feature = "story:1-105"
 evidence = "check"
-reason = "`just quick`, `just pre-merge` and `just release` are the commands CI runs, and each lists the parts it skipped on its host."
+reason = "`just quick`, `just pre-merge` and `just release` list the parts they could not run on their host, with the reason, even when a part fails; CI runs their parts as separate steps and jobs, and its Quick job lists the parts it skipped."
 link = ".github/workflows/pull-request.yml#quick"
+
+[[exception]]
+feature = "story:1-106"
+evidence = "none"
+reason = "Not built: no M1 ticket runs a pull request's new and changed tests 20 times yet (TESTING.md, Before merge). The order is already random and seeded from the tree under test; the 20 runs need their own ticket under spec #130."
+link = "https://github.com/goodfetch/goodfetch/issues/130"
+
+[[exception]]
+feature = "story:1-109"
+evidence = "none"
+reason = "Not built yet: the Feature check and the in-diff mutation report are #321's."
+link = "https://github.com/goodfetch/goodfetch/issues/321"
+
+[[exception]]
+feature = "story:1-112"
+evidence = "none"
+reason = "Not built yet: scanning logs, reports, artifacts and commits for secrets, and pinning every workflow's images by digest, are #317's."
+link = "https://github.com/goodfetch/goodfetch/issues/317"

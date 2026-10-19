@@ -1,9 +1,12 @@
 //! Retries.
 
+mod backoff;
+mod policy;
+
 use crate::clock;
 
 pub(crate) fn retry() -> u64 {
-    clock::now()
+    clock::now() + backoff::delay()
 }
 
 #[cfg(test)]

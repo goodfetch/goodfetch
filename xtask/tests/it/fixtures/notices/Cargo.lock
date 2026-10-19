@@ -6,9 +6,16 @@ version = 4
 name = "app"
 version = "0.0.0"
 dependencies = [
+ "dev-only-crate",
  "mpl-crate",
  "permissive-crate",
 ]
+
+[[package]]
+name = "dev-only-crate"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3333333333333333333333333333333333333333333333333333333333333333"
 
 [[package]]
 name = "mpl-crate"

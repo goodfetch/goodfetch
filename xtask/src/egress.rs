@@ -11,9 +11,13 @@ mod endpoints;
 mod rules;
 mod windows;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use anyhow::Result;
+
+use crate::environment::Environment;
+use crate::output;
 
 pub(crate) use canary::{Record, Refusals, attempt, report, verdict};
 pub(crate) use declarations::check;
@@ -49,6 +53,175 @@ pub(crate) fn rules(
             Ok(windows::rules(&rules::resolved_addresses(
                 &endpoints, &job, resolved,
             )?))
+        }
+    }
+}
+
+/// `xtask egress`'s commands.
+#[derive(clap::Subcommand)]
+pub(crate) enum Command {
+    /// Fails on a workflow job not declared in `ci/egress/endpoints.toml`,
+    /// and on a job under the deny whose steps do not deny before its tests,
+    /// run the Egress canary right after, and check the deny's log at the end.
+    Check,
+    /// Prints what a job under the deny may reach, one `<host> <port>` line
+    /// each: the pinned artifact mirror and the job's named endpoints.
+    Endpoints {
+        /// The job, as `<workflow file>#<job id>`.
+        #[arg(long)]
+        job: String,
+    },
+    /// Prints the nftables ruleset that denies a job's outbound traffic but
+    /// to its allowed endpoints, at the addresses resolved before the deny.
+    /// With `--windows`, prints the Windows Firewall block rules instead, one
+    /// `<protocol> <remote addresses> <remote ports>` line each.
+    Rules {
+        /// The job, as `<workflow file>#<job id>`.
+        #[arg(long)]
+        job: String,
+        /// A file of `<host> <port> <address>` lines, resolved before the deny.
+        #[arg(long)]
+        resolved: PathBuf,
+        #[command(flatten)]
+        enforcer: EnforcerArguments,
+    },
+    /// The Egress canary: a forbidden connection that must be refused.
+    Canary {
+        #[command(subcommand)]
+        command: CanaryCommand,
+    },
+    /// Fails on every connection the deny refused but the canary's, read
+    /// from the deny's counters and its kernel log at the job's end.
+    Report {
+        #[command(flatten)]
+        refusals: RefusalArguments,
+    },
+}
+
+/// Where the deny's rules are enforced: exactly one of the two.
+#[derive(clap::Args)]
+#[group(required = true, multiple = false)]
+pub(crate) struct EnforcerArguments {
+    /// The user that runs the product, in the job's VM or network namespace.
+    #[arg(long)]
+    uid: Option<u32>,
+    /// The rules of the Windows cell's firewall.
+    #[arg(long)]
+    windows: bool,
+}
+
+/// Where the deny recorded its refusals: the counters with the kernel log,
+/// or the Windows firewall's log.
+#[derive(clap::Args)]
+#[group(required = true, multiple = true)]
+pub(crate) struct RefusalArguments {
+    /// The output of `nft --json list counters table inet goodfetch_egress`.
+    #[arg(long, requires = "log", conflicts_with = "firewall_log")]
+    counters: Option<PathBuf>,
+    /// The kernel log of the deny's VM or runner.
+    #[arg(long, requires = "counters", conflicts_with = "firewall_log")]
+    log: Option<PathBuf>,
+    /// The Windows firewall's log of dropped packets.
+    #[arg(long)]
+    firewall_log: Option<PathBuf>,
+}
+
+#[derive(clap::Subcommand)]
+pub(crate) enum CanaryCommand {
+    /// Tries the canary's connection and writes how it ended.
+    Attempt {
+        #[arg(long)]
+        outcome: PathBuf,
+    },
+    /// Passes when the attempt did not connect and the deny recorded it.
+    Verdict {
+        /// The file `attempt` wrote.
+        #[arg(long)]
+        outcome: PathBuf,
+        #[command(flatten)]
+        record: RecordArguments,
+    },
+}
+
+/// How the deny recorded the canary's attempt: exactly one of its counters
+/// before and after, the Windows firewall's log, or macOS's sandbox.
+#[derive(clap::Args)]
+#[group(required = true, multiple = true)]
+pub(crate) struct RecordArguments {
+    /// The deny's counters before the attempt, as `nft --json` lists them.
+    #[arg(long, requires = "after", conflicts_with_all = ["firewall_log", "sandbox"])]
+    before: Option<PathBuf>,
+    /// The deny's counters after the attempt.
+    #[arg(long, requires = "before", conflicts_with_all = ["firewall_log", "sandbox"])]
+    after: Option<PathBuf>,
+    /// The Windows firewall's log of dropped packets.
+    #[arg(long, conflicts_with = "sandbox")]
+    firewall_log: Option<PathBuf>,
+    /// The attempt ran under macOS's sandbox, whose refusal is its record.
+    #[arg(long)]
+    sandbox: bool,
+}
+
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let root = environment.root.as_path();
+    match command {
+        Command::Check => Ok(crate::check::report(&check(root)?)),
+        Command::Endpoints { job } => {
+            for endpoint in allowed(root, &job)? {
+                output::line(&format!("{} {}", endpoint.host, endpoint.port));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Rules {
+            job,
+            resolved,
+            enforcer,
+        } => {
+            let enforcer = match enforcer.uid {
+                Some(uid) => Enforcer::Nftables { uid },
+                None => Enforcer::WindowsFirewall,
+            };
+            output::line(rules(root, &job, &environment.path(&resolved), &enforcer)?.trim_end());
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Canary {
+            command: CanaryCommand::Attempt { outcome },
+        } => {
+            attempt(root, &environment.path(&outcome))?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Canary {
+            command: CanaryCommand::Verdict { outcome, record },
+        } => {
+            let paths = (
+                record.before.map(|path| environment.path(&path)),
+                record.after.map(|path| environment.path(&path)),
+                record.firewall_log.map(|path| environment.path(&path)),
+            );
+            let record = match (&paths, record.sandbox) {
+                ((Some(before), Some(after), _), false) => Record::Counters { before, after },
+                ((None, None, Some(log)), false) => Record::FirewallLog(log),
+                ((None, None, None), true) => Record::Sandbox,
+                _ => anyhow::bail!("give --before and --after, --firewall-log or --sandbox"),
+            };
+            Ok(crate::check::report(&verdict(
+                root,
+                &environment.path(&outcome),
+                &record,
+            )?))
+        }
+        Command::Report { refusals } => {
+            let paths = (
+                refusals.counters.map(|path| environment.path(&path)),
+                refusals.log.map(|path| environment.path(&path)),
+                refusals.firewall_log.map(|path| environment.path(&path)),
+            );
+            let refusals = match &paths {
+                (Some(counters), Some(log), _) => Refusals::Nftables { counters, log },
+                (_, _, Some(log)) => Refusals::FirewallLog(log),
+                _ => anyhow::bail!("give --counters and --log, or --firewall-log"),
+            };
+            Ok(crate::check::report(&report(root, &refusals)?))
         }
     }
 }

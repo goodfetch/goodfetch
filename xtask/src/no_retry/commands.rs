@@ -324,8 +324,11 @@ fn runs_test(words: &[String], index: usize) -> bool {
     ) || is_gtest(word)
         || matches!(
             (program, next),
-            ("playwright" | "cargo" | "insta", Some("test"))
-                | ("just", Some("test" | "quick" | "pre-merge" | "release"))
+            ("playwright" | "cargo" | "insta" | "miri", Some("test"))
+                | (
+                    "just",
+                    Some("test" | "quick" | "pre-merge" | "release" | "repeat" | "miri")
+                )
         )
 }
 

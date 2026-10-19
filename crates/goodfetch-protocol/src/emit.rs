@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, Metric, Operation,
-    OperationClass, PROTOCOL_VERSION, PluginKind, Product, ProtocolVersion, Stability,
+    PROTOCOL_VERSION, PluginKind, Product,
 };
 use crate::releases::ReleasesFile;
 use crate::{foxhound, sample};
@@ -50,7 +50,7 @@ pub fn emit() -> Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "Goodfetch protocol",
-            "protocol_version": version(PROTOCOL_VERSION),
+            "protocol_version": PROTOCOL_VERSION.to_string(),
             "files": { "compat/releases.toml": releases },
             "$defs": definitions,
         }),
@@ -69,33 +69,42 @@ struct Sections {
 
 impl Sections {
     fn add(&mut self, entries: &Entries, generator: &mut SchemaGenerator) {
+        let product = Product::of_module(entries.defined_in);
         self.operations.extend(
             entries
                 .operations
                 .iter()
-                .map(|operation| operation_entry(operation, generator)),
+                .map(|operation| operation_entry(product, operation, generator)),
         );
         self.events.extend(
             entries
                 .events
                 .iter()
-                .map(|event| event_entry(event, generator)),
+                .map(|event| event_entry(product, event, generator)),
         );
-        self.error_codes
-            .extend(entries.error_codes.iter().map(error_code_entry));
+        self.error_codes.extend(
+            entries
+                .error_codes
+                .iter()
+                .map(|code| error_code_entry(product, code)),
+        );
         self.plugin_kinds.extend(
             entries
                 .plugin_kinds
                 .iter()
-                .map(|kind| plugin_kind_entry(kind, generator)),
+                .map(|kind| plugin_kind_entry(product, kind, generator)),
         );
-        self.metrics
-            .extend(entries.metrics.iter().map(metric_entry));
+        self.metrics.extend(
+            entries
+                .metrics
+                .iter()
+                .map(|metric| metric_entry(product, metric)),
+        );
     }
 
     fn into_catalog(self) -> Value {
         json!({
-            "protocol_version": version(PROTOCOL_VERSION),
+            "protocol_version": PROTOCOL_VERSION.to_string(),
             "operations": sorted(self.operations),
             "events": sorted(self.events),
             "error_groups": ErrorGroup::ALL.iter().map(|group| error_group_entry(*group)).collect::<Vec<_>>(),
@@ -112,61 +121,42 @@ fn sorted(mut entries: Vec<Value>) -> Vec<Value> {
     entries
 }
 
-fn version(version: ProtocolVersion) -> String {
-    format!("{}.{}", version.major, version.minor)
-}
-
-fn product(defined_in: &str) -> &'static str {
-    Product::of_module(defined_in).as_str()
-}
-
-fn stability(stability: Stability) -> &'static str {
-    match stability {
-        Stability::Stable => "stable",
-        Stability::Experimental => "experimental",
-    }
-}
-
 fn deprecation(deprecation: Option<Deprecation>) -> Value {
     deprecation.map_or(
         Value::Null,
-        |deprecation| json!({ "since": version(deprecation.since), "note": deprecation.note }),
+        |deprecation| json!({ "since": deprecation.since.to_string(), "note": deprecation.note }),
     )
 }
 
-fn class(class: OperationClass) -> &'static str {
-    match class {
-        OperationClass::Read => "read",
-        OperationClass::IdempotentWrite => "idempotent_write",
-        OperationClass::Effect => "effect",
-    }
-}
-
-fn operation_entry(operation: &Operation, generator: &mut SchemaGenerator) -> Value {
+fn operation_entry(
+    product: Product,
+    operation: &Operation,
+    generator: &mut SchemaGenerator,
+) -> Value {
     json!({
         "name": operation.name,
-        "product": product(operation.defined_in),
+        "product": product.as_str(),
         "description": operation.description,
-        "class": class(operation.class),
+        "class": operation.class.as_str(),
         "params": (operation.params)(generator),
         "result": (operation.result)(generator),
-        "events": operation.events,
+        "events": operation.events.iter().map(|event| event.name).collect::<Vec<_>>(),
         "cancellable": operation.cancellable,
-        "stability": stability(operation.stability),
+        "stability": operation.stability.as_str(),
         "deprecated": deprecation(operation.deprecated),
-        "arrived_in": version(operation.arrived_in),
+        "arrived_in": operation.arrived_in.to_string(),
     })
 }
 
-fn event_entry(event: &Event, generator: &mut SchemaGenerator) -> Value {
+fn event_entry(product: Product, event: &Event, generator: &mut SchemaGenerator) -> Value {
     json!({
         "name": event.name,
-        "product": product(event.defined_in),
+        "product": product.as_str(),
         "description": event.description,
         "payload": (event.payload)(generator),
-        "stability": stability(event.stability),
+        "stability": event.stability.as_str(),
         "deprecated": deprecation(event.deprecated),
-        "arrived_in": version(event.arrived_in),
+        "arrived_in": event.arrived_in.to_string(),
     })
 }
 
@@ -179,19 +169,23 @@ fn error_group_entry(group: ErrorGroup) -> Value {
     })
 }
 
-fn error_code_entry(code: &ErrorCodeDefinition) -> Value {
+fn error_code_entry(product: Product, code: &ErrorCodeDefinition) -> Value {
     json!({
         "name": code.name,
-        "product": product(code.defined_in),
+        "product": product.as_str(),
         "description": code.description,
         "group": code.group.as_str(),
         "json_rpc_class": code.group.json_rpc_class(),
         "retryable": code.retryable,
-        "arrived_in": version(code.arrived_in),
+        "arrived_in": code.arrived_in.to_string(),
     })
 }
 
-fn plugin_kind_entry(kind: &PluginKind, generator: &mut SchemaGenerator) -> Value {
+fn plugin_kind_entry(
+    product: Product,
+    kind: &PluginKind,
+    generator: &mut SchemaGenerator,
+) -> Value {
     let methods: Vec<Value> = kind
         .methods
         .iter()
@@ -206,23 +200,23 @@ fn plugin_kind_entry(kind: &PluginKind, generator: &mut SchemaGenerator) -> Valu
         .collect();
     json!({
         "name": kind.name,
-        "product": product(kind.defined_in),
+        "product": product.as_str(),
         "description": kind.description,
         "methods": methods,
-        "stability": stability(kind.stability),
-        "arrived_in": version(kind.arrived_in),
+        "stability": kind.stability.as_str(),
+        "arrived_in": kind.arrived_in.to_string(),
     })
 }
 
-fn metric_entry(metric: &Metric) -> Value {
+fn metric_entry(product: Product, metric: &Metric) -> Value {
     json!({
         "name": metric.name,
-        "product": product(metric.defined_in),
+        "product": product.as_str(),
         "description": metric.description,
         "instrument": metric.instrument.as_str(),
         "unit": metric.unit,
-        "stability": stability(metric.stability),
-        "arrived_in": version(metric.arrived_in),
+        "stability": metric.stability.as_str(),
+        "arrived_in": metric.arrived_in.to_string(),
     })
 }
 

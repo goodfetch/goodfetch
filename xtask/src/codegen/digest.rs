@@ -1,6 +1,7 @@
-//! The digests of each outside generator's input and output, recorded when
-//! `xtask codegen` runs it, so `--check` judges its output without running
-//! it: a different input means the types changed and the output was not
+//! The digests of each outside generator's input and output, and the
+//! versions of the tools that wrote it as the lockfiles pin them, recorded
+//! when `xtask codegen` runs it, so `--check` judges its output without
+//! running it: a different input or tool version means the output was not
 //! regenerated; a different output means someone edited it.
 #![expect(
     clippy::disallowed_methods,
@@ -17,10 +18,17 @@ use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Record {
     input: String,
     output: String,
+    /// Each tool that wrote the output, with its locked version.
+    tools: BTreeMap<String, String>,
 }
+
+/// The tools that write an output, each with its version as its lockfile
+/// pins it.
+pub(super) type Tools = BTreeMap<String, String>;
 
 /// The recorded digests, by output path.
 #[derive(Default, Serialize, Deserialize)]
@@ -47,21 +55,28 @@ impl Digests {
         }
     }
 
-    pub(super) fn record(&mut self, output_path: &str, input: &[u8], output: &[u8]) {
+    pub(super) fn record(&mut self, output_path: &str, input: &[u8], tools: &Tools, output: &[u8]) {
         self.0.insert(
             output_path.to_owned(),
             Record {
                 input: sha256(input),
                 output: sha256(output),
+                tools: tools.clone(),
             },
         );
     }
 
-    pub(super) fn verify(&self, output_path: &str, input: &[u8], output: Option<&[u8]>) -> Verdict {
+    pub(super) fn verify(
+        &self,
+        output_path: &str,
+        input: &[u8],
+        tools: &Tools,
+        output: Option<&[u8]>,
+    ) -> Verdict {
         let Some(record) = self.0.get(output_path) else {
             return Verdict::Stale;
         };
-        if record.input != sha256(input) {
+        if record.input != sha256(input) || record.tools != *tools {
             return Verdict::Stale;
         }
         match output {

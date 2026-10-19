@@ -1,5 +1,7 @@
-//! License expressions judged against the repository's own allowlist, as
-//! named cases of SPDX's operators and of ADR 0018's rules for each use.
+//! License expressions judged against an allowlist of the notices fixture
+//! (a copy of the repository's, so the owner's changes to the real list do
+//! not change these verdicts), as named cases of SPDX's operators and of ADR
+//! 0018's rules for each use.
 
 use std::path::Path;
 
@@ -9,10 +11,8 @@ use super::{Allowlist, Refusal, Verdict};
 use crate::notices::entry::{Ecosystem, Entry, Usage};
 
 fn allowlist() -> Allowlist {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("invariant: xtask sits in the repository's root");
-    Allowlist::read(root).unwrap()
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/notices");
+    Allowlist::read(&root).unwrap()
 }
 
 /// The verdict on a crate that states `stated`, used as `usage`.

@@ -15,7 +15,6 @@
       "type": "object"
     },
     "SampleEchoResult": {
-      "additionalProperties": false,
       "description": "What `sample.echo` answers.",
       "properties": {
         "text": {
@@ -29,7 +28,6 @@
       "type": "object"
     },
     "SampleEchoed": {
-      "additionalProperties": false,
       "description": "What `sample.echoed` reports.",
       "properties": {
         "text": {
@@ -43,7 +41,6 @@
       "type": "object"
     },
     "SampleStorePutParams": {
-      "additionalProperties": false,
       "description": "What a sample store keeps.",
       "properties": {
         "key": {

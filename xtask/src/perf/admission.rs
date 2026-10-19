@@ -17,6 +17,7 @@ use crate::check::Finding;
 
 use super::budget;
 use super::compare::{Row, Verdict};
+use super::figure::{Sign, hundredths};
 use super::gungraun;
 
 /// One new figure across its admission runs.
@@ -69,7 +70,10 @@ fn percent(basis_points: u64) -> String {
     if basis_points == u64::MAX {
         return "without bound".to_owned();
     }
-    format!("{}.{:02}%", basis_points / 100, basis_points % 100)
+    format!(
+        "{}%",
+        hundredths(i128::from(basis_points), Sign::WhenNegative)
+    )
 }
 
 /// Each new figure of `rows` across the runs in `folder`, one gungraun

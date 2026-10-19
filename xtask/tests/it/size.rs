@@ -399,6 +399,44 @@ fn main_report_of_another_tree_is_an_error() {
     assert_eq!(outcome.code, 2);
 }
 
+/// The estimate never fails (#201): a report of `main` it cannot compare
+/// with is left out, and the estimate says so.
+#[rstest]
+#[case::another_tree("4b825dc642cb6eb9a060e54bf8d69288fbee4904", "ci")]
+#[case::another_profile("", "release")]
+fn estimate_with_an_incomparable_main_report_still_passes(
+    #[case] report_tree: &str,
+    #[case] report_profile: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let tree = workspace.commit();
+    let report_tree = if report_tree.is_empty() {
+        tree.as_str()
+    } else {
+        report_tree
+    };
+    write_main_report(
+        &workspace,
+        report_tree,
+        report_profile,
+        &[built("collie", "wheel", "wheel", 30_000_000)],
+    );
+    write_files(
+        &workspace,
+        "ci",
+        &[built("collie", "wheel", "wheel", 30_000_000)],
+    );
+
+    let outcome = size(
+        &workspace,
+        "estimate",
+        &["--main-report", "main-report.json", "--main", "HEAD"],
+    );
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
 #[test]
 fn main_report_of_another_profile_is_an_error() {
     let workspace = Workspace::from_fixture("empty");
@@ -511,6 +549,17 @@ fn tripped_file_with_its_section_and_acceptance_on_the_head_passes(#[case] comme
     SECTION,
     &format!("Size increase accepted for {HEAD_SHA}."),
     "CONTRIBUTOR"
+)]
+// The owner accepts when merging (ADR 0133); a collaborator's agent cannot.
+#[case::acceptance_by_a_collaborator(
+    SECTION,
+    &format!("Size increase accepted for {HEAD_SHA}."),
+    "COLLABORATOR"
+)]
+#[case::section_line_without_a_reason(
+    "## Size increase\n\n- collie/x86_64-unknown-linux-gnu/wheel: +1.10 MB\n",
+    &format!("Size increase accepted for {HEAD_SHA}."),
+    "OWNER"
 )]
 fn tripped_file_without_a_matching_acceptance_fails(
     #[case] body: &str,

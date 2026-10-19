@@ -83,9 +83,12 @@ reason = "Until its first build lands (#445) it builds and runs nothing. Then it
 job = "pull-request.yml#affected"
 reason = "It selects the jobs and tests a change needs from its files and runs none of the product."
 
-[[outside]]
+# The supply-chain gates (#133): the sign-offs, the audits against public
+# advisory databases (RustSec, the npm registry, PyPI and OSV), the MSRV
+# build, cargo-hack and the notice inventory's license check run before the
+# deny; Miri's tests run under it.
+[[deny]]
 job = "pull-request.yml#supply-chain"
-reason = "It audits the lockfiles against public advisory databases (RustSec, the npm registry, PyPI and OSV), builds without running and checks sign-offs; it runs none of the product."
 
 [[outside]]
 job = "pull-request.yml#all-green"

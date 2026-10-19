@@ -159,28 +159,40 @@ const SETTINGS_NAME_TYPE: &str =
 
 const SETTINGS_VERSION: &str = "\"storage\": \"json\",\n      \"version\": \"0.1\"";
 
+/// `sample-settings`'s field `name` made nullable: a change of its shape.
+const NAME_MADE_NULLABLE: (&str, &str) = (
+    SETTINGS_NAME_TYPE,
+    "\"description\": \"The settings' name.\",\n          \"type\": [\"string\", \"null\"]",
+);
+
 /// The registry's schema of `sample-settings`, whose version 0.1 is frozen,
-/// changed, then its `head/` set written again.
+/// changed without a version bump, then its `head/` set written again.
+#[test]
+fn schema_changed_without_a_version_bump_fails() {
+    let workspace = Workspace::from_fixture("compat");
+    workspace.edit(BUNDLE, NAME_MADE_NULLABLE.0, NAME_MADE_NULLABLE.1);
+    write(&workspace);
+
+    let outcome = workspace.xtask(&["compat", "check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("unbumped", "compat/sample-settings")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A schema change with its version bump, or a reworded description, which
+/// changes no shape, passes.
 #[rstest]
-#[case::changed_without_a_version_bump(
-    &[(SETTINGS_NAME_TYPE, "\"description\": \"The settings' name.\",\n          \"type\": [\"string\", \"null\"]")],
-    vec![finding("unbumped", "compat/sample-settings")],
-)]
-#[case::changed_with_a_version_bump(
-    &[
-        (SETTINGS_NAME_TYPE, "\"description\": \"The settings' name.\",\n          \"type\": [\"string\", \"null\"]"),
-        (SETTINGS_VERSION, "\"storage\": \"json\",\n      \"version\": \"0.2\""),
-    ],
-    vec![],
-)]
-#[case::description_reworded(
-    &[(SETTINGS_NAME_TYPE, "\"description\": \"What the settings are called.\",\n          \"type\": \"string\"")],
-    vec![],
-)]
-fn check_judges_a_schema_change_by_the_format_version(
-    #[case] edits: &[(&str, &str)],
-    #[case] expected: Vec<Finding>,
-) {
+#[case::changed_with_a_version_bump(&[
+    NAME_MADE_NULLABLE,
+    (SETTINGS_VERSION, "\"storage\": \"json\",\n      \"version\": \"0.2\""),
+])]
+#[case::description_reworded(&[(SETTINGS_NAME_TYPE, "\"description\": \"What the settings are called.\",\n          \"type\": \"string\"")])]
+fn schema_change_the_version_covers_passes(#[case] edits: &[(&str, &str)]) {
     let workspace = Workspace::from_fixture("compat");
     for (from, to) in edits {
         workspace.edit(BUNDLE, from, to);
@@ -189,8 +201,8 @@ fn check_judges_a_schema_change_by_the_format_version(
 
     let outcome = workspace.xtask(&["compat", "check"]);
 
-    assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
-    assert_eq!(outcome.code, i32::from(!expected.is_empty()));
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
 }
 
 const WRITERS: &str = "crates/goodfetch-sample-formats/examples";

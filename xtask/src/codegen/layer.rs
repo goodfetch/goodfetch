@@ -6,42 +6,17 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context as _, Result};
+use goodfetch_protocol::catalog::Product;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use super::projection;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum Product {
-    Collie,
-    Foxhound,
-}
-
-impl Product {
-    /// Whether this Product's catalog holds `entry`: Collie's holds Collie's
-    /// entries, Foxhound's every entry, since Foxhound contains Collie.
-    pub(super) fn carries(self, entry: &Value) -> bool {
-        match self {
-            Self::Collie => entry.get("product").and_then(Value::as_str) == Some("collie"),
-            Self::Foxhound => true,
-        }
-    }
-
-    /// The generators' input file name.
-    pub(super) fn input_name(self) -> &'static str {
-        match self {
-            Self::Collie => "collie.json",
-            Self::Foxhound => "foxhound.json",
-        }
-    }
-
-    /// Its name in a type or class name.
-    pub(super) fn title(self) -> &'static str {
-        match self {
-            Self::Collie => "Collie",
-            Self::Foxhound => "Foxhound",
-        }
+/// The generators' input file name for `product`'s layer.
+pub(super) fn input_name(product: Product) -> &'static str {
+    match product {
+        Product::Collie => "collie.json",
+        Product::Foxhound => "foxhound.json",
     }
 }
 

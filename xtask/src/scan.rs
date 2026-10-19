@@ -219,7 +219,7 @@ fn flaky_test_body(test: &TestKey, groups: &BTreeMap<Inputs, Vec<&TestRun>>) -> 
                 run.attempt,
                 run.tier.as_str(),
                 run.job.as_str(),
-                outcome_name(run.outcome),
+                run.outcome.name(),
                 run.order_seed.as_deref().unwrap_or("-"),
                 run.entropy_seed.as_deref().unwrap_or("-"),
                 run.commit.as_str(),
@@ -255,18 +255,9 @@ fn live_check_body(check: &str, area: &str, last: &[&TestRun]) -> String {
             run.run,
             run.attempt,
             run.job,
-            outcome_name(run.outcome),
+            run.outcome.name(),
             run.commit
         );
     }
     body
-}
-
-fn outcome_name(outcome: Outcome) -> &'static str {
-    match outcome {
-        Outcome::Passed => "passed",
-        Outcome::Failed => "failed",
-        Outcome::Skipped => "skipped",
-        Outcome::Inconclusive => "inconclusive",
-    }
 }

@@ -8,3 +8,6 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 mpl-crate = "2.1.0"
 permissive-crate = "1.0.0"
+
+[dev-dependencies]
+dev-only-crate = "3.0.0"

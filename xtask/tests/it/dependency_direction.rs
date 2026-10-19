@@ -59,9 +59,11 @@ fn test_support_depending_on_a_goodfetch_crate_fails() {
     assert_eq!(outcome.code, 1);
 }
 
+/// Covers: story:2-42
 #[rstest]
 #[case::engine("proving-ground-depends-on-engine.toml")]
 #[case::conformance("proving-ground-depends-on-conformance.toml")]
+#[case::protocol("proving-ground-depends-on-protocol.toml")]
 #[case::protocol_as_a_build_dependency("proving-ground-build-depends-on-protocol.toml")]
 #[case::engine_as_a_dev_dependency("proving-ground-dev-depends-on-engine.toml")]
 fn proving_ground_depending_on_a_goodfetch_crate_fails(#[case] manifest: &str) {

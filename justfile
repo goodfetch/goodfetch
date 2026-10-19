@@ -47,6 +47,7 @@ lint: fmt-check
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- egress check
+    cargo run --quiet -p xtask -- os-services workflows
     cargo run --quiet -p xtask -- fixture-size
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- package-dependencies
@@ -56,6 +57,7 @@ lint: fmt-check
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
+    cargo run --quiet -p xtask -- features check
     cargo run --quiet -p xtask -- compat check
     cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- journeys check
@@ -71,6 +73,27 @@ codegen:
     pnpm install --frozen-lockfile
     uv sync --frozen
     cargo run --quiet -p xtask -- codegen
+
+# What the changed packages declare, then the Feature check's verdict (ADR
+# 0072): the Features each crate `xtask affected` selects declares, one
+# `<feature> <level> <test>` line each, and the check's findings over the
+# workspace, which are the Features missing a test, an exception or an area.
+# Takes `xtask affected`'s change, `--local` by default.
+features *change:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    change=({{ change }})
+    [[ ${#change[@]} -gt 0 ]] || change=(--local)
+    selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
+    read -ra crates <<< "$(sed -n 's/^crates=//p' <<< "$selection")"
+    if [[ ${#crates[@]} -gt 0 ]]; then
+      echo "Declared by ${crates[*]}:"
+      cargo run --quiet -p xtask -- features scan "${crates[@]/#/--package=}"
+    else
+      echo "The change reaches no crate."
+    fi
+    echo "Missing:"
+    cargo run --quiet -p xtask -- features check && echo "nothing"
 
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the
@@ -109,6 +132,12 @@ test suite *packages:
     else
       packages=(--workspace)
     fi
+    # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
+    # the commit's executables through the test tool manifest (ADRs 0062 and
+    # 0094): those the workspace has, built here with the tests' profile.
+    export GOODFETCH_TEST_SUITE="{{ suite }}"
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     # Vitest, Playwright and pytest run their tests in an order seeded from
     # the tree under test (TESTING.md, Before merge); nextest runs each test
     # in its own process.
@@ -127,6 +156,14 @@ test suite *packages:
         pytest) skip_pytest+=("$argument") ;;
       esac
     done <<< "$exclusions"
+    # A local host without an OS service the tests use (an extra loopback
+    # address, the Secret Service) lists it as skipped, and nextest skips the
+    # tests that need it; in CI a missing one fails (ci/os-services.sh).
+    services=$(ci/os-services.sh skipped target/skipped.txt)
+    if [[ -n "$services" ]]; then
+      [[ ${#skip_nextest[@]} -gt 0 ]] || skip_nextest=(--)
+      while read -r pattern; do skip_nextest+=(--skip "$pattern"); done <<< "$services"
+    fi
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
     case "{{ suite }}" in
@@ -200,6 +237,8 @@ repeat count *selection:
         pytest) pytest+=("$argument") ;;
       esac
     done <<< "$arguments"
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
     if [[ ${#nextest[@]} -gt 0 ]]; then
       cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${nextest[@]}" || status=$?
@@ -497,6 +536,13 @@ runner-install folder:
 # Playwright image and `cargo fuzz check` under Rosetta for Linux.
 rosetta-trial:
     ci/vm/rosetta-trial.sh
+
+# Builds the commit's executables that tests run (each Product's, the Proving
+# ground's, goodfetch-test-env and goodfetch-scripted-engine, those the
+# workspace has) with the tests' Cargo profile, and writes the test tool
+# manifest of their paths to target/test-tools.json.
+_test-tools:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json"
 
 # One suite's tests over the whole workspace with `all`, else over what changed.
 _suite suite all:

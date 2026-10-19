@@ -1,0 +1,34 @@
+[package]
+name = "goodfetch-proving-ground"
+description = "The Proving ground: Goodfetch's seeded website, its task list and its oracle (ADRs 0025, 0032 and 0063)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Its dependency direction is the Proving ground's reason to be a crate: it
+# takes no Goodfetch crate but `goodfetch-test-support`, so it never judges
+# with the code it judges (ADR 0032; `xtask dependency-direction`).
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "macros"] }
+tokio-util = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+proptest.workspace = true
+regex.workspace = true
+rstest.workspace = true
+ureq.workspace = true
+
+[lints]
+workspace = true

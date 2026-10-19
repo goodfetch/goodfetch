@@ -169,6 +169,8 @@ jobs:
       - name: Fetch the pinned TLA+ tools
         if: matrix.cell == 'linux-x64-gnu'
         run: just tlc-fetch
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -267,6 +269,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ci/release/perf.sh pull-request
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -341,6 +345,8 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         run: ci/release/cell.sh size
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -413,6 +419,8 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         run: ci/release/cell.sh size
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -486,6 +494,8 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         run: ci/release/cell.sh size
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -544,6 +554,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM with the pinned Playwright image
         run: ci/vm/start.sh read-only ci playwright
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Install the visual projects' packages
         run: ci/vm/visual.sh install
       - name: Deny outbound traffic

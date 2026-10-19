@@ -28,6 +28,8 @@ This ADR records those and settles what they and earlier ADRs imply. It builds o
 
 ## Decision
 
+> Amended on 2026-10-19 (owner decision of 2026-10-19): GitHub Actions is turned off for the repository, and the owner runs CI locally. A pull request merges once `just quick all` and `just pre-merge all` pass in a checkout of its exact head (`AGENTS.md`, "Merging"). The workflows stay in `.github/workflows/`, unused, so turning Actions back on restores the setup this ADR describes.
+
 ### Where each job runs, and its included minutes
 
 | Job | Where it runs | Budget, Linux-equivalent minutes a month |

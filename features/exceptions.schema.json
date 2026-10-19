@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "Evidence": {
+      "description": "The evidence of an exception (ADR 0072).",
+      "oneOf": [
+        {
+          "const": "manual",
+          "description": "A person: an owner-test step or an ADR's manual test.",
+          "type": "string"
+        },
+        {
+          "const": "live",
+          "description": "A Live check or an Evaluation.",
+          "type": "string"
+        },
+        {
+          "const": "check",
+          "description": "Repository configuration, checked by a named CI job.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Nothing in this repository reaches it.",
+          "type": "string"
+        }
+      ]
+    },
+    "Exception": {
+      "additionalProperties": false,
+      "description": "One excepted Feature. The check reads its Feature; the other fields are\nrequired by its schema, for the report and the release pull request.",
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/Evidence",
+          "description": "What proves it instead."
+        },
+        "feature": {
+          "description": "Its ID.",
+          "type": "string"
+        },
+        "link": {
+          "description": "Where it is checked.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why no pinned test can.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "feature",
+        "evidence",
+        "reason",
+        "link"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`features/exceptions.toml`: the Features no pinned test can prove.",
+  "properties": {
+    "exception": {
+      "description": "Each excepted Feature.",
+      "items": {
+        "$ref": "#/$defs/Exception"
+      },
+      "type": "array"
+    }
+  },
+  "title": "ExceptionsFile",
+  "type": "object"
+}

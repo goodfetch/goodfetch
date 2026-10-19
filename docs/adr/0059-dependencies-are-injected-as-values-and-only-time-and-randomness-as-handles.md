@@ -55,7 +55,9 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 - **Local addresses (ADR 0044) are tested on real extra addresses:**
   - Linux: `127.0.0.0/8`, or a network namespace under sudo.
   - macOS: `lo0` aliases added during CI setup, since macOS most likely answers only on `127.0.0.1` (not yet tested).
+    > Checked on 2026-10-19 ([#335](https://github.com/goodfetch/goodfetch/issues/335)): on macOS 27.0.1, binding `127.0.0.2` without a `lo0` alias fails with `EADDRNOTAVAIL`, and only `127.0.0.1` is on `lo0`. The owner's machine's runner user cannot add aliases, so `ci/runner/loopback-aliases.sh` adds them at boot, and the macOS deny's sandbox still refuses connections to them (agent decision, pending owner review).
   - Windows: `127.0.0.x`.
+    > Not yet confirmed on a real run: `ci/os-services.sh setup` checks it in the Release suite's Windows cell, and a failure there goes to the owner as a decision (#335).
 - **Only the jobs ADR 0043 names reach the network, and only their named endpoints.** Every other job, every test included, keeps ADR 0043's deny and its canary, so a test never depends on the public internet.
 
 ### OS services

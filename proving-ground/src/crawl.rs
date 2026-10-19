@@ -238,8 +238,8 @@ pub(crate) fn hosts(seed: u64) -> Vec<(String, Option<String>)> {
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
     let mut tasks = statuses::tasks(seed, port);
     tasks.extend(traps::tasks(seed, port));
-    tasks.extend(limits::tasks(seed, port));
     tasks.extend(parameters::tasks(seed, port));
+    tasks.extend(limits::tasks(seed, port));
     tasks.extend(scale::tasks(seed, port));
     tasks
 }

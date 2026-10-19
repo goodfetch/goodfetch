@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Keyboard clean</title>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Main"><a href="#docs">Docs</a></nav>
+    </header>
+    <main>
+      <h1 id="docs">Keyboard clean</h1>
+      <button
+        type="button"
+        id="actions"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="actions-menu"
+      >
+        Actions
+      </button>
+      <ul role="menu" id="actions-menu" aria-labelledby="actions" hidden>
+        <li role="menuitem" tabindex="-1">Rename</li>
+        <li role="menuitem" tabindex="-1">Delete</li>
+      </ul>
+      <button type="button" id="settings" aria-haspopup="dialog">Settings</button>
+      <dialog id="settings-dialog" aria-labelledby="settings-title">
+        <h2 id="settings-title">Settings</h2>
+        <button type="button" id="settings-close">Close</button>
+      </dialog>
+      <label>Email <input type="email" name="email" /></label>
+      <button type="button">Save</button>
+      <script src="/keyboard-clean.js"></script>
+    </main>
+  </body>
+</html>

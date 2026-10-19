@@ -1,0 +1,36 @@
+{
+  "features": [
+    {
+      "id": "event:sample.echoed",
+      "kind": "event",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": ["collie", "foxhound"]
+    },
+    {
+      "id": "operation:sample.echo",
+      "kind": "operation",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": ["collie", "foxhound"]
+    },
+    {
+      "id": "story:1-1",
+      "kind": "story",
+      "area": 1,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": ["collie", "foxhound"]
+    },
+    {
+      "id": "story:1-2",
+      "kind": "story",
+      "area": 1,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": ["collie", "foxhound"]
+    }
+  ]
+}

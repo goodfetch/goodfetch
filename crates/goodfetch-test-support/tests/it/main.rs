@@ -15,6 +15,7 @@
 mod endpoints;
 mod observation_log;
 mod probe;
+mod proving_ground;
 mod reported;
 mod scripted_engine;
 mod seed;

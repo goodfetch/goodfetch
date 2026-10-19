@@ -55,6 +55,8 @@ lint: fmt-check
     cargo run --quiet -p xtask -- no-retry
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet -p xtask -- axe-exceptions check
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
     cargo run --quiet -p xtask -- features check
@@ -82,11 +84,87 @@ journeys-tasks *check:
     {{ just_executable() }} _test-tools
     cargo run --quiet -p xtask -- journeys tasks --proving-ground "$(jq -r .proving_ground target/test-tools.json)" {{ check }}
 
+# ADR 0063's rule on the tests of each Journey variant, in the Pre-merge
+# suite: lists the four runners' tests into target/journey-listings/ (nextest
+# builds them with the tests' profile), then runs the catalog check with them.
+# It fails on a test of an unknown or retired Journey or of an unlisted
+# surface, on two tests of one variant, and notes each untested variant.
+journeys-tests:
+    cargo run --quiet -p xtask -- journeys listings --out target/journey-listings --cargo-profile {{ test_profile }}
+    cargo run --quiet -p xtask -- journeys check --listings target/journey-listings
+
+# ADR 0072's Feature check over every runner's declarations, in the Pre-merge
+# suite: after `journeys-tests`, it reads the same listings, so the Vitest
+# tags, Playwright annotations and pytest markers count beside the Rust
+# `Covers:` lines and the Journeys' and conformance cases' `covers` lists. A
+# generated Feature none of them declares fails it; the Quick suite's check,
+# which reads no listing, only notes one.
+features-tests: journeys-tests
+    cargo run --quiet -p xtask -- features check --listings target/journey-listings
+
+# Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
+# 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
+# repeatable; values of one flag add variants, different flags intersect.
+# `--engine <path>` runs them against that executable, for both Products.
+# `--tag <tag>` (with `--engine`) runs the tag's own Journey tests and helpers,
+# checked out in a temporary worktree that is removed afterwards.
+[positional-arguments]
+journeys *arguments:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    select=() engine="" tag=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --engine) engine="${2:?--engine takes a path}"; shift 2 ;;
+        --engine=*) engine="${1#--engine=}"; shift ;;
+        --tag) tag="${2:?--tag takes a tag}"; select+=(--tag "$tag"); shift 2 ;;
+        --tag=*) tag="${1#--tag=}"; select+=(--tag "$tag"); shift ;;
+        *) select+=("$1"); shift ;;
+      esac
+    done
+    if [[ -n "$tag" && -z "$engine" ]]; then
+      echo "error: --tag runs an old tag's Journeys against a current executable: give --engine <path>" >&2
+      exit 2
+    fi
+    scratch=$(mktemp -d)
+    tree="$scratch/tree"
+    cleanup() {
+      if [[ -d "$tree" ]]; then git worktree remove --force "$tree"; fi
+      rm -rf "$scratch"
+    }
+    trap cleanup EXIT
+    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} > "$scratch/selection"
+    if [[ ! -s "$scratch/selection" ]]; then
+      echo "No chosen variant has a runner yet."
+      exit 0
+    fi
+    echo "Filters (<runner>, <argument>):"
+    cat "$scratch/selection"
+    export GOODFETCH_TEST_SELECTION="$scratch/selection"
+    if [[ -n "$engine" ]]; then
+      GOODFETCH_TEST_ENGINE=$(cd "$(dirname "$engine")" && pwd)/$(basename "$engine")
+      [[ -x "$GOODFETCH_TEST_ENGINE" ]] || { echo "error: $engine is not an executable" >&2; exit 2; }
+      export GOODFETCH_TEST_ENGINE
+    fi
+    if [[ -z "$tag" ]]; then
+      "$just" test pre-merge
+    else
+      git worktree add --quiet --detach "$tree" "$tag^{commit}"
+      cd "$tree"
+      pnpm install --frozen-lockfile
+      uv sync --frozen --all-extras
+      "$just" test pre-merge
+    fi
+
 # What the changed packages declare, then the Feature check's verdict (ADR
 # 0072): the Features each crate `xtask affected` selects declares, one
-# `<feature> <level> <test>` line each, and the check's findings over the
-# workspace, which are the Features missing a test, an exception or an area.
-# Takes `xtask affected`'s change, `--local` by default.
+# `<feature> <level> <source> <test>` line each, and the check's findings over
+# the workspace, which are the Features missing a test, an exception or an
+# area. It reads no runner listing, so it notes rather than fails a generated
+# Feature only a Vitest, Playwright or pytest test might declare; `just
+# features-tests` reads those too. Takes `xtask affected`'s change, `--local`
+# by default.
 features *change:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -123,6 +201,11 @@ build profile="dev":
 # Packages, when given, narrow the tests: a crate's name the Rust tests
 # (`-p <crate>`), a pnpm package's folder Vitest's and Playwright's, a uv
 # package's folder pytest's; a runner given none of its packages is skipped.
+# `just journeys` narrows them further through two variables (ADRs 0063 and
+# 0066): GOODFETCH_TEST_SELECTION names a file of `<runner>\t<argument>`
+# lines, `xtask journeys select`'s filters, and only the runners it names run,
+# each with its filter (`pre-merge` and `release` only); GOODFETCH_TEST_ENGINE
+# names an executable that replaces each Product's in the test tool manifest.
 test suite *packages:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -146,6 +229,31 @@ test suite *packages:
     export GOODFETCH_TEST_SUITE="{{ suite }}"
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
+      manifest=$(jq --arg engine "$GOODFETCH_TEST_ENGINE" '.collie = $engine | .foxhound = $engine' target/test-tools.json)
+      printf '%s\n' "$manifest" > target/test-tools.json
+      echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
+    fi
+    select_nextest=() select_vitest=() select_playwright=() select_pytest=()
+    vitest_runs=$typescript playwright_runs=$typescript
+    if [[ -n "${GOODFETCH_TEST_SELECTION:-}" ]]; then
+      if [[ "{{ suite }}" == quick ]]; then
+        echo "error: a selection runs in the pre-merge or release suite, where Journey tests run" >&2
+        exit 2
+      fi
+      while IFS=$'\t' read -r runner argument; do
+        case "$runner" in
+          nextest) select_nextest+=("$argument") ;;
+          vitest) select_vitest+=("$argument") ;;
+          playwright) select_playwright+=("$argument") ;;
+          pytest) select_pytest+=("$argument") ;;
+        esac
+      done < "$GOODFETCH_TEST_SELECTION"
+      [[ ${#select_nextest[@]} -gt 0 ]] || rust=false
+      [[ ${#select_vitest[@]} -gt 0 ]] || vitest_runs=false
+      [[ ${#select_playwright[@]} -gt 0 ]] || playwright_runs=false
+      [[ ${#select_pytest[@]} -gt 0 ]] || python=false
+    fi
     # Vitest, Playwright and pytest run their tests in an order seeded from
     # the tree under test (TESTING.md, Before merge); nextest runs each test
     # in its own process.
@@ -202,7 +310,13 @@ test suite *packages:
           unreferenced=warn
           echo "insta: unreferenced snapshots warn while the quarantine list skips a nextest test"
         fi
-        if $rust; then
+        if $rust && [[ ${#select_nextest[@]} -gt 0 ]]; then
+          # `cargo insta test` hands nextest no filterset, so a selection runs
+          # nextest itself: the selected tests' snapshots are still checked,
+          # never written, and unreferenced ones are judged when all run.
+          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo nextest run "${packages[@]}" --profile ci \
+            --cargo-profile {{ test_profile }} "${select_nextest[@]}" ${skip_nextest[@]+"${skip_nextest[@]}"}
+        elif $rust; then
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced "$unreferenced" \
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
@@ -226,12 +340,14 @@ test suite *packages:
             echo "Doctests: no selected package has a library target"
           fi
         fi
-        if $typescript; then
-          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
-          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+        if $vitest_runs; then
+          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+        fi
+        if $playwright_runs; then
+          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
-          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)
@@ -239,6 +355,63 @@ test suite *packages:
         exit 2
         ;;
     esac
+
+# Updates snapshots only through each tool's own command, never by hand
+# (ADR 0062; TESTING.md, Snapshots): insta runs the tests and reviews what
+# changed (`cargo insta test --review`, which ends in `cargo insta review`),
+# Vitest updates the changed pnpm packages' snapshots (`-u`), and
+# inline-snapshot reviews its own single-process (`-n0`), since under xdist
+# it can neither create nor fix one. `accept` writes every change without
+# review and deletes unreferenced insta snapshots; inline-snapshot still fails
+# each test whose snapshot it changed, so run them again. Packages, when
+# given, narrow it as `just test`'s do. CI never runs it.
+snapshots *arguments:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    arguments=({{ arguments }})
+    mode=review
+    if [[ ${#arguments[@]} -gt 0 && "${arguments[0]}" == accept ]]; then
+      mode=accept
+      arguments=("${arguments[@]:1}")
+    fi
+    packages=() vitest=() pytest=()
+    for package in ${arguments[@]+"${arguments[@]}"}; do
+      if [[ -f "$package/package.json" ]]; then vitest+=("$package/")
+      elif [[ -f "$package/pyproject.toml" ]]; then pytest+=("$package")
+      else packages+=(-p "$package"); fi
+    done
+    rust=true typescript=true python=true
+    if [[ ${#arguments[@]} -gt 0 ]]; then
+      [[ ${#packages[@]} -gt 0 ]] || rust=false
+      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+      [[ ${#pytest[@]} -gt 0 ]] || python=false
+    else
+      packages=(--workspace)
+      read -ra vitest <<< "$(cargo run --quiet -p xtask -- affected --local | sed -n 's/^vitest-packages=//p')"
+      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+    fi
+    # The tests find the commit's executables as under `just test`.
+    export GOODFETCH_TEST_SUITE=pre-merge
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    case "$mode" in
+      review) insta=(--review --unreferenced warn) inline=review ;;
+      accept) insta=(--accept --unreferenced delete) inline=create,fix,trim,update ;;
+    esac
+    # Every tool runs even when another's tests failed; the exit code is the
+    # last failure's.
+    status=0
+    if $rust; then
+      cargo insta test "${packages[@]}" "${insta[@]}" --test-runner nextest --nextest-profile ci \
+        --profile {{ test_profile }} --disable-nextest-doctest || status=$?
+    fi
+    if $typescript; then
+      pnpm exec vitest run -u "${vitest[@]}" || status=$?
+    fi
+    if $python; then
+      uv run pytest -n0 --inline-snapshot="$inline" ${pytest[@]+"${pytest[@]}"} || status=$?
+    fi
+    exit "$status"
 
 # `--test <runner>=<test ID>`, repeatable, or `--quarantined <n>`, the
 # quarantine list's n oldest entries. The diagnostic runs (20) and the daily
@@ -378,6 +551,7 @@ pre-merge *all:
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
     "$just" journeys-tasks --check
+    "$just" features-tests
     "$just" _tlc "{{ all }}"
     "$just" proofs
     "$just" supply-chain
@@ -626,8 +800,8 @@ rosetta-trial:
     ci/vm/rosetta-trial.sh
 
 # Builds the commit's executables that tests run (each Product's, the Proving
-# ground's, goodfetch-test-env and goodfetch-scripted-engine, those the
-# workspace has) with the tests' Cargo profile, and writes the test tool
+# ground's, goodfetch-test-env, goodfetch-scripted-engine and
+# goodfetch-conformance, those the workspace has) with the tests' Cargo profile, and writes the test tool
 # manifest of their paths to target/test-tools.json.
 _test-tools:
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json"

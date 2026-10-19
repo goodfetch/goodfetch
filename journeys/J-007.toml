@@ -10,7 +10,7 @@ of the site's list."""
 area = 6
 product = "foxhound"
 status = "active"
-covers = ["row:CO-09", "row:compliance-site-owner-politeness"]
+covers = ["row:CO-09", "row:compliance-site-owner-politeness", "story:3-24"]
 
 [proving_ground]
 seed = 7
@@ -25,7 +25,7 @@ cli = "M1"
 text = "Set the site's Politeness to at most 2 requests in flight"
 
 [[steps]]
-text = "Start two Crawls of the site's list at once"
+text = "Start two Crawls of the site's list at once, on one Daemon"
 
 [[steps]]
 text = "Wait for both Crawls to finish"
@@ -40,3 +40,6 @@ task = "limits/3"
 
 [[expect]]
 text = "The Proving ground saw no request beyond the site's 2 in flight, from either Crawl"
+
+[[expect]]
+text = "Both Crawls ran at once in the one Daemon process"

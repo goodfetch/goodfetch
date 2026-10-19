@@ -13,8 +13,10 @@ publish = false
 assert_cmd.workspace = true
 chacha20.workspace = true
 clap.workspace = true
+insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
 proptest.workspace = true
+regex.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
@@ -36,6 +38,11 @@ tracing-subscriber.workspace = true
 # script cannot then find when it runs.
 [build-dependencies]
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+
+# Its integration tests start the Proving ground through the test tool
+# manifest, so a change to it runs them (TESTING.md, Commands).
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]
 
 [package.metadata.cargo-shear]
 ignored = ["bindgen"]

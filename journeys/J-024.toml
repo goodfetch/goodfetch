@@ -1,0 +1,64 @@
+#:schema ./journey.schema.json
+id = "J-024"
+title = "Read a Partitioned crawl as one run"
+goal = """
+A person starts a Crawl in Partitions across a Daemon group and follows it. \
+The start MUST return a Partitioned crawl ID beside each Partition's Run ID, \
+the crawl MUST report its three axes and its Usage from all its Partitions \
+as one run, a Limit on the crawl MUST span its Partitions, and a checkpoint \
+and resume MUST act on every Partition, so that a Partitioned crawl reads as \
+one run."""
+area = 3
+product = "foxhound"
+status = "active"
+covers = ["story:3-116", "story:3-119"]
+
+[proving_ground]
+seed = 24
+tasks = [
+  { id = "catalog/1", digest = "0fd5048620cc7735137080c3672cb1d6afbc3a5c05663d14dcdfe03f1d460a36" },
+  { id = "extraction/1", digest = "3ae96866210c8d6252019c81f0d1236806b7487bdff0af8bda3fc648a24eafbb" },
+  { id = "parameters/1", digest = "7d5fd61ed626d04f88d8cc551fd141daa3a327dbb4c0b77452c8b42a37a21c2b" },
+]
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Form a Daemon group of three Daemons, each with its own Goodfetch home"
+
+[[steps]]
+text = "Start one Crawl of three sites (the catalog, the product index and the product listing) in three Partitions, with a Limit on the crawl"
+
+[[steps]]
+text = "Stop the Partitioned crawl as resumable once each Partition has committed some Records"
+
+[[steps]]
+text = "Resume the Partitioned crawl by its ID and let it finish"
+
+[[steps]]
+text = "Read the Partitioned crawl's report"
+
+[[expect]]
+text = "The start returned a Partitioned crawl ID beside the three Partitions' Run IDs, each Partition on its own Group member"
+
+[[expect]]
+text = "Stopping and resuming the Partitioned crawl checkpointed and resumed every Partition"
+
+[[expect]]
+text = "The Partitioned crawl's report gives one lifecycle, Verdict and Completeness from its Partitions, and its Usage as their sum"
+
+[[expect]]
+text = "The Usage of the three Partitions together never passed the crawl's Limit"
+
+[[expect]]
+text = "The oracle verifies the Partitioned crawl's Records of the catalog"
+task = "catalog/1"
+
+[[expect]]
+text = "The oracle verifies the Partitioned crawl's Records of the product index"
+task = "extraction/1"
+
+[[expect]]
+text = "The oracle verifies the Partitioned crawl's Records of the product listing"
+task = "parameters/1"

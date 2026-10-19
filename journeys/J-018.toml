@@ -1,0 +1,47 @@
+#:schema ./journey.schema.json
+id = "J-018"
+title = "Form a Daemon group and remove a Group member while its runs go on"
+goal = """
+A person forms a Daemon group of Daemons on one host, starts runs across it \
+and removes a Group member while its runs go on. The Daemons MUST serve as \
+one group over a mutual-TLS peer link, and the removed Group member MUST \
+drain as a removal, handing each of its runs' Checkpoints to another Group \
+member, where the run MUST finish with nothing lost, so that scaling down \
+never strands a run."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["story:3-106", "story:3-111"]
+
+[proving_ground]
+seed = 18
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Start three Daemons, each with its own Goodfetch home"
+
+[[steps]]
+text = "Form a Daemon group: initialize it on the first Daemon, make a join token and join the other two"
+
+[[steps]]
+text = "Start runs across the Daemon group, each extracting the catalog's product pages one after another"
+
+[[steps]]
+text = "Remove a Group member that holds runs while they go on"
+
+[[steps]]
+text = "Wait for every run to finish"
+
+[[expect]]
+text = "The three Daemons are Group members of one Daemon group, with the first as its Lead Daemon, linked by mutual TLS under the group's own certificate authority"
+
+[[expect]]
+text = "Every run started on any Group member is listed in the Daemon group's Run index"
+
+[[expect]]
+text = "The removed Group member drained as a removal, not a restart, and handed each of its runs' Checkpoints to another Group member"
+
+[[expect]]
+text = "Every run finished on a remaining Group member with every product page extracted, none lost and none twice"

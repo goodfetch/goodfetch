@@ -6,6 +6,10 @@ Data that several languages' tests read, each file at most 256 KiB (ADR 0062). T
 
 `ssrf/` holds the SSRF case table (`cases.toml`, ADR 0067), which every layer's runner applies through `goodfetch-test-support`'s `SsrfTable::committed()` and `run_cases`, and IANA's IPv4 and IPv6 special-purpose registries, committed as IANA publishes them, each with a `.source.toml` giving its date. The Quick suite fails when a registry block that is not globally reachable has no case.
 
+`snapshot-filters.json` holds the shared snapshot rules (ADR 0062): the run's values to replace literally, then the patterns, in order. A pattern keeps to the syntax Rust's `regex`, JavaScript and Python's `re` read alike, and a replacement is literal text, with neither `$` nor `\`. insta applies them through `snapshot_settings()`, Vitest and inline-snapshot through each package's `redact()`.
+
+`locales.json` is ADR 0073's table of locales and time zones; the DST days are 2026's under the IANA rules (the European Union's last Sundays of March and October, the United States' second Sunday of March and first Sunday of November). `unicode-record.json` is ADR 0073's Unicode record, written with JSON escapes so every invisible character shows. Rust, TypeScript and Python read both files.
+
 `schemas/` holds the JSON Schemas of `goodfetch-test-support`'s file types, such as `goodfetch-test-env`'s description and the test tool manifest. `xtask codegen` writes them from the crate's Rust types and `xtask codegen --check` fails when they drift; never edit them by hand.
 
 `outcome-vectors/` holds the hand-written outcome vectors of the result document (ADR 0063): what a `journey` or `conformance` document holds and the outcome it must get, which `goodfetch-protocol`'s constructors and the TypeScript and Python helpers pass, and which `journey` documents the reader refuses for not holding exactly their Journey's steps, checks and tasks.

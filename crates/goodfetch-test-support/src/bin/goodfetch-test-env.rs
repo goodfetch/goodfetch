@@ -1,14 +1,19 @@
 //! `goodfetch-test-env` (ADR 0062): a test's setup for TypeScript and
 //! Python. It builds a `TestEnv`, prints its description as one JSON line on
 //! stdout, and tears it down when its stdin closes. It exits non-zero, with a
-//! message on stderr, when a start fails. `--print-schemas` prints the JSON
+//! message on stderr, when a start fails. `--proving-ground <seed>` also
+//! starts the commit's Proving ground on that seed, which the description
+//! names and which stops before the folder is removed. `--print-schemas`
+//! prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing.
 
 use std::io::{self, Read as _, Write as _};
 use std::process::ExitCode;
 
 use clap::Parser;
-use goodfetch_test_support::{Description, TestEnv, Variables, schemas, tools};
+use goodfetch_test_support::{
+    Description, PROVING_GROUND_DEADLINE, ProvingGround, TestEnv, Tool, Variables, schemas, tools,
+};
 
 #[derive(Parser)]
 #[command(
@@ -26,6 +31,10 @@ struct Arguments {
     /// come.
     #[arg(long, default_value = "goodfetch-test-env")]
     test_name: String,
+    /// Starts the commit's Proving ground on this seed, and describes it
+    /// under `proving_ground`.
+    #[arg(long, value_name = "SEED")]
+    proving_ground: Option<u64>,
     /// Prints the JSON Schemas of test support's file types, keyed by their
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
@@ -69,13 +78,27 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     if let Some(zone) = &arguments.time_zone {
         env = env.with_time_zone(zone);
     }
-    let description = Description::new(&env, tools()?);
+    let tools = tools()?;
+    let mut description = Description::new(&env, tools.clone());
+    let proving_ground = match arguments.proving_ground {
+        Some(seed) => {
+            let program = tools.path(Tool::ProvingGround)?;
+            // Its process joins the TestEnv's record, which stops it if it is
+            // still alive at teardown (ADR 0062).
+            let started =
+                ProvingGround::start_program(&env, program, seed, PROVING_GROUND_DEADLINE)?;
+            description = description.with_proving_ground(started.description().clone());
+            Some(started)
+        }
+        None => None,
+    };
     write_line(&serde_json::to_string(&description)?)?;
     #[expect(
         clippy::disallowed_methods,
         reason = "goodfetch-test-env tears down when its stdin closes (ADR 0062)"
     )]
     io::stdin().read_to_end(&mut Vec::new())?;
+    drop(proving_ground);
     drop(env);
     Ok(())
 }

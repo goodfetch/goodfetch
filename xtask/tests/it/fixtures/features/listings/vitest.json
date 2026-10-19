@@ -1,0 +1,17 @@
+[
+  {
+    "name": "echo > repeats the text",
+    "file": "packages/web/src/echo.test.ts",
+    "tags": ["operation:sample.echo"]
+  },
+  {
+    "name": "echo > keeps the case",
+    "file": "packages/web/src/echo.test.ts",
+    "tags": []
+  },
+  {
+    "name": "sdk-typescript",
+    "file": "packages/web/tests/journeys/J-001.test.ts",
+    "tags": ["J-001", "sdk-typescript", "story:1-1"]
+  }
+]

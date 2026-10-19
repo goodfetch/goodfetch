@@ -280,6 +280,8 @@ stress base="":
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
     selection=$(cargo run --quiet -p xtask -- stress select --base "$base" \
       --saved "$target/stress-listings" --cargo-profile {{ test_profile }})
+    echo "Stressed tests (<count>, <runner>, <test ID>):"
+    echo "$selection"
     # The JUnit files an earlier step of the job wrote stay where they are.
     mkdir -p target/junit
     earlier=$(mktemp -d)

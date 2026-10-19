@@ -147,6 +147,46 @@ fn check_with_listings_fails_on_a_feature_no_runner_declares() {
     assert_eq!(outcome.code, 1);
 }
 
+/// The real runners list each idiom's declaration: a Vitest tag inherited
+/// from its suite, a Playwright annotation of its suite, a pytest marker.
+#[test]
+fn real_listings_carry_each_runners_declarations() {
+    let workspace = Workspace::from_fixture("feature-listings");
+    workspace.link_installed_runners();
+
+    let listed = workspace.xtask(&["journeys", "listings", "--out", LISTINGS]);
+    let outcome = workspace.xtask(&["features", "scan", "--listings", LISTINGS]);
+
+    assert_eq!(listed.code, 0, "{}", listed.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.stdout.lines().collect::<Vec<_>>(),
+        vec![
+            "event:sample.echoed\tintegration\tplaywright\tweb/tests/crawl.spec.ts › Crawl › crawls",
+            "operation:sample.echo\tintegration\tvitest\techo > repeats the text",
+            "story:1-1\tintegration\tnextest\tdeclaring::it declares",
+            "story:1-2\tintegration\tpytest\tpython/tests/integration/test_echo.py::test_echo",
+        ]
+    );
+}
+
+/// The Vitest configuration declares the inventory's Feature IDs as tags,
+/// so a tag naming another Feature fails the listing.
+#[test]
+fn vitest_tag_the_inventory_does_not_list_fails_the_listing() {
+    let workspace = Workspace::from_fixture("feature-listings");
+    workspace.link_installed_runners();
+    workspace.edit(
+        "web/tests/echo.test.ts",
+        "\"operation:sample.echo\"",
+        "\"operation:sample.gone\"",
+    );
+
+    let listed = workspace.xtask(&["journeys", "listings", "--out", LISTINGS]);
+
+    assert_ne!(listed.code, 0, "{}", listed.stderr);
+}
+
 /// The `note[<kind>] <subject>: …` lines of a check's output.
 fn notes(stdout: &str) -> Vec<Finding> {
     stdout

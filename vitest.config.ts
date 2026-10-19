@@ -11,6 +11,7 @@
 // target/visual/read/ for the orphan check (`xtask screenshots orphans`).
 import { appendFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import { readFeatureIds } from "@goodfetch/test-support/features";
 import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
 import { playwright } from "@vitest/browser-playwright";
 import {
@@ -104,6 +105,10 @@ const journeyTags = readdirSync(join(import.meta.dirname, "journeys"))
   .filter((name) => /^J-\d{3,9}\.toml$/.test(name))
   .map((name) => ({ name: name.slice(0, -".toml".length) }));
 const surfaceTags = [{ name: "sdk-typescript" }];
+// A test declares a Feature with a tag of its ID (ADR 0072), one per Feature
+// of the inventory, validated against its schema. Vitest takes the IDs as
+// they are: its tag names accept `:` and `.` (checked on Vitest 5.0.5).
+const featureTags = readFeatureIds(import.meta.dirname).map((name) => ({ name }));
 
 const config: ViteUserConfig = defineConfig({
   test: {
@@ -117,7 +122,7 @@ const config: ViteUserConfig = defineConfig({
     },
     detectAsyncLeaks: process.env["GOODFETCH_DETECT_ASYNC_LEAKS"] === "1",
     passWithNoTests: true,
-    tags: [...journeyTags, ...surfaceTags],
+    tags: [...journeyTags, ...surfaceTags, ...featureTags],
     strictTags: true,
     // Attachments, a failed browser test's screenshot among them, go beside
     // the JUnit files, never into the source tree.

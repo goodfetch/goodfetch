@@ -1,7 +1,9 @@
 //! The module check (ADR 0126): every crate's `modules.toml` lists each of
 //! its top-level modules with the siblings it may import, and the check fails
 //! on any other import, on a cycle among the allowed imports, on a name that
-//! is no module and on a module the file does not list. A file past 1,000
+//! is no module and on a module the file does not list. A module's
+//! `[submodules.<module>]` table holds its direct submodules to the same
+//! rules among themselves. A file past 1,000
 //! lines must state why it is still one concern in a `Size:` line of its `//!`
 //! header. Source is parsed with `syn`, so nothing is built; `#[cfg(test)]`
 //! code, the crate root and generated code are not checked.
@@ -32,12 +34,8 @@ const SIZE_ALARM_LINES: usize = 1000;
 struct ModulesFile {
     #[serde(default)]
     modules: BTreeMap<String, Vec<String>>,
-    /// A module's own submodules' rules; read, and left to a later ticket.
+    /// A module's own submodules' rules, by the module's name.
     #[serde(default)]
-    #[expect(
-        dead_code,
-        reason = "submodule rules are parsed so the file stays valid"
-    )]
     submodules: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 }
 
@@ -122,7 +120,7 @@ fn check_crate(
         let mut imported = BTreeSet::new();
         for (source, depth) in files {
             for item in non_test_items(&source.syntax.items) {
-                scan_item(item, *depth, &mut imported);
+                scan_item(item, *depth, Scope::Crate, &mut imported);
             }
         }
         for sibling in imported {
@@ -157,6 +155,89 @@ fn check_crate(
             "import-cycle",
             name,
             format!("the imports {MODULES_FILE} allows form a cycle"),
+        ));
+    }
+
+    for (module, table) in &rules.submodules {
+        let Some((source, _)) = modules.get(module).and_then(|files| files.first()) else {
+            findings.push(Finding::new(
+                "unknown-module",
+                format!("{name}/{module}"),
+                format!(
+                    "{MODULES_FILE} has a submodule table for a module the crate does not have"
+                ),
+            ));
+            continue;
+        };
+        check_submodules(name, module, source, table, findings)?;
+    }
+    Ok(())
+}
+
+/// The rules of one module's `[submodules.<module>]` table over its direct
+/// submodules, the way the top-level rules hold the crate's modules.
+fn check_submodules(
+    name: &str,
+    module: &str,
+    source: &Source,
+    table: &BTreeMap<String, Vec<String>>,
+    findings: &mut Vec<Finding>,
+) -> Result<()> {
+    let mut children: BTreeMap<String, Vec<(Source, usize)>> = BTreeMap::new();
+    for item in non_test_items(&source.syntax.items) {
+        if let syn::Item::Mod(child) = item {
+            children.insert(
+                child.ident.to_string(),
+                module_files(child, &source.children, 2)?,
+            );
+        }
+    }
+    for (child, files) in &children {
+        let Some(allowed) = table.get(child) else {
+            findings.push(Finding::new(
+                "module-not-listed",
+                format!("{name}/{module}::{child}"),
+                format!("the submodule is missing from {MODULES_FILE}'s [submodules.{module}]"),
+            ));
+            continue;
+        };
+        let mut imported = BTreeSet::new();
+        for (file, depth) in files {
+            for item in non_test_items(&file.syntax.items) {
+                scan_item(item, *depth, Scope::Within(module), &mut imported);
+            }
+        }
+        for sibling in imported {
+            if sibling != *child && children.contains_key(&sibling) && !allowed.contains(&sibling) {
+                findings.push(Finding::new(
+                    "forbidden-import",
+                    format!("{name}/{module}::{child}->{sibling}"),
+                    format!("{MODULES_FILE}'s [submodules.{module}] does not allow `{child}` to import `{sibling}`"),
+                ));
+            }
+        }
+    }
+    let named: BTreeSet<&String> = table
+        .iter()
+        .flat_map(|(child, allowed)| std::iter::once(child).chain(allowed))
+        .collect();
+    for unknown in named
+        .into_iter()
+        .filter(|child| !children.contains_key(*child))
+    {
+        findings.push(Finding::new(
+            "unknown-module",
+            format!("{name}/{module}::{unknown}"),
+            format!(
+                "{MODULES_FILE}'s [submodules.{module}] names a submodule `{module}` does not have"
+            ),
+        ));
+    }
+    if has_cycle(table) {
+        findings.push(Finding::new(
+            "import-cycle",
+            format!("{name}/{module}"),
+            format!("the imports {MODULES_FILE}'s [submodules.{module}] allows form a cycle"),
         ));
     }
     Ok(())
@@ -274,20 +355,38 @@ fn non_test_items(items: &[syn::Item]) -> impl Iterator<Item = &syn::Item> {
         .filter(|item| !is_test_only(item_attributes(item)))
 }
 
-/// Records the sibling top-level modules an item's paths reach. `depth` is the
+/// Whose siblings an import reaches: the crate's top-level modules, or one
+/// top-level module's direct submodules.
+#[derive(Clone, Copy)]
+enum Scope<'a> {
+    Crate,
+    Within(&'a str),
+}
+
+impl Scope<'_> {
+    /// How many `super::` climb from a file at `depth` to the siblings' parent.
+    fn climb(self, depth: usize) -> usize {
+        match self {
+            Self::Crate => depth,
+            Self::Within(_) => depth.saturating_sub(1),
+        }
+    }
+}
+
+/// Records the siblings in `scope` an item's paths reach. `depth` is the
 /// item's module depth below the crate root (1 for a top-level module's file).
-fn scan_item(item: &syn::Item, depth: usize, imported: &mut BTreeSet<String>) {
+fn scan_item(item: &syn::Item, depth: usize, scope: Scope<'_>, imported: &mut BTreeSet<String>) {
     if let syn::Item::Mod(syn::ItemMod {
         content: Some((_, items)),
         ..
     }) = item
     {
         for inner in non_test_items(items) {
-            scan_item(inner, depth + 1, imported);
+            scan_item(inner, depth + 1, scope, imported);
         }
         return;
     }
-    scan_tokens(item.to_token_stream(), depth, imported);
+    scan_tokens(item.to_token_stream(), depth, scope, imported);
 }
 
 fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
@@ -302,21 +401,35 @@ fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
     matches!(tokens.get(index), Some(TokenTree::Ident(ident)) if ident == word)
 }
 
-/// Scans tokens, macro invocations' included, for `crate::<module>` and for
-/// `super::` chains that climb to the crate root.
-fn scan_tokens(stream: TokenStream, depth: usize, imported: &mut BTreeSet<String>) {
+/// Scans tokens, macro invocations' included, for `crate::<sibling>` (or
+/// `crate::<module>::<sibling>` within a module) and for `super::` chains
+/// that climb to the siblings' parent.
+fn scan_tokens(
+    stream: TokenStream,
+    depth: usize,
+    scope: Scope<'_>,
+    imported: &mut BTreeSet<String>,
+) {
     let tokens: Vec<TokenTree> = stream.into_iter().collect();
     let mut index = 0;
     while index < tokens.len() {
         if let TokenTree::Group(group) = &tokens[index] {
-            scan_tokens(group.stream(), depth, imported);
+            scan_tokens(group.stream(), depth, scope, imported);
         }
         let after_separator = index > 1 && is_path_separator(&tokens, index - 2);
         if !after_separator
             && is_ident(&tokens, index, "crate")
             && is_path_separator(&tokens, index + 1)
         {
-            record_targets(&tokens, index + 3, imported);
+            match scope {
+                Scope::Crate => record_targets(&tokens, index + 3, imported),
+                Scope::Within(module) => {
+                    if is_ident(&tokens, index + 3, module) && is_path_separator(&tokens, index + 4)
+                    {
+                        record_targets(&tokens, index + 6, imported);
+                    }
+                }
+            }
         } else if !after_separator && is_ident(&tokens, index, "super") {
             let mut climbed = 0;
             let mut cursor = index;
@@ -324,7 +437,7 @@ fn scan_tokens(stream: TokenStream, depth: usize, imported: &mut BTreeSet<String
                 climbed += 1;
                 cursor += 3;
             }
-            if climbed == depth {
+            if climbed == scope.climb(depth) {
                 record_targets(&tokens, cursor, imported);
             }
             index = cursor.max(index + 1);

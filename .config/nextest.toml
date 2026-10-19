@@ -37,12 +37,13 @@ leak-timeout = { period = "200ms", result = "fail" }
 [profile.ci.junit]
 path = "junit.xml"
 
-# `xtask codegen`'s tests build each copy of their fixture crate into one
+# `xtask`'s tests that build a fixture crate (codegen, compat, perf, stress)
+# build each copy of it into one
 # shared target folder, where the copies' artifacts share their names: they
 # run one at a time, in every profile.
 [test-groups]
 fixture-builds = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^perf_build::/))"
+filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^perf_build::/) | test(/^stress::/))"
 test-group = "fixture-builds"

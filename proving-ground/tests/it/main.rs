@@ -7,6 +7,7 @@
     reason = "the tests start the Proving ground's binary as a child process"
 )]
 
+mod actionability;
 mod browserless;
 mod clients;
 mod observations;

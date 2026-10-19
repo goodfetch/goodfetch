@@ -46,7 +46,7 @@ pub(crate) struct Account {
 }
 
 /// What a task asks a tool to do.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Kind {
     /// Follow links from the start page and return Records.
@@ -55,6 +55,12 @@ pub(crate) enum Kind {
     Extract,
     /// Carry out an Effect once, through the start page's form.
     Submit,
+    /// Carry out one action on the start page, such as a hover, a drag or a
+    /// key press, which the page's own script reports as an Effect; or
+    /// refuse it when its target is not the one the task names.
+    Act,
+    /// Download the file the start page offers and return its bytes.
+    Download,
 }
 
 /// A task's expected result, derived from the seed data only or written by
@@ -128,7 +134,7 @@ pub(crate) enum Effect {
 
 /// What a hand-made page's script posts when an action reaches one of its
 /// controls, before the site records it as an [`Effect::Event`].
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Reported {
     event: String,

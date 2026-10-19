@@ -12,6 +12,7 @@ mod command;
 mod digest;
 mod exchange;
 mod generator;
+mod handmade;
 mod observation;
 mod oracle;
 mod output;

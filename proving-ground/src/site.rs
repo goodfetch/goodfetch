@@ -13,6 +13,7 @@ use hyper::{Method, StatusCode};
 
 use crate::catalog;
 use crate::exchange::{Reply, Request};
+use crate::handmade;
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::portal::{self, Portal};
@@ -61,6 +62,7 @@ impl Site {
         hosts.extend(
             portal::hosts()
                 .into_iter()
+                .chain(handmade::hosts())
                 .map(|(host, task)| (host, Some(task))),
         );
         hosts
@@ -70,12 +72,18 @@ impl Site {
     fn tasks(&self) -> Vec<Task> {
         let mut tasks = catalog::tasks(self.seed, self.port);
         tasks.extend(portal::tasks(self.seed, self.port));
+        tasks.extend(handmade::tasks(self.seed, self.port));
         tasks
     }
 
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
-        if let Some((reply, effect)) = self.portal.respond(&observation::host_name(host), request) {
+        let name = observation::host_name(host);
+        if let Some((reply, effect)) = self
+            .portal
+            .respond(&name, request)
+            .or_else(|| handmade::respond(self.seed, self.port, &name, request))
+        {
             if let Some(effect) = effect {
                 self.observations.effect(host, effect);
             }

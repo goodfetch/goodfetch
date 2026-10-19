@@ -979,7 +979,8 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 - **A bench target builds what it needs the way tests do:** a current-thread runtime, `Clock::paused` and `Entropy::seeded` through `goodfetch-test-support`'s helpers, and the `tasks` module's inline blocking policy, so no thread waits on another. Its root opts in once with `#![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]`.
 - **A new or changed benchmark runs 20 times on one build in its pull request.** Every gated figure must spread less than 0.5%, or the benchmark is fixed before it gates.
 - **Changing what a benchmark measures gives it a new ID.** A benchmark with no base is reported, never gated.
-- **Benchmarks build with the `bench` profile** (release settings, thin LTO, `debug = "line-tables-only"`) on the Linux gnu targets.
+- **Benchmarks build with the `bench` profile** (release settings, thin LTO, `debug = "line-tables-only"`) on the Linux gnu targets. Valgrind and gungraun's runner come with the pinned CI image on Linux x86-64, the only platform ADR 0135's image has; the Linux arm64 Release cells install them on their runner (`ci/host/perf-tools.sh`).
+- **The `perf` job is one job while every selected bench target fits it;** it becomes a matrix over `bench-targets`, sharded by bench target within the Pre-merge budget, once they do not.
 
 ### The comparison with the base
 

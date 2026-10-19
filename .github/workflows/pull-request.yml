@@ -168,7 +168,9 @@ jobs:
   # build's 1 MB ceiling. Its steps are not test steps: a tripped figure
   # passes on a re-run of this job once the owner has accepted the pull
   # request's "Performance change" section on the head, since the figures
-  # repeat exactly. It reads that section before the deny.
+  # repeat exactly. It reads that section before the deny. It is one job
+  # while the selected bench targets fit it, and becomes a matrix over
+  # `bench-targets` once they do not (TESTING.md, Benchmarks).
   perf:
     name: perf
     needs: [quick, affected]

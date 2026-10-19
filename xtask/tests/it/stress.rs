@@ -236,3 +236,19 @@ fn quarantined_test_is_not_stressed() {
     expected.retain(|(_, _, test)| test != "tests/test_changed.py::test_kept");
     assert_eq!(selection, expected);
 }
+
+/// A runner may hold no test, as Playwright before the first Playwright
+/// test exists: it lists none, and the others' tests are still chosen.
+#[test]
+fn runner_with_no_test_lists_none() {
+    let (workspace, base) = base();
+    change(&workspace);
+    workspace.remove_folder("e2e");
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base]);
+
+    let mut expected = change_selection();
+    expected.retain(|(_, runner, _)| runner != "playwright");
+    assert_eq!(selection, expected);
+}

@@ -85,7 +85,8 @@ pub(crate) fn output(
         Runner::Playwright => {
             let program = installed(root, "node_modules/.bin/playwright", "pnpm install")?;
             let mut command = Command::new(program);
-            command.args(["test", "--list", "--reporter=json"]);
+            // No test is no failure: a workspace may hold none yet.
+            command.args(["test", "--list", "--reporter=json", "--pass-with-no-tests"]);
             if let Some(commit) = changed_since {
                 command.arg(format!("--only-changed={commit}"));
             }

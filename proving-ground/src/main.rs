@@ -2,8 +2,9 @@
 //! and generates from a seed, with its task list and its oracle. Its command
 //! line and HTTP are the interface every caller sees: `serve` binds an
 //! address, prints one JSON line, and serves each page family on its own host
-//! name, the task list at `/tasks` and the oracle at `/oracle`. `tasks`
-//! prints one seed's task list and exits.
+//! name, the task list at `/tasks` and the oracle at `/oracle`, beside its
+//! network fixtures: forward proxies, a DNS fixture and a watched target.
+//! `tasks` prints one seed's task list and exits.
 
 mod access;
 mod adversarial;
@@ -13,17 +14,22 @@ mod catalog;
 mod client_hello;
 mod clock;
 mod command;
+mod connection_record;
+mod crawl;
 mod digest;
+mod dns;
 mod encodings;
 mod exchange;
 mod extraction;
 mod files;
+mod forward_proxy;
 mod generator;
 mod handmade;
 mod languages;
 mod login;
 mod model;
 mod network;
+mod network_fixture;
 mod observation;
 mod oracle;
 mod output;
@@ -47,6 +53,7 @@ use clap::Parser as _;
 
 use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
 use crate::network::{Loss, Network, Profile};
+use crate::network_fixture::NetworkFixtures;
 use crate::server::Server;
 use crate::site::Site;
 use crate::task::TaskList;
@@ -89,8 +96,8 @@ fn run(serve: &Serve) -> Result<()> {
     ))
 }
 
-/// Shapes and calibrates the network, binds the server behind it, prints
-/// the output line, and serves until stopped; then undoes the shaping.
+/// Shapes and calibrates the network, binds the server behind it, serves
+/// until stopped, then undoes the shaping.
 async fn shape_and_serve(
     seed: u64,
     address: SocketAddr,
@@ -122,20 +129,29 @@ async fn shape_and_serve(
             )
         }
     };
-    let upstream = server.address();
-    let printed = output::line(&serde_json::json!({
-        "address": network.proxy_address().unwrap_or(upstream).to_string(),
-        "version": version::VERSION,
-        "seed": seed,
-        "network": network.report(),
-    }));
-    let outcome = match printed {
-        Ok(()) => tokio::select! {
-            outcome = server.run() => outcome,
-            () = network.forward(upstream) => Ok(()),
-        },
-        Err(error) => Err(error),
-    };
+    let outcome = serve(server, &network, seed).await;
     let stopped = network.stop().await;
     outcome.and(stopped)
+}
+
+/// Binds the network fixtures beside the server, prints the output line,
+/// and serves until stopped.
+async fn serve(server: Server, network: &Network, seed: u64) -> Result<()> {
+    let upstream = server.address();
+    let reached = network.proxy_address().unwrap_or(upstream);
+    let fixtures = NetworkFixtures::bind(reached.ip(), seed, server.observations()).await?;
+    let mut line = fixtures.report()?;
+    line.insert("address".to_owned(), reached.to_string().into());
+    line.insert("version".to_owned(), version::VERSION.into());
+    line.insert("seed".to_owned(), seed.into());
+    line.insert(
+        "network".to_owned(),
+        serde_json::to_value(network.report()).context("reporting the network profile")?,
+    );
+    output::line(&line)?;
+    tokio::select! {
+        outcome = server.run() => outcome,
+        () = network.forward(upstream) => Ok(()),
+        () = fixtures.run() => Ok(()),
+    }
 }

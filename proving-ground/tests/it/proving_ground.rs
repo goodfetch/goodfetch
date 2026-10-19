@@ -116,6 +116,54 @@ impl ProvingGround {
         &self.address
     }
 
+    /// `serve`'s first output line, as JSON.
+    fn line_json(&self) -> Value {
+        serde_json::from_str(&self.line).expect("the line is JSON")
+    }
+
+    /// The address of the forward proxy `serve` reported under `name`.
+    pub(crate) fn proxy(&self, name: &str) -> String {
+        self.line_json()["proxies"][name]
+            .as_str()
+            .unwrap_or_else(|| panic!("the line names the {name} proxy: {}", self.line))
+            .to_owned()
+    }
+
+    /// The `Proxy-Authorization` header value an authenticated proxy accepts
+    /// for `username` (the reported one, or a sticky form built on it) and
+    /// the reported password.
+    pub(crate) fn proxy_authorization(&self, username: &str) -> String {
+        let password = self.line_json()["proxy_credentials"]["password"]
+            .as_str()
+            .expect("the line names the proxy password")
+            .to_owned();
+        basic(username, &password)
+    }
+
+    /// The username the authenticated proxies accept.
+    pub(crate) fn proxy_username(&self) -> String {
+        self.line_json()["proxy_credentials"]["username"]
+            .as_str()
+            .expect("the line names the proxy username")
+            .to_owned()
+    }
+
+    /// The address of the DNS fixture `serve` reported.
+    pub(crate) fn dns(&self) -> String {
+        self.line_json()["dns"]
+            .as_str()
+            .expect("the line names the DNS fixture")
+            .to_owned()
+    }
+
+    /// The address of the watched target `serve` reported.
+    pub(crate) fn target(&self) -> String {
+        self.line_json()["target"]
+            .as_str()
+            .expect("the line names the target")
+            .to_owned()
+    }
+
     /// The port `serve` bound.
     pub(crate) fn port(&self) -> &str {
         self.address
@@ -225,6 +273,18 @@ impl ProvingGround {
         answer.json()
     }
 
+    /// The task `id` of the task list.
+    pub(crate) fn task(&self, id: &str) -> Value {
+        let tasks = self.tasks();
+        tasks["tasks"]
+            .as_array()
+            .expect("`tasks` is an array")
+            .iter()
+            .find(|task| task["id"] == id)
+            .unwrap_or_else(|| panic!("the task list has no {id}: {tasks}"))
+            .clone()
+    }
+
     /// The certificate authority the Proving ground made from its seed, as
     /// PEM.
     pub(crate) fn certificate_authority(&self) -> String {
@@ -257,18 +317,6 @@ impl ProvingGround {
             .call()
             .expect("the Proving ground answers");
         Self::answer(response)
-    }
-
-    /// The task `id` of the task list.
-    pub(crate) fn task(&self, id: &str) -> Value {
-        let tasks = self.tasks();
-        tasks["tasks"]
-            .as_array()
-            .expect("`tasks` is an array")
-            .iter()
-            .find(|task| task["id"] == id)
-            .unwrap_or_else(|| panic!("the task list has no {id}: {tasks}"))
-            .clone()
     }
 
     /// Sets the Proving ground's time step, on its own address.
@@ -325,6 +373,15 @@ impl ProvingGround {
             body,
         }
     }
+}
+
+/// HTTP's Basic credentials for `username` and `password` (RFC 7617), as a
+/// `Proxy-Authorization` value.
+pub(crate) fn basic(username: &str, password: &str) -> String {
+    format!(
+        "Basic {}",
+        data_encoding::BASE64.encode(format!("{username}:{password}").as_bytes())
+    )
 }
 
 /// A result for the oracle: the task, the tool's status and its Records.

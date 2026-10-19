@@ -98,6 +98,7 @@ fn a_correct_result_is_verified(#[case] index: usize) {
             "wrong": [],
             "missing_effects": [],
             "extra_effects": [],
+            "findings": [],
         })
     );
 }

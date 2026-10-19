@@ -21,6 +21,7 @@ use crate::access;
 use crate::adversarial;
 use crate::agent;
 use crate::catalog;
+use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
 use crate::extraction;
@@ -36,7 +37,6 @@ use crate::protection;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
-use crate::sync::Mutex;
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -50,10 +50,11 @@ pub(crate) struct Site {
     certificate_authority: String,
     observations: Arc<Observations>,
     logins: Logins,
-    time_step: Mutex<u64>,
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
+    /// What the Crawl families saw crawls do.
+    crawl: Families,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -81,10 +82,10 @@ impl Site {
             certificate_authority,
             observations,
             logins: Logins::default(),
-            time_step: Mutex::new(0),
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
+            crawl: Families::new(),
         }
     }
 
@@ -118,6 +119,7 @@ impl Site {
         hosts.extend(adversarial::hosts());
         hosts.extend(protection::hosts());
         hosts.extend(access::hosts());
+        hosts.extend(crawl::hosts(seed));
         hosts
     }
 
@@ -144,6 +146,7 @@ impl Site {
         tasks.extend(adversarial::tasks(seed, port));
         tasks.extend(protection::tasks(seed, port));
         tasks.extend(access::tasks(seed, port));
+        tasks.extend(crawl::tasks(seed, port));
         tasks
     }
 
@@ -174,6 +177,30 @@ impl Site {
             },
             _ => Reply::not_found(),
         })
+    }
+
+    /// Answers one request as [`Self::respond`] does, with how long the
+    /// server holds the reply first, which only a Crawl family asks for.
+    pub(crate) fn respond_held(
+        &self,
+        host: &str,
+        request: &Request<'_>,
+    ) -> (Reply, Option<crawl::Held>) {
+        let name = observation::host_name(host);
+        if self.hosts.contains_key(&name) {
+            let visit = crawl::Request {
+                method: request.method,
+                host: &name,
+                authority: host,
+                path: request.path,
+                query: request.query,
+                peer: request.peer,
+            };
+            if let Some(page) = self.crawl.respond(self.seed, &visit, &self.observations) {
+                return page.into_reply();
+            }
+        }
+        (self.respond(host, request), None)
     }
 
     /// Answers one request, given its `Host` header.
@@ -225,7 +252,7 @@ impl Site {
                 catalog::HOST => self.catalog(host, request),
                 rendered::HOST => rendered::respond(self.seed, request),
                 login::HOST => login::respond(self.seed, &self.logins, request),
-                _ => schedule::respond(self.seed, *self.time_step.lock(), request),
+                _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
         }
         match (request.method, request.path) {
@@ -288,7 +315,7 @@ impl Site {
     /// Answers a request to the `agent` family: its pages at the current
     /// time step, and the Effects their script posts, recorded with it.
     fn agent(&self, host: &str, name: &str, request: &Request<'_>) -> Reply {
-        let step = *self.time_step.lock();
+        let step = self.observations.time_step();
         match (request.method, request.path) {
             (&Method::POST, agent::EFFECTS_PATH) => match agent::effect(request.body, step) {
                 Some(effect) => {
@@ -317,7 +344,7 @@ impl Site {
         if method != Method::POST || observation::host_name(host) != model::HOST {
             return None;
         }
-        let step = *self.time_step.lock();
+        let step = self.observations.time_step();
         let candidates: Vec<Candidate> = self
             .tasks()
             .into_iter()
@@ -390,12 +417,13 @@ impl Site {
         open
     }
 
-    /// Sets the time step scheduled content and drifting pages follow.
+    /// Sets the time step scheduled content and drifting pages follow, which
+    /// the connection record stamps each later entry with.
     fn set_time_step(&self, body: &Bytes) -> Reply {
         let Ok(time_step) = serde_json::from_slice::<TimeStep>(body) else {
             return Reply::error(StatusCode::BAD_REQUEST, "malformed_time_step");
         };
-        *self.time_step.lock() = time_step.step;
+        self.observations.set_time_step(time_step.step);
         Reply::json(StatusCode::OK, &time_step)
     }
 
@@ -408,13 +436,14 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
+                let findings = self.observations.findings_of(&task.entry.id);
                 let submitted = submission.record_ids();
                 let now = self
                     .portal
                     .expected_now(&task.entry.id)
                     .or_else(|| access::expected_now(&task.entry.id, &self.observations));
                 let expected = now.as_ref().unwrap_or(&task.expected);
-                let answer = oracle::judge(expected, submission, &effects)
+                let answer = oracle::judge(expected, submission, &effects, findings)
                     .refuted_by(self.reported(&task.entry.id));
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);

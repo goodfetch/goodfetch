@@ -872,6 +872,7 @@ dependencies = [
  "h2",
  "hmac",
  "http-body-util",
+ "httparse",
  "hyper",
  "hyper-util",
  "loona-hpack",

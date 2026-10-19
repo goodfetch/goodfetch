@@ -16,9 +16,11 @@ const PAGE = `<!doctype html>
   </body>
 </html>`;
 
-test("fixed page renders the same pixels in the pinned image", async ({ page }) => {
-  await page.setViewportSize({ width: 400, height: 160 });
-  await page.setContent(PAGE);
+test.describe("expectScreenshot", () => {
+  test("fixed page renders the same pixels in the pinned image", async ({ page }) => {
+    await page.setViewportSize({ width: 400, height: 160 });
+    await page.setContent(PAGE);
 
-  await expectScreenshot(page, "fixture-page.png");
+    await expectScreenshot(page, "fixture-page.png");
+  });
 });

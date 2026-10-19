@@ -190,3 +190,30 @@ fn new_renamed_and_changed_tests_run_20_times_and_unquarantined_ones_200() {
 
     assert_eq!(selection, change_selection());
 }
+
+/// The cache-warming job saves the base's listings. Its pytest listing is
+/// then cut short of `test_unchanged`, which the selection takes as new: the
+/// saved listing is what is read.
+#[test]
+fn listing_saved_for_the_base_commit_is_read_instead_of_listing_the_base() {
+    let (workspace, base) = base();
+    let saved = workspace.xtask(&["stress", "listings", "--out", "saved"]);
+    assert_eq!(saved.code, 0, "{}", saved.stderr);
+    workspace.edit(
+        &format!("saved/{base}/pytest.txt"),
+        "tests/test_steady.py::test_unchanged\n",
+        "",
+    );
+    change(&workspace);
+
+    let selection = select(&workspace, &["--base", &base, "--saved", "saved"]);
+
+    let mut expected = change_selection();
+    expected.push(selected(
+        CHANGED,
+        "pytest",
+        "tests/test_steady.py::test_unchanged",
+    ));
+    expected.sort();
+    assert_eq!(selection, expected);
+}

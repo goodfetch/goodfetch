@@ -3,3 +3,16 @@ name = "goodfetch-collie"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+
+# As in Collie's real crate, its binary target requires the `executable`
+# feature (ADR 0094).
+[features]
+executable = []
+
+[dev-dependencies]
+goodfetch-collie = { path = ".", features = ["executable"] }
+
+[[bin]]
+name = "goodfetch-collie"
+path = "src/main.rs"
+required-features = ["executable"]

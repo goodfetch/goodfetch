@@ -14,7 +14,7 @@ use serde::Deserialize;
 use super::{escape_html, page, record, record_page, word};
 use crate::exchange::{Reply, Request};
 use crate::observation::Report;
-use crate::task::{self, Entry, Expected, Kind, Refusal, Task, TypedError};
+use crate::task::{self, Entry, Expected, ExpectedError, Kind, Task};
 
 pub(super) const HOST: &str = "redirects.test";
 pub(super) const FAMILY: &str = "redirects";
@@ -116,15 +116,12 @@ fn case(ordinal: usize) -> &'static Case {
 }
 
 /// The typed error a case is refused with.
-fn refusal(case: &'static Case) -> Refusal {
-    let details: Vec<(&'static str, &'static str)> = case
-        .refusal
-        .rule
-        .as_deref()
-        .map(|rule| ("rule", rule))
-        .into_iter()
-        .collect();
-    Refusal::Typed(TypedError::new(&case.refusal.code, &details))
+fn refusal(case: &'static Case) -> ExpectedError {
+    ExpectedError {
+        code: &case.refusal.code,
+        rule: case.refusal.rule.as_deref(),
+        ..ExpectedError::default()
+    }
 }
 
 /// The Record of the page the chains end on.
@@ -239,11 +236,16 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                  start page redirects as the SSRF case table's case its path names does \
                  (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool \
                  refuses it with the case's typed error and no connection reaches the target.",
-                Expected::refused(refusal(case)),
+                Expected::refused(Some(refusal(case))),
             )
         })
         .collect();
-    let too_many = || Expected::refused(Refusal::Typed(TypedError::new("too_many_redirects", &[])));
+    let too_many = || {
+        Expected::refused(Some(ExpectedError {
+            code: "too_many_redirects",
+            ..ExpectedError::default()
+        }))
+    };
     tasks.extend([
         task(
             OWN_LOOPBACK,
@@ -252,10 +254,11 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
              start page redirects to the Proving ground's own loopback address, a private \
              address: a correct tool refuses it, and a tool that follows it is recorded \
              reaching the landing.",
-            Expected::refused(Refusal::Typed(TypedError::new(
-                "egress_refused",
-                &[("rule", "private_address")],
-            ))),
+            Expected::refused(Some(ExpectedError {
+                code: "egress_refused",
+                rule: Some("private_address"),
+                ..ExpectedError::default()
+            })),
         ),
         task(
             CHAIN_OF_20,

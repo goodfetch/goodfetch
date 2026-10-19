@@ -82,7 +82,7 @@ pub(crate) enum Kind {
 /// A task's expected result, derived from the seed data only or written by
 /// hand: the Records a tool returns, the Effects the Proving ground records
 /// it carried out, the files it downloads, and whether the task must be
-/// refused, and with which typed error.
+/// refused.
 #[derive(Default, Serialize)]
 pub(crate) struct Expected {
     pub(crate) records: Vec<Record>,
@@ -95,73 +95,46 @@ pub(crate) struct Expected {
     pub(crate) files: Vec<File>,
     /// Whether the only right result is a refusal: no Effect, and a tool that
     /// reports a failure, as when the control under the pointer is not the
-    /// task's; and, for a typed refusal, the error that failure names.
-    #[serde(skip_serializing_if = "Refusal::is_none")]
-    pub(crate) refusal: Refusal,
+    /// task's.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) refusal: bool,
+    /// The error a refusal must report, when only one is right.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) error: Option<ExpectedError>,
+    /// The path prefixes the task must never request, such as those its
+    /// site's robots.txt disallows.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) forbidden_paths: Vec<&'static str>,
+    /// The robots.txt the task's site serves, which judges each request of
+    /// the task by its `User-Agent` (RFC 9309).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) robots_txt: Option<&'static str>,
+    /// Whether every request of the task must carry a Web Bot Auth signature
+    /// its agent's key directory verifies (`true`), or none may be signed
+    /// (`false`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) signed: Option<bool>,
 }
 
-/// Whether a task's only right result is a refusal. It serializes as `true`
-/// for a refusal any reported failure meets, and as the typed error for one
-/// whose failure must name it, such as
-/// `{"code": "egress_refused", "rule": "scheme"}`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Refusal {
-    /// The task is not refused.
-    #[default]
-    None,
-    /// Any failure the tool reports is the refusal, as for a limit whose
-    /// typed error is not decided yet (ADR 0067).
-    Any,
-    /// The failure must name this typed error (ADR 0038).
-    Typed(TypedError),
-}
-
-impl Refusal {
-    pub(crate) fn is_none(&self) -> bool {
-        *self == Self::None
-    }
-
-    /// Whether the task must be refused.
-    pub(crate) fn is_expected(&self) -> bool {
-        !self.is_none()
-    }
-}
-
-impl Serialize for Refusal {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::None => serializer.serialize_bool(false),
-            Self::Any => serializer.serialize_bool(true),
-            Self::Typed(error) => error.serialize(serializer),
-        }
-    }
-}
-
-/// A typed error (ADR 0038): its Error code and the details a refusal names,
-/// such as `egress_refused`'s `rule`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct TypedError {
+/// The error a refusal must report: its Error code and, for a navigation
+/// that failed, the browser's network error, or, for an egress refusal, the
+/// rule that refused it (ADR 0067).
+#[derive(Clone, Default, Serialize)]
+pub(crate) struct ExpectedError {
     pub(crate) code: &'static str,
-    #[serde(flatten)]
-    pub(crate) details: BTreeMap<&'static str, &'static str>,
-}
-
-impl TypedError {
-    /// The error `code` naming `details`.
-    pub(crate) fn new(code: &'static str, details: &[(&'static str, &'static str)]) -> Self {
-        Self {
-            code,
-            details: details.iter().copied().collect(),
-        }
-    }
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) network_error: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) rule: Option<&'static str>,
 }
 
 impl Expected {
     /// A refusal alone: nothing carried out, and a reported failure that
-    /// meets `refusal`.
-    pub(crate) fn refused(refusal: Refusal) -> Self {
+    /// names `error` when one is given.
+    pub(crate) fn refused(error: Option<ExpectedError>) -> Self {
         Self {
-            refusal,
+            refusal: true,
+            error,
             ..Self::default()
         }
     }

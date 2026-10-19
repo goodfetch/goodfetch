@@ -114,11 +114,13 @@ fn a_redirect_case_refused_with_another_typed_error_fails_and_names_both() {
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
     assert_eq!(
-        answer["wrong_refusal"],
-        json!({
-            "expected": { "code": "egress_refused", "rule": "private_address" },
-            "submitted": reported,
-        })
+        answer["wrong_error"]["expected"],
+        json!({ "code": "egress_refused", "rule": "private_address" }),
+        "{answer}"
+    );
+    assert_eq!(
+        answer["wrong_error"]["submitted"]["rule"], "scheme",
+        "{answer}"
     );
 }
 

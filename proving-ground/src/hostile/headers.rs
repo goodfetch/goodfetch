@@ -16,7 +16,7 @@ use hyper::{Method, StatusCode};
 use super::{record, record_page, word};
 use crate::exchange::{Reply, Request};
 use crate::observation::{Recorded, Report};
-use crate::task::{self, Entry, Expected, Kind, Refusal, Task};
+use crate::task::{self, Entry, Expected, Kind, Task};
 
 pub(super) const HOST: &str = "headers.test";
 pub(super) const FAMILY: &str = "headers";
@@ -164,7 +164,8 @@ pub(super) fn respond(seed: u64, request: &Request<'_>) -> (Reply, Option<Record
     }
     let page = |path| by_path(path).expect("invariant: the family has the page");
     let reply = match request.path {
-        // Reached through hyper only over HTTP/2, which cannot carry them.
+        // Reached through hyper only on a connection's later request, or over
+        // HTTP/2 from a client that sends no ALPN, neither of which carries them.
         path if by_path(path).is_some_and(|hostile| hostile.raw) => Reply::error(
             StatusCode::HTTP_VERSION_NOT_SUPPORTED,
             "served_over_http1_only",
@@ -268,7 +269,7 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                 let (id, word) = hostile_record(seed, hostile);
                 Expected::records(vec![record(&id, &word)])
             } else {
-                Expected::refused(Refusal::Any)
+                Expected::refused(None)
             };
             Task {
                 entry: Entry {

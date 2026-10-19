@@ -36,6 +36,7 @@ use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
 use crate::protection;
+use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
@@ -124,6 +125,7 @@ impl Site {
         hosts.extend(protection::hosts());
         hosts.extend(access::hosts());
         hosts.extend(crawl::hosts(seed));
+        hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
         hosts.extend(hostile::hosts());
         hosts.extend(canaries::hosts());
         hosts
@@ -153,6 +155,7 @@ impl Site {
         tasks.extend(protection::tasks(seed, port));
         tasks.extend(access::tasks(seed, port));
         tasks.extend(crawl::tasks(seed, port));
+        tasks.extend(raw_site::tasks(seed, port));
         tasks.extend(hostile::tasks(seed, port));
         tasks.extend(canaries::tasks(seed, port));
         tasks
@@ -218,9 +221,20 @@ impl Site {
         hostile::raw_response(self.seed, &observation::host_name(host), path)
     }
 
+    /// Whether a TLS connection to `name`, a host name without its port, is
+    /// offered HTTP/1.1 alone, so a page whose head hyper cannot write is
+    /// reached over it.
+    pub(crate) fn http1_only(name: &str) -> bool {
+        hostile::http1_only(name)
+    }
+
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
+        if raw_site::serves(&name) {
+            // The raw server answers these over TLS alone.
+            return Reply::error(StatusCode::MISDIRECTED_REQUEST, "tls_required");
+        }
         if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
             .or_else(|| protection::respond(self.seed, &name, request))
             .or_else(|| access::respond(self.seed, &name, request))
@@ -274,6 +288,13 @@ impl Site {
                 _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
         }
+        self.control(request)
+    }
+
+    /// Answers a request on a host name no page family is served on, such
+    /// as the bound address: the landing of a redirect to the Proving
+    /// ground's own address, or one of its own paths.
+    fn control(&self, request: &Request<'_>) -> Reply {
         if request.method == Method::GET
             && let Some((reply, task_host, report)) = hostile::private_landing(request.path)
         {
@@ -502,12 +523,13 @@ impl Site {
                 let effects = self.observations.effects_of(&task.entry.id);
                 let findings = self.observations.findings_of(&task.entry.id);
                 let submitted = submission.record_ids();
+                let requests = self.observations.requests_of(&task.entry.id);
                 let now = self
                     .portal
                     .expected_now(&task.entry.id)
                     .or_else(|| access::expected_now(&task.entry.id, &self.observations));
                 let expected = now.as_ref().unwrap_or(&task.expected);
-                let answer = oracle::judge(expected, submission, &effects, findings)
+                let answer = oracle::judge(expected, submission, &effects, &requests, findings)
                     .refuted_by(self.reported(&task.entry.id));
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);

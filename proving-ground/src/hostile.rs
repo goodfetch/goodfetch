@@ -118,6 +118,12 @@ pub(crate) fn raw_response(seed: u64, host: &str, path: &str) -> Option<Vec<u8>>
         .flatten()
 }
 
+/// Whether `host`, without its port, is one whose pages may need their own
+/// bytes, so a TLS connection to it is offered HTTP/1.1 alone.
+pub(crate) fn http1_only(host: &str) -> bool {
+    task::serves(host, headers::HOST, headers::TASKS)
+}
+
 /// Answers a request on a host name the site does not serve, such as its own
 /// loopback address, to the landing of a redirect to a private address:
 /// the landing, and the report the site records for the task whose page

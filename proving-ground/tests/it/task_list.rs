@@ -46,6 +46,12 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     adversarial/1 adversarial/2 adversarial/3 adversarial/4 protection/1 protection/2 \
     access/1 access/2 access/3 access/4 access/5 \
     statuses/1 traps/1 parameters/1 limits/1 limits/2 limits/3 scale/1 scale/2 \
+    incidents/1 incidents/2 incidents/3 incidents/4 incidents/5 incidents/6 \
+    access-policy/1 access-policy/2 access-policy/3 access-policy/4 access-policy/5 \
+    access-policy/6 access-policy/7 access-policy/8 access-policy/9 \
+    identity/1 identity/2 \
+    content-coding/1 content-coding/2 content-coding/3 content-coding/4 content-coding/5 \
+    content-coding/6 content-coding/7 \
     redirects/1 redirects/2 redirects/3 redirects/4 redirects/5 redirects/6 redirects/7 \
     redirects/8 redirects/9 redirects/10 redirects/11 redirects/12 redirects/13 redirects/14 \
     redirects/15 redirects/16 redirects/17 redirects/18 redirects/19 \
@@ -70,6 +76,10 @@ const KINDS: &str = "crawl extract submit \
     extract submit extract extract crawl extract \
     extract extract extract extract crawl \
     crawl crawl crawl crawl crawl crawl crawl crawl \
+    crawl crawl crawl crawl crawl crawl \
+    crawl crawl crawl crawl crawl crawl crawl crawl crawl \
+    crawl crawl \
+    extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract extract extract \

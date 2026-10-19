@@ -4,13 +4,16 @@
 //! it. Each module that defines entries lists them in one
 //! `Entries` value, which the emitter reads.
 
+use std::borrow::Cow;
 use std::fmt;
+use std::str::FromStr;
 
-use schemars::{JsonSchema, Schema, SchemaGenerator};
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
-/// The protocol's version, `major.minor` (ADR 0030).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The protocol's version, `major.minor` (ADR 0030), written on the wire as
+/// that text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProtocolVersion {
     /// Raised by a breaking change.
     pub major: u16,
@@ -22,6 +25,59 @@ impl fmt::Display for ProtocolVersion {
     /// `major.minor`, as the catalog and the SDKs write it.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}.{}", self.major, self.minor)
+    }
+}
+
+/// Text that is no `major.minor` version.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("`{0}` is no `major.minor` version")]
+pub struct MalformedVersion(String);
+
+impl FromStr for ProtocolVersion {
+    type Err = MalformedVersion;
+
+    /// Two decimal numbers without sign, leading zero or space, joined by a
+    /// dot.
+    fn from_str(text: &str) -> Result<Self, MalformedVersion> {
+        let number = |part: &str| -> Option<u16> {
+            let canonical = part == "0" || (!part.starts_with('0') && !part.is_empty());
+            (canonical && part.bytes().all(|byte| byte.is_ascii_digit()))
+                .then(|| part.parse().ok())
+                .flatten()
+        };
+        let malformed = || MalformedVersion(text.to_owned());
+        let (major, minor) = text.split_once('.').ok_or_else(malformed)?;
+        Ok(Self {
+            major: number(major).ok_or_else(malformed)?,
+            minor: number(minor).ok_or_else(malformed)?,
+        })
+    }
+}
+
+impl Serialize for ProtocolVersion {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for ProtocolVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = Cow::<str>::deserialize(deserializer)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for ProtocolVersion {
+    fn schema_name() -> Cow<'static, str> {
+        "ProtocolVersion".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "A version `major.minor` (ADR 0030).",
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+        })
     }
 }
 
@@ -50,6 +106,15 @@ impl Product {
             Self::Foxhound
         } else {
             Self::Collie
+        }
+    }
+
+    /// Whether this Product carries everything `other` carries: each
+    /// carries itself, and Foxhound contains Collie (ADR 0084).
+    pub fn contains(self, other: Self) -> bool {
+        match self {
+            Self::Collie => other == Self::Collie,
+            Self::Foxhound => true,
         }
     }
 
@@ -263,6 +328,9 @@ pub struct ErrorCodeDefinition {
     pub group: ErrorGroup,
     /// Whether the same call may succeed when made again.
     pub retryable: bool,
+    /// Its own row of ADR 0069's exit-code table, the exit code of a CLI
+    /// command that fails with it; `None` takes its group's.
+    pub exit_code: Option<u8>,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
 }
@@ -412,3 +480,6 @@ pub struct Entries {
     /// The values it adds to types both Products share.
     pub shared_type_values: &'static [SharedTypeValue],
 }
+
+#[cfg(test)]
+mod tests;

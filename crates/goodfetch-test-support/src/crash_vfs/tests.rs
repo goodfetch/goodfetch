@@ -1,7 +1,7 @@
 use rstest::rstest;
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 
-use super::{Crash, CrashKind, CrashVfs, Landed, after_crash};
+use super::{Crash, CrashKind, CrashVfs, IoFault, Landed, after_crash};
 use crate::env::TestEnv;
 
 const DATABASE: &str = "run.sqlite";
@@ -148,6 +148,26 @@ fn a_connection_opened_before_a_crash_fails_its_next_io(#[case] kind: CrashKind)
         write.as_ref().map_err(error_code),
         Err(Some(ErrorCode::SystemIoFailure))
     );
+}
+
+#[rstest]
+#[case::error(IoFault::Error, ErrorCode::SystemIoFailure)]
+#[case::full(IoFault::Full, ErrorCode::DiskFull)]
+fn an_injected_fault_reaches_the_caller_as_its_io_error(
+    #[case] fault: IoFault,
+    #[case] code: ErrorCode,
+) {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("crash-vfs"), env.seed()).unwrap();
+    let connection = open(&vfs);
+    connection
+        .execute_batch("CREATE TABLE item (value TEXT);")
+        .unwrap();
+    vfs.fail_at(vfs.operations(), fault);
+
+    let write = connection.execute("INSERT INTO item VALUES ('refused')", []);
+
+    assert_eq!(write.as_ref().map_err(error_code), Err(Some(code)));
 }
 
 #[test]

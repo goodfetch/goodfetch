@@ -74,6 +74,23 @@ impl CrashVfs {
         &self.name
     }
 
+    /// How many I/O operations the VFS has run, which is the index of the
+    /// next one.
+    /// The operations counted are opens, deletes, existence checks, reads,
+    /// writes, truncations, syncs and size queries; locks and shared memory
+    /// are not. One workload runs the same operations in the same order
+    /// each time, so an index found once names the same operation again.
+    pub fn operations(&self) -> u64 {
+        lock(&self.disk).operations
+    }
+
+    /// Injects `fault` at the I/O operation numbered `index`, from 0 at
+    /// registration (see [`CrashVfs::operations`]). A later call for the
+    /// same index replaces the fault.
+    pub fn fail_at(&self, index: u64, fault: IoFault) {
+        lock(&self.disk).faults.insert(index, fault);
+    }
+
     /// Crashes the instance: every file the code under test opened before
     /// now fails each I/O, and a database opened afterwards (the next
     /// process, as [`after_crash`] opens it) sees what the crash left on the
@@ -83,6 +100,18 @@ impl CrashVfs {
     pub fn crash(&self, kind: CrashKind) -> Crash {
         lock(&self.disk).crash(kind)
     }
+}
+
+/// A fault injected at one I/O operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoFault {
+    /// The operation fails with SQLite's I/O error for it
+    /// (`SQLITE_IOERR_WRITE` for a write, `SQLITE_IOERR_FSYNC` for a sync,
+    /// `SQLITE_CANTOPEN` for an open).
+    Error,
+    /// The disk is full from this operation on: every write or truncation
+    /// that would grow a file fails with `SQLITE_FULL`.
+    Full,
 }
 
 /// How the instance crashes.
@@ -245,6 +274,12 @@ struct Disk {
     instance: u64,
     /// The seed's stream, from which each power cut draws.
     stream: ChaCha20Rng,
+    /// How many I/O operations ran.
+    operations: u64,
+    /// The faults still to inject, by the index of their operation.
+    faults: BTreeMap<u64, IoFault>,
+    /// Whether the disk is full.
+    full: bool,
 }
 
 impl Disk {
@@ -261,6 +296,39 @@ impl Disk {
             next_id: 0,
             instance: 0,
             stream: ChaCha20Rng::from_seed(key),
+            operations: 0,
+            faults: BTreeMap::new(),
+            full: false,
+        }
+    }
+
+    /// Counts one I/O operation and injects its fault: an
+    /// [`IoFault::Error`] fails it with `code`, an [`IoFault::Full`] fills
+    /// the disk.
+    fn operate(&mut self, code: i32) -> VfsResult<()> {
+        let index = self.operations;
+        self.operations += 1;
+        match self.faults.remove(&index) {
+            Some(IoFault::Error) => Err(code),
+            Some(IoFault::Full) => {
+                self.full = true;
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Fails with `SQLITE_FULL` when the disk is full and `path` would
+    /// grow to `size` bytes.
+    fn refuse_growth(&self, path: &str, size: usize) -> VfsResult<()> {
+        let grows = self
+            .files
+            .get(path)
+            .is_some_and(|file| size > file.current.len());
+        if self.full && grows {
+            Err(vars::SQLITE_FULL)
+        } else {
+            Ok(())
         }
     }
 
@@ -495,6 +563,7 @@ impl Vfs for SqliteVfs {
 
     fn open(&self, path: Option<&str>, opts: OpenOpts) -> VfsResult<Self::Handle> {
         let mut disk = lock(&self.disk);
+        disk.operate(vars::SQLITE_CANTOPEN)?;
         let id = disk.next_id;
         disk.next_id += 1;
         let path = path.map_or_else(|| format!("temporary-{id}"), str::to_owned);
@@ -527,6 +596,7 @@ impl Vfs for SqliteVfs {
 
     fn delete(&self, path: &str) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
+        disk.operate(vars::SQLITE_IOERR_DELETE)?;
         disk.files
             .remove(path)
             .map(|_| ())
@@ -534,19 +604,23 @@ impl Vfs for SqliteVfs {
     }
 
     fn access(&self, path: &str, _flags: AccessFlags) -> VfsResult<bool> {
-        let disk = lock(&self.disk);
+        let mut disk = lock(&self.disk);
+        disk.operate(vars::SQLITE_IOERR_ACCESS)?;
         Ok(disk.files.contains_key(path))
     }
 
     fn file_size(&self, handle: &mut Self::Handle) -> VfsResult<usize> {
         let mut disk = lock(&self.disk);
         disk.refuse_crashed(handle, vars::SQLITE_IOERR_FSTAT)?;
+        disk.operate(vars::SQLITE_IOERR_FSTAT)?;
         Ok(disk.file(&handle.path)?.current.len())
     }
 
     fn truncate(&self, handle: &mut Self::Handle, size: usize) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
         disk.refuse_crashed(handle, vars::SQLITE_IOERR_TRUNCATE)?;
+        disk.operate(vars::SQLITE_IOERR_TRUNCATE)?;
+        disk.refuse_growth(&handle.path, size)?;
         let file = disk.file(&handle.path)?;
         let change = Change::Truncate { size };
         change.apply(&mut file.current);
@@ -557,6 +631,8 @@ impl Vfs for SqliteVfs {
     fn write(&self, handle: &mut Self::Handle, offset: usize, data: &[u8]) -> VfsResult<usize> {
         let mut disk = lock(&self.disk);
         disk.refuse_crashed(handle, vars::SQLITE_IOERR_WRITE)?;
+        disk.operate(vars::SQLITE_IOERR_WRITE)?;
+        disk.refuse_growth(&handle.path, offset + data.len())?;
         let file = disk.file(&handle.path)?;
         let change = Change::Write {
             offset,
@@ -570,6 +646,7 @@ impl Vfs for SqliteVfs {
     fn read(&self, handle: &mut Self::Handle, offset: usize, data: &mut [u8]) -> VfsResult<usize> {
         let mut disk = lock(&self.disk);
         disk.refuse_crashed(handle, vars::SQLITE_IOERR_READ)?;
+        disk.operate(vars::SQLITE_IOERR_READ)?;
         let current = &disk.file(&handle.path)?.current;
         let available = current.get(offset..).unwrap_or_default();
         let count = available.len().min(data.len());
@@ -580,6 +657,7 @@ impl Vfs for SqliteVfs {
     fn sync(&self, handle: &mut Self::Handle) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
         disk.refuse_crashed(handle, vars::SQLITE_IOERR_FSYNC)?;
+        disk.operate(vars::SQLITE_IOERR_FSYNC)?;
         let file = disk.file(&handle.path)?;
         file.durable.clone_from(&file.current);
         file.unsynced.clear();

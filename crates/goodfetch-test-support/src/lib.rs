@@ -9,6 +9,7 @@
 //! values only: it depends on no Goodfetch crate and is only ever a
 //! dev-dependency.
 
+mod crash_vfs;
 mod description;
 mod env;
 mod invariants;
@@ -20,6 +21,9 @@ mod tools;
 mod trace;
 mod variables;
 
+pub use crash_vfs::{
+    AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
+};
 pub use description::{Description, schemas};
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};

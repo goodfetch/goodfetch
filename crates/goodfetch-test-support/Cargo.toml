@@ -15,16 +15,28 @@ chacha20.workspace = true
 clap.workspace = true
 jiff.workspace = true
 proptest.workspace = true
+rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sqlite-plugin.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 # `test-util` pauses the runtime's clock, so callers need no feature of their own.
 tokio = { workspace = true, features = ["rt", "time", "test-util"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
+# build script, so that script loads libclang where the OS keeps it (Xcode,
+# /usr/lib/llvm-*, C:\Program Files\LLVM) instead of linking it at a path the
+# script cannot then find when it runs.
+[build-dependencies]
+bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+
+[package.metadata.cargo-shear]
+ignored = ["bindgen"]
 
 [dev-dependencies]
 jsonschema.workspace = true

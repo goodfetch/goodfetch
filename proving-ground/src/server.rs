@@ -57,7 +57,7 @@ impl Server {
             .local_addr()
             .context("reading the bound address")?
             .port();
-        let hosts = Site::hosts();
+        let hosts = Site::hosts(seed);
         let authority = Authority::new(seed, hosts.keys().map(String::as_str), clock::wall_now())?;
         let acceptor = TlsAcceptor::from(authority.server_config());
         let observations = Arc::new(Observations::new(hosts));

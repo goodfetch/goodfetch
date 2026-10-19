@@ -129,19 +129,26 @@ fn product_page(seed: u64, number: u64) -> String {
     )
 }
 
-/// The family's tasks for `seed`, their start URLs on `port`. Ordinals are
-/// append-only: a new task takes the next one, and a removed one is never
-/// reused (ADR 0063).
+/// The host name of the family's task `ordinal`, on which the task's pages
+/// are served: `1.catalog.test` for `catalog/1`.
+fn task_host(ordinal: u32) -> String {
+    format!("{ordinal}.{HOST}")
+}
+
+/// The family's tasks for `seed`, their start URLs on their own host names
+/// and `port`. Ordinals are append-only: a new task takes the next one, and
+/// a removed one is never reused (ADR 0063).
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let origin = format!("http://{HOST}:{port}");
+    let origin = |ordinal| format!("http://{}:{port}", task_host(ordinal));
     let extracted = 1 + generator::below(seed, &[FAMILY_PLACE, 0, EXTRACT_PLACE], PRODUCTS);
     vec![
         Task {
+            host: task_host(1),
             entry: Entry {
                 id: format!("{FAMILY}/1"),
                 family: FAMILY,
                 kind: Kind::Crawl,
-                start_url: format!("{origin}/catalog/1"),
+                start_url: format!("{}/catalog/1", origin(1)),
                 description: "Crawl the catalog from its first listing page, following each page's \
                     Next link, and return one Record per product, read from its product page, \
                     with the fields `id`, `name` and `price`.",
@@ -151,11 +158,12 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
             },
         },
         Task {
+            host: task_host(2),
             entry: Entry {
                 id: format!("{FAMILY}/2"),
                 family: FAMILY,
                 kind: Kind::Extract,
-                start_url: format!("{origin}/products/{}", product_id(extracted)),
+                start_url: format!("{}/products/{}", origin(2), product_id(extracted)),
                 description: "Extract the product this page shows as one Record with the fields \
                     `id`, `name` and `price`.",
             },

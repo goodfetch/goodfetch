@@ -11,7 +11,7 @@ use hyper::{Method, StatusCode};
 use serde::Serialize;
 
 use crate::catalog;
-use crate::observation::Observations;
+use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
@@ -20,6 +20,8 @@ use crate::version::VERSION;
 pub(crate) struct Site {
     seed: u64,
     port: u16,
+    /// The family's host names: its own and each of its tasks'.
+    hosts: BTreeMap<String, Option<String>>,
     /// The seed's certificate authority, as PEM.
     certificate_authority: String,
     observations: Arc<Observations>,
@@ -67,16 +69,23 @@ impl Site {
         Self {
             seed,
             port,
+            hosts: Self::hosts(seed),
             certificate_authority,
             observations,
         }
     }
 
     /// Every host name a page family is served on, each with the task its
-    /// requests belong to, if any. Each has its own leaf certificate, and
-    /// only these are observed.
-    pub(crate) fn hosts() -> BTreeMap<String, Option<String>> {
-        BTreeMap::from([(catalog::HOST.to_owned(), None)])
+    /// requests belong to, if any: the family's own, and each task's. Each
+    /// has its own leaf certificate, and only these are observed.
+    pub(crate) fn hosts(seed: u64) -> BTreeMap<String, Option<String>> {
+        let mut hosts = BTreeMap::from([(catalog::HOST.to_owned(), None)]);
+        hosts.extend(
+            catalog::tasks(seed, 0)
+                .into_iter()
+                .map(|task| (task.host, Some(task.entry.id))),
+        );
+        hosts
     }
 
     /// Every family's tasks, in the task list's order.
@@ -86,8 +95,7 @@ impl Site {
 
     /// Answers one request, given its `Host` header, path and body.
     pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
-        let name = host.rsplit_once(':').map_or(host, |(name, _)| name);
-        if name.eq_ignore_ascii_case(catalog::HOST) {
+        if self.hosts.contains_key(&observation::host_name(host)) {
             return match (method, catalog::page(self.seed, path)) {
                 (&Method::GET, Some(page)) => Reply::html(page),
                 _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),

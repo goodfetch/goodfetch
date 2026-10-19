@@ -10,6 +10,9 @@ use crate::digest;
 /// One task of a family: what a tool is asked to do, and what the oracle
 /// expects back.
 pub(crate) struct Task {
+    /// The host name the task's pages are served on, its own, so every
+    /// request the Proving ground observes names its task.
+    pub(crate) host: String,
     pub(crate) entry: Entry,
     pub(crate) expected: Expected,
 }

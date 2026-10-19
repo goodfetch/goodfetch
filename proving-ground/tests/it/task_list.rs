@@ -30,10 +30,10 @@ fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
     assert_eq!(each(&tasks, "kind"), [json!("crawl"), json!("extract")]);
     assert_eq!(
         tasks["tasks"][0]["start_url"],
-        format!("http://catalog.test:{}/catalog/1", proving_ground.port())
+        format!("http://1.catalog.test:{}/catalog/1", proving_ground.port())
     );
     let product_page = Regex::new(&format!(
-        r"^http://catalog\.test:{}/products/P-[0-9]{{4}}$",
+        r"^http://2\.catalog\.test:{}/products/P-[0-9]{{4}}$",
         proving_ground.port()
     ))
     .unwrap();

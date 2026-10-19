@@ -291,3 +291,29 @@ fn an_http2_streams_bytes_are_counted_per_request() {
     let host = &observations["hosts"]["catalog.test"];
     assert!(host["sent"].as_u64().expect("a count") > sent, "{host}");
 }
+
+/// Covers: story:2-75
+#[test]
+fn a_tasks_requests_and_bytes_are_recorded_for_that_task() {
+    let proving_ground = ProvingGround::start(SEED);
+    let config = clients::trusting(&proving_ground.certificate_authority(), &["http/1.1"]);
+    let exchange = clients::raw_tls(
+        proving_ground.address(),
+        "1.catalog.test",
+        config,
+        b"GET /catalog/1 HTTP/1.1\r\nHost: 1.catalog.test\r\nConnection: close\r\n\r\n",
+    )
+    .expect("the certificate verifies");
+
+    let observations = proving_ground.observations();
+
+    assert_eq!(observations["requests"][0]["task"], "catalog/1");
+    assert_eq!(
+        observations["tasks"],
+        json!({ "catalog/1": { "received": exchange.written, "sent": exchange.read } })
+    );
+    assert_eq!(
+        observations["hosts"],
+        json!({ "1.catalog.test": { "received": exchange.written, "sent": exchange.read } })
+    );
+}

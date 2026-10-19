@@ -226,7 +226,7 @@ impl Observations {
 }
 
 /// A host name without its port or a trailing dot, in lowercase.
-fn host_name(authority: &str) -> String {
+pub(crate) fn host_name(authority: &str) -> String {
     let name = if let Some(rest) = authority.strip_prefix('[') {
         rest.split(']').next().unwrap_or_default()
     } else {

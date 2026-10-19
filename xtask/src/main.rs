@@ -12,6 +12,7 @@ mod acceptance;
 mod affected;
 mod all_green;
 mod allure;
+mod budgets;
 mod ceiling;
 mod check;
 mod codegen;
@@ -22,6 +23,7 @@ mod dco;
 mod dependency_direction;
 mod egress;
 mod environment;
+mod evict_caches;
 mod features;
 mod fixture_size;
 mod foxhound_side;
@@ -78,6 +80,11 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// The budget check (ADR 0061): opens or updates one `needs-triage`
+    /// issue per suite or job whose median of its last 20 runs in its own
+    /// tier, read from the results store, is past its budget in TESTING.md;
+    /// never fails.
+    Budgets(budgets::Arguments),
     /// Regenerates every file generated from `goodfetch-protocol`'s types:
     /// the JSON Schema bundle and catalog file, each Product's projection,
     /// the names only Foxhound carries, the cargo-deny `wrappers` list and
@@ -122,6 +129,10 @@ enum Command {
         #[command(subcommand)]
         command: egress::Command,
     },
+    /// Once the repository's caches pass 9 GB, deletes the least recently
+    /// used ones that are not the pull-request tier's Linux caches until they
+    /// fit (ADR 0061).
+    EvictCaches(evict_caches::Arguments),
     /// The Feature inventory's declarations and its Feature check (ADRs 0072
     /// and 0075).
     Features {
@@ -347,6 +358,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
     match command {
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,
@@ -358,6 +370,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
         Command::Egress { command } => egress::run(command, environment),
+        Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::Journeys { command } => journeys::run(&command, environment),

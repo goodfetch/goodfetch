@@ -71,6 +71,16 @@ impl Api<'_> {
             .with_context(|| format!("reading GitHub's answer from {url}"))
     }
 
+    /// Deletes the document at `path`, which needs a token allowed to write
+    /// there; GitHub answers with no body.
+    pub(crate) fn delete(&self, path: &str) -> Result<()> {
+        let url = self.url(path);
+        self.headers(ureq::delete(&url))
+            .call()
+            .with_context(|| format!("deleting {url}"))?;
+        Ok(())
+    }
+
     fn write(
         &self,
         method: Write,

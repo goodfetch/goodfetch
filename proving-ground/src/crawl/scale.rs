@@ -152,7 +152,7 @@ fn sitemap(origin: &str, items: std::ops::RangeInclusive<u64>) -> Page {
     xml(text)
 }
 
-pub(super) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let listed = 1 + generator::below(seed, &[FAMILY_PLACE, 0, LISTED_PLACE], SECTIONS);
     let sitemapped = 1 + generator::below(seed, &[FAMILY_PLACE, 0, SITEMAPPED_PLACE], SECTIONS);
     let records = |section| -> Vec<Record> {

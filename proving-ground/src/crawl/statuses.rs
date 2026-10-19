@@ -208,7 +208,7 @@ fn error(code: u16) -> Page {
     }
 }
 
-pub(super) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     vec![crawl_task(
         (HOST, FAMILY),
         1,

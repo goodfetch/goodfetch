@@ -34,7 +34,7 @@ use crate::exchange::Reply;
 use crate::generator;
 use crate::observation::Observations;
 use crate::sync::Mutex;
-use crate::task::{Entry, Expected, Finding, Kind, Record, Task};
+use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 
 pub(crate) use limits::Held;
 
@@ -242,7 +242,7 @@ pub(crate) fn hosts(seed: u64) -> Vec<(String, Option<String>)> {
         .iter()
         .map(|(host, _)| ((*host).to_owned(), None))
         .chain(
-            tasks(seed, 0)
+            tasks(seed, None)
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         )
@@ -250,7 +250,7 @@ pub(crate) fn hosts(seed: u64) -> Vec<(String, Option<String>)> {
 }
 
 /// Every Crawl family's tasks, in the task list's order.
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let mut tasks = statuses::tasks(seed, port);
     tasks.extend(traps::tasks(seed, port));
     tasks.extend(parameters::tasks(seed, port));
@@ -264,7 +264,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
 fn crawl_task(
     (host, family): (&str, &'static str),
     ordinal: u32,
-    port: u16,
+    port: Option<u16>,
     start: &str,
     description: &'static str,
     records: Vec<Record>,
@@ -275,7 +275,7 @@ fn crawl_task(
             id: format!("{family}/{ordinal}"),
             family,
             kind: Kind::Crawl,
-            start_url: format!("http://{task_host}:{port}{start}"),
+            start_url: format!("{}{start}", task::origin(&task_host, port)),
             description,
             account: None,
             time_steps: None,

@@ -147,7 +147,7 @@ fn product_page(seed: u64, number: u64, colour: u64) -> String {
     )
 }
 
-pub(super) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     vec![crawl_task(
         (HOST, FAMILY),
         1,

@@ -47,6 +47,7 @@ lint: fmt-check
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- egress check
+    cargo run --quiet -p xtask -- os-services workflows
     cargo run --quiet -p xtask -- fixture-size
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- package-dependencies
@@ -126,6 +127,14 @@ test suite *packages:
         pytest) skip_pytest+=("$argument") ;;
       esac
     done <<< "$exclusions"
+    # A local host without an OS service the tests use (an extra loopback
+    # address, the Secret Service) lists it as skipped, and nextest skips the
+    # tests that need it; in CI a missing one fails (ci/os-services.sh).
+    services=$(ci/os-services.sh skipped target/skipped.txt)
+    if [[ -n "$services" ]]; then
+      [[ ${#skip_nextest[@]} -gt 0 ]] || skip_nextest=(--)
+      while read -r pattern; do skip_nextest+=(--skip "$pattern"); done <<< "$services"
+    fi
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
     case "{{ suite }}" in

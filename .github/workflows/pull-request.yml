@@ -45,6 +45,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       # `just quick all` in its two parts, around the deny: `just lint` before
       # it, since the quarantine-list check reads GitHub's issues, then
       # `just test quick` under it.
@@ -132,6 +134,8 @@ jobs:
           fetch-depth: 2
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Build with the CI profile
         run: ci/vm/exec.sh just build ci
       - name: Prove the static checks on their fixtures
@@ -258,6 +262,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM with the pinned Playwright image
         run: ci/vm/start.sh read-only ci playwright
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Install the visual projects' packages
         run: ci/vm/visual.sh install
       - name: Deny outbound traffic
@@ -319,6 +325,8 @@ jobs:
           fetch-depth: 0
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Check every commit's sign-off
         run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
       - name: Check every commit's message

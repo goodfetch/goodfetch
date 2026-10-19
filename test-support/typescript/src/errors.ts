@@ -22,7 +22,13 @@ export type TestSupportErrorCode =
   /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */
   | "bypass_csp_refused"
   /** A served test's page logged an error, threw, broke its CSP or had a same-origin request fail (ADR 0068). */
-  | "page_errors";
+  | "page_errors"
+  /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
+  | "axe_violations"
+  /** An entry of the axe exception file names a selector that matches nothing on a page where its rule ran (ADR 0073). */
+  | "axe_exception_unmatched"
+  /** The axe exception file cannot be read, or an entry lacks a field or has one it does not define (ADR 0073). */
+  | "axe_exceptions_invalid";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

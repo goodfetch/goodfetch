@@ -1,4 +1,4 @@
-//! The `access_policy` family on `access-policy.test`, the lab's
+//! The `access-policy` family on `access-policy.test`, the lab's
 //! access-policy pages ported: each task crawls a three-page shelf whose
 //! site states a policy, in its robots.txt (RFC 9309, with the lab's
 //! groups and patterns), a `Content-Signal` line, a `TDMRep` file or header
@@ -15,7 +15,7 @@ use crate::task::{Expected, Kind, Task};
 /// The host name the family is served on.
 pub(super) const HOST: &str = "access-policy.test";
 
-const FAMILY: &str = "access_policy";
+const FAMILY: &str = "access-policy";
 const PLACE: u64 = 1621;
 
 /// The robots.txt of the robots task: the lab's case, with `/private/`

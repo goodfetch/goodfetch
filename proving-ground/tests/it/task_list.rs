@@ -44,11 +44,11 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     extraction/1 extraction/2 extraction/3 extraction/4 extraction/5 extraction/6 \
     encodings/1 encodings/2 languages/1 languages/2 files/1 files/2 files/3 \
     incidents/1 incidents/2 incidents/3 incidents/4 incidents/5 incidents/6 \
-    access_policy/1 access_policy/2 access_policy/3 access_policy/4 access_policy/5 \
-    access_policy/6 access_policy/7 access_policy/8 access_policy/9 \
+    access-policy/1 access-policy/2 access-policy/3 access-policy/4 access-policy/5 \
+    access-policy/6 access-policy/7 access-policy/8 access-policy/9 \
     identity/1 identity/2 \
-    content_coding/1 content_coding/2 content_coding/3 content_coding/4 content_coding/5 \
-    content_coding/6 content_coding/7";
+    content-coding/1 content-coding/2 content-coding/3 content-coding/4 content-coding/5 \
+    content-coding/6 content-coding/7";
 
 /// Each task's kind, in the same order.
 const KINDS: &str = "crawl extract submit \

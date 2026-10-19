@@ -1,4 +1,4 @@
-//! The `content_coding` family on `content-coding.test` (ADR 0119): one
+//! The `content-coding` family on `content-coding.test` (ADR 0119): one
 //! hand-made page per task, each sent with a `Content-Encoding` that says
 //! more or less than its body holds. The oracle expects the page's text where
 //! the browser decodes it (`gzip, br` in reverse order, raw deflate, and an
@@ -20,7 +20,7 @@ use crate::task::{Expected, ExpectedError, Kind, Record, Task};
 /// The host name the family is served on.
 pub(super) const HOST: &str = "content-coding.test";
 
-const FAMILY: &str = "content_coding";
+const FAMILY: &str = "content-coding";
 
 /// What a decoding failure reports.
 const DECODING_FAILED: ExpectedError = ExpectedError {

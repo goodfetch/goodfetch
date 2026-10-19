@@ -170,7 +170,7 @@ fn the_oracle_tells_incomplete_records_claimed_as_success_from_complete_ones_del
 #[test]
 fn the_robots_task_is_judged_by_rfc_9309_from_the_requests_made() {
     let proving_ground = ProvingGround::start(SEED);
-    let host = task_host(&proving_ground, "access_policy/1");
+    let host = task_host(&proving_ground, "access-policy/1");
     let robots = raw_clients::get(&proving_ground, &host, "/robots.txt", &[]);
     let first = raw_clients::get(
         &proving_ground,
@@ -179,7 +179,7 @@ fn the_robots_task_is_judged_by_rfc_9309_from_the_requests_made() {
         &[("User-Agent", "Browser/1")],
     );
     let records = records_on(&String::from_utf8_lossy(first.body()));
-    let submission = json!({ "task": "access_policy/1", "status": "success", "records": records });
+    let submission = json!({ "task": "access-policy/1", "status": "success", "records": records });
 
     let obeyed = judge(&proving_ground, &submission);
     for (agent, path) in [
@@ -217,7 +217,7 @@ fn the_robots_task_is_judged_by_rfc_9309_from_the_requests_made() {
 #[test]
 fn site_policies_are_served_and_the_only_right_result_is_a_refusal() {
     let proving_ground = ProvingGround::start(SEED);
-    let host = |ordinal: u64| task_host(&proving_ground, &format!("access_policy/{ordinal}"));
+    let host = |ordinal: u64| task_host(&proving_ground, &format!("access-policy/{ordinal}"));
     let get = |ordinal, path| raw_clients::get(&proving_ground, &host(ordinal), path, &[]);
 
     assert_eq!(get(2, "/robots.txt").status(), Some(503));
@@ -245,17 +245,17 @@ fn site_policies_are_served_and_the_only_right_result_is_a_refusal() {
     };
     let first_page = records_on(&String::from_utf8_lossy(get(7, "/catalog/1").body()));
     assert_eq!(
-        refused("access_policy/7", &first_page)["outcome"],
+        refused("access-policy/7", &first_page)["outcome"],
         "verified"
     );
     let claimed = judge(
         &proving_ground,
-        &json!({ "task": "access_policy/7", "status": "success", "records": first_page }),
+        &json!({ "task": "access-policy/7", "status": "success", "records": first_page }),
     );
     assert_eq!(claimed["outcome"], "false_success", "{claimed}");
-    assert_eq!(refused("access_policy/2", &[])["outcome"], "verified");
+    assert_eq!(refused("access-policy/2", &[])["outcome"], "verified");
     get(3, "/catalog/1");
-    let trained = refused("access_policy/3", &[]);
+    let trained = refused("access-policy/3", &[]);
     assert_eq!(trained["outcome"], "failed", "{trained}");
     assert_eq!(trained["forbidden_requests"], json!(["/catalog/1"]));
 }
@@ -266,7 +266,7 @@ fn site_policies_are_served_and_the_only_right_result_is_a_refusal() {
 fn content_coding_pages_are_labelled_as_adr_0119_lists() {
     let proving_ground = ProvingGround::start(SEED);
     let page = |ordinal: u64| {
-        let host = task_host(&proving_ground, &format!("content_coding/{ordinal}"));
+        let host = task_host(&proving_ground, &format!("content-coding/{ordinal}"));
         raw_clients::get(&proving_ground, &host, "/page", &[])
     };
     let gunzip = |bytes: &[u8]| {
@@ -315,23 +315,23 @@ fn content_coding_pages_are_labelled_as_adr_0119_lists() {
     });
     let failed = judge(
         &proving_ground,
-        &json!({ "task": "content_coding/1", "status": "failure", "error": decoding_failed }),
+        &json!({ "task": "content-coding/1", "status": "failure", "error": decoding_failed }),
     );
     let other_error = judge(
         &proving_ground,
-        &json!({ "task": "content_coding/6", "status": "failure", "error": { "code": "response_truncated" } }),
+        &json!({ "task": "content-coding/6", "status": "failure", "error": { "code": "response_truncated" } }),
     );
     let read = judge(
         &proving_ground,
         &json!({
-            "task": "content_coding/3",
+            "task": "content-coding/3",
             "status": "success",
             "records": [{ "id": "C-3", "text": "Content coding page 3, decoded once and as labelled." }],
         }),
     );
     let garbled = judge(
         &proving_ground,
-        &json!({ "task": "content_coding/7", "status": "success", "records": [{ "id": "C-7", "text": "(\u{fffd}/\u{fffd}" }] }),
+        &json!({ "task": "content-coding/7", "status": "success", "records": [{ "id": "C-7", "text": "(\u{fffd}/\u{fffd}" }] }),
     );
     assert_eq!(failed["outcome"], "verified", "{failed}");
     assert_eq!(other_error["outcome"], "failed", "{other_error}");
@@ -342,7 +342,7 @@ fn content_coding_pages_are_labelled_as_adr_0119_lists() {
         .as_array()
         .expect("requests")
         .iter()
-        .filter(|request| request["task"] == "content_coding/1")
+        .filter(|request| request["task"] == "content-coding/1")
         .count();
     assert_eq!(attempts, 1);
 }

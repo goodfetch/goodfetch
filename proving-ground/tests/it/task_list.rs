@@ -117,3 +117,33 @@ fn another_expected_result_changes_the_digest() {
     assert_eq!(crawl, other);
     assert_ne!(digests.0, digests.1);
 }
+
+/// `tasks --seed N` prints the list `serve` serves for that seed, with no
+/// port, since it binds none, so `xtask journeys tasks` can commit it
+/// (ADR 0063, rule 3).
+#[test]
+fn tasks_prints_the_served_list_with_no_port() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
+        .args(["tasks", "--seed", "158"])
+        .env_clear()
+        .output()
+        .expect("the Proving ground runs");
+    let served = ProvingGround::start(158).tasks();
+
+    assert!(output.status.success(), "{output:?}");
+    let printed: Value = serde_json::from_slice(&output.stdout).expect("it prints JSON");
+    assert_eq!(printed["proving_ground"], served["proving_ground"]);
+    assert_eq!(each(&printed, "id"), each(&served, "id"));
+    assert_eq!(each(&printed, "digest"), each(&served, "digest"));
+    assert_eq!(
+        printed["tasks"][0]["start_url"],
+        "http://1.catalog.test/catalog/1"
+    );
+    let portless = Regex::new(r"^http://[0-9]+\.catalog\.test/").unwrap();
+    assert!(
+        each(&printed, "start_url")
+            .iter()
+            .all(|url| portless.is_match(url.as_str().unwrap())),
+        "{printed}"
+    );
+}

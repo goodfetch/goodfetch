@@ -81,16 +81,22 @@ impl Site {
     pub(crate) fn hosts(seed: u64) -> BTreeMap<String, Option<String>> {
         let mut hosts = BTreeMap::from([(catalog::HOST.to_owned(), None)]);
         hosts.extend(
-            catalog::tasks(seed, 0)
+            Self::every_task(seed, None)
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
         hosts
     }
 
-    /// Every family's tasks, in the task list's order.
+    /// Every family's tasks for `seed`, in the task list's order, their start
+    /// URLs on `port`, or on none when listed without serving.
+    pub(crate) fn every_task(seed: u64, port: Option<u16>) -> Vec<Task> {
+        catalog::tasks(seed, port)
+    }
+
+    /// Every family's tasks, as this `serve` lists them.
     fn tasks(&self) -> Vec<Task> {
-        catalog::tasks(self.seed, self.port)
+        Self::every_task(self.seed, Some(self.port))
     }
 
     /// Answers one request, given its `Host` header, path and body.

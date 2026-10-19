@@ -2,7 +2,8 @@
 //! and generates from a seed, with its task list and its oracle. Its command
 //! line and HTTP are the interface every caller sees: `serve` binds an
 //! address, prints one JSON line, and serves each page family on its own host
-//! name, the task list at `/tasks` and the oracle at `/oracle`.
+//! name, the task list at `/tasks` and the oracle at `/oracle`. `tasks`
+//! prints one seed's task list and exits.
 
 mod authority;
 mod catalog;
@@ -24,11 +25,24 @@ mod version;
 use anyhow::{Context as _, Result};
 use clap::Parser as _;
 
-use crate::command::{Command, Serve};
+use crate::command::{Command, Serve, Tasks};
 use crate::server::Server;
+use crate::site::Site;
+use crate::task::TaskList;
 
 fn main() -> Result<()> {
-    let Command::Serve(serve) = Command::parse();
+    match Command::parse() {
+        Command::Serve(serve) => run(serve),
+        Command::Tasks(Tasks { seed }) => output::line(&TaskList::new(
+            version::VERSION,
+            seed,
+            &Site::every_task(seed, None),
+        )),
+    }
+}
+
+/// Prints the one output line, then serves until stopped.
+fn run(serve: Serve) -> Result<()> {
     #[expect(
         clippy::disallowed_methods,
         reason = "`main` builds the Proving ground's one runtime (ADR 0060)"

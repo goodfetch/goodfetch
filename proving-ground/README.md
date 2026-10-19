@@ -10,6 +10,14 @@ cargo run -p goodfetch-proving-ground -- serve --seed 158 --copy local --address
 
 The first output line is one JSON object: `address` (the bound address, port 0 replaced), `version` (the workspace version plus the commit, `0.0.0+<sha>`) and `seed` (an unsigned 64-bit integer). It serves until Ctrl-C or `SIGTERM`. Only the `local` copy and the `none` network profile exist yet; the online copy is #168's and the delayed and lossy profiles #160's.
 
+## `tasks`
+
+```sh
+cargo run -p goodfetch-proving-ground -- tasks --seed 158
+```
+
+Prints the task list `GET /tasks` serves for the seed (below) as one JSON line and exits, binding nothing: each `start_url` has no port, and every digest is the one `serve` lists on any port. `xtask journeys tasks` commits it for each seed the Journey catalog uses (ADR 0063).
+
 ## HTTP/1.1, HTTP/2 and TLS
 
 The one address serves plain text and TLS: a connection whose first byte starts a TLS handshake gets TLS, any other plain text. Either way it speaks HTTP/2 when its first bytes are HTTP/2's preface (ALPN offers `h2` and `http/1.1`) and HTTP/1.1 otherwise.

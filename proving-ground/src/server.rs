@@ -9,16 +9,19 @@
     reason = "the Proving ground opens its own listening socket, outside the engine's transport (ADR 0060)"
 )]
 
+use std::convert::Infallible;
 use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use anyhow::{Context as _, Result};
-use http_body_util::{BodyExt as _, Full, Limited};
-use hyper::body::{Bytes, Incoming};
+use http_body_util::{BodyExt as _, Either, Full, Limited};
+use hyper::body::{Bytes, Frame, Incoming};
 use hyper::header::{CONTENT_TYPE, COOKIE, HOST, HeaderValue};
 use hyper::service::service_fn;
-use hyper::{Request, Response, StatusCode};
+use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto;
 use tokio::net::{TcpListener, TcpStream};
@@ -29,6 +32,7 @@ use tokio_util::task::TaskTracker;
 use crate::authority::Authority;
 use crate::clock;
 use crate::exchange::{self, Reply};
+use crate::model::{self, Ending};
 use crate::observation::Observations;
 use crate::site::Site;
 use crate::tap::{Tap, Wire};
@@ -111,6 +115,11 @@ impl Server {
                         observations: Arc::clone(&self.observations),
                         acceptor: self.acceptor.clone(),
                         executor: Tracked(tracker.clone()),
+                        tunnels: Tunnels {
+                            address: self.address(),
+                            tracker: tracker.clone(),
+                            stop: stop.clone(),
+                        },
                     };
                     let stop = stop.clone();
                     tracker.spawn(async move {
@@ -135,6 +144,7 @@ struct Connection {
     observations: Arc<Observations>,
     acceptor: TlsAcceptor,
     executor: Tracked,
+    tunnels: Tunnels,
 }
 
 impl Connection {
@@ -145,10 +155,10 @@ impl Connection {
         let Ok(read) = stream.peek(&mut first).await else {
             return;
         };
-        let site = self.site;
+        let (site, tunnels) = (self.site, self.tunnels);
         let service = service_fn(move |request| {
-            let site = Arc::clone(&site);
-            async move { Ok::<_, hyper::Error>(answer(&site, request).await) }
+            let (site, tunnels) = (Arc::clone(&site), tunnels.clone());
+            async move { Ok::<_, hyper::Error>(answer(&site, &tunnels, request).await) }
         });
         let builder = auto::Builder::new(self.executor);
         let observed = self.observations.connection();
@@ -159,11 +169,11 @@ impl Connection {
                 return;
             };
             let _ = builder
-                .serve_connection(TokioIo::new(Tap::new(stream, observed)), service)
+                .serve_connection_with_upgrades(TokioIo::new(Tap::new(stream, observed)), service)
                 .await;
         } else {
             let _ = builder
-                .serve_connection(TokioIo::new(Tap::new(wire, observed)), service)
+                .serve_connection_with_upgrades(TokioIo::new(Tap::new(wire, observed)), service)
                 .await;
         }
     }
@@ -206,7 +216,10 @@ async fn stop_signal() -> Result<()> {
 
 /// Reads one request, asks the site, and writes its reply. The host is the
 /// `Host` header, or an HTTP/2 request's `:authority`.
-async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>> {
+async fn answer(site: &Site, tunnels: &Tunnels, request: Request<Incoming>) -> Response<Body> {
+    if request.method() == Method::CONNECT {
+        return tunnels.open(site, request);
+    }
     let (parts, body) = request.into_parts();
     let header = |name| {
         parts
@@ -233,19 +246,35 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>
         .collect::<Vec<_>>()
         .join("; ");
     let reply = match Limited::new(body, BODY_LIMIT).collect().await {
-        Ok(body) => site.respond(
-            &host,
-            &exchange::Request {
-                method: &parts.method,
-                path: parts.uri.path(),
-                query: parts.uri.query().unwrap_or_default(),
-                cookies: &cookies,
-                body: &body.to_bytes(),
-            },
-        ),
+        Ok(body) => {
+            let body = body.to_bytes();
+            let target = parts
+                .uri
+                .path_and_query()
+                .map_or("/", hyper::http::uri::PathAndQuery::as_str);
+            if let Some(answer) = site.model(&parts.method, &host, target, &body) {
+                return model_response(answer).await;
+            }
+            // A request in absolute form is one to the replay proxy;
+            // HTTP/2's requests always carry their scheme.
+            if parts.uri.scheme().is_some() && parts.version <= Version::HTTP_11 {
+                site.proxy(&parts.method, &parts.uri)
+            } else {
+                site.respond(
+                    &host,
+                    &exchange::Request {
+                        method: &parts.method,
+                        path: parts.uri.path(),
+                        query: parts.uri.query().unwrap_or_default(),
+                        cookies: &cookies,
+                        body: &body,
+                    },
+                )
+            }
+        }
         Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
     };
-    let mut response = Response::new(Full::new(reply.body));
+    let mut response = Response::new(Either::Left(Full::new(reply.body)));
     *response.status_mut() = reply.status;
     let headers = response.headers_mut();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
@@ -255,4 +284,119 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>
         headers.append(name, value);
     }
     response
+}
+
+/// What a `CONNECT` to the replay proxy needs: the server's own address,
+/// which each tunnel connects to so its TLS is the Proving ground's own, and
+/// the tracker and stop signal its task runs under.
+#[derive(Clone)]
+struct Tunnels {
+    address: SocketAddr,
+    tracker: TaskTracker,
+    stop: CancellationToken,
+}
+
+impl Tunnels {
+    /// Answers a `CONNECT`: `200`, then the tunnel to the server's own
+    /// address, when it names an archived host's port 443; `403` otherwise.
+    fn open(&self, site: &Site, request: Request<Incoming>) -> Response<Body> {
+        let authority = request
+            .uri()
+            .authority()
+            .map(hyper::http::uri::Authority::as_str)
+            .unwrap_or_default();
+        let mut response = Response::new(Either::Left(Full::new(Bytes::new())));
+        if !site.tunnel(authority) {
+            *response.status_mut() = StatusCode::FORBIDDEN;
+            return response;
+        }
+        let (address, stop) = (self.address, self.stop.clone());
+        self.tracker.spawn(async move {
+            tokio::select! {
+                () = tunnel(request, address) => {}
+                () = stop.cancelled() => {}
+            }
+        });
+        response
+    }
+}
+
+/// Carries a tunnel's bytes to and from a new connection to `address`
+/// until either side closes; a failed one concerns only its client.
+async fn tunnel(request: Request<Incoming>, address: SocketAddr) {
+    let Ok(upgraded) = hyper::upgrade::on(request).await else {
+        return;
+    };
+    let Ok(mut inner) = TcpStream::connect(address).await else {
+        return;
+    };
+    let _ = tokio::io::copy_bidirectional(&mut TokioIo::new(upgraded), &mut inner).await;
+}
+
+/// The response body: whole, or cut before its end.
+type Body = Either<Full<Bytes>, Cut>;
+
+/// Writes the Fake model's answer: whole, cut before its end, or never.
+async fn model_response(answer: model::Answer) -> Response<Body> {
+    if answer.ending == Ending::Hold {
+        // Holds the request until the client gives up or the server stops.
+        let never: Infallible = std::future::pending().await;
+        match never {}
+    }
+    let body = if answer.ending == Ending::Cut {
+        Either::Right(Cut::new(answer.body))
+    } else {
+        Either::Left(Full::new(answer.body))
+    };
+    let mut response = Response::new(body);
+    *response.status_mut() = answer.status;
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static(answer.content_type));
+    for (name, value) in answer.headers {
+        let value = HeaderValue::try_from(value)
+            .expect("invariant: the Fake model's header values are visible ASCII");
+        headers.append(name, value);
+    }
+    response
+}
+
+/// A body that sends its bytes, lets the connection flush them, then fails,
+/// so the connection closes before the body's end: the Fake model's cut
+/// stream.
+pub(crate) struct Cut {
+    bytes: Option<Bytes>,
+    flushed: bool,
+}
+
+impl Cut {
+    fn new(bytes: Bytes) -> Self {
+        Self {
+            bytes: Some(bytes),
+            flushed: false,
+        }
+    }
+}
+
+impl hyper::body::Body for Cut {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, std::io::Error>>> {
+        let cut = self.get_mut();
+        if let Some(bytes) = cut.bytes.take() {
+            return Poll::Ready(Some(Ok(Frame::data(bytes))));
+        }
+        if !cut.flushed {
+            // Pending once, so the connection writes what it holds first.
+            cut.flushed = true;
+            context.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        Poll::Ready(Some(Err(std::io::Error::other(
+            "the Fake model cuts its answer",
+        ))))
+    }
 }

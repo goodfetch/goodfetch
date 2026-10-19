@@ -8,15 +8,19 @@
 )]
 
 mod actionability;
+mod agent;
 mod browserless;
 mod clients;
+mod fake_model;
 mod login;
+mod model_recordings;
 mod observations;
 mod oracle;
 mod pages;
 mod portal;
 mod proving_ground;
 mod rendered;
+mod replay;
 mod schedule;
 mod serve;
 mod task_list;

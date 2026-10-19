@@ -2,26 +2,32 @@
 //! that family's host names, and the Effect its form carries out, and on any
 //! other host name its own task list (`GET /tasks`), oracle (`POST /oracle`),
 //! time step (`PUT /time-step`), which a task's harness sets and scheduled
-//! content follows, certificate authority (`GET /certificate-authority`),
-//! observations (`GET /observations`) and the revocation of the portal's
-//! sessions (`POST /revoke-sessions`), which a harness asks for while a tool
-//! is stopped.
+//! content and drifting pages follow, certificate authority
+//! (`GET /certificate-authority`), observations (`GET /observations`), the
+//! replay proxy's refusals (`GET /replay`), the Fake model's calls
+//! (`GET /model-calls`) and the revocation of the portal's sessions
+//! (`POST /revoke-sessions`), which a harness asks for while a tool is
+//! stopped.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
-use hyper::{Method, StatusCode};
+use hyper::http::uri::PathAndQuery;
+use hyper::{Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 
+use crate::agent;
 use crate::catalog;
 use crate::exchange::{Reply, Request};
 use crate::handmade;
 use crate::login::{self, Logins};
+use crate::model::{self, Candidate, FakeModel};
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::portal::{self, Portal};
 use crate::rendered;
+use crate::replay::{self, Refusals};
 use crate::schedule;
 use crate::sync::Mutex;
 use crate::task::{Task, TaskList};
@@ -39,6 +45,8 @@ pub(crate) struct Site {
     logins: Logins,
     time_step: Mutex<u64>,
     portal: Portal,
+    model: FakeModel,
+    refusals: Refusals,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -68,6 +76,8 @@ impl Site {
             logins: Logins::default(),
             time_step: Mutex::new(0),
             portal: Portal::new(seed),
+            model: FakeModel::new(seed),
+            refusals: Refusals::default(),
         }
     }
 
@@ -77,6 +87,7 @@ impl Site {
     pub(crate) fn hosts(seed: u64) -> BTreeMap<String, Option<String>> {
         let mut hosts: BTreeMap<_, _> = FAMILY_HOSTS
             .into_iter()
+            .chain([agent::HOST, model::HOST])
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
@@ -105,6 +116,8 @@ impl Site {
         tasks.extend(schedule::tasks(seed, port));
         tasks.extend(portal::tasks(seed, port));
         tasks.extend(handmade::tasks(seed, port));
+        tasks.extend(agent::tasks(seed, port));
+        tasks.extend(replay::tasks());
         tasks
     }
 
@@ -120,6 +133,16 @@ impl Site {
                 self.observations.effect(host, effect);
             }
             return reply;
+        }
+        if name == model::HOST {
+            // The Fake model answers its own paths (`Self::model`).
+            return Reply::not_found();
+        }
+        if replay::serves(&name) {
+            return self.replay(request.method, &name, request.path);
+        }
+        if self.hosts.contains_key(&name) && agent::serves(&name) {
+            return self.agent(host, &name, request);
         }
         if self.hosts.contains_key(&name) {
             let family = FAMILY_HOSTS
@@ -149,6 +172,18 @@ impl Site {
                 self.portal.revoke();
                 Reply::no_content()
             }
+            (&Method::GET, "/replay") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/json",
+                headers: Vec::new(),
+                body: self.refusals.document().into(),
+            },
+            (&Method::GET, "/model-calls") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/json",
+                headers: Vec::new(),
+                body: self.model.document().into(),
+            },
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
@@ -183,7 +218,112 @@ impl Site {
         }
     }
 
-    /// Sets the time step scheduled content follows.
+    /// Answers a request to the `agent` family: its pages at the current
+    /// time step, and the Effects their script posts, recorded with it.
+    fn agent(&self, host: &str, name: &str, request: &Request<'_>) -> Reply {
+        let step = *self.time_step.lock();
+        match (request.method, request.path) {
+            (&Method::POST, agent::EFFECTS_PATH) => match agent::effect(request.body, step) {
+                Some(effect) => {
+                    self.observations.effect(host, effect);
+                    Reply::json(StatusCode::OK, &serde_json::json!({ "time_step": step }))
+                }
+                None => Reply::error(StatusCode::BAD_REQUEST, "malformed_effect"),
+            },
+            (&Method::GET, path) => {
+                agent::page(self.seed, name, step, path).map_or_else(Reply::not_found, Reply::html)
+            }
+            _ => Reply::not_found(),
+        }
+    }
+
+    /// The Fake model's answer to a `POST` on its host name to `target`
+    /// (path and query); `None` for any other request, which [`Self::respond`]
+    /// answers.
+    pub(crate) fn model(
+        &self,
+        method: &Method,
+        host: &str,
+        target: &str,
+        body: &Bytes,
+    ) -> Option<model::Answer> {
+        if method != Method::POST || observation::host_name(host) != model::HOST {
+            return None;
+        }
+        let step = *self.time_step.lock();
+        let candidates: Vec<Candidate> = self
+            .tasks()
+            .into_iter()
+            .map(|task| {
+                let id = task.entry.id;
+                let answer = agent::answer(self.seed, &id, step).unwrap_or_else(|| {
+                    let effects = task.expected.effects.iter().map(serde_json::to_value);
+                    task.expected
+                        .records
+                        .iter()
+                        .map(serde_json::to_value)
+                        .chain(effects)
+                        .filter_map(|value| match value {
+                            Ok(serde_json::Value::Object(fields)) => Some(fields),
+                            _ => None,
+                        })
+                        .collect()
+                });
+                Candidate {
+                    fault: agent::fault(self.seed, &id),
+                    id,
+                    description: task.entry.description,
+                    host: task.host,
+                    answer,
+                }
+            })
+            .collect();
+        self.model.answer(target, body, &candidates)
+    }
+
+    /// Answers a request to an archived host on its own name, as through a
+    /// tunnel: its archived page, else a refusal it records.
+    fn replay(&self, method: &Method, host: &str, path: &str) -> Reply {
+        self.archived(method, host, path, || format!("{host}{path}"))
+    }
+
+    /// Answers a request in absolute form, as a browser sends one to its
+    /// proxy: an archived page, else a refusal it records.
+    pub(crate) fn proxy(&self, method: &Method, uri: &Uri) -> Reply {
+        let host = uri.host().unwrap_or_default();
+        let target = uri.path_and_query().map_or("/", PathAndQuery::as_str);
+        self.archived(method, host, target, || uri.to_string())
+    }
+
+    /// The archived page a `GET` to `host` and `target` asks for; else a
+    /// refusal of the request `named`, recorded.
+    fn archived(
+        &self,
+        method: &Method,
+        host: &str,
+        target: &str,
+        named: impl FnOnce() -> String,
+    ) -> Reply {
+        if method == Method::GET
+            && let Some(page) = replay::page(host, target)
+        {
+            return Reply::html(page.to_owned());
+        }
+        self.refusals.record(method.as_str(), named());
+        Reply::error(StatusCode::NOT_FOUND, "not_in_archive")
+    }
+
+    /// Whether a `CONNECT` to `authority` may open its tunnel: only to an
+    /// archived host's port 443. A refused one is recorded.
+    pub(crate) fn tunnel(&self, authority: &str) -> bool {
+        let open = replay::tunnels(authority);
+        if !open {
+            self.refusals.record("CONNECT", authority.to_owned());
+        }
+        open
+    }
+
+    /// Sets the time step scheduled content and drifting pages follow.
     fn set_time_step(&self, body: &Bytes) -> Reply {
         let Ok(time_step) = serde_json::from_slice::<TimeStep>(body) else {
             return Reply::error(StatusCode::BAD_REQUEST, "malformed_time_step");

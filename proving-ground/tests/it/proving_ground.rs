@@ -179,8 +179,19 @@ impl ProvingGround {
         answer.json()
     }
 
+    /// Puts a JSON body to a path on the Proving ground's own address.
+    pub(crate) fn put_control(&self, path: &str, body: &str) -> Answer {
+        let response = self
+            .agent
+            .put(format!("http://{}{path}", self.address))
+            .content_type("application/json")
+            .send(body)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// Fetches a path on the Proving ground's own address.
-    fn control(&self, path: &str) -> Answer {
+    pub(crate) fn control(&self, path: &str) -> Answer {
         let response = self
             .agent
             .get(format!("http://{}{path}", self.address))
@@ -207,6 +218,20 @@ impl ProvingGround {
             .agent
             .put(format!("http://{}/time-step", self.address))
             .send_json(json!({ "step": step }))
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
+    /// Posts JSON to a URL on one of the Proving ground's host names, as a
+    /// page's script does.
+    pub(crate) fn post_json(&self, url: &str, value: &Value) -> Answer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let response = self
+            .agent
+            .post(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .send_json(value)
             .expect("the Proving ground answers");
         Self::answer(response)
     }

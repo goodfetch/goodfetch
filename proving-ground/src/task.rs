@@ -31,8 +31,8 @@ pub(crate) struct Entry {
     /// so each Journey variant has its own (ADR 0063).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) account: Option<Account>,
-    /// How many time steps a watch task spans, from step 0: the steps its
-    /// harness sets, one after another, while the tool watches.
+    /// How many time steps a task spans, from step 0: the steps its harness
+    /// sets, one after another, while the tool works on its pages.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) time_steps: Option<u64>,
 }
@@ -137,6 +137,21 @@ pub(crate) enum Effect {
         #[serde(skip_serializing_if = "BTreeMap::is_empty")]
         details: BTreeMap<String, String>,
     },
+    /// A demo booked through the Agent page's form, at the time step the
+    /// Proving ground received it.
+    Booking {
+        time_step: u64,
+        name: String,
+        email: String,
+        plan: String,
+        /// Whether the form's consent box was ticked.
+        consent: bool,
+        /// Whether the submit came from a trusted (user-agent) event.
+        trusted: bool,
+    },
+    /// The Agent page's account deleted through its delete control, at the
+    /// time step the Proving ground received it.
+    DeleteAccount { time_step: u64, trusted: bool },
 }
 
 /// What a hand-made page's script posts when an action reaches one of its

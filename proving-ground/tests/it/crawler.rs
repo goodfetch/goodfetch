@@ -169,8 +169,17 @@ pub(crate) fn links(html: &str, hidden: bool) -> Vec<String> {
     let anchor = Regex::new(r"<a\s([^>]*)>").expect("a valid pattern");
     let href = Regex::new(r#"href="([^"]*)""#).expect("a valid pattern");
     let loc = Regex::new(r"<loc>([^<]*)</loc>").expect("a valid pattern");
+    // An element that hides itself hides the links inside it.
+    let hiding =
+        Regex::new(r#"(?s)<(div|span|p)\s[^>]*(hidden|display:none)[^>]*>.*?</(div|span|p)>"#)
+            .expect("a valid pattern");
+    let shown = if hidden {
+        html.to_owned()
+    } else {
+        hiding.replace_all(html, "").into_owned()
+    };
     let mut links: Vec<String> = anchor
-        .captures_iter(html)
+        .captures_iter(&shown)
         .filter(|tag| hidden || !hidden_from_people(&tag[1]))
         .filter_map(|tag| {
             href.captures(&tag[1])

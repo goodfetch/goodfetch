@@ -17,3 +17,4 @@ mod serve;
 mod statuses;
 mod task_list;
 mod transport;
+mod traps;

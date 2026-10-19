@@ -14,7 +14,7 @@ use regex::Regex;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 167;
 
@@ -61,17 +61,14 @@ fn read_item(page: &str) -> Value {
     })
 }
 
-fn submission(task: &str, status: &str, records: &[Value]) -> Value {
-    json!({ "task": task, "status": status, "records": records })
-}
-
 /// Places the order a form on `url`'s page names, as a tool that submits it
 /// does.
 fn submit_order_form(proving_ground: &ProvingGround, url: &str, page: &str) {
     let product = capture(page, r#"name="product" value="([^"]+)""#);
     let answer = proving_ground.post_form(
         &format!("{}/orders", origin(url)),
-        &format!("product={product}"),
+        &[("product", &product)],
+        None,
     );
     assert_eq!(answer.status, 200, "{}", answer.body);
 }

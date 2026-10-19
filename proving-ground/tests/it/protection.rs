@@ -15,7 +15,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::clients;
-use crate::proving_ground::{Answer, ProvingGround};
+use crate::proving_ground::{Answer, ProvingGround, submission};
 
 const SEED: u64 = 167;
 
@@ -83,7 +83,7 @@ impl<'a> Browser<'a> {
 
     fn get(&self, url: &str) -> Answer {
         match &self.cookie {
-            Some(cookie) => self.proving_ground.get_with(url, &[("cookie", cookie)]),
+            Some(cookie) => self.proving_ground.get_with_cookie(url, Some(cookie)),
             None => self.proving_ground.get(url),
         }
     }
@@ -121,10 +121,6 @@ fn read_article(page: &str) -> Value {
         "id": capture(page, r#"<article class="article" data-id="([^"]+)""#),
         "title": capture(page, r#"<h1 class="title">([^<]+)</h1>"#),
     })
-}
-
-fn submission(task: &str, status: &str, records: &[Value]) -> Value {
-    json!({ "task": task, "status": status, "records": records })
 }
 
 /// Each page's tier in the oracle's answer, by page.
@@ -255,7 +251,7 @@ fn a_page_fetched_with_the_browsers_clearance_but_no_script_was_cleared_over_htt
     let nonce = capture(&proving_ground.get(&url).body, r#"data-nonce="([^"]+)""#);
     let cookie = format!("clearance={}", clearance(&nonce));
 
-    let page = proving_ground.get_with(&url, &[("cookie", &cookie)]);
+    let page = proving_ground.get_with_cookie(&url, Some(&cookie));
     let answer = proving_ground
         .judge(&submission("protection/1", "failure", &[]))
         .json();
@@ -312,13 +308,11 @@ fn a_tool_that_solves_the_captcha_reads_the_article_behind_it_and_is_verified() 
     let proving_ground = ProvingGround::start(SEED);
     let url = start_url(&proving_ground, "protection/2");
     let code = captcha_code(&proving_ground.get(&url).body);
-    let solved = proving_ground.post_form(&url, &format!("answer={code}"));
-    let cookie = solved.set_cookies[0]
-        .split(';')
-        .next()
-        .expect("a cookie pair")
-        .to_owned();
-    let record = read_article(&proving_ground.get_with(&url, &[("cookie", &cookie)]).body);
+    let solved = proving_ground.post_form(&url, &[("answer", &code)], None);
+    let cookie = solved
+        .cookie("captcha")
+        .expect("a solved CAPTCHA sets its cookie");
+    let record = read_article(&proving_ground.get_with_cookie(&url, Some(&cookie)).body);
 
     let answer = proving_ground
         .judge(&submission("protection/2", "success", &[record]))
@@ -335,10 +329,10 @@ fn a_wrong_captcha_answer_is_refused_without_a_clearance(#[case] code: &str) {
     let proving_ground = ProvingGround::start(SEED);
     let url = start_url(&proving_ground, "protection/2");
 
-    let refused = proving_ground.post_form(&url, &format!("answer={code}"));
+    let refused = proving_ground.post_form(&url, &[("answer", code)], None);
 
     assert_eq!(refused.status, 403, "{}", refused.body);
-    assert_eq!(refused.set_cookies, Vec::<String>::new());
+    assert_eq!(refused.cookie("captcha"), None);
 }
 
 #[test]

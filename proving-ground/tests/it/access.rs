@@ -18,7 +18,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::clients::{self, Http2Settings};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 167;
 
@@ -78,10 +78,6 @@ fn read_record(page: &str) -> Value {
         "id": capture(page, r#"<article class="record" data-id="([^"]+)""#),
         "code": capture(page, r#"<span class="code">([^<]+)</span>"#),
     })
-}
-
-fn submission(task: &str, status: &str, records: &[Value]) -> Value {
-    json!({ "task": task, "status": status, "records": records })
 }
 
 /// The checks the answer's findings name, in order.
@@ -241,7 +237,7 @@ fn run_probe(
 ) -> Value {
     let url = start_url(proving_ground, id);
     let page = proving_ground
-        .get_with(&url, &[("user-agent", user_agent)])
+        .get_with_headers(&url, &[("user-agent", user_agent)])
         .body;
     let check = capture(&page, r#"data-check="([^"]+)""#);
     let path = capture(&url, r"http://[^/]+(/.*)$");
@@ -298,7 +294,7 @@ fn a_probe_signal_is_a_false_success_naming_the_signal(
 fn a_probe_whose_script_never_ran_is_judged_a_failure(#[case] id: &str) {
     let proving_ground = ProvingGround::start(SEED);
     let page = proving_ground
-        .get_with(
+        .get_with_headers(
             &start_url(&proving_ground, id),
             &[("user-agent", &chrome(155))],
         )
@@ -405,7 +401,7 @@ fn a_version_check_that_grades_the_version_the_browser_claims_is_verified(
 ) {
     let proving_ground = ProvingGround::start(SEED);
     let url = start_url(&proving_ground, "access/4");
-    let page = proving_ground.get_with(&url, &[("user-agent", &chrome(major))]);
+    let page = proving_ground.get_with_headers(&url, &[("user-agent", &chrome(major))]);
     let record = json!({ "id": "version-check", "major": major.to_string(), "level": level });
 
     let answer = proving_ground
@@ -420,7 +416,7 @@ fn a_version_check_that_grades_the_version_the_browser_claims_is_verified(
 fn a_version_check_that_calls_an_outdated_browser_current_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let url = start_url(&proving_ground, "access/4");
-    proving_ground.get_with(&url, &[("user-agent", &chrome(150))]);
+    proving_ground.get_with_headers(&url, &[("user-agent", &chrome(150))]);
     let record = json!({ "id": "version-check", "major": "150", "level": "current" });
 
     let answer = proving_ground
@@ -430,7 +426,8 @@ fn a_version_check_that_calls_an_outdated_browser_current_is_a_false_success() {
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
         answer["wrong"],
-        json!([{ "id": "version-check", "field": "level", "expected": "warning", "submitted": "current" }])
+        json!([{ "id": "version-check", "field": "level", "expected": "warning", "submitted": "current",
+            "difference": { "at": 0, "expected": "U+0077", "submitted": "U+0063" } }])
     );
 }
 
@@ -514,6 +511,7 @@ fn a_vendors_mere_presence_taken_for_a_challenge_is_a_false_success() {
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
         answer["wrong"],
-        json!([{ "id": "/corpus/vendor-script", "field": "cause", "expected": "none", "submitted": "challenge" }])
+        json!([{ "id": "/corpus/vendor-script", "field": "cause", "expected": "none", "submitted": "challenge",
+            "difference": { "at": 0, "expected": "U+006E", "submitted": "U+0063" } }])
     );
 }

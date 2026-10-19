@@ -156,13 +156,12 @@ fn version_page() -> String {
 /// and `port`. Ordinals are append-only (ADR 0063).
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
     let origin = |ordinal| format!("http://{}:{port}", task::task_host(ordinal, HOST));
-    let records = |ids: &[&str]| Expected {
-        records: ids.iter().map(|id| record(seed, id)).collect(),
-        effects: Vec::new(),
-    };
+    let records = |ids: &[&str]| Expected::records(ids.iter().map(|id| record(seed, id)).collect());
     let task = |ordinal, kind, path: &str, description, expected| Task {
         host: task::task_host(ordinal, HOST),
         entry: Entry {
+            account: None,
+            time_steps: None,
             id: format!("{FAMILY}/{ordinal}"),
             family: FAMILY,
             kind,
@@ -206,10 +205,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 `major` (the Chrome major the browser claims) and `level` (`current`, `info`, \
                 `notice` or `warning`, the version check's level as of the page's date). The \
                 expected Record is graded from the version the request to this page claims.",
-            Expected {
-                records: Vec::new(),
-                effects: Vec::new(),
-            },
+            Expected::default(),
         ),
         task(
             5,
@@ -219,14 +215,13 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 `id` (the page's path) and `cause` (its Block cause: `challenge`, `captcha`, \
                 `rate_limit`, `ip_block`, `decoy`, `payment_required`, or `none` when the page \
                 is no block).",
-            Expected {
-                records: corpus::causes()
+            Expected::records(
+                corpus::causes()
                     .map(|(path, cause)| {
                         Record::from([("id", path.to_owned()), ("cause", cause.to_owned())])
                     })
                     .collect(),
-                effects: Vec::new(),
-            },
+            ),
         ),
     ]
 }
@@ -241,14 +236,11 @@ pub(crate) fn expected_now(task: &str, observations: &Observations) -> Option<Ex
     let major = claimed_majors(observations, task, VERSION)
         .into_iter()
         .next()?;
-    Some(Expected {
-        records: vec![Record::from([
-            ("id", VERSION_RECORD.to_owned()),
-            ("major", major.to_string()),
-            ("level", versions::age(major).level.as_str().to_owned()),
-        ])],
-        effects: Vec::new(),
-    })
+    Some(Expected::records(vec![Record::from([
+        ("id", VERSION_RECORD.to_owned()),
+        ("major", major.to_string()),
+        ("level", versions::age(major).level.as_str().to_owned()),
+    ])]))
 }
 
 /// The Chrome major each request to `task`'s `page` claimed, in order.

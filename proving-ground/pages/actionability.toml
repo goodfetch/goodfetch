@@ -1,0 +1,473 @@
+# The `actionability` family's hand-made pages and their hand-written expected
+# results (spec #152, story 29), ported from the lab's actionability,
+# primitive and form fixtures for ADR 0019's guard matrix. Each task is served
+# on its own host name, `<ordinal>.actionability.test`, where an ordinal is the
+# task's place in this file from 1: append a task, never reorder or remove one
+# (ADR 0063).
+#
+# A page's script posts each event that reaches one of its controls to
+# `/effects` (the shared `/effects.js`), with the browser's `isTrusted`; the
+# Proving ground records it as the task's Effect, and the oracle requires
+# exactly the `effects` listed: one trusted event of the right kind on the
+# right control, none on a decoy, none twice. A task with `refusal = true` has
+# no right Effect: the tool must report a failure and carry out nothing.
+
+[shared]
+"/effects.js" = '''
+// Posts an event that reached a control to the Proving ground, which records
+// it as the task's Effect; `done` marks the page's expected end state.
+const post = effect => fetch('/effects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(effect) });
+const done = () => { document.querySelector('#done').textContent = 'done'; };
+'''
+
+# Actionability: one click on `#target` once it is actionable.
+
+[[tasks]]
+name = "normal"
+kind = "act"
+description = "Click the button labelled Target once."
+effects = [{ event = "click", target = "target", trusted = true, details = { ready = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target">Target</button><script src="/effects.js"></script><script>
+let ready = true;
+const target = document.querySelector('#target');
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted, details: { ready: String(ready) } }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "overlay"
+kind = "act"
+description = "Click the button labelled Target once. An overlay covers it for a moment after the page loads."
+effects = [{ event = "click", target = "target", trusted = true, details = { ready = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target">Target</button><script src="/effects.js"></script><script>
+let ready = false;
+const target = document.querySelector('#target');
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted, details: { ready: String(ready) } }); done(); });
+const overlay = document.createElement('div');
+overlay.id = 'overlay';
+overlay.style = 'position:fixed;inset:0;z-index:100;background:#fff8';
+overlay.addEventListener('click', event => post({ event: 'click', target: 'overlay', trusted: event.isTrusted, details: { ready: String(ready) } }));
+document.body.append(overlay);
+setTimeout(() => { overlay.remove(); ready = true; }, 180);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "delayed"
+kind = "act"
+description = "Click the button labelled Target once. It is disabled for a moment after the page loads."
+effects = [{ event = "click", target = "target", trusted = true, details = { ready = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target" disabled>Target</button><script src="/effects.js"></script><script>
+let ready = false;
+const target = document.querySelector('#target');
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted, details: { ready: String(ready) } }); done(); });
+setTimeout(() => { target.disabled = false; ready = true; }, 180);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "hidden"
+kind = "act"
+description = "Click the button labelled Target once. It is hidden for a moment after the page loads."
+effects = [{ event = "click", target = "target", trusted = true, details = { ready = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target" style="display:none">Target</button><script src="/effects.js"></script><script>
+let ready = false;
+const target = document.querySelector('#target');
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted, details: { ready: String(ready) } }); done(); });
+setTimeout(() => { target.style.display = ''; ready = true; }, 180);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "moving"
+kind = "act"
+description = "Click the button labelled Target once. It moves for a moment after the page loads."
+effects = [{ event = "click", target = "target", trusted = true, details = { ready = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target" style="position:relative;left:0">Target</button><script src="/effects.js"></script><script>
+let ready = false;
+const target = document.querySelector('#target');
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted, details: { ready: String(ready) } }); done(); });
+let x = 0;
+const motion = setInterval(() => { x = (x + 30) % 300; target.style.left = x + 'px'; }, 16);
+setTimeout(() => { clearInterval(motion); target.style.left = '0px'; ready = true; }, 180);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "rerender"
+kind = "act"
+description = "Click the button labelled Target once. The page replaces it with a new one shortly after it loads."
+effects = [{ event = "click", target = "target", trusted = true, details = { ready = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target" disabled>Target</button><script src="/effects.js"></script><script>
+let ready = false;
+const attach = button => button.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted, details: { ready: String(ready) } }); done(); });
+let target = document.querySelector('#target');
+attach(target);
+setTimeout(() => { const replacement = target.cloneNode(true); target.replaceWith(replacement); target = replacement; attach(target); target.disabled = false; ready = true; }, 180);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "never-enabled"
+kind = "act"
+description = "Click the button labelled Target once, or report a failure if it never becomes clickable."
+refusal = true
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target" disabled>Target</button><script src="/effects.js"></script><script>
+const target = document.querySelector('#target');
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "never-uncovered"
+kind = "act"
+description = "Click the button labelled Target once, or report a failure if it stays covered."
+refusal = true
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target">Target</button><script src="/effects.js"></script><script>
+const target = document.querySelector('#target');
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted }); done(); });
+const overlay = document.createElement('div');
+overlay.id = 'overlay';
+overlay.style = 'position:fixed;inset:0;z-index:100;background:#fff8';
+overlay.addEventListener('click', event => post({ event: 'click', target: 'overlay', trusted: event.isTrusted }));
+document.body.append(overlay);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "ambiguous"
+kind = "act"
+description = "Click the button whose ID is `target` once, or report a failure if more than one control has that ID."
+refusal = true
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="target">Target</button><button id="target">Other target</button><script src="/effects.js"></script><script>
+document.querySelectorAll('#target').forEach((button, index) => button.addEventListener('click', async event => { await post({ event: 'click', target: index === 0 ? 'target' : 'other-target', trusted: event.isTrusted }); done(); }));
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+# Primitives: one action of each kind on its control; `#done` marks success.
+
+[[tasks]]
+name = "hover"
+kind = "act"
+description = "Hover the pointer over the button labelled Target."
+effects = [{ event = "hover", target = "target", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><button id="target" style="position:absolute;left:100px;top:100px;width:160px;height:40px;z-index:2">Target</button><script src="/effects.js"></script><script>
+target.addEventListener('pointerenter', async event => { await post({ event: 'hover', target: 'target', trusted: event.isTrusted }); done(); }, { once: true });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "dblclick"
+kind = "act"
+description = "Double-click the button labelled Target."
+effects = [{ event = "dblclick", target = "target", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><button id="target" style="position:absolute;left:100px;top:100px;width:160px;height:40px;z-index:2">Target</button><script src="/effects.js"></script><script>
+target.addEventListener('dblclick', async event => { await post({ event: 'dblclick', target: 'target', trusted: event.isTrusted }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "contextmenu"
+kind = "act"
+description = "Right-click the button labelled Target."
+effects = [{ event = "contextmenu", target = "target", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><button id="target" style="position:absolute;left:100px;top:100px;width:160px;height:40px;z-index:2">Target</button><script src="/effects.js"></script><script>
+target.addEventListener('contextmenu', async event => { event.preventDefault(); await post({ event: 'contextmenu', target: 'target', trusted: event.isTrusted }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "drag"
+kind = "act"
+description = "Drag the blue square `#source` with the pointer and drop it on the dashed `#dropzone`."
+effects = [{ event = "drop", target = "dropzone", trusted = true, details = { moved = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><div id="source" style="position:absolute;left:100px;top:100px;width:80px;height:80px;background:#68a;touch-action:none"></div><div id="dropzone" style="position:absolute;left:400px;top:100px;width:120px;height:120px;border:2px dashed #333"></div><script src="/effects.js"></script><script>
+let dragging = false, moves = 0;
+source.addEventListener('pointerdown', () => { dragging = true; moves = 0; });
+document.addEventListener('pointermove', () => { if (dragging) moves++; });
+document.addEventListener('pointerup', async event => {
+  if (!dragging) return;
+  dragging = false;
+  if (dropzone.contains(document.elementFromPoint(event.clientX, event.clientY))) { await post({ event: 'drop', target: 'dropzone', trusted: event.isTrusted, details: { moved: String(moves >= 1) } }); done(); }
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "wheel"
+kind = "act"
+description = "Scroll the box `#scroller` down with the mouse wheel."
+effects = [{ event = "scrolled", target = "scroller", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><div id="scroller" style="position:absolute;left:100px;top:100px;width:300px;height:200px;overflow:auto"><div style="height:2000px"></div></div><script src="/effects.js"></script><script>
+// A trusted wheel event on the scroller that scrolls it; engines scale one wheel step differently.
+let wheeled = false, trusted = false, sent = false;
+scroller.addEventListener('wheel', event => { wheeled = true; trusted = event.isTrusted; }, { passive: true });
+scroller.addEventListener('scroll', async () => { if (!sent && wheeled && scroller.scrollTop > 0) { sent = true; await post({ event: 'scrolled', target: 'scroller', trusted }); done(); } });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "keyboard"
+kind = "act"
+description = "Focus the text field `#field` and press Enter."
+effects = [{ event = "enter", target = "field", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><input id="field" style="position:absolute;left:100px;top:100px;width:200px"><script src="/effects.js"></script><script>
+field.addEventListener('keydown', async event => { if (event.key === 'Enter') { await post({ event: 'enter', target: 'field', trusted: event.isTrusted }); done(); } });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "contenteditable"
+kind = "act"
+description = "Type `Goodfetch` into the editable box `#editor`."
+effects = [{ event = "edited", target = "editor", trusted = true, details = { text = "Goodfetch" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><div id="editor" contenteditable="true" style="position:absolute;left:100px;top:100px;width:300px;height:60px;border:1px solid #333"></div><script src="/effects.js"></script><script>
+let sent = false;
+editor.addEventListener('input', async event => { if (!sent && editor.textContent === 'Goodfetch') { sent = true; await post({ event: 'edited', target: 'editor', trusted: event.isTrusted, details: { text: editor.textContent } }); done(); } });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "unicode"
+kind = "act"
+description = "Type `Ünïcødé — 漢字 😀` into the text field `#field`."
+effects = [{ event = "typed", target = "field", trusted = true, details = { value = "Ünïcødé — 漢字 😀" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;font:16px sans-serif"><output id="done"></output><input id="field" style="position:absolute;left:100px;top:100px;width:300px"><script src="/effects.js"></script><script>
+const expected = 'Ünïcødé — 漢字 😀';
+let sent = false;
+field.addEventListener('input', async event => { if (!sent && field.value === expected) { sent = true; await post({ event: 'typed', target: 'field', trusted: event.isTrusted, details: { value: field.value } }); done(); } });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "moved"
+kind = "act"
+description = "Click the button labelled Target once. It slips away as the pointer arrives, uncovering a decoy where it was."
+effects = [{ event = "click", target = "target", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><button id="decoy" style="position:absolute;left:100px;top:100px;width:160px;height:40px;z-index:1">Decoy</button><button id="target" style="position:absolute;left:100px;top:100px;width:160px;height:40px;z-index:2">Target</button><script src="/effects.js"></script><script>
+target.addEventListener('pointerover', () => { target.style.left = '500px'; }, { once: true });
+target.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted }); done(); });
+decoy.addEventListener('click', event => post({ event: 'click', target: 'decoy', trusted: event.isTrusted }));
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "retarget"
+kind = "act"
+description = "Click the button labelled Save once, or report a failure if another control takes its place."
+refusal = true
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><button id="target" style="position:absolute;left:100px;top:100px;width:160px;height:40px;z-index:2">Save</button><script src="/effects.js"></script><script>
+// The target is swapped for a destructive control at the same place as the pointer arrives.
+target.addEventListener('pointerover', () => {
+  const danger = document.createElement('button');
+  danger.id = 'danger';
+  danger.textContent = 'Delete';
+  danger.style.cssText = target.style.cssText;
+  danger.addEventListener('click', event => post({ event: 'click', target: 'danger', trusted: event.isTrusted }));
+  target.replaceWith(danger);
+}, { once: true });
+target.addEventListener('click', event => post({ event: 'click', target: 'target', trusted: event.isTrusted }));
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+# Forms: type `Goodfetch` into the name, choose EU, tick the consent box and
+# save once; the save reports what the form held and whether the name field
+# received a trusted input event.
+
+[[tasks]]
+name = "form"
+kind = "submit"
+description = "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once."
+effects = [{ event = "submit", target = "submit", trusted = true, details = { name = "Goodfetch", region = "eu", consent = "true", typed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><label>Name <input id="name" name="name"></label><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input type="checkbox" id="consent"><button id="submit">Save</button><script src="/effects.js"></script><script>
+const events = [];
+for (const type of ['input', 'change']) document.addEventListener(type, event => events.push({ type, id: event.target.id, trusted: event.isTrusted }));
+document.querySelector('#submit').addEventListener('click', async event => {
+  const typed = events.some(e => e.id === 'name' && e.type === 'input' && e.trusted);
+  await post({ event: 'submit', target: 'submit', trusted: event.isTrusted, details: { name: document.querySelector('#name').value, region: document.querySelector('#region').value, consent: String(document.querySelector('#consent').checked), typed: String(typed) } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "form-delayed"
+kind = "submit"
+description = "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once. Save is disabled for a moment after the page loads."
+effects = [{ event = "submit", target = "submit", trusted = true, details = { name = "Goodfetch", region = "eu", consent = "true", typed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><label>Name <input id="name" name="name"></label><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input type="checkbox" id="consent"><button id="submit" disabled>Save</button><script src="/effects.js"></script><script>
+const events = [];
+for (const type of ['input', 'change']) document.addEventListener(type, event => events.push({ type, id: event.target.id, trusted: event.isTrusted }));
+const submit = document.querySelector('#submit');
+submit.addEventListener('click', async event => {
+  const typed = events.some(e => e.id === 'name' && e.type === 'input' && e.trusted);
+  await post({ event: 'submit', target: 'submit', trusted: event.isTrusted, details: { name: document.querySelector('#name').value, region: document.querySelector('#region').value, consent: String(document.querySelector('#consent').checked), typed: String(typed) } });
+  done();
+});
+setTimeout(() => { submit.disabled = false; }, 90);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "form-overlay"
+kind = "submit"
+description = "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once. An overlay covers the form for a moment after the page loads."
+effects = [{ event = "submit", target = "submit", trusted = true, details = { name = "Goodfetch", region = "eu", consent = "true", typed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><label>Name <input id="name" name="name"></label><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input type="checkbox" id="consent"><button id="submit">Save</button><script src="/effects.js"></script><script>
+const events = [];
+for (const type of ['input', 'change']) document.addEventListener(type, event => events.push({ type, id: event.target.id, trusted: event.isTrusted }));
+document.querySelector('#submit').addEventListener('click', async event => {
+  const typed = events.some(e => e.id === 'name' && e.type === 'input' && e.trusted);
+  await post({ event: 'submit', target: 'submit', trusted: event.isTrusted, details: { name: document.querySelector('#name').value, region: document.querySelector('#region').value, consent: String(document.querySelector('#consent').checked), typed: String(typed) } });
+  done();
+});
+const overlay = document.createElement('div');
+overlay.id = 'overlay';
+overlay.style = 'position:fixed;inset:0;z-index:100;background:#fff8';
+document.body.append(overlay);
+setTimeout(() => overlay.remove(), 120);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "form-rerender"
+kind = "submit"
+description = "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once. The page replaces Save with a new button as it loads."
+effects = [{ event = "submit", target = "submit", trusted = true, details = { name = "Goodfetch", region = "eu", consent = "true", typed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><label>Name <input id="name" name="name"></label><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input type="checkbox" id="consent"><button id="submit">Save</button><script src="/effects.js"></script><script>
+const events = [];
+for (const type of ['input', 'change']) document.addEventListener(type, event => events.push({ type, id: event.target.id, trusted: event.isTrusted }));
+const original = document.querySelector('#submit');
+original.replaceWith(original.cloneNode(true));
+document.querySelector('#submit').addEventListener('click', async event => {
+  const typed = events.some(e => e.id === 'name' && e.type === 'input' && e.trusted);
+  await post({ event: 'submit', target: 'submit', trusted: event.isTrusted, details: { name: document.querySelector('#name').value, region: document.querySelector('#region').value, consent: String(document.querySelector('#consent').checked), typed: String(typed) } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "shadow-form"
+kind = "submit"
+description = "Fill the form inside the open shadow root of `#shadow-host`: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once."
+effects = [{ event = "submit", target = "submit", trusted = true, details = { name = "Goodfetch", region = "eu", consent = "true", typed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><div id="shadow-host"></div><script src="/effects.js"></script><script>
+const root = document.querySelector('#shadow-host').attachShadow({ mode: 'open' });
+root.innerHTML = '<label>Name <input id="name" name="name"></label><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input type="checkbox" id="consent"><button id="submit">Save</button>';
+const events = [];
+for (const type of ['input', 'change']) root.addEventListener(type, event => events.push({ type, id: event.target.id, trusted: event.isTrusted }));
+root.querySelector('#submit').addEventListener('click', async event => {
+  const typed = events.some(e => e.id === 'name' && e.type === 'input' && e.trusted);
+  await post({ event: 'submit', target: 'submit', trusted: event.isTrusted, details: { name: root.querySelector('#name').value, region: root.querySelector('#region').value, consent: String(root.querySelector('#consent').checked), typed: String(typed) } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "frame-form"
+kind = "submit"
+description = "Fill the form inside the page's frame: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once."
+effects = [{ event = "submit", target = "submit", trusted = true, details = { name = "Goodfetch", region = "eu", consent = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><iframe id="frame" src="/frame" style="border:0;width:400px;height:200px"></iframe><script>document.body.dataset.ready = 'true';</script></body></html>'''
+"/frame" = '''<!doctype html><html><body><output id="done"></output><input id="name"><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input id="consent" type="checkbox"><button id="submit">Save</button><script src="/effects.js"></script><script>
+document.querySelector('#submit').addEventListener('click', async event => {
+  await post({ event: 'submit', target: 'submit', trusted: event.isTrusted, details: { name: document.querySelector('#name').value, region: document.querySelector('#region').value, consent: String(document.querySelector('#consent').checked) } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "clicks"
+kind = "act"
+description = "Click the button labelled Increment 50 times, one click after another."
+effects = [
+  { event = "click", target = "counter", trusted = true, details = { count = "1" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "2" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "3" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "4" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "5" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "6" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "7" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "8" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "9" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "10" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "11" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "12" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "13" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "14" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "15" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "16" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "17" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "18" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "19" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "20" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "21" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "22" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "23" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "24" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "25" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "26" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "27" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "28" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "29" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "30" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "31" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "32" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "33" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "34" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "35" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "36" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "37" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "38" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "39" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "40" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "41" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "42" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "43" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "44" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "45" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "46" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "47" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "48" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "49" } },
+  { event = "click", target = "counter", trusted = true, details = { count = "50" } },
+]
+[tasks.pages]
+"/" = '''<!doctype html><html><body><output id="done"></output><button id="counter">Increment</button><output id="count">0</output><script src="/effects.js"></script><script>
+let count = 0;
+document.querySelector('#counter').addEventListener('click', async event => {
+  const n = ++count;
+  await post({ event: 'click', target: 'counter', trusted: event.isTrusted, details: { count: String(n) } });
+  document.querySelector('#count').textContent = String(n);
+  if (n === 50) done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''

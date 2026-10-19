@@ -288,6 +288,8 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
         Task {
             host: task::task_host(1, HOST),
             entry: Entry {
+                account: None,
+                time_steps: None,
                 id: TIER_MOVE_TASK.to_owned(),
                 family: FAMILY,
                 kind: Kind::Crawl,
@@ -296,14 +298,13 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                     article with the fields `id` and `title`. Every page answers a client \
                     without a clearance with a Challenge its script passes in a browser.",
             },
-            expected: Expected {
-                records: (1..=ARTICLES).map(record).collect(),
-                effects: Vec::new(),
-            },
+            expected: Expected::records((1..=ARTICLES).map(record).collect()),
         },
         Task {
             host: task::task_host(2, HOST),
             entry: Entry {
+                account: None,
+                time_steps: None,
                 id: format!("{FAMILY}/2"),
                 family: FAMILY,
                 kind: Kind::Extract,
@@ -311,10 +312,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 description: "Extract the article behind this CAPTCHA as one Record with the \
                     fields `id` and `title`.",
             },
-            expected: Expected {
-                records: vec![record(CAPTCHA_ARTICLE)],
-                effects: Vec::new(),
-            },
+            expected: Expected::records(vec![record(CAPTCHA_ARTICLE)]),
         },
     ]
 }

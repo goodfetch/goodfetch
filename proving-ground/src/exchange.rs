@@ -66,6 +66,16 @@ impl Reply {
         }
     }
 
+    /// A `303 See Other` to `location`, a path on the same host.
+    pub(crate) fn see_other(location: &str) -> Self {
+        Self {
+            status: StatusCode::SEE_OTHER,
+            content_type: "text/plain; charset=utf-8",
+            headers: vec![("location", location.to_owned())],
+            body: Bytes::new(),
+        }
+    }
+
     /// A `204 No Content`.
     pub(crate) fn no_content() -> Self {
         Self {
@@ -73,6 +83,14 @@ impl Reply {
             content_type: "text/plain; charset=utf-8",
             headers: Vec::new(),
             body: Bytes::new(),
+        }
+    }
+
+    /// A `302 Found` to `location`, a path on the same host.
+    pub(crate) fn found(location: &str) -> Self {
+        Self {
+            status: StatusCode::FOUND,
+            ..Self::see_other(location)
         }
     }
 
@@ -125,6 +143,20 @@ fn decode(component: &str) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// A text encoded as one component of a query, every byte but an unreserved
+/// one (RFC 3986) percent-encoded.
+pub(crate) fn encode(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +174,11 @@ mod tests {
         assert_eq!(form_value("b&a=1", "b").as_deref(), Some(""));
         assert_eq!(form_value("a=1", "b"), None);
         assert_eq!(form_value("a=%zz", "a"), None);
+    }
+
+    #[test]
+    fn an_encoded_component_decodes_to_itself() {
+        assert_eq!(encode("/reports?page=2"), "%2Freports%3Fpage%3D2");
+        assert_eq!(decode(&encode("Ünï ✓&=")).as_deref(), Some("Ünï ✓&="));
     }
 }

@@ -868,6 +868,7 @@ dependencies = [
  "crc32fast",
  "data-encoding",
  "encoding_rs",
+ "flate2",
  "form_urlencoded",
  "h2",
  "hmac",

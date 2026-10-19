@@ -17,6 +17,7 @@ clap.workspace = true
 crc32fast.workspace = true
 data-encoding.workspace = true
 encoding_rs.workspace = true
+flate2.workspace = true
 form_urlencoded.workspace = true
 hmac.workspace = true
 http-body-util.workspace = true

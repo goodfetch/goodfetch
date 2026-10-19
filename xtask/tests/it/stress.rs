@@ -217,3 +217,22 @@ fn listing_saved_for_the_base_commit_is_read_instead_of_listing_the_base() {
     expected.sort();
     assert_eq!(selection, expected);
 }
+
+/// A test still on the quarantine list runs in no suite, so not 20 times
+/// either, though its file changed.
+#[test]
+fn quarantined_test_is_not_stressed() {
+    let (workspace, base) = base();
+    change(&workspace);
+    workspace.write(
+        "quarantine.toml",
+        b"[[test]]\nrunner = \"pytest\"\nid = \"tests/test_changed.py::test_kept\"\nissue = 1601\ndate = 2026-10-18\n",
+    );
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base]);
+
+    let mut expected = change_selection();
+    expected.retain(|(_, _, test)| test != "tests/test_changed.py::test_kept");
+    assert_eq!(selection, expected);
+}

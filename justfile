@@ -240,6 +240,63 @@ test suite *packages:
         ;;
     esac
 
+# Updates snapshots only through each tool's own command, never by hand
+# (ADR 0062; TESTING.md, Snapshots): insta runs the tests and reviews what
+# changed (`cargo insta test --review`, which ends in `cargo insta review`),
+# Vitest updates the changed pnpm packages' snapshots (`-u`), and
+# inline-snapshot reviews its own single-process (`-n0`), since under xdist
+# it can neither create nor fix one. `accept` writes every change without
+# review and deletes unreferenced insta snapshots; inline-snapshot still fails
+# each test whose snapshot it changed, so run them again. Packages, when
+# given, narrow it as `just test`'s do. CI never runs it.
+snapshots *arguments:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    arguments=({{ arguments }})
+    mode=review
+    if [[ ${#arguments[@]} -gt 0 && "${arguments[0]}" == accept ]]; then
+      mode=accept
+      arguments=("${arguments[@]:1}")
+    fi
+    packages=() vitest=() pytest=()
+    for package in ${arguments[@]+"${arguments[@]}"}; do
+      if [[ -f "$package/package.json" ]]; then vitest+=("$package/")
+      elif [[ -f "$package/pyproject.toml" ]]; then pytest+=("$package")
+      else packages+=(-p "$package"); fi
+    done
+    rust=true typescript=true python=true
+    if [[ ${#arguments[@]} -gt 0 ]]; then
+      [[ ${#packages[@]} -gt 0 ]] || rust=false
+      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+      [[ ${#pytest[@]} -gt 0 ]] || python=false
+    else
+      packages=(--workspace)
+      read -ra vitest <<< "$(cargo run --quiet -p xtask -- affected --local | sed -n 's/^vitest-packages=//p')"
+      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+    fi
+    # The tests find the commit's executables as under `just test`.
+    export GOODFETCH_TEST_SUITE=pre-merge
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    case "$mode" in
+      review) insta=(--review --unreferenced warn) inline=review ;;
+      accept) insta=(--accept --unreferenced delete) inline=create,fix,trim,update ;;
+    esac
+    # Every tool runs even when another's tests failed; the exit code is the
+    # last failure's.
+    status=0
+    if $rust; then
+      cargo insta test "${packages[@]}" "${insta[@]}" --test-runner nextest --nextest-profile ci \
+        --profile {{ test_profile }} --disable-nextest-doctest || status=$?
+    fi
+    if $typescript; then
+      pnpm exec vitest run -u "${vitest[@]}" || status=$?
+    fi
+    if $python; then
+      uv run pytest -n0 --inline-snapshot="$inline" ${pytest[@]+"${pytest[@]}"} || status=$?
+    fi
+    exit "$status"
+
 # `--test <runner>=<test ID>`, repeatable, or `--quarantined <n>`, the
 # quarantine list's n oldest entries. The diagnostic runs (20) and the daily
 # test-health job (50) call it; quarantined tests run too, as they must there.

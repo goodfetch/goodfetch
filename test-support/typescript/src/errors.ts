@@ -58,7 +58,11 @@ export type TestSupportErrorCode =
   /** `noRunningAnimations` ran on a page whose `prefers-reduced-motion` is not `reduce` (ADR 0073). */
   | "reduced_motion_off"
   /** An animation or transition was still running under `prefers-reduced-motion: reduce` (ADR 0073). */
-  | "animations_running";
+  | "animations_running"
+  /** `GOODFETCH_VISUAL_IMAGE` names another image than ci/visual/image.toml pins (ADR 0073). */
+  | "visual_image_not_pinned"
+  /** A screenshot's page lacks a fixed setting: instant, locale, time zone, viewport, scale or motion (ADR 0073). */
+  | "screenshot_unsettled";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

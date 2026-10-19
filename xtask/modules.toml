@@ -41,7 +41,7 @@ release_suite = ["check", "environment", "github", "issues", "output", "rate", "
 repeat = ["environment", "output", "quarantine"]
 results = ["github", "junit"]
 scan = ["check", "github", "issues", "output", "results"]
-screenshots = ["check", "environment", "output"]
+screenshots = ["check", "environment", "output", "tree"]
 self_hosted = ["check", "environment", "output", "workflow"]
 size = ["acceptance", "check", "environment", "github", "output"]
 stress = ["environment", "metadata", "output", "quarantine"]
@@ -152,3 +152,7 @@ listed = ["scan"]
 row = ["entry", "files"]
 scan = []
 story = ["entry", "files"]
+
+# Which of `screenshots`'s own modules may import which.
+[submodules.screenshots]
+tolerance = []

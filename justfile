@@ -49,6 +49,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- os-services workflows
     cargo run --quiet -p xtask -- fixture-size
+    cargo run --quiet -p xtask -- screenshots check
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- package-dependencies
     cargo run --quiet -p xtask -- mocking-lockfile

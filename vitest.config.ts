@@ -5,14 +5,13 @@
 // fails and none is written.
 //
 // Screenshot tests (`*.visual.test.ts[x]`) form the `visual` project, which
-// exists only inside the pinned Playwright image (ADR 0073; ci/visual/), where
-// ci/visual/run.sh sets GOODFETCH_VISUAL_IMAGE. Reference screenshots are
-// named without the platform, and each one a test reads is recorded under
-// target/visual/read/ for the orphan check (`xtask screenshots orphans`).
-import { appendFileSync, mkdirSync, readdirSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+// test support's shared visual config gives only inside the pinned Playwright
+// image (ADR 0073; ci/visual/).
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { readFeatureIds } from "@goodfetch/test-support/features";
 import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
+import { VITEST_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 import { playwright } from "@vitest/browser-playwright";
 import {
   defineConfig,
@@ -28,7 +27,7 @@ const outside = [
   "ci/proofs/**",
   "target/**",
 ];
-const visualTests = "**/*.visual.test.{ts,tsx}";
+const visualTests = VITEST_VISUAL_TESTS;
 
 // A `.test.tsx` file renders or needs the DOM, so it runs in Vitest Browser
 // Mode with the Playwright provider (ADR 0068; TESTING.md, Components), never
@@ -79,41 +78,7 @@ const componentTextSpacing: TestProjectInlineConfiguration = {
   },
 };
 
-const visual: TestProjectInlineConfiguration = {
-  extends: true,
-  test: {
-    name: "visual",
-    include: [visualTests],
-    exclude: outside,
-    testTimeout: 300_000,
-    // A failed comparison's actual and diff images, uploaded by the visual job.
-    attachmentsDir: "target/vitest-attachments",
-    browser: {
-      enabled: true,
-      headless: true,
-      provider: playwright(),
-      instances: [{ browser: "chromium" }],
-      expect: {
-        toMatchScreenshot: {
-          resolveScreenshotPath: (reference) => {
-            const path = resolve(
-              reference.root,
-              reference.testFileDirectory,
-              reference.screenshotDirectory,
-              reference.testFileName,
-              `${reference.arg}-${reference.browserName}${reference.ext}`,
-            );
-            const records = join(reference.root, "target", "visual", "read");
-            mkdirSync(records, { recursive: true });
-            const line = relative(reference.root, path).split(sep).join("/");
-            appendFileSync(join(records, `vitest-${process.pid}.txt`), `${line}\n`);
-            return path;
-          },
-        },
-      },
-    },
-  },
-};
+const visual = visualConfig.vitest(process.env, playwright, { exclude: outside });
 
 // The order seed (ci/order-seed.sh) is the tree under test's first 8 bytes;
 // the constrained test-health run (ADR 0064; ci/test-health/constrained.sh)
@@ -138,6 +103,7 @@ const featureTags = readFeatureIds(import.meta.dirname).map((name) => ({ name })
 
 const config: ViteUserConfig = defineConfig({
   test: {
+    ...(visual.update === undefined ? {} : { update: visual.update }),
     retry: 0,
     restoreMocks: true,
     unstubEnvs: true,
@@ -178,7 +144,7 @@ const config: ViteUserConfig = defineConfig({
       },
       component,
       ...(process.env["GOODFETCH_TEST_SUITE"] === "release" ? [componentTextSpacing] : []),
-      ...(process.env["GOODFETCH_VISUAL_IMAGE"] === undefined ? [] : [visual]),
+      ...visual.projects,
     ],
   },
 });

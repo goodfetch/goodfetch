@@ -118,7 +118,7 @@ fn shelf(ordinal: u64) -> Shelf {
 }
 
 /// The family's tasks.
-pub(super) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     (1..)
         .zip(POLICIES)
         .map(|(ordinal, (policy, description))| {

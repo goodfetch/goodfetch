@@ -64,7 +64,7 @@ pub(crate) fn hosts() -> Vec<String> {
 }
 
 /// The families' tasks, in the task list's order.
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let mut tasks = incidents::tasks(seed, port);
     tasks.extend(policy::tasks(seed, port));
     tasks.extend(identity::tasks(seed, port));
@@ -82,7 +82,7 @@ fn family_of(host: &str) -> Option<&'static str> {
 }
 
 /// A task of `family`, served on `<ordinal>.<family_host>` over TLS, starting
-/// at `path`.
+/// at `path`, on `port` when `serve` lists it, or on none when `tasks` does.
 fn task(
     (family, family_host): (&'static str, &str),
     ordinal: u64,
@@ -90,15 +90,19 @@ fn task(
     path: &str,
     description: &'static str,
     expected: Expected,
-    port: u16,
+    port: Option<u16>,
 ) -> Task {
     let host = format!("{ordinal}.{family_host}");
+    let origin = port.map_or_else(
+        || format!("https://{host}"),
+        |port| format!("https://{host}:{port}"),
+    );
     Task {
         entry: Entry {
             id: format!("{family}/{ordinal}"),
             family,
             kind,
-            start_url: format!("https://{host}:{port}{path}"),
+            start_url: format!("{origin}{path}"),
             description,
             account: None,
             time_steps: None,

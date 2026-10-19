@@ -98,7 +98,7 @@ fn html(ordinal: u64) -> String {
 }
 
 /// The family's tasks.
-pub(super) fn tasks(port: u16) -> Vec<Task> {
+pub(super) fn tasks(port: Option<u16>) -> Vec<Task> {
     (1..)
         .zip(CODINGS)
         .map(|(ordinal, (coding, description))| {

@@ -44,6 +44,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod tlc;
 mod tree;
 mod wording;
 mod workflow;
@@ -176,6 +177,12 @@ enum Command {
     Size {
         #[command(subcommand)]
         mode: size::Command,
+    },
+    /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
+    /// tools (ADR 0060).
+    Tlc {
+        #[command(subcommand)]
+        command: tlc::Command,
     },
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
@@ -334,6 +341,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

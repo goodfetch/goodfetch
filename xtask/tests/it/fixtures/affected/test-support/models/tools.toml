@@ -1,0 +1,4 @@
+[[tool]]
+name = "tla2tools.jar"
+url = "https://tools.invalid/tla2tools.jar"
+sha256 = "e0829182c2c599608f165e38fa0416c094fb7ad4bbb5949eab3df602123158f9"

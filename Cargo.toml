@@ -39,6 +39,9 @@ clap = { version = "4.6.7", default-features = false, features = ["std", "derive
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 insta = { version = "1.49.0", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
+# `xtask journeys check` validates each Journey file against its committed
+# JSON Schema (ADR 0063); no remote or file references are resolved.
+jsonschema = { version = "0.59.0", default-features = false }
 # Property tests of parsers and stateful rules (TESTING.md); `std` reads
 # regex strategies.
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }

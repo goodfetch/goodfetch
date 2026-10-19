@@ -27,6 +27,7 @@ mod fixture_size;
 mod foxhound_side;
 mod github;
 mod issues;
+mod journeys;
 mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
@@ -45,6 +46,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod tlc;
 mod tree;
 mod wording;
 mod workflow;
@@ -124,6 +126,11 @@ enum Command {
     },
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
+    /// The Journey catalog under `journeys/` (ADR 0063).
+    Journeys {
+        #[command(subcommand)]
+        command: journeys::Command,
+    },
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -183,6 +190,12 @@ enum Command {
     Size {
         #[command(subcommand)]
         mode: size::Command,
+    },
+    /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
+    /// tools (ADR 0060).
+    Tlc {
+        #[command(subcommand)]
+        command: tlc::Command,
     },
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
@@ -329,6 +342,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Egress { command } => egress::run(command, environment),
         Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
+        Command::Journeys { command } => journeys::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
@@ -342,6 +356,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

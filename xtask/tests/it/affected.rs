@@ -10,7 +10,7 @@ use rstest::rstest;
 use crate::workspace::{Outcome, Workspace};
 
 /// The fixture as a git repository whose `main` is also `origin/main`.
-fn repository() -> Workspace {
+pub(crate) fn repository() -> Workspace {
     let workspace = Workspace::from_fixture("affected");
     workspace.git(&["init", "--quiet", "--initial-branch=main"]);
     workspace.git(&["add", "--all"]);
@@ -20,13 +20,13 @@ fn repository() -> Workspace {
     workspace
 }
 
-fn commit_all(workspace: &Workspace, message: &str) {
+pub(crate) fn commit_all(workspace: &Workspace, message: &str) {
     workspace.git(&["add", "--all"]);
     workspace.git(&["commit", "--quiet", "--message", message]);
 }
 
 /// The value of the output's `key=value` line for `key`.
-fn value(outcome: &Outcome, key: &str) -> String {
+pub(crate) fn value(outcome: &Outcome, key: &str) -> String {
     let prefix = format!("{key}=");
     outcome
         .stdout
@@ -73,6 +73,7 @@ fn base_and_head_mode_selects_what_the_head_changed() {
     sinks=goodfetch-sink-s3
     sinks-touched=
     bench-targets=goodfetch-engine/engine
+    models=
     "#);
 }
 
@@ -114,6 +115,7 @@ fn local_mode_reads_uncommitted_and_untracked_changes() {
     sinks=goodfetch-sink-s3
     sinks-touched=
     bench-targets=
+    models=
     "#);
 }
 

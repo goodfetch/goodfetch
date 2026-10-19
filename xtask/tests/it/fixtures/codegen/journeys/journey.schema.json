@@ -1,0 +1,25 @@
+{
+  "$defs": {
+    "Journey": {
+      "additionalProperties": false,
+      "description": "A sample Journey.",
+      "properties": {
+        "goal": {
+          "description": "What the person achieves.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Its ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "goal"
+      ],
+      "type": "object"
+    }
+  },
+  "$ref": "#/$defs/Journey",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

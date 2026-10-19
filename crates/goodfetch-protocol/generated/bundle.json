@@ -48,6 +48,31 @@
       ],
       "type": "object"
     },
+    "Check": {
+      "additionalProperties": false,
+      "description": "One check of a Journey's outcome.",
+      "properties": {
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A Proving ground task the oracle must answer `verified` for."
+        },
+        "text": {
+          "description": "What must be true.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
     "ClientPackages": {
       "additionalProperties": false,
       "description": "The Collie client packages, one per language (ADR 0095).",
@@ -72,6 +97,11 @@
       ],
       "type": "object"
     },
+    "FeatureId": {
+      "description": "A Feature's ID, `<kind>:<id>`, such as `row:CO-18` or `story:3-18`.",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[^:\\s]+$",
+      "type": "string"
+    },
     "FormatVersion": {
       "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
@@ -81,6 +111,185 @@
       "description": "An https:// URL with a host.",
       "pattern": "^https://[^/?#\\s]+[^\\s]*$",
       "type": "string"
+    },
+    "Journey": {
+      "additionalProperties": false,
+      "description": "One Journey: a goal a person reaches through its Product's public\nsurfaces, written as steps from a starting state to an outcome checked\nfrom outside the engine (ADR 0063).",
+      "properties": {
+        "area": {
+          "description": "The number of the ADR 0037 area whose spec owns the Journey.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "covers": {
+          "description": "The Feature IDs the Journey exercises, each `<kind>:<id>`, such as\n`row:CO-18` for a row of ADR 0037's matrix or `story:3-18` for a user\nstory.",
+          "items": {
+            "$ref": "#/$defs/FeatureId"
+          },
+          "type": "array"
+        },
+        "expect": {
+          "description": "The checks of the outcome.",
+          "items": {
+            "$ref": "#/$defs/Check"
+          },
+          "type": "array"
+        },
+        "goal": {
+          "description": "What the person achieves and what MUST be true at the end, in RFC\n2119 words, readable as a specification without the code. It never\nchanges under the Journey's ID.",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/JourneyId",
+          "description": "`J-` and three to nine digits, equal to the file's name."
+        },
+        "product": {
+          "$ref": "#/$defs/Product",
+          "description": "The Product whose executable and SDK packages the Journey drives:\nCollie when Collie carries every step, Foxhound otherwise (ADR 0094)."
+        },
+        "proving_ground": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvingGround"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Proving ground data the Journey starts from; absent when its goal\ntouches no page."
+        },
+        "reason": {
+          "description": "Why a retired Journey was retired.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "replaced_by": {
+          "description": "The Journeys that hold a retired Journey's goal now, possibly none.",
+          "items": {
+            "$ref": "#/$defs/JourneyId"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "Whether the Journey is still run."
+        },
+        "steps": {
+          "description": "The steps, in order, in declarative words.",
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "surfaces": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Milestone"
+          },
+          "description": "Each surface the goal is reachable on, by its name in ADR 0063, with\nthe milestone by which that surface must prove it.",
+          "type": "object"
+        },
+        "title": {
+          "description": "A short name in the glossary's terms.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "goal",
+        "area",
+        "product",
+        "status",
+        "covers",
+        "surfaces",
+        "steps",
+        "expect"
+      ],
+      "type": "object"
+    },
+    "JourneyCatalog": {
+      "additionalProperties": false,
+      "description": "`journeys/catalog.toml`.",
+      "properties": {
+        "next": {
+          "description": "The next free Journey number: a new Journey takes it and increments\nit in the same pull request, and every ID is below it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "next"
+      ],
+      "type": "object"
+    },
+    "JourneyId": {
+      "description": "A Journey's ID: `J-` and three to nine digits (ADR 0063).",
+      "pattern": "^J-[0-9]{3,9}$",
+      "type": "string"
+    },
+    "Milestone": {
+      "description": "A milestone of ADR 0058, `M1` to `M4`.",
+      "oneOf": [
+        {
+          "const": "M1",
+          "description": "The first milestone.",
+          "type": "string"
+        },
+        {
+          "const": "M2",
+          "description": "The second milestone.",
+          "type": "string"
+        },
+        {
+          "const": "M3",
+          "description": "The third milestone.",
+          "type": "string"
+        },
+        {
+          "const": "M4",
+          "description": "The fourth milestone.",
+          "type": "string"
+        }
+      ]
+    },
+    "PinnedTask": {
+      "additionalProperties": false,
+      "description": "A Proving ground task a Journey names.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Sha256",
+          "description": "The digest the task list gives the task, which ignores the port."
+        },
+        "id": {
+          "$ref": "#/$defs/TaskId",
+          "description": "The task's ID in the task list of the Journey's seed."
+        }
+      },
+      "required": [
+        "id",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "Product": {
+      "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
+      "oneOf": [
+        {
+          "const": "collie",
+          "description": "Browser automation; Foxhound contains it.",
+          "type": "string"
+        },
+        {
+          "const": "foxhound",
+          "description": "Crawling, which contains Collie.",
+          "type": "string"
+        }
+      ]
     },
     "ProductArtifacts": {
       "additionalProperties": false,
@@ -137,6 +346,30 @@
       "description": "A Product version of a stable release or patch, `X.Y.Z` (ADR 0030).",
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
+    },
+    "ProvingGround": {
+      "additionalProperties": false,
+      "description": "The Proving ground data a Journey starts from.",
+      "properties": {
+        "seed": {
+          "description": "The seed every variant starts its Proving ground with, never\noverridden by `GOODFETCH_TEST_SEED`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tasks": {
+          "default": [],
+          "description": "Each Proving ground task the Journey names, pinned by its digest.",
+          "items": {
+            "$ref": "#/$defs/PinnedTask"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "seed"
+      ],
+      "type": "object"
     },
     "Release": {
       "additionalProperties": false,
@@ -329,6 +562,49 @@
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
+    "Status": {
+      "description": "Whether a Journey is still run.",
+      "oneOf": [
+        {
+          "const": "active",
+          "description": "Run on every surface it lists.",
+          "type": "string"
+        },
+        {
+          "const": "retired",
+          "description": "Kept under its ID, never run; its file names `replaced_by` and a\n`reason`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Step": {
+      "additionalProperties": false,
+      "description": "One step of a Journey.",
+      "properties": {
+        "manual": {
+          "description": "Why the step needs a person; a variant records it as `manual`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "on": {
+          "description": "The one surface the step runs on in every variant, when the goal\nneeds that surface.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "What the person does, in declarative words that survive a change of\nimplementation.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
     "TargetArtifact": {
       "additionalProperties": false,
       "description": "A published file built for one target.",
@@ -362,12 +638,23 @@
         "attestation"
       ],
       "type": "object"
+    },
+    "TaskId": {
+      "description": "A Proving ground task's ID, `<family>/<ordinal>` (ADR 0063).",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[1-9][0-9]*$",
+      "type": "string"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "files": {
     "compat/releases.toml": {
       "$ref": "#/$defs/ReleasesFile"
+    },
+    "journeys/J-*.toml": {
+      "$ref": "#/$defs/Journey"
+    },
+    "journeys/catalog.toml": {
+      "$ref": "#/$defs/JourneyCatalog"
     }
   },
   "protocol_version": "0.1",

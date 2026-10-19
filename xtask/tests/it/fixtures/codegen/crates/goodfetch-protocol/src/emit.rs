@@ -11,6 +11,7 @@ use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, Metric, Operation,
     PROTOCOL_VERSION, PluginKind, Product,
 };
+use crate::journey::Journey;
 use crate::{foxhound, sample};
 
 /// Every module that defines entries.
@@ -31,12 +32,14 @@ pub fn emit() -> Emitted {
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }
+    let journey = generator.subschema_for::<Journey>();
     let definitions = generator.take_definitions(true);
     Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "Goodfetch protocol",
             "protocol_version": PROTOCOL_VERSION.to_string(),
+            "files": { "journeys/J-*.toml": journey },
             "$defs": definitions,
         }),
         catalog: sections.into_catalog(),

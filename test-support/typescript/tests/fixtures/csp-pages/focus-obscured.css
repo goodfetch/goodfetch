@@ -1,0 +1,16 @@
+/* The sticky header is drawn over the button, which sits under it. */
+body {
+  margin: 0;
+}
+header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 12rem;
+  background: #fff;
+}
+.covered {
+  position: absolute;
+  top: 4rem;
+  left: 2rem;
+}

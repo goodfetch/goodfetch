@@ -19,6 +19,20 @@ export type TestSupportErrorCode =
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */
   | "processes_alive"
+  /** A keyboard walk's Tab came back to a stop before focus left the page (ADR 0073). */
+  | "focus_trapped"
+  /** Focus fell to the page's body during a keyboard walk (ADR 0073). */
+  | "focus_lost"
+  /** An element with an interactive role that a keyboard walk's Tab or Shift+Tab never reached (ADR 0073). */
+  | "focus_unreachable"
+  /** The keyboard did not open the overlay a stop says it opens, through `aria-haspopup` or `popovertarget` (ADR 0073). */
+  | "overlay_not_opened"
+  /** Escape in an overlay did not give focus back to the overlay's trigger (ADR 0073). */
+  | "focus_not_returned"
+  /** A keyboard walk's stop looks the same focused and unfocused (ADR 0073). */
+  | "focus_not_visible"
+  /** A keyboard walk's stop is entirely covered by other content (ADR 0073). */
+  | "focus_obscured"
   /** A browser command was asked for state its browser provider cannot set (ADR 0068). */
   | "provider_unsupported"
   /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */

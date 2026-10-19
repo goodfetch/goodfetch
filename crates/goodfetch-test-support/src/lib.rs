@@ -11,6 +11,7 @@
 
 mod description;
 mod env;
+mod fuzz;
 mod invariants;
 mod kill;
 mod observation;
@@ -22,6 +23,7 @@ mod variables;
 
 pub use description::{Description, schemas};
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
+pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 pub use observation::{

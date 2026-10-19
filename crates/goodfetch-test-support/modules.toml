@@ -2,6 +2,7 @@
 [modules]
 description = ["env", "tools"]
 env = ["process", "variables"]
+fuzz = []
 invariants = ["observation"]
 kill = ["observation", "process"]
 observation = ["env"]

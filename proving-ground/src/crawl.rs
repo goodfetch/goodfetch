@@ -10,16 +10,28 @@
 //!   and a cap of requests in flight;
 //! - `parameters`: a parameter that seems to change nothing but separates
 //!   distinct pages on some products;
-//! - `scale`: millions of seeded pages, with sitemaps.
+//! - `scale`: millions of seeded pages, with sitemaps;
+//! - `links`: relative links under a `<base href>` and after a redirect, and
+//!   links only scripts follow (pitfalls U08 and U14);
+//! - `pacing`: a host whose latency rises with the time step;
+//! - `facets`: a faceted listing that grows combinatorially (ADR 0120);
+//! - `fields`: Records that gain fields over time (pitfall D07);
+//! - `sitemaps`: a sitemap index past the protocol's 50,000 entries, plain
+//!   and gzip.
 //!
 //! Every page and expected result is a pure function of the seed and the
 //! page's place; what a family keeps between requests is what it saw a
 //! crawl do, which it records as findings in the observations, for the
 //! oracle.
 
+mod facets;
+mod fields;
 mod limits;
+mod links;
+mod pacing;
 mod parameters;
 mod scale;
+mod sitemaps;
 mod statuses;
 mod traps;
 
@@ -39,12 +51,17 @@ use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 pub(crate) use limits::Held;
 
 /// The family host names, each with its family's name.
-const FAMILIES: [(&str, &str); 5] = [
+const FAMILIES: [(&str, &str); 10] = [
     (statuses::HOST, statuses::FAMILY),
     (traps::HOST, traps::FAMILY),
     (limits::HOST, limits::FAMILY),
     (parameters::HOST, parameters::FAMILY),
     (scale::HOST, scale::FAMILY),
+    (links::HOST, links::FAMILY),
+    (pacing::HOST, pacing::FAMILY),
+    (facets::HOST, facets::FAMILY),
+    (fields::HOST, fields::FAMILY),
+    (sitemaps::HOST, sitemaps::FAMILY),
 ];
 
 /// The parts of a request a Crawl family reads: an
@@ -182,6 +199,7 @@ pub(crate) struct Families {
     statuses: statuses::State,
     traps: traps::State,
     limits: limits::State,
+    facets: facets::State,
 }
 
 impl Families {
@@ -191,6 +209,7 @@ impl Families {
             statuses: statuses::State::default(),
             traps: traps::State::default(),
             limits: limits::State::default(),
+            facets: facets::State::default(),
         }
     }
 
@@ -217,6 +236,11 @@ impl Families {
             traps::FAMILY => traps::respond(&visit, &self.traps),
             limits::FAMILY => limits::respond(&visit, &self.limits),
             parameters::FAMILY => parameters::respond(&visit),
+            links::FAMILY => links::respond(&visit),
+            pacing::FAMILY => pacing::respond(&visit),
+            facets::FAMILY => facets::respond(&visit, &self.facets),
+            fields::FAMILY => fields::respond(&visit),
+            sitemaps::FAMILY => sitemaps::respond(&visit),
             _ => scale::respond(&visit),
         })
     }
@@ -256,6 +280,11 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     tasks.extend(parameters::tasks(seed, port));
     tasks.extend(limits::tasks(seed, port));
     tasks.extend(scale::tasks(seed, port));
+    tasks.extend(links::tasks(seed, port));
+    tasks.extend(pacing::tasks(seed, port));
+    tasks.extend(facets::tasks(seed, port));
+    tasks.extend(fields::tasks(seed, port));
+    tasks.extend(sitemaps::tasks(seed, port));
     tasks
 }
 

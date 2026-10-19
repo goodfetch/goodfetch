@@ -1,0 +1,21 @@
+{
+  "seed": 3,
+  "tasks": [
+    {
+      "description": "Crawl the catalog from its first listing page.",
+      "digest": "00000000000000000000000000000000000000000000000000000000000000a1",
+      "family": "catalog",
+      "id": "catalog/1",
+      "kind": "crawl",
+      "start_url": "http://1.catalog.test/catalog/1"
+    },
+    {
+      "description": "Extract the product this page shows.",
+      "digest": "00000000000000000000000000000000000000000000000000000000000000a2",
+      "family": "catalog",
+      "id": "catalog/2",
+      "kind": "extract",
+      "start_url": "http://2.catalog.test/products/P-0042"
+    }
+  ]
+}

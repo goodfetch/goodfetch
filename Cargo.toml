@@ -78,6 +78,12 @@ quick-xml = { version = "0.41", default-features = false }
 quote = { version = "1.0.47", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode"] }
 rstest = { version = "0.27.0", default-features = false }
+# Run state, the Usage ledger and the Politeness file (ADR 0057), on the
+# SQLite it bundles. goodfetch-test-support's crash VFS (ADR 0060) registers
+# with that same SQLite through sqlite-plugin, whose build script runs
+# bindgen (libclang) and downloads nothing.
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+sqlite-plugin = { version = "0.11.0", default-features = false, features = ["static"] }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }

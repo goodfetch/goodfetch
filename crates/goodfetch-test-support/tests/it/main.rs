@@ -16,6 +16,7 @@ mod probe;
 mod reported;
 mod seed;
 mod seeded_kill;
+mod strict_stdout;
 mod teardown;
 mod test_env;
 mod tools;

@@ -309,6 +309,16 @@ impl ProvingGround {
         Self::answer(response)
     }
 
+    /// Posts a JSON body to a path on the Proving ground's own address.
+    pub(crate) fn post_control(&self, path: &str, body: &Value) -> Answer {
+        let response = self
+            .agent
+            .post(format!("http://{}{path}", self.address))
+            .send_json(body)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// Fetches a path on the Proving ground's own address.
     pub(crate) fn control(&self, path: &str) -> Answer {
         let response = self

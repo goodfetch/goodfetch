@@ -29,9 +29,10 @@ use crate::files;
 use crate::handmade;
 use crate::hostile;
 use crate::languages;
+use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
 use crate::model::{self, Candidate, FakeModel};
-use crate::observation::{self, Observations, Recorded};
+use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
 use crate::protection;
@@ -51,6 +52,7 @@ pub(crate) struct Site {
     certificate_authority: String,
     observations: Arc<Observations>,
     logins: Logins,
+    canaries: Canaries,
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
@@ -83,6 +85,7 @@ impl Site {
             certificate_authority,
             observations,
             logins: Logins::default(),
+            canaries: Canaries::default(),
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
@@ -122,6 +125,7 @@ impl Site {
         hosts.extend(access::hosts());
         hosts.extend(crawl::hosts(seed));
         hosts.extend(hostile::hosts());
+        hosts.extend(canaries::hosts());
         hosts
     }
 
@@ -150,6 +154,7 @@ impl Site {
         tasks.extend(access::tasks(seed, port));
         tasks.extend(crawl::tasks(seed, port));
         tasks.extend(hostile::tasks(seed, port));
+        tasks.extend(canaries::tasks(seed, port));
         tasks
     }
 
@@ -236,6 +241,9 @@ impl Site {
             }
             return reply;
         }
+        if let Some(reply) = canaries::respond(self.seed, &self.canaries, &name, request) {
+            return reply;
+        }
         if name == model::HOST {
             // The Fake model answers its own paths (`Self::model`).
             return Reply::not_found();
@@ -280,6 +288,8 @@ impl Site {
             ),
             (&Method::POST, "/oracle") => self.judge(request.body),
             (&Method::PUT, "/time-step") => self.set_time_step(request.body),
+            (&Method::POST, "/canaries") => self.plant(request),
+            (&Method::GET, "/canaries") => self.canaries.document(),
             (&Method::POST, "/revoke-sessions") => {
                 self.portal.revoke();
                 Reply::no_content()
@@ -309,6 +319,42 @@ impl Site {
                 body: self.certificate_authority.clone().into(),
             },
             _ => Reply::not_found(),
+        }
+    }
+
+    /// Plants a Secret canary for a test on a loopback address, never for a
+    /// request from elsewhere, so the online copy never hands one out.
+    fn plant(&self, request: &Request<'_>) -> Reply {
+        if !request.peer.is_loopback() {
+            return Reply::error(StatusCode::FORBIDDEN, "canary_plant_refused");
+        }
+        match serde_json::from_slice::<Plant>(request.body) {
+            Ok(plant) => self.canaries.plant(self.seed, &plant),
+            Err(_) => Reply::error(StatusCode::BAD_REQUEST, "malformed_plant"),
+        }
+    }
+
+    /// Records each planted Secret canary a request carries in its target,
+    /// a header or its body, and a sighting outside its flow as a leak
+    /// against the canary's task.
+    pub(crate) fn sight_canaries<'a>(
+        &self,
+        host: &str,
+        target: &'a str,
+        headers: impl Iterator<Item = (&'a str, &'a [u8])>,
+        body: &'a [u8],
+    ) {
+        let name = observation::host_name(host);
+        let parts = canaries::parts(target, headers, body);
+        for leak in self.canaries.sight(&name, target, &parts) {
+            self.observations.record(
+                &leak.task_host,
+                Recorded::Report(Report {
+                    page: leak.target,
+                    check: "secret_canary_leaked".to_owned(),
+                    observed: leak.observed,
+                }),
+            );
         }
     }
 

@@ -22,7 +22,7 @@ use std::task::{Context, Poll};
 use anyhow::{Context as _, Result};
 use http_body_util::{BodyExt as _, Either, Full, Limited};
 use hyper::body::{Bytes, Frame, Incoming};
-use hyper::header::{CONTENT_TYPE, COOKIE, HOST, HeaderValue};
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, HOST, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::TokioIo;
@@ -392,6 +392,15 @@ async fn answer(
                 .uri
                 .path_and_query()
                 .map_or("/", hyper::http::uri::PathAndQuery::as_str);
+            site.sight_canaries(
+                &host,
+                target,
+                parts
+                    .headers
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_bytes())),
+                &body,
+            );
             if let Some(answer) = site.model(&parts.method, &host, target, &body) {
                 return model_response(answer).await;
             }
@@ -407,6 +416,7 @@ async fn answer(
                         path: parts.uri.path(),
                         query: parts.uri.query().unwrap_or_default(),
                         cookies: &cookies,
+                        authorization: header(AUTHORIZATION).unwrap_or_default(),
                         body: &body,
                         peer,
                     },

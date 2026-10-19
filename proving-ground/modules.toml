@@ -86,3 +86,6 @@ username = []
 downloads = []
 headers = []
 redirects = []
+
+[submodules.login]
+canaries = []

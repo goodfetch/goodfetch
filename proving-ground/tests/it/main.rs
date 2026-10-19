@@ -12,6 +12,7 @@ mod actionability;
 mod adversarial;
 mod agent;
 mod browserless;
+mod canaries;
 mod clients;
 mod connections;
 mod crawl_pages;

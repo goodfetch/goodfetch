@@ -53,7 +53,8 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     headers/10 \
     downloads/1 downloads/2 downloads/3 downloads/4 downloads/5 downloads/6 downloads/7 \
     downloads/8 downloads/9 downloads/10 downloads/11 downloads/12 downloads/13 downloads/14 \
-    downloads/15 downloads/16 downloads/17 downloads/18";
+    downloads/15 downloads/16 downloads/17 downloads/18 \
+    canaries/1 canaries/2 canaries/3 canaries/4";
 
 /// Each task's kind, in the same order.
 const KINDS: &str = "crawl extract submit \
@@ -73,7 +74,8 @@ const KINDS: &str = "crawl extract submit \
     extract extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract extract extract \
     download download download download download download download download download download \
-    download download download download download download download download";
+    download download download download download download download download \
+    crawl crawl crawl crawl";
 
 #[test]
 fn the_task_list_names_the_tasks_of_every_family() {

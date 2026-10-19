@@ -10,7 +10,7 @@
 )]
 
 use std::future::Future;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
@@ -100,7 +100,7 @@ impl Server {
                     break;
                 }
                 accepted = self.listener.accept() => {
-                    let Ok((stream, _)) = accepted else {
+                    let Ok((stream, peer)) = accepted else {
                         // A connection that failed before it was accepted
                         // concerns only its client.
                         continue;
@@ -110,6 +110,7 @@ impl Server {
                         observations: Arc::clone(&self.observations),
                         acceptor: self.acceptor.clone(),
                         executor: Tracked(tracker.clone()),
+                        peer: peer.ip(),
                     };
                     let stop = stop.clone();
                     tracker.spawn(async move {
@@ -134,6 +135,8 @@ struct Connection {
     observations: Arc<Observations>,
     acceptor: TlsAcceptor,
     executor: Tracked,
+    /// The address the connection came from.
+    peer: IpAddr,
 }
 
 impl Connection {
@@ -145,9 +148,10 @@ impl Connection {
             return;
         };
         let site = self.site;
+        let peer = self.peer;
         let service = service_fn(move |request| {
             let site = Arc::clone(&site);
-            async move { Ok::<_, hyper::Error>(answer(&site, request).await) }
+            async move { Ok::<_, hyper::Error>(answer(&site, request, peer).await) }
         });
         let builder = auto::Builder::new(self.executor);
         let observed = self.observations.connection();
@@ -203,9 +207,10 @@ async fn stop_signal() -> Result<()> {
     }
 }
 
-/// Reads one request, asks the site, and writes its reply. The host is the
-/// `Host` header, or an HTTP/2 request's `:authority`.
-async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>> {
+/// Reads one request, asks the site, and writes its reply, once the time a
+/// held reply asks for has passed. The host is the `Host` header, or an
+/// HTTP/2 request's `:authority`.
+async fn answer(site: &Site, request: Request<Incoming>, peer: IpAddr) -> Response<Full<Bytes>> {
     let (parts, body) = request.into_parts();
     let host = parts
         .headers
@@ -220,13 +225,27 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>
         .unwrap_or_default()
         .to_owned();
     let reply = match Limited::new(body, BODY_LIMIT).collect().await {
-        Ok(body) => site.respond(&parts.method, &host, parts.uri.path(), &body.to_bytes()),
+        Ok(body) => site.respond(
+            &parts.method,
+            &host,
+            parts.uri.path(),
+            parts.uri.query().unwrap_or_default(),
+            peer,
+            &body.to_bytes(),
+        ),
         Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
     };
+    if let Some(held) = reply.held {
+        held.release().await;
+    }
     let mut response = Response::new(Full::new(reply.body));
     *response.status_mut() = reply.status;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    for (name, value) in reply.headers {
+        let value = HeaderValue::try_from(value)
+            .expect("invariant: the Proving ground's own header values are visible ASCII");
+        headers.append(name, value);
+    }
     response
 }

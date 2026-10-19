@@ -8,10 +8,12 @@
 )]
 
 mod clients;
+mod crawler;
 mod observations;
 mod oracle;
 mod pages;
 mod proving_ground;
 mod serve;
+mod statuses;
 mod task_list;
 mod transport;

@@ -9,6 +9,7 @@ mod catalog;
 mod client_hello;
 mod clock;
 mod command;
+mod crawl;
 mod digest;
 mod generator;
 mod observation;

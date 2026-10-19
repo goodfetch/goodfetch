@@ -4,7 +4,9 @@
 //! `ClientHello` and HTTP/2 settings, pseudo-header order, status and
 //! timing), the bytes each
 //! request and each host received and sent, and the Effects the site
-//! carried out. The oracle and the suites read them, never a tool's report.
+//! carried out, and the findings of the Crawl families (a page fetched twice,
+//! a trap followed, a honeypot hit, a `Retry-After` ignored). The oracle and
+//! the suites read them, never a tool's report.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -19,7 +21,8 @@
 //! Only the host names the Proving ground serves are observed; its own
 //! address (the task list, the oracle, this record) is not. At most
 //! [`REQUEST_LIMIT`] requests are kept in detail; later ones are counted in
-//! `unrecorded_requests` and in their host's bytes.
+//! `unrecorded_requests` and in their host's bytes, and at most
+//! [`FINDING_LIMIT`] findings, later ones counted in `unrecorded_findings`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -29,10 +32,13 @@ use serde::Serialize;
 use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
 use crate::sync::Mutex;
-use crate::task::Effect;
+use crate::task::{Effect, Finding};
 
 /// The most requests kept in detail (STYLE.md: every buffer is bounded).
 const REQUEST_LIMIT: usize = 100_000;
+
+/// The most findings kept (STYLE.md: every buffer is bounded).
+const FINDING_LIMIT: usize = 10_000;
 
 /// The observations of one `serve`.
 pub(crate) struct Observations {
@@ -49,6 +55,8 @@ struct State {
     unrecorded_requests: u64,
     hosts: BTreeMap<Arc<str>, ByteCount>,
     effects: Vec<EffectRecord>,
+    findings: Vec<FindingRecord>,
+    unrecorded_findings: u64,
 }
 
 /// Bytes received from and sent to a client.
@@ -151,6 +159,14 @@ struct EffectRecord {
     effect: Effect,
 }
 
+/// A finding of a Crawl family, with the task of the host it came on.
+#[derive(Serialize)]
+struct FindingRecord {
+    task: Option<String>,
+    #[serde(flatten)]
+    finding: Finding,
+}
+
 /// A recorded request's place in the record.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RequestId(usize);
@@ -161,6 +177,8 @@ struct Document<'a> {
     requests: &'a [Request],
     unrecorded_requests: u64,
     effects: &'a [EffectRecord],
+    findings: &'a [FindingRecord],
+    unrecorded_findings: u64,
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
 }
@@ -225,8 +243,29 @@ impl Observations {
             .collect()
     }
 
-    /// The record as JSON: the requests, the Effects, and the bytes per task
-    /// and per host.
+    /// Records a finding of a Crawl family on a request to `authority`.
+    pub(crate) fn finding(&self, authority: &str, finding: Finding) {
+        let task = self.served(authority).and_then(|(_, task)| task.clone());
+        let mut state = self.state();
+        if state.findings.len() >= FINDING_LIMIT {
+            state.unrecorded_findings += 1;
+        } else {
+            state.findings.push(FindingRecord { task, finding });
+        }
+    }
+
+    /// The findings recorded for `task`, in order.
+    pub(crate) fn findings_of(&self, task: &str) -> Vec<Finding> {
+        self.state()
+            .findings
+            .iter()
+            .filter(|record| record.task.as_deref() == Some(task))
+            .map(|record| record.finding.clone())
+            .collect()
+    }
+
+    /// The record as JSON: the requests, the Effects, the findings, and the
+    /// bytes per task and per host.
     pub(crate) fn document(&self) -> Vec<u8> {
         let state = self.state();
         let mut tasks = BTreeMap::new();
@@ -242,6 +281,8 @@ impl Observations {
             requests: &state.requests,
             unrecorded_requests: state.unrecorded_requests,
             effects: &state.effects,
+            findings: &state.findings,
+            unrecorded_findings: state.unrecorded_findings,
             tasks,
             hosts: &state.hosts,
         })

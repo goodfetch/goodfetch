@@ -3,7 +3,9 @@
 //! `false_success` or `failed` with what was missing, extra or wrong, the task
 //! it judged and its own time. Effects are judged from the Proving ground's
 //! own record of what it carried out, never from the tool's report: an
-//! Effect carried out twice is an extra one. The tool's status is recorded, never what
+//! Effect carried out twice is an extra one. So are a Crawl's findings (a page
+//! fetched twice, a trap followed, a honeypot hit, a `Retry-After` ignored):
+//! a task with one is never verified. The tool's status is recorded, never what
 //! makes a result verified: a correct `needs-review` result is verified
 //! (ADR 0013), and only a result the tool calls a success can be a false
 //! success.
@@ -14,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::clock::Stopwatch;
-use crate::task::{Effect, Expected, Record};
+use crate::task::{Effect, Expected, Finding, Record};
 
 /// A tool's result for one task, as submitted to `POST /oracle`.
 #[derive(Deserialize)]
@@ -69,6 +71,8 @@ pub(crate) struct Answer {
     /// Effects it carried out beyond the expected ones: another, or one
     /// again.
     extra_effects: Vec<Effect>,
+    /// What the Proving ground saw the tool do wrong on the task's host.
+    findings: Vec<Finding>,
     oracle_time_microseconds: u64,
 }
 
@@ -83,8 +87,14 @@ struct Wrong {
 }
 
 /// Judges `submission` against `expected`, and the Effects carried out for
-/// its task, `effects`, against the expected ones.
-pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effect]) -> Answer {
+/// its task, `effects`, against the expected ones; any of the task's
+/// `findings` refutes it.
+pub(crate) fn judge(
+    expected: &Expected,
+    submission: Submission,
+    effects: &[Effect],
+    findings: Vec<Finding>,
+) -> Answer {
     let stopwatch = Stopwatch::start();
     let by_id: BTreeMap<&str, &Record> = expected
         .records
@@ -140,6 +150,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         && wrong.is_empty()
         && missing_effects.is_empty()
         && extra_effects.is_empty()
+        && findings.is_empty()
     {
         Outcome::Verified
     } else if submission.status == ToolStatus::Success {
@@ -147,6 +158,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
     } else if extra.is_empty()
         && wrong.is_empty()
         && extra_effects.is_empty()
+        && findings.is_empty()
         && (!seen.is_empty() || carried_out)
     {
         Outcome::Incomplete
@@ -162,6 +174,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         wrong,
         missing_effects,
         extra_effects,
+        findings,
         oracle_time_microseconds: stopwatch.microseconds(),
     }
 }

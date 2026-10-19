@@ -1,6 +1,7 @@
 //! A Proving ground started for one test: `serve` on a seed, its first output
 //! line, and a plain HTTP client that maps the Proving ground's host names to
-//! the reported address, as the `resolve` setting does (ADR 0059).
+//! the reported address, as the `resolve` setting does (ADR 0059). The client
+//! follows no redirect, so a test sees each one.
 
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, ChildStdout, Command, Stdio};
@@ -17,15 +18,24 @@ pub(crate) struct ProvingGround {
     agent: ureq::Agent,
 }
 
-/// A response's status and body.
+/// A response's status, headers and body.
 pub(crate) struct Answer {
     pub(crate) status: u16,
+    headers: Vec<(String, String)>,
     pub(crate) body: String,
 }
 
 impl Answer {
     pub(crate) fn json(&self) -> Value {
         serde_json::from_str(&self.body).expect("the body is JSON")
+    }
+
+    /// The value of the header `name`, if the response has one.
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
     }
 }
 
@@ -56,6 +66,7 @@ impl ProvingGround {
             .to_owned();
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            .max_redirects(0)
             .build()
             .into();
         Self {
@@ -85,6 +96,11 @@ impl ProvingGround {
             .1
     }
 
+    /// The URL of `path` on the host name `host`, with the bound port.
+    pub(crate) fn url(&self, host: &str, path: &str) -> String {
+        format!("http://{host}:{}{path}", self.port())
+    }
+
     /// Fetches a URL on one of the Proving ground's host names, connecting to
     /// the reported address with the URL's host in the `Host` header.
     pub(crate) fn get(&self, url: &str) -> Answer {
@@ -109,6 +125,18 @@ impl ProvingGround {
         let answer = Self::answer(response);
         assert_eq!(answer.status, 200, "{}", answer.body);
         answer.json()
+    }
+
+    /// The task `id` of the task list.
+    pub(crate) fn task(&self, id: &str) -> Value {
+        let tasks = self.tasks();
+        tasks["tasks"]
+            .as_array()
+            .expect("`tasks` is an array")
+            .iter()
+            .find(|task| task["id"] == id)
+            .unwrap_or_else(|| panic!("the task list has no {id}: {tasks}"))
+            .clone()
     }
 
     /// The certificate authority the Proving ground made from its seed, as
@@ -160,11 +188,25 @@ impl ProvingGround {
 
     fn answer(mut response: ureq::http::Response<ureq::Body>) -> Answer {
         let status = response.status().as_u16();
+        let headers = response
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_owned(),
+                    value.to_str().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect();
         let body = response
             .body_mut()
             .read_to_string()
             .expect("the body is UTF-8");
-        Answer { status, body }
+        Answer {
+            status,
+            headers,
+            body,
+        }
     }
 }
 

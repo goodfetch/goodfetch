@@ -18,8 +18,16 @@ fn each(tasks: &Value, field: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Every family's tasks, in list order, each with its kind.
+const TASKS: [(&str, &str); 4] = [
+    ("catalog/1", "crawl"),
+    ("catalog/2", "extract"),
+    ("catalog/3", "submit"),
+    ("statuses/1", "crawl"),
+];
+
 #[test]
-fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
+fn the_task_list_names_the_tasks_of_every_family() {
     let proving_ground = ProvingGround::start(158);
 
     let tasks = proving_ground.tasks();
@@ -27,16 +35,14 @@ fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
     assert_eq!(
         each(&tasks, "id"),
-        [json!("catalog/1"), json!("catalog/2"), json!("catalog/3")]
+        TASKS.map(|(id, _)| json!(id)),
+        "{tasks}"
     );
     assert_eq!(
         each(&tasks, "family"),
-        [json!("catalog"), json!("catalog"), json!("catalog")]
+        TASKS.map(|(id, _)| json!(id.split('/').next().unwrap())),
     );
-    assert_eq!(
-        each(&tasks, "kind"),
-        [json!("crawl"), json!("extract"), json!("submit")]
-    );
+    assert_eq!(each(&tasks, "kind"), TASKS.map(|(_, kind)| json!(kind)));
     assert_eq!(
         tasks["tasks"][0]["start_url"],
         format!("http://1.catalog.test:{}/catalog/1", proving_ground.port())

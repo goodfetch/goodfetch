@@ -4,6 +4,7 @@
 //! (`GET /certificate-authority`) and observations (`GET /observations`).
 
 use std::collections::BTreeMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
@@ -11,6 +12,7 @@ use hyper::{Method, StatusCode};
 use serde::Serialize;
 
 use crate::catalog;
+use crate::crawl::{self, Families};
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::task::{Task, TaskList};
@@ -25,13 +27,31 @@ pub(crate) struct Site {
     /// The seed's certificate authority, as PEM.
     certificate_authority: String,
     observations: Arc<Observations>,
+    /// What the Crawl families saw crawls do.
+    crawl: Families,
 }
 
-/// A reply's status, media type and body.
+/// A reply's status, media type, extra headers and body.
 pub(crate) struct Reply {
     pub(crate) status: StatusCode,
     pub(crate) content_type: &'static str,
+    /// Headers beyond `Content-Type`, such as `Location` and `Retry-After`.
+    pub(crate) headers: Vec<(&'static str, String)>,
     pub(crate) body: Bytes,
+    /// Set when the server holds the reply a while before it sends it.
+    pub(crate) held: Option<crawl::Held>,
+}
+
+impl From<crawl::Page> for Reply {
+    fn from(page: crawl::Page) -> Self {
+        Self {
+            status: page.status,
+            content_type: page.content_type,
+            headers: page.headers,
+            body: page.body,
+            held: page.held,
+        }
+    }
 }
 
 impl Reply {
@@ -39,9 +59,11 @@ impl Reply {
         Self {
             status,
             content_type: "application/json",
+            headers: Vec::new(),
             body: serde_json::to_vec(value)
                 .expect("invariant: the Proving ground's own values serialize")
                 .into(),
+            held: None,
         }
     }
 
@@ -49,7 +71,9 @@ impl Reply {
         Self {
             status: StatusCode::OK,
             content_type: "text/html; charset=utf-8",
+            headers: Vec::new(),
             body: page.into(),
+            held: None,
         }
     }
 
@@ -72,6 +96,7 @@ impl Site {
             hosts: Self::hosts(seed),
             certificate_authority,
             observations,
+            crawl: Families::new(),
         }
     }
 
@@ -85,17 +110,41 @@ impl Site {
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
+        hosts.extend(crawl::hosts(seed));
         hosts
     }
 
     /// Every family's tasks, in the task list's order.
     fn tasks(&self) -> Vec<Task> {
-        catalog::tasks(self.seed, self.port)
+        let mut tasks = catalog::tasks(self.seed, self.port);
+        tasks.extend(crawl::tasks(self.seed, self.port));
+        tasks
     }
 
-    /// Answers one request, given its `Host` header, path and body.
-    pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
-        if self.hosts.contains_key(&observation::host_name(host)) {
+    /// Answers one request, given its `Host` header, path, query (empty when
+    /// it has none), the address it came from, and its body.
+    pub(crate) fn respond(
+        &self,
+        method: &Method,
+        host: &str,
+        path: &str,
+        query: &str,
+        peer: IpAddr,
+        body: &Bytes,
+    ) -> Reply {
+        let name = observation::host_name(host);
+        if self.hosts.contains_key(&name) {
+            let request = crawl::Request {
+                method,
+                host: &name,
+                authority: host,
+                path,
+                query,
+                peer,
+            };
+            if let Some(page) = self.crawl.respond(self.seed, &request, &self.observations) {
+                return page.into();
+            }
             return match (method, path) {
                 (&Method::POST, "/orders") => match catalog::order(body) {
                     Some((effect, page)) => {
@@ -120,12 +169,16 @@ impl Site {
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
+                headers: Vec::new(),
                 body: self.observations.document().into(),
+                held: None,
             },
             (&Method::GET, "/certificate-authority") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",
+                headers: Vec::new(),
                 body: self.certificate_authority.clone().into(),
+                held: None,
             },
             _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
         }
@@ -140,9 +193,10 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
+                let findings = self.observations.findings_of(&task.entry.id);
                 Reply::json(
                     StatusCode::OK,
-                    &oracle::judge(&task.expected, submission, &effects),
+                    &oracle::judge(&task.expected, submission, &effects, findings),
                 )
             }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),

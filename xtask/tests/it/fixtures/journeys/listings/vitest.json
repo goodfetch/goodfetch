@@ -1,0 +1,17 @@
+[
+  {
+    "name": "sdk-typescript",
+    "file": "sdks/typescript/foxhound/tests/journeys/J-003.test.ts",
+    "tags": ["J-003", "sdk-typescript"]
+  },
+  {
+    "name": "adapter-langchain",
+    "file": "adapters/langchain/tests/journeys/J-003.test.ts",
+    "tags": ["J-003", "adapter-langchain"]
+  },
+  {
+    "name": "client > connects to the Daemon",
+    "file": "sdks/typescript/foxhound/tests/client.test.ts",
+    "tags": []
+  }
+]

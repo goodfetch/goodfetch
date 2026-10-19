@@ -185,6 +185,7 @@ fn a_tool_whose_page_script_reports_nothing_is_verified(#[case] id: &str) {
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
 
+/// Covers: story:2-34
 #[rstest]
 #[case::claimed_a_success("success", "false_success")]
 #[case::left_to_review("needs-review", "failed")]
@@ -213,6 +214,7 @@ fn an_escape_the_page_script_reports_is_judged_a_failure_naming_the_escape(
     );
 }
 
+/// Covers: story:2-34
 #[test]
 fn a_top_navigation_that_lands_on_the_proving_ground_is_an_escape() {
     let proving_ground = ProvingGround::start(SEED);

@@ -30,12 +30,14 @@ fn joined(tasks: &Value, field: &str) -> String {
 /// The task list's IDs, in order.
 const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     adversarial/1 adversarial/2 adversarial/3 adversarial/4 \
-    protection/1 protection/2";
+    protection/1 protection/2 \
+    access/1 access/2 access/3 access/4 access/5";
 
 /// Each task's kind, in the same order.
 const KINDS: &str = "crawl extract submit \
     extract submit extract extract \
-    crawl extract";
+    crawl extract \
+    extract extract extract extract crawl";
 
 #[test]
 fn the_task_list_names_the_tasks_of_every_family() {

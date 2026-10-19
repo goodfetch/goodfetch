@@ -28,6 +28,70 @@ pub(crate) struct Submission {
     /// The Records the tool returned, each with its fields by name.
     #[serde(default)]
     records: Vec<Value>,
+    /// The Access dimensions the result was run under, which the answer
+    /// repeats so results are reported per each.
+    #[serde(default)]
+    access: Option<AccessDimensions>,
+}
+
+/// The dimensions an Access result is reported per (ADR 0035): the
+/// Fingerprint method, the browser engine, the Access mode and the build,
+/// whose age the Proving ground reckons; and, for a control run of stock
+/// Chrome, which control it is.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AccessDimensions {
+    fingerprint_method: FingerprintMethod,
+    engine: BrowserEngine,
+    access_mode: AccessMode,
+    /// The major version of the browser build that ran.
+    pub(crate) browser_major: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    control: Option<Control>,
+}
+
+/// How a Session's browser comes to present its Identity profile (ADR 0035).
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum FingerprintMethod {
+    None,
+    JsInjection,
+    Basic,
+    Engine,
+}
+
+/// The engine of the browser that ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BrowserEngine {
+    Chromium,
+    Firefox,
+    Webkit,
+}
+
+/// How a Session presents itself to sites.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AccessMode {
+    Standard,
+    Identified,
+    Stealth,
+}
+
+/// A control run every Access result is set against.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Control {
+    StockHeadless,
+    StockHeadful,
+}
+
+impl AccessDimensions {
+    /// The Chrome major of a Chromium build, from which its age is reckoned;
+    /// `None` for another engine.
+    pub(crate) fn chromium_major(&self) -> Option<u32> {
+        (self.engine == BrowserEngine::Chromium).then_some(self.browser_major)
+    }
 }
 
 impl Submission {
@@ -86,6 +150,9 @@ pub(crate) struct Answer {
     /// Effects.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     findings: Vec<Finding>,
+    /// The Access dimensions the submission named.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access: Option<AccessDimensions>,
     oracle_time_microseconds: u64,
 }
 
@@ -106,6 +173,11 @@ pub(crate) struct Finding {
 }
 
 impl Answer {
+    /// The Access dimensions the submission named, if any.
+    pub(crate) fn access(&self) -> Option<&AccessDimensions> {
+        self.access.as_ref()
+    }
+
     /// The answer with `findings` added: a result they refute is no longer
     /// verified nor incomplete, but a false success when the tool claimed a
     /// success and failed otherwise.
@@ -214,6 +286,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         missing_effects,
         extra_effects,
         findings: Vec::new(),
+        access: submission.access,
         oracle_time_microseconds: stopwatch.microseconds(),
     }
 }

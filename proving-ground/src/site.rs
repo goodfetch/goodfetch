@@ -9,6 +9,7 @@ use std::sync::Arc;
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
 
+use crate::access;
 use crate::adversarial;
 use crate::catalog;
 use crate::exchange::{Reply, Request};
@@ -57,6 +58,7 @@ impl Site {
         );
         hosts.extend(adversarial::hosts());
         hosts.extend(protection::hosts());
+        hosts.extend(access::hosts());
         hosts
     }
 
@@ -65,6 +67,7 @@ impl Site {
         let mut tasks = catalog::tasks(self.seed, self.port);
         tasks.extend(adversarial::tasks(self.seed, self.port));
         tasks.extend(protection::tasks(self.seed, self.port));
+        tasks.extend(access::tasks(self.seed, self.port));
         tasks
     }
 
@@ -73,6 +76,7 @@ impl Site {
         let name = observation::host_name(host);
         if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
             .or_else(|| protection::respond(self.seed, &name, request))
+            .or_else(|| access::respond(self.seed, &name, request))
         {
             if let Some(recorded) = recorded {
                 self.observations.record(host, recorded);
@@ -125,8 +129,14 @@ impl Site {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
                 let submitted = submission.record_ids();
-                let answer = oracle::judge(&task.expected, submission, &effects)
+                let now = access::expected_now(&task.entry.id, &self.observations);
+                let expected = now.as_ref().unwrap_or(&task.expected);
+                let answer = oracle::judge(expected, submission, &effects)
                     .refuted_by(self.reported(&task.entry.id));
+                if task.entry.family == access::FAMILY {
+                    let answer = access::judge(&task.entry.id, answer, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
                 if task.entry.id == protection::TIER_MOVE_TASK {
                     let answer =
                         protection::judge_tier_move(answer, &submitted, &self.observations);

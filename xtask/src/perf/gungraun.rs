@@ -7,7 +7,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
@@ -71,9 +71,39 @@ fn benchmark_id(summary: &Summary) -> String {
 
 /// Every gated figure of every benchmark in the files at `paths`; a figure
 /// the head lacks is not measured.
-pub(crate) fn read(paths: &[&Path]) -> Result<Vec<Measured>> {
+pub(crate) fn read(paths: &[impl AsRef<Path>]) -> Result<Vec<Measured>> {
     let mut measured = Vec::new();
-    for path in paths {
+    for summary in summaries(paths)? {
+        let subject = benchmark_id(&summary);
+        for profile in &summary.profiles {
+            for (key, figure) in Figure::BENCHMARK {
+                let Some(result) = profile.data.total.metrics.get(key) else {
+                    continue;
+                };
+                let Some(head) = count(result.values.new.as_ref(), &subject, key)? else {
+                    continue;
+                };
+                measured.push(Measured {
+                    subject: subject.clone(),
+                    figure,
+                    base: count(result.values.old.as_ref(), &subject, key)?,
+                    head,
+                });
+            }
+        }
+    }
+    Ok(measured)
+}
+
+/// The IDs of the benchmarks the files at `paths` measured, whatever their
+/// figures.
+pub(crate) fn benchmarks(paths: &[impl AsRef<Path>]) -> Result<BTreeSet<String>> {
+    Ok(summaries(paths)?.iter().map(benchmark_id).collect())
+}
+
+fn summaries(paths: &[impl AsRef<Path>]) -> Result<Vec<Summary>> {
+    let mut summaries = Vec::new();
+    for path in paths.iter().map(AsRef::as_ref) {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         for (number, line) in text.lines().enumerate() {
@@ -89,26 +119,10 @@ pub(crate) fn read(paths: &[&Path]) -> Result<Vec<Measured>> {
                     summary.version
                 );
             }
-            let subject = benchmark_id(&summary);
-            for profile in &summary.profiles {
-                for (key, figure) in Figure::BENCHMARK {
-                    let Some(result) = profile.data.total.metrics.get(key) else {
-                        continue;
-                    };
-                    let Some(head) = count(result.values.new.as_ref(), &subject, key)? else {
-                        continue;
-                    };
-                    measured.push(Measured {
-                        subject: subject.clone(),
-                        figure,
-                        base: count(result.values.old.as_ref(), &subject, key)?,
-                        head,
-                    });
-                }
-            }
+            summaries.push(summary);
         }
     }
-    Ok(measured)
+    Ok(summaries)
 }
 
 fn count(value: Option<&Value>, subject: &str, key: &str) -> Result<Option<u64>> {

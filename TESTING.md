@@ -995,9 +995,11 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 ### Absolute ceilings
 
 - **`xtask perf` also checks absolute ceilings,** in the same job as the comparison with the base. A "Performance change" section never passes a change over one; only the owner moves a ceiling.
-- **The fixed ceilings:** at most **8 heap bytes per URL in the Frontier** at 100,000 URLs (DHAT's bytes at the global maximum, less the same scenario with no URL, over the URL count), and at most **twice its body's bytes allocated per crawled page**, in a crawl fed by an in-memory fixture.
+- **The fixed ceilings:** at most **8 heap bytes per URL in the Frontier** at 100,000 URLs (DHAT's bytes at the global maximum, less the same scenario with no URL, over the URL count), and at most **twice its body's bytes allocated per crawled page**, in a crawl fed by an in-memory fixture (DHAT's total bytes of the crawl over the total body bytes its fixture records as `body-bytes` in its `.source.toml`). Each Console build's 1 MB brotli is a ceiling too.
 - **The tuned ceilings:** instructions, allocations and bytes allocated per dispatched JSON-RPC message, each at 1.10 times its figure after M1's optimization pass, approved by the owner.
-- **The ceilings are constants of `xtask perf`** that cite ADR 0134, like the thresholds.
+- **The ceilings are constants of `xtask perf`** that cite ADR 0134, like the thresholds, each keyed by the benchmark IDs or size-limit entries whose figures it reads.
+- **A ceiling starts when its benchmark first runs, and never lapses:** once the base or the head measures a benchmark a ceiling reads, the head must have every figure the ceiling reads, so renaming or removing a benchmark fails rather than dropping its ceiling.
+- **The summary lists every ceiling beside the comparison table:** its head figure, derived ones shown rounded up, and its verdict. One whose benchmarks neither side measured is listed as not run yet. The check itself compares exact counts.
 
 ### Performance targets
 

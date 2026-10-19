@@ -35,6 +35,7 @@ mod no_retry;
 mod notices;
 mod package_dependencies;
 mod perf;
+mod perf_ceilings;
 mod perf_drift;
 mod quarantine;
 mod release_suite;

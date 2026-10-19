@@ -17,8 +17,7 @@ pub(crate) enum Increase {
 pub(crate) struct Limit {
     pub(crate) increase: Increase,
     /// The largest value the figure may reach, whatever the pull request
-    /// says. ADR 0134's absolute ceilings join here (`budget`), beside the
-    /// Console's.
+    /// says: its ceiling of `budget::ceilings`, when one names the figure.
     pub(crate) ceiling: Option<u64>,
 }
 
@@ -81,18 +80,13 @@ fn away_from_zero(numerator: i128, denominator: i128) -> i128 {
 
 /// The limits a figure is held to.
 pub(crate) fn limit(measured: &Measured) -> Limit {
-    match measured.figure {
-        Figure::Brotli => Limit {
-            increase: Increase::Bytes(budget::BUNDLE_INCREASE_BYTES),
-            ceiling: budget::CONSOLE_ENTRIES
-                .iter()
-                .any(|entry| measured.subject == super::bundle::subject(entry))
-                .then_some(budget::CONSOLE_CEILING_BYTES),
-        },
-        _ => Limit {
-            increase: Increase::Percent(budget::INCREASE_PERCENT),
-            ceiling: None,
-        },
+    let increase = match measured.figure {
+        Figure::Brotli => Increase::Bytes(budget::BUNDLE_INCREASE_BYTES),
+        _ => Increase::Percent(budget::INCREASE_PERCENT),
+    };
+    Limit {
+        increase,
+        ceiling: budget::figure_ceiling(&measured.subject, measured.figure),
     }
 }
 

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use http_body_util::{BodyExt as _, Full, Limited};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{CONTENT_TYPE, HOST, HeaderValue};
+use hyper::header::{CONTENT_TYPE, COOKIE, HOST, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
@@ -28,8 +28,9 @@ use tokio_util::task::TaskTracker;
 
 use crate::authority::Authority;
 use crate::clock;
+use crate::exchange::{self, Reply};
 use crate::observation::Observations;
-use crate::site::{Reply, Site};
+use crate::site::Site;
 use crate::tap::{Tap, Wire};
 
 /// The largest request body the server reads, a submission to the oracle
@@ -219,14 +220,35 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>
         })
         .unwrap_or_default()
         .to_owned();
+    // HTTP/2 may split the `Cookie` header into one field per cookie
+    // (RFC 9113, section 8.2.3); they are joined back as HTTP/1.1 sends them.
+    let cookies = parts
+        .headers
+        .get_all(COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .collect::<Vec<_>>()
+        .join("; ");
     let reply = match Limited::new(body, BODY_LIMIT).collect().await {
-        Ok(body) => site.respond(&parts.method, &host, parts.uri.path(), &body.to_bytes()),
+        Ok(body) => site.respond(
+            &host,
+            &exchange::Request {
+                method: &parts.method,
+                path: parts.uri.path(),
+                cookies: &cookies,
+                body: &body.to_bytes(),
+            },
+        ),
         Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
     };
     let mut response = Response::new(Full::new(reply.body));
     *response.status_mut() = reply.status;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    for (name, value) in reply.headers {
+        let value = HeaderValue::try_from(value)
+            .expect("invariant: the Proving ground's own header values are visible ASCII");
+        headers.append(name, value);
+    }
     response
 }

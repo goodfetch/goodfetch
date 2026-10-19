@@ -318,11 +318,41 @@ fn a_tasks_requests_and_bytes_are_recorded_for_that_task() {
     );
 }
 
+#[rstest::rstest]
+#[case::rendered("1.rendered.test", "rendered.test", "/feed", "rendered/1")]
+#[case::login("2.login.test", "login.test", "/login", "login/2")]
+#[case::schedule("1.schedule.test", "schedule.test", "/board", "schedule/1")]
+fn a_tasks_host_serves_the_page_of_its_family_for_that_task(
+    #[case] task_host: &str,
+    #[case] family_host: &str,
+    #[case] path: &str,
+    #[case] task: &str,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let on_task_host = proving_ground.get(&proving_ground.url(task_host, path));
+    let on_family_host = proving_ground.get(&proving_ground.url(family_host, path));
+
+    assert_eq!(on_task_host.status, 200, "{}", on_task_host.body);
+    assert_eq!(on_task_host.body, on_family_host.body);
+    let observations = proving_ground.observations();
+    assert_eq!(observations["requests"][0]["task"], task, "{observations}");
+    assert_eq!(
+        observations["requests"][1]["task"],
+        Value::Null,
+        "{observations}"
+    );
+}
+
 #[test]
 fn an_effect_the_site_carries_out_is_recorded_for_its_task() {
     let proving_ground = ProvingGround::start(SEED);
 
-    proving_ground.post_form("http://3.catalog.test/orders", "product=P-0042");
+    proving_ground.post_form(
+        "http://3.catalog.test/orders",
+        &[("product", "P-0042")],
+        None,
+    );
 
     assert_eq!(
         proving_ground.observations()["effects"],

@@ -47,3 +47,38 @@ def env(test_env: TestEnv, product: Product) -> Mapping[str, str]:
     """
     engine = test_env.tools.path(product.tool)
     return {**test_env.env, product.engine_path_variable: str(engine)}
+
+
+PATCHING_FIXTURES = frozenset({"monkeypatch", "mocker"})
+"""Fixtures that patch globals or mock owned code, which no test may reach."""
+
+
+def pytest_collection_modifyitems(
+    session: pytest.Session, items: list[pytest.Item]
+) -> None:
+    """Fails the collection of each test whose fixture closure patches.
+
+    The closure holds every fixture the test requests, directly or through
+    another fixture, so a third-party fixture built on `monkeypatch` is
+    refused too (ADR 0062).
+    """
+    refused: list[pytest.Item] = []
+    for item in items:
+        patching = sorted(PATCHING_FIXTURES.intersection(_fixture_closure(item)))
+        if patching:
+            refused.append(item)
+            report = pytest.CollectReport(
+                item.nodeid,
+                "failed",
+                f"{item.nodeid} reaches {', '.join(patching)}, directly or through "
+                "another fixture: pass the value through an option instead (ADR 0062)",
+                [],
+            )
+            session.ihook.pytest_collectreport(report=report)
+    items[:] = [item for item in items if item not in refused]
+
+
+def _fixture_closure(item: pytest.Item) -> list[str]:
+    """Every fixture `item` reaches; an item that is no function reaches none."""
+    names: object = getattr(item, "fixturenames", [])
+    return cast("list[str]", names)

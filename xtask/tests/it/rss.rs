@@ -259,3 +259,77 @@ fn the_check_writes_each_peak_as_a_junit_test_case_with_its_figures() {
     </testsuites>
     "#);
 }
+
+/// Collie's 20 runs on macOS arm64, the highest 3,500,000 bytes and not the
+/// last.
+const COLLIE_RUNS: [u64; 20] = [
+    3_100_000, 3_200_000, 3_150_000, 3_300_000, 3_500_000, 3_120_000, 3_180_000, 3_220_000,
+    3_260_000, 3_240_000, 3_110_000, 3_190_000, 3_230_000, 3_270_000, 3_210_000, 3_130_000,
+    3_170_000, 3_250_000, 3_160_000, 3_140_000,
+];
+
+/// Foxhound's 20 runs on macOS arm64, the highest exactly 10 MiB.
+const FOXHOUND_RUNS: [u64; 20] = [
+    9_000_000, 9_100_000, 9_200_000, 9_300_000, 9_400_000, 9_500_000, 9_600_000, 9_700_000,
+    9_800_000, 9_900_000, 10_000_000, 10_100_000, 10_200_000, 10_300_000, 10_400_000, 10_485_760,
+    10_000_000, 9_000_000, 9_500_000, 9_900_000,
+];
+
+fn runs(product: &str, bytes: &[u64]) -> Vec<String> {
+    bytes
+        .iter()
+        .map(|bytes| peak(product, "macos-arm64", "idle-attached-engine", *bytes))
+        .collect()
+}
+
+#[test]
+fn propose_gives_one_and_a_half_times_the_highest_of_twenty_peaks_rounded_up() {
+    let workspace = Workspace::from_fixture("empty");
+    write_peaks(
+        &workspace,
+        &[
+            runs("collie", &COLLIE_RUNS),
+            runs("foxhound", &FOXHOUND_RUNS),
+        ]
+        .concat(),
+    );
+
+    let outcome = workspace.xtask(&["rss", "propose", "--peaks", "target/rss/peaks.jsonl"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    insta::assert_snapshot!(outcome.stdout, @"
+    # Proposed by `xtask rss propose`: 1.5 times the highest peak of 20 runs, rounded up to a whole MiB (ADR 0071).
+
+    [collie.macos-arm64]
+    idle-attached-engine = 6
+
+    [foxhound.macos-arm64]
+    idle-attached-engine = 15
+    ");
+}
+
+#[test]
+fn propose_refuses_fewer_than_twenty_runs() {
+    let workspace = Workspace::from_fixture("empty");
+    write_peaks(
+        &workspace,
+        &[
+            runs("collie", &COLLIE_RUNS),
+            runs("foxhound", &FOXHOUND_RUNS[..19]),
+        ]
+        .concat(),
+    );
+
+    let outcome = workspace.xtask(&["rss", "propose", "--peaks", "target/rss/peaks.jsonl"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "rss-runs",
+            "foxhound idle-attached-engine macos-arm64"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+}

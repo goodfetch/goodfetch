@@ -1,0 +1,16 @@
+[suite]
+name = "self-test"
+version = "1"
+
+[[capability]]
+name = "sample.echoed"
+
+[[capability.case]]
+id = "echo-repeats"
+covers = ["story:1-2"]
+task = "catalog/1"
+
+[[capability.case]]
+id = "echo-twice"
+covers = []
+task = "catalog/1"

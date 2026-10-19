@@ -25,6 +25,13 @@ pub(crate) struct Answer {
     pub(crate) body: String,
 }
 
+/// A response's status, `Content-Type` and body as bytes.
+pub(crate) struct RawAnswer {
+    pub(crate) status: u16,
+    pub(crate) content_type: Option<String>,
+    pub(crate) body: Vec<u8>,
+}
+
 impl Answer {
     pub(crate) fn json(&self) -> Value {
         serde_json::from_str(&self.body).expect("the body is JSON")
@@ -57,10 +64,21 @@ impl ProvingGround {
 
     /// Starts `serve` on the given address.
     pub(crate) fn start_on(seed: u64, address: &str) -> Self {
+        Self::start_with(
+            seed,
+            &["--address", address, "--network-profile", "none"],
+            &[],
+        )
+    }
+
+    /// Starts `serve` with the given address and network arguments, in an
+    /// environment that holds only `environment`.
+    pub(crate) fn start_with(seed: u64, arguments: &[&str], environment: &[(&str, &str)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
             .args(["serve", "--seed", &seed.to_string(), "--copy", "local"])
-            .args(["--address", address, "--network-profile", "none"])
+            .args(arguments)
             .env_clear()
+            .envs(environment.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -154,6 +172,34 @@ impl ProvingGround {
         )
     }
 
+    /// Fetches a URL on one of the Proving ground's host names as `get`
+    /// does, keeping the body's bytes as sent and its `Content-Type`, if
+    /// any.
+    pub(crate) fn get_raw(&self, url: &str) -> RawAnswer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let mut response = self
+            .agent
+            .get(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .call()
+            .expect("the Proving ground answers");
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .map(|value| value.to_str().expect("an ASCII media type").to_owned());
+        RawAnswer {
+            status: response.status().as_u16(),
+            content_type,
+            body: response
+                .body_mut()
+                .with_config()
+                .limit(64 * 1024 * 1024)
+                .read_to_vec()
+                .expect("the body is readable"),
+        }
+    }
+
     /// The task list, from the Proving ground's own address.
     pub(crate) fn tasks(&self) -> Value {
         let response = self
@@ -179,8 +225,19 @@ impl ProvingGround {
         answer.json()
     }
 
+    /// Puts a JSON body to a path on the Proving ground's own address.
+    pub(crate) fn put_control(&self, path: &str, body: &str) -> Answer {
+        let response = self
+            .agent
+            .put(format!("http://{}{path}", self.address))
+            .content_type("application/json")
+            .send(body)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// Fetches a path on the Proving ground's own address.
-    fn control(&self, path: &str) -> Answer {
+    pub(crate) fn control(&self, path: &str) -> Answer {
         let response = self
             .agent
             .get(format!("http://{}{path}", self.address))
@@ -207,6 +264,20 @@ impl ProvingGround {
             .agent
             .put(format!("http://{}/time-step", self.address))
             .send_json(json!({ "step": step }))
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
+    /// Posts JSON to a URL on one of the Proving ground's host names, as a
+    /// page's script does.
+    pub(crate) fn post_json(&self, url: &str, value: &Value) -> Answer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let response = self
+            .agent
+            .post(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .send_json(value)
             .expect("the Proving ground answers");
         Self::answer(response)
     }

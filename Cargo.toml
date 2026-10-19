@@ -49,6 +49,11 @@ flate2 = { version = "1.1.9", default-features = false, features = ["rust_backen
 # HMAC-SHA-1, from which the Proving ground and its tests compute TOTP codes
 # (RFC 6238).
 hmac = { version = "0.12.1", default-features = false }
+# The Proving ground's encodings family writes each page in its legacy
+# encoding with the WHATWG Encoding standard's encoders (ADRs 0073, 0119), and
+# its ZIP download's checksum is CRC-32.
+crc32fast = { version = "1.5.2", default-features = false }
+encoding_rs = { version = "0.8.42", default-features = false, features = ["alloc"] }
 # The Proving ground's page server (area 2): hyper's HTTP/1.1 and HTTP/2
 # server on Tokio, behind rustls with ring (the provider ureq already brings).
 # Its observations decode each HTTP/2 header block with loona-hpack, which

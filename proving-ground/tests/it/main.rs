@@ -8,20 +8,33 @@
 )]
 
 mod actionability;
+mod agent;
 mod browserless;
 mod clients;
+mod encodings;
+mod extraction;
+mod extraction_families;
+mod fake_model;
 mod fetch_edge;
+mod files;
 mod identity;
 mod incidents;
+mod languages;
 mod login;
+mod model_recordings;
+mod network;
 mod observations;
 mod oracle;
 mod pages;
 mod portal;
 mod proving_ground;
 mod raw_clients;
+mod reading;
 mod rendered;
+mod replay;
 mod schedule;
 mod serve;
 mod task_list;
+#[cfg(target_os = "linux")]
+mod tc_netem;
 mod transport;

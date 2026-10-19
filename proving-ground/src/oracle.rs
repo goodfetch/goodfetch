@@ -129,6 +129,7 @@ pub(crate) struct Answer {
     /// requires.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     signature_faults: Vec<SignatureFault>,
+    quality: Quality,
     oracle_time_microseconds: u64,
 }
 
@@ -157,6 +158,35 @@ enum Fault {
     Signed,
 }
 
+/// Extraction quality (pain 14), scored field by field against the ground
+/// truth: of each field's expected values, one per expected Record, how
+/// many the result holds. A missing Record's fields are missing values, and
+/// an extra Record scores nothing.
+#[derive(Default, Serialize)]
+struct Quality {
+    fields: BTreeMap<&'static str, Score>,
+    expected: u64,
+    correct: u64,
+}
+
+#[derive(Default, Serialize)]
+struct Score {
+    expected: u64,
+    correct: u64,
+}
+
+impl Quality {
+    fn count(&mut self, field: &'static str, correct: bool) {
+        let score = self.fields.entry(field).or_default();
+        score.expected += 1;
+        self.expected += 1;
+        if correct {
+            score.correct += 1;
+            self.correct += 1;
+        }
+    }
+}
+
 /// A field of a Record whose submitted value is not the expected one.
 #[derive(Serialize)]
 struct Wrong {
@@ -165,6 +195,47 @@ struct Wrong {
     expected: String,
     /// `null` when the field is absent.
     submitted: Value,
+    /// The first character that differs, when the submitted value is text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    difference: Option<Difference>,
+}
+
+/// The first character at which a submitted text differs from the expected
+/// one, both held in UTF-8 in the normalization form served (ADR 0073), so
+/// a text read in another encoding or normalized names the character that
+/// changed.
+#[derive(Serialize)]
+struct Difference {
+    /// The character's index in the expected text, counted in Unicode
+    /// scalar values.
+    at: usize,
+    /// The expected character there as `U+XXXX`; `null` past the expected
+    /// text's end.
+    expected: Option<String>,
+    /// The submitted character there; `null` past the submitted text's end.
+    submitted: Option<String>,
+}
+
+impl Difference {
+    /// Where `submitted` first differs from `expected`.
+    fn between(expected: &str, submitted: &str) -> Self {
+        let mut expected = expected.chars();
+        let mut submitted = submitted.chars();
+        let mut at = 0;
+        loop {
+            match (expected.next(), submitted.next()) {
+                (Some(left), Some(right)) if left == right => at += 1,
+                (left, right) => {
+                    let name = |character: char| format!("U+{:04X}", u32::from(character));
+                    return Self {
+                        at,
+                        expected: left.map(name),
+                        submitted: right.map(name),
+                    };
+                }
+            }
+        }
+    }
 }
 
 /// A submitted file whose bytes are not the expected ones.
@@ -181,6 +252,7 @@ struct Records {
     missing: Vec<String>,
     extra: Vec<Value>,
     wrong: Vec<Wrong>,
+    quality: Quality,
     /// Whether any submitted Record is an expected one.
     any_correct: bool,
 }
@@ -297,6 +369,7 @@ pub(crate) fn judge(
         wrong_error,
         forbidden_requests,
         signature_faults,
+        quality: records.quality,
         oracle_time_microseconds: stopwatch.microseconds(),
     }
 }
@@ -345,6 +418,7 @@ fn judge_records(expected: &Expected, submitted: Vec<Value>) -> Records {
     let mut seen = BTreeSet::new();
     let mut extra = Vec::new();
     let mut wrong = Vec::new();
+    let mut quality = Quality::default();
     for record in submitted {
         let matched = record
             .get("id")
@@ -355,29 +429,41 @@ fn judge_records(expected: &Expected, submitted: Vec<Value>) -> Records {
             extra.push(record);
             continue;
         };
+        quality.count("id", true);
         for (field, value) in expected.iter().filter(|(field, _)| **field != "id") {
             let submitted = record.get(*field);
-            if !same_value(value, submitted) {
+            let correct = same_value(value, submitted);
+            quality.count(field, correct);
+            if !correct {
                 wrong.push(Wrong {
                     id: (*id).to_owned(),
                     field,
                     expected: value.clone(),
                     submitted: submitted.cloned().unwrap_or(Value::Null),
+                    difference: submitted
+                        .and_then(Value::as_str)
+                        .map(|text| Difference::between(value, text)),
                 });
             }
         }
     }
-    let missing = expected
+    let missing: Vec<String> = expected
         .records
         .iter()
         .map(|record| record["id"].as_str())
         .filter(|id| !seen.contains(id))
         .map(str::to_owned)
         .collect();
+    for record in missing.iter().map(|id| by_id[id.as_str()]) {
+        for field in record.keys() {
+            quality.count(field, false);
+        }
+    }
     Records {
         missing,
         extra,
         wrong,
+        quality,
         any_correct: !seen.is_empty(),
     }
 }

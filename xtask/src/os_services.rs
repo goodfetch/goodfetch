@@ -1,6 +1,6 @@
 //! The real OS services the tests meet (ADR 0059; TESTING.md, Storage,
-//! network and OS services): the extra loopback addresses and the Secret
-//! Service. `ci/os-services.sh` starts them in every test job of CI, then
+//! network and OS services): the extra loopback addresses, the Secret
+//! Service and `tc netem` on Linux's loopback. `ci/os-services.sh` starts them in every test job of CI, then
 //! checks them here, so a service that did not come up fails the job; a
 //! local `just test` lists the ones its host lacks and skips the tests that
 //! need them.
@@ -52,6 +52,11 @@ pub(crate) struct Services {
     /// `secret-tool` on the session bus `DBUS_SESSION_BUS_ADDRESS` names.
     #[arg(long)]
     secret_service: bool,
+    /// Checks `tc netem` on Linux's loopback interface: iproute2's `tc`
+    /// sets a `netem` root on `lo` and removes it, which needs
+    /// `CAP_NET_ADMIN` in this network namespace and a free root.
+    #[arg(long)]
+    netem: bool,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -132,6 +137,7 @@ fn runs(step: &workflow::Step, scripts: &[&str]) -> bool {
 enum Missing {
     LoopbackAddress(Ipv4Addr, String),
     SecretService(String),
+    Netem(String),
 }
 
 impl Missing {
@@ -145,6 +151,7 @@ impl Missing {
             Self::SecretService(problem) => {
                 Finding::new("secret-service-missing", "Secret Service", problem.clone())
             }
+            Self::Netem(problem) => Finding::new("netem-missing", "tc netem", problem.clone()),
         }
     }
 
@@ -155,6 +162,7 @@ impl Missing {
         match self {
             Self::LoopbackAddress(..) => "extra_loopback::",
             Self::SecretService(_) => "keychain::",
+            Self::Netem(_) => "tc_netem::",
         }
     }
 }
@@ -173,6 +181,11 @@ fn missing(services: &Services) -> Vec<Missing> {
         && let Err(problem) = secret_service()
     {
         missing.push(Missing::SecretService(problem));
+    }
+    if services.netem
+        && let Err(problem) = netem()
+    {
+        missing.push(Missing::Netem(problem));
     }
     missing
 }
@@ -271,4 +284,29 @@ fn secret_tool(action: &str, args: &[&str], input: Option<&str>) -> Result<Strin
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Sets a `netem` root on `lo` and removes it, as the Proving ground's
+/// `--shaper netem` does: `tc` runs, may change the loopback interface's
+/// queueing discipline, and finds its root free.
+fn netem() -> Result<(), String> {
+    tc(&["qdisc", "add", "dev", "lo", "root", "netem", "delay", "0ms"])?;
+    tc(&["qdisc", "del", "dev", "lo", "root"])
+}
+
+/// Runs `tc <args>`.
+fn tc(args: &[&str]) -> Result<(), String> {
+    let output = Process::new("tc")
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("tc did not run ({error})"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "tc {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
 }

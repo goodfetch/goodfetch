@@ -77,7 +77,7 @@ fn a_line_shows_its_bytes_escaped() {
 }
 
 #[test]
-fn a_failure_shows_the_childs_stderr() {
+fn a_failure_shows_the_stderr_of_the_child() {
     let mut stdout = reader(
         b"engine ready\n",
         b"2026-01-05T09:00:00Z TRACE goodfetch::rpc: read hello\n",

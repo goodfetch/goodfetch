@@ -1,4 +1,5 @@
-use rusqlite::{Connection, OpenFlags};
+use rstest::rstest;
+use rusqlite::{Connection, ErrorCode, OpenFlags};
 
 use super::{CrashKind, CrashVfs, after_crash};
 use crate::env::TestEnv;
@@ -49,6 +50,27 @@ fn wal_database_with_an_unsynced_row(vfs: &CrashVfs) -> Connection {
         )
         .unwrap();
     connection
+}
+
+fn error_code(error: &rusqlite::Error) -> Option<ErrorCode> {
+    error.sqlite_error_code()
+}
+
+#[rstest]
+#[case::process(CrashKind::Process)]
+#[case::power_cut(CrashKind::PowerCut)]
+fn a_connection_opened_before_a_crash_fails_its_next_io(#[case] kind: CrashKind) {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("crash-vfs"), env.seed()).unwrap();
+    let crashed = wal_database_with_an_unsynced_row(&vfs);
+    vfs.crash(kind);
+
+    let write = crashed.execute("INSERT INTO item VALUES ('after the crash')", []);
+
+    assert_eq!(
+        write.as_ref().map_err(error_code),
+        Err(Some(ErrorCode::SystemIoFailure))
+    );
 }
 
 #[test]

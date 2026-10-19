@@ -449,6 +449,16 @@ struct SqliteVfs {
 }
 
 impl Disk {
+    /// Fails with `code` when `handle` belongs to a crashed instance, whose
+    /// every I/O fails.
+    fn refuse_crashed(&self, handle: &Handle, code: i32) -> VfsResult<()> {
+        if handle.instance == self.instance {
+            Ok(())
+        } else {
+            Err(code)
+        }
+    }
+
     fn file(&mut self, path: &str) -> VfsResult<&mut File> {
         self.files.get_mut(path).ok_or(vars::SQLITE_IOERR)
     }
@@ -530,11 +540,13 @@ impl Vfs for SqliteVfs {
 
     fn file_size(&self, handle: &mut Self::Handle) -> VfsResult<usize> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_FSTAT)?;
         Ok(disk.file(&handle.path)?.current.len())
     }
 
     fn truncate(&self, handle: &mut Self::Handle, size: usize) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_TRUNCATE)?;
         let file = disk.file(&handle.path)?;
         let change = Change::Truncate { size };
         change.apply(&mut file.current);
@@ -544,6 +556,7 @@ impl Vfs for SqliteVfs {
 
     fn write(&self, handle: &mut Self::Handle, offset: usize, data: &[u8]) -> VfsResult<usize> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_WRITE)?;
         let file = disk.file(&handle.path)?;
         let change = Change::Write {
             offset,
@@ -556,6 +569,7 @@ impl Vfs for SqliteVfs {
 
     fn read(&self, handle: &mut Self::Handle, offset: usize, data: &mut [u8]) -> VfsResult<usize> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_READ)?;
         let current = &disk.file(&handle.path)?.current;
         let available = current.get(offset..).unwrap_or_default();
         let count = available.len().min(data.len());
@@ -565,6 +579,7 @@ impl Vfs for SqliteVfs {
 
     fn sync(&self, handle: &mut Self::Handle) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_FSYNC)?;
         let file = disk.file(&handle.path)?;
         file.durable.clone_from(&file.current);
         file.unsynced.clear();
@@ -573,6 +588,7 @@ impl Vfs for SqliteVfs {
 
     fn lock(&self, handle: &mut Self::Handle, level: LockLevel) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_LOCK)?;
         if disk.lock_of(handle) >= level {
             return Ok(());
         }
@@ -600,6 +616,7 @@ impl Vfs for SqliteVfs {
 
     fn unlock(&self, handle: &mut Self::Handle, level: LockLevel) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_UNLOCK)?;
         if disk.lock_of(handle) > level {
             disk.set_lock(handle, level);
         }
@@ -608,6 +625,7 @@ impl Vfs for SqliteVfs {
 
     fn check_reserved_lock(&self, handle: &mut Self::Handle) -> VfsResult<bool> {
         let disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_CHECKRESERVEDLOCK)?;
         Ok(disk
             .locks
             .get(&handle.path)
@@ -640,6 +658,7 @@ impl Vfs for SqliteVfs {
         extend: bool,
     ) -> VfsResult<Option<NonNull<u8>>> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_SHMMAP)?;
         let memory = disk.shared_memory.entry(handle.memory_key()).or_default();
         if memory.regions.len() <= region_idx {
             if !extend {
@@ -661,6 +680,7 @@ impl Vfs for SqliteVfs {
         mode: ShmLockMode,
     ) -> VfsResult<()> {
         let mut disk = lock(&self.disk);
+        disk.refuse_crashed(handle, vars::SQLITE_IOERR_SHMLOCK)?;
         let memory = disk
             .shared_memory
             .get_mut(&handle.memory_key())

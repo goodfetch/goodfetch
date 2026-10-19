@@ -130,21 +130,25 @@ pub(super) const TASKS: u32 = 18;
 /// Task `ordinal`'s `Content-Disposition` and the name it suggests, decoded,
 /// with how that name is judged.
 fn download(ordinal: u32) -> (String, String, Naming) {
-    match DOWNLOADS.get(usize::try_from(ordinal - 1).expect("invariant: a small ordinal")) {
-        Some(download) => (
-            download.disposition.to_owned(),
-            download.name.to_owned(),
-            download.naming,
-        ),
-        None => {
-            let name = format!("{}.csv", "a".repeat(OVERLONG_BYTES - ".csv".len()));
-            (
-                format!("attachment; filename=\"{name}\""),
-                name,
-                Naming::Safe,
-            )
-        }
-    }
+    DOWNLOADS
+        .get(usize::try_from(ordinal - 1).expect("invariant: a small ordinal"))
+        .map_or_else(
+            || {
+                let name = format!("{}.csv", "a".repeat(OVERLONG_BYTES - ".csv".len()));
+                (
+                    format!("attachment; filename=\"{name}\""),
+                    name,
+                    Naming::Safe,
+                )
+            },
+            |download| {
+                (
+                    download.disposition.to_owned(),
+                    download.name.to_owned(),
+                    download.naming,
+                )
+            },
+        )
 }
 
 /// The bytes of task `ordinal`'s download: a CSV of one seeded row.

@@ -8,6 +8,10 @@
 //! and reports what it reached, or keeps a file under the name the page
 //! suggests.
 //! Covers: story:2-83
+#![expect(
+    clippy::disallowed_types,
+    reason = "the test reads malformed heads over its own socket, as no HTTP client reads them"
+)]
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpStream;

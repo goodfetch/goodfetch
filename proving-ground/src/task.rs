@@ -209,6 +209,10 @@ pub(crate) enum Naming {
 }
 
 impl Naming {
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's `skip_serializing_if` passes the field by reference"
+    )]
     fn is_exact(&self) -> bool {
         *self == Self::Exact
     }

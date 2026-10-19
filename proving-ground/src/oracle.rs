@@ -22,7 +22,7 @@ use serde_json::Value;
 
 use crate::clock::Stopwatch;
 use crate::digest;
-use crate::task::{self, Effect, Expected, Record};
+use crate::task::{self, Effect, Expected, Naming, Record, Refusal, TypedError};
 
 /// A tool's result for one task, as submitted to `POST /oracle`.
 #[derive(Deserialize)]
@@ -41,6 +41,10 @@ pub(crate) struct Submission {
     /// repeats so results are reported per each.
     #[serde(default)]
     access: Option<AccessDimensions>,
+    /// The typed error a failure reported (ADR 0038): its `code` and the
+    /// details it named, such as `egress_refused`'s `rule`.
+    #[serde(default)]
+    error: Option<serde_json::Map<String, Value>>,
 }
 
 /// A file a tool returns: its name and its bytes in lowercase or uppercase
@@ -174,6 +178,14 @@ pub(crate) struct Answer {
     /// submitted.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     extra_files: Vec<String>,
+    /// The names of submitted files saved under a name the page suggested
+    /// that is not one safe file name, such as a path.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unsafe_files: Vec<String>,
+    /// The typed error a refusal had to name, beside the one the result
+    /// reported, when they differ.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wrong_refusal: Option<WrongRefusal>,
     /// What the Proving ground's own record refutes beside the Records,
     /// Effects and files: what it saw the tool do wrong on the task's host,
     /// and the checks of what it observed that failed.
@@ -318,6 +330,14 @@ impl Difference {
     }
 }
 
+/// A refusal that reported another typed error than the expected one.
+#[derive(Serialize)]
+struct WrongRefusal {
+    expected: TypedError,
+    /// `null` when the result reported no typed error.
+    submitted: Option<serde_json::Map<String, Value>>,
+}
+
 /// A submitted file whose bytes are not the expected ones.
 #[derive(Serialize)]
 struct WrongFile {
@@ -350,6 +370,8 @@ struct Files {
     missing: Vec<String>,
     wrong: Vec<WrongFile>,
     extra: Vec<String>,
+    /// Submitted files saved under an unsafe name a page suggested.
+    unsafe_names: Vec<String>,
     /// Whether any submitted file is an expected one with its bytes.
     any_correct: bool,
 }
@@ -369,14 +391,26 @@ pub(crate) fn judge(
     let records = judge_records(expected, submission.records);
     let effects = judge_effects(expected, effects);
     let files = judge_files(expected, &submission.files);
+    let wrong_refusal = match &expected.refusal {
+        Refusal::Typed(error)
+            if submission.status == ToolStatus::Failure
+                && !names(submission.error.as_ref(), error) =>
+        {
+            Some(WrongRefusal {
+                expected: error.clone(),
+                submitted: submission.error,
+            })
+        }
+        _ => None,
+    };
     let correct = records.missing.is_empty()
         && effects.missing.is_empty()
         && files.missing.is_empty()
         && findings.is_empty()
         && nothing_wrong(&records, &effects, &files);
-    let outcome = if expected.refusal {
+    let outcome = if expected.refusal.is_expected() {
         match submission.status {
-            ToolStatus::Failure if correct => Outcome::Verified,
+            ToolStatus::Failure if correct && wrong_refusal.is_none() => Outcome::Verified,
             ToolStatus::Success => Outcome::FalseSuccess,
             ToolStatus::Failure | ToolStatus::NeedsReview => Outcome::Failed,
         }
@@ -404,6 +438,8 @@ pub(crate) fn judge(
         missing_files: files.missing,
         wrong_files: files.wrong,
         extra_files: files.extra,
+        unsafe_files: files.unsafe_names,
+        wrong_refusal,
         findings: findings.into_iter().map(Refutation::Crawl).collect(),
         quality: records.quality,
         access: submission.access,
@@ -418,6 +454,47 @@ fn nothing_wrong(records: &Records, effects: &Effects, files: &Files) -> bool {
         && effects.extra.is_empty()
         && files.wrong.is_empty()
         && files.extra.is_empty()
+        && files.unsafe_names.is_empty()
+}
+
+/// Whether a reported typed error names `expected`: its code and each of
+/// its details.
+fn names(reported: Option<&serde_json::Map<String, Value>>, expected: &TypedError) -> bool {
+    reported.is_some_and(|reported| {
+        reported.get("code").and_then(Value::as_str) == Some(expected.code)
+            && expected
+                .details
+                .iter()
+                .all(|(name, value)| reported.get(*name).and_then(Value::as_str) == Some(*value))
+    })
+}
+
+/// Whether `name` is one file name that is safe on every OS (ADR 0067): no
+/// path separator, drive or stream colon, control character or character
+/// Windows forbids; not `.` or `..`; no trailing dot or space; not a name
+/// Windows reserves, with or without an extension; at most 255 bytes.
+fn is_safe_file_name(name: &str) -> bool {
+    const RESERVED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+    let stem = name.split('.').next().unwrap_or_default().trim_end();
+    let numbered = ["COM", "LPT"].iter().any(|prefix| {
+        stem.len() == 4
+            && stem
+                .get(..3)
+                .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+            && stem.as_bytes()[3].is_ascii_digit()
+    });
+    !name.is_empty()
+        && name.len() <= 255
+        && name != "."
+        && name != ".."
+        && !name.ends_with(['.', ' '])
+        && !name
+            .chars()
+            .any(|character| character.is_control() || "/\\:*?\"<>|".contains(character))
+        && !numbered
+        && !RESERVED
+            .iter()
+            .any(|reserved| stem.eq_ignore_ascii_case(reserved))
 }
 
 /// Judges the submitted Records: each expected one once, a tolerated one at
@@ -502,22 +579,33 @@ fn judge_effects(expected: &Expected, effects: &[Effect]) -> Effects {
 }
 
 /// Judges the submitted files: each expected one once, by name, with its
-/// exact bytes.
+/// exact bytes. A file whose page suggests a hostile name is the first
+/// submitted file no other expected name claims, saved under any safe name.
 fn judge_files(expected: &Expected, submitted: &[SubmittedFile]) -> Files {
     let mut seen = BTreeSet::new();
     let mut wrong = Vec::new();
     let mut extra = Vec::new();
+    let mut unsafe_names = Vec::new();
     let mut any_correct = false;
     for file in submitted {
-        let Some(expected) = expected
+        let by_name = expected
             .files
             .iter()
-            .find(|expected| expected.name == file.name)
+            .find(|expected| expected.naming == Naming::Exact && expected.name == file.name);
+        let Some(expected) = by_name
+            .or_else(|| {
+                expected.files.iter().find(|expected| {
+                    expected.naming == Naming::Safe && !seen.contains(expected.name.as_str())
+                })
+            })
             .filter(|expected| seen.insert(expected.name.as_str()))
         else {
             extra.push(file.name.clone());
             continue;
         };
+        if expected.naming == Naming::Safe && !is_safe_file_name(&file.name) {
+            unsafe_names.push(file.name.clone());
+        }
         let submitted_sha256 = from_hex(&file.hex).map(|bytes| digest::sha256(&bytes));
         if submitted_sha256.as_deref() == Some(expected.sha256.as_str()) {
             any_correct = true;
@@ -539,6 +627,7 @@ fn judge_files(expected: &Expected, submitted: &[SubmittedFile]) -> Files {
         missing,
         wrong,
         extra,
+        unsafe_names,
         any_correct,
     }
 }

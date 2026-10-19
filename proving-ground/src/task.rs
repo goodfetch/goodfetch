@@ -82,7 +82,7 @@ pub(crate) enum Kind {
 /// A task's expected result, derived from the seed data only or written by
 /// hand: the Records a tool returns, the Effects the Proving ground records
 /// it carried out, the files it downloads, and whether the task must be
-/// refused.
+/// refused, and with which typed error.
 #[derive(Default, Serialize)]
 pub(crate) struct Expected {
     pub(crate) records: Vec<Record>,
@@ -95,12 +95,77 @@ pub(crate) struct Expected {
     pub(crate) files: Vec<File>,
     /// Whether the only right result is a refusal: no Effect, and a tool that
     /// reports a failure, as when the control under the pointer is not the
-    /// task's.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) refusal: bool,
+    /// task's; and, for a typed refusal, the error that failure names.
+    #[serde(skip_serializing_if = "Refusal::is_none")]
+    pub(crate) refusal: Refusal,
+}
+
+/// Whether a task's only right result is a refusal. It serializes as `true`
+/// for a refusal any reported failure meets, and as the typed error for one
+/// whose failure must name it, such as
+/// `{"code": "egress_refused", "rule": "scheme"}`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// The task is not refused.
+    #[default]
+    None,
+    /// Any failure the tool reports is the refusal, as for a limit whose
+    /// typed error is not decided yet (ADR 0067).
+    Any,
+    /// The failure must name this typed error (ADR 0038).
+    Typed(TypedError),
+}
+
+impl Refusal {
+    pub(crate) fn is_none(&self) -> bool {
+        *self == Self::None
+    }
+
+    /// Whether the task must be refused.
+    pub(crate) fn is_expected(&self) -> bool {
+        !self.is_none()
+    }
+}
+
+impl Serialize for Refusal {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::None => serializer.serialize_bool(false),
+            Self::Any => serializer.serialize_bool(true),
+            Self::Typed(error) => error.serialize(serializer),
+        }
+    }
+}
+
+/// A typed error (ADR 0038): its Error code and the details a refusal names,
+/// such as `egress_refused`'s `rule`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct TypedError {
+    pub(crate) code: &'static str,
+    #[serde(flatten)]
+    pub(crate) details: BTreeMap<&'static str, &'static str>,
+}
+
+impl TypedError {
+    /// The error `code` naming `details`.
+    pub(crate) fn new(code: &'static str, details: &[(&'static str, &'static str)]) -> Self {
+        Self {
+            code,
+            details: details.iter().copied().collect(),
+        }
+    }
 }
 
 impl Expected {
+    /// A refusal alone: nothing carried out, and a reported failure that
+    /// meets `refusal`.
+    pub(crate) fn refused(refusal: Refusal) -> Self {
+        Self {
+            refusal,
+            ..Self::default()
+        }
+    }
+
     /// The expected Records alone.
     pub(crate) fn records(records: Vec<Record>) -> Self {
         Self {
@@ -122,8 +187,31 @@ impl Expected {
 /// bytes, in lowercase hex.
 #[derive(Clone, Serialize)]
 pub(crate) struct File {
+    /// The name the tool saves it under; for a file whose naming is
+    /// [`Naming::Safe`], the hostile name the page suggests.
     pub(crate) name: String,
     pub(crate) sha256: String,
+    #[serde(skip_serializing_if = "Naming::is_exact")]
+    pub(crate) naming: Naming,
+}
+
+/// How the oracle judges the name a tool saved a file under.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Naming {
+    /// The name is exactly the expected one.
+    #[default]
+    Exact,
+    /// The page suggests a hostile name (a path, a reserved name, a control
+    /// character): any name is right that is one safe file name on every OS,
+    /// so the file stays in the folder it is saved to (ADR 0067).
+    Safe,
+}
+
+impl Naming {
+    fn is_exact(&self) -> bool {
+        *self == Self::Exact
+    }
 }
 
 /// An Effect a task asks a tool to carry out (ADR 0010), as the site

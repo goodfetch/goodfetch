@@ -1,0 +1,4 @@
+# Fuzz seeds and crashers are bytes a replay reads exactly, on every OS:
+# never convert their line endings (ADR 0067).
+**/seeds/** binary
+**/crashers/** binary

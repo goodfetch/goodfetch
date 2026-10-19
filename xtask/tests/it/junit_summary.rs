@@ -44,6 +44,26 @@ fn passing_set_writes_that_no_test_failed() {
     );
 }
 
+/// The stress run (`just stress`) puts each count's JUnit files in a
+/// `repeat-<count>/` folder beside the job's other files.
+#[test]
+fn failed_test_of_a_repeat_folder_is_listed() {
+    let workspace = Workspace::from_fixture("junit-summary");
+    let failing = workspace.read("vitest/vitest.xml").unwrap();
+    workspace.write("passing/repeat-20/vitest.xml", &failing);
+
+    let outcome = summarize(&workspace, "passing");
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        workspace
+            .read_text(SUMMARY)
+            .starts_with("### Failed tests\n\n1 test failed in 3 JUnit files.\n"),
+        "{}",
+        workspace.read_text(SUMMARY)
+    );
+}
+
 #[test]
 fn job_without_junit_files_says_it_wrote_none() {
     let workspace = Workspace::from_fixture("junit-summary");

@@ -318,6 +318,42 @@ fn repeated_runs_become_one_record_each() {
     );
 }
 
+/// The stress run (`just stress`) repeats its tests 20 times, and those taken
+/// off the quarantine list 200 times, in one job: each count's files sit in
+/// a `repeat-<count>/` folder beside the job's other JUnit files.
+#[test]
+fn runs_in_a_repeat_folder_are_repeated_its_count_of_times() {
+    let workspace = Workspace::from_fixture("results-ingest");
+    let vitest = r#"<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0.3">
+  <testsuite name="web/sample.test.ts" tests="1" failures="1" errors="0" skipped="0" time="0.3">
+    <testcase classname="web/sample.test.ts" name="sample &gt; flaky" time="0.3">
+      <failure message="expected 1 to be 2">AssertionError</failure>
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+
+    let outcome = ingest_third_attempt(
+        &workspace,
+        "junit-pre-merge-pull-request-linux-x64-1",
+        &[
+            (
+                "context.json",
+                br#"{ "commit": "c2", "tree": "t2", "job": "pre-merge", "order_seed": null, "entropy_seed": null }"#,
+            ),
+            ("repeat-3/vitest.xml", vitest.as_bytes()),
+        ],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/10/42-3.tar.gz"));
+    let outcomes: Vec<&str> = file
+        .test_runs
+        .iter()
+        .map(|run| run["outcome"].as_str().unwrap())
+        .collect();
+    assert_eq!(outcomes, vec!["failed", "passed", "passed"]);
+}
+
 #[test]
 fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_ingest() {
     let workspace = Workspace::from_fixture("results-ingest");

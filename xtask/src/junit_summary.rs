@@ -78,35 +78,59 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     Ok(check::report(&malformed))
 }
 
-/// The names of the `.xml` files directly in `folder`, sorted; none when
-/// the folder does not exist, as when the job stopped before its tests.
+/// The `.xml` files directly in `folder` and in its `repeat-<count>/`
+/// folders, where a job that ran tests several counts of times puts each
+/// count's (`just stress`), as `/`-separated paths from `folder`, sorted;
+/// none when the folder does not exist, as when the job stopped before its
+/// tests.
 fn junit_files(folder: &Path) -> Result<Vec<String>> {
     if !folder.is_dir() {
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    for entry in
-        std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?
-    {
-        let entry = entry.with_context(|| format!("listing {}", folder.display()))?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else { continue };
-        if entry.path().is_file()
-            && Path::new(name)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("xml"))
-        {
-            files.push(name.to_owned());
+    for (name, path) in entries(folder)? {
+        if path.is_file() && is_xml(&name) {
+            files.push(name);
+        } else if path.is_dir() && name.starts_with(REPEAT_FOLDER) {
+            for (inner, inner_path) in entries(&path)? {
+                if inner_path.is_file() && is_xml(&inner) {
+                    files.push(format!("{name}/{inner}"));
+                }
+            }
         }
     }
     files.sort();
     Ok(files)
 }
 
+/// The prefix of a folder whose files ran its count of times.
+const REPEAT_FOLDER: &str = "repeat-";
+
+/// The UTF-8 names in `folder`, with their paths.
+fn entries(folder: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let mut entries = Vec::new();
+    for entry in
+        std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?
+    {
+        let entry = entry.with_context(|| format!("listing {}", folder.display()))?;
+        if let Some(name) = entry.file_name().to_str() {
+            entries.push((name.to_owned(), entry.path()));
+        }
+    }
+    Ok(entries)
+}
+
+fn is_xml(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("xml"))
+}
+
 fn read(path: &Path, file: &str) -> Result<Vec<TestCase>> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    junit::test_cases(junit::runner(file), &text)
+    let name = file.rsplit('/').next().unwrap_or(file);
+    junit::test_cases(junit::runner(name), &text)
 }
 
 fn summary(files: usize, failed: &[Failed], malformed: &[Finding]) -> String {

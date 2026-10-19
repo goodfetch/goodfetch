@@ -56,7 +56,7 @@ V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surf
 
 ## Implementation loop
 
-The owner builds V1 with `/implement-spec` (owner, 2026-10-17) as one task graph over every open ticket of the current milestone, across its specs, on one integration branch `milestone/<milestone>` (owner, 2026-10-19), because tickets of different specs block each other (**Frontier** above, ADR 0133). Start it as `/implement-spec every open ticket in milestone "<full milestone title>", across all specs, as one task graph`.
+The owner builds V1 with `/implement-spec` (owner, 2026-10-17) as one task graph over every open ticket of the current milestone, across its specs, on one integration branch `milestone/<milestone>` (owner, 2026-10-19), because tickets of different specs block each other (**Frontier** above, ADR 0133). Start it as `/implement-spec every open ticket in milestone "<full milestone title>", across all specs, as one task graph`. The integration branch merges into `main` through `just merge` at every green full-gate checkpoint, so each pull request holds a few batches.
 
 ## Test health labels
 

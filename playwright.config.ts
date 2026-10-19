@@ -3,12 +3,12 @@
 // they take its caps: slow after 30 s, killed at 5 min.
 //
 // Screenshot tests (`*.visual.spec.ts`) form the `visual` project, which
-// exists only inside the pinned Playwright image (ADR 0073; ci/visual/), where
-// ci/visual/run.sh sets GOODFETCH_VISUAL_IMAGE. No suite writes a Reference
-// screenshot (`updateSnapshots: 'none'`); only the `update-screenshots`
-// workflow does, and references are named without the platform.
+// test support's shared visual config gives only inside the pinned Playwright
+// image (ADR 0073; ci/visual/). No suite writes a Reference screenshot; only
+// the `update-screenshots` workflow does.
 import { sep } from "node:path";
 import { defineConfig, type PlaywrightTestConfig, type Project } from "@playwright/test";
+import { PLAYWRIGHT_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 
 // Playwright matches a glob against a test file's absolute path, from any
 // folder (it prefixes `**/`), so a glob of a folder at the repository's root
@@ -24,30 +24,18 @@ const ignored = [
   new RegExp(`^${root}/(?:\\.[^/]+|rnd|ci/proofs)/`),
 ];
 
-const visual: Project = {
-  name: "visual",
-  testMatch: "**/*.visual.spec.ts",
-  testIgnore: ignored,
-  use: {
-    browserName: "chromium",
-    viewport: { width: 1280, height: 800 },
-    deviceScaleFactor: 1,
-    locale: "en-US",
-    timezoneId: "UTC",
-    reducedMotion: "reduce",
-  },
-};
-
 // The Release suite runs every test on every browser Playwright ships; the
 // Pre-merge suite on Chromium alone (TESTING.md, Browsers).
 const releaseBrowsers: Project[] =
   process.env["GOODFETCH_TEST_SUITE"] === "release"
     ? (["firefox", "webkit"] as const).map((browserName) => ({
         name: browserName,
-        testIgnore: [...ignored, "**/*.visual.spec.ts"],
+        testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
         use: { browserName },
       }))
     : [];
+
+const visual = visualConfig.playwright(process.env, { ignore: ignored });
 
 const config: PlaywrightTestConfig = defineConfig({
   testMatch: "**/*.spec.ts",
@@ -61,17 +49,12 @@ const config: PlaywrightTestConfig = defineConfig({
   timeout: 300_000,
   reportSlowTests: { max: 0, threshold: 30_000 },
   reporter: [["list"], ["junit", { outputFile: "target/junit/playwright.xml" }]],
-  updateSnapshots: "none",
+  updateSnapshots: visual.updateSnapshots,
   use: { trace: "retain-on-failure" },
-  expect: {
-    toHaveScreenshot: {
-      pathTemplate: "{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{-projectName}{ext}",
-    },
-  },
   projects: [
-    { name: "default", testIgnore: [...ignored, "**/*.visual.spec.ts"] },
+    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS] },
     ...releaseBrowsers,
-    ...(process.env["GOODFETCH_VISUAL_IMAGE"] === undefined ? [] : [visual]),
+    ...visual.projects,
   ],
 });
 

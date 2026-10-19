@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./playwright": "./src/playwright.ts",
     "./screenshot": "./src/screenshot.ts",
+    "./visual-config": "./src/visual-config.ts",
     "./vitest-browser": "./src/vitest-browser.ts",
     "./vitest-browser/setup": "./src/vitest-browser-setup.ts",
     "./vitest-browser/commands": "./src/vitest-browser-commands.ts"

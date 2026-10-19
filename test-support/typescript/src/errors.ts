@@ -22,7 +22,11 @@ export type TestSupportErrorCode =
   /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */
   | "bypass_csp_refused"
   /** A served test's page logged an error, threw, broke its CSP or had a same-origin request fail (ADR 0068). */
-  | "page_errors";
+  | "page_errors"
+  /** `GOODFETCH_VISUAL_IMAGE` names another image than ci/visual/image.toml pins (ADR 0073). */
+  | "visual_image_not_pinned"
+  /** A screenshot's page lacks a fixed setting: instant, locale, time zone, viewport, scale or motion (ADR 0073). */
+  | "screenshot_unsettled";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

@@ -19,7 +19,7 @@ fn each(tasks: &Value, field: &str) -> Vec<Value> {
 }
 
 /// Every family's tasks, in list order, each with its kind.
-const TASKS: [(&str, &str); 9] = [
+const TASKS: [(&str, &str); 11] = [
     ("catalog/1", "crawl"),
     ("catalog/2", "extract"),
     ("catalog/3", "submit"),
@@ -29,6 +29,8 @@ const TASKS: [(&str, &str); 9] = [
     ("limits/1", "crawl"),
     ("limits/2", "crawl"),
     ("limits/3", "crawl"),
+    ("scale/1", "crawl"),
+    ("scale/2", "crawl"),
 ];
 
 #[test]

@@ -16,6 +16,7 @@ mod oracle;
 mod pages;
 mod parameters;
 mod proving_ground;
+mod scale;
 mod serve;
 mod statuses;
 mod task_list;

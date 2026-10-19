@@ -1,4 +1,11 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "these tests build their target folders outside any async worker"
+)]
+
 use std::path::{Path, PathBuf};
+
+use rstest::rstest;
 
 use super::{FuzzReplayError, Replayed, replay_fuzz_target};
 
@@ -57,6 +64,66 @@ fn a_fixed_bug_replays_every_seed_and_crasher() {
                 target.join("seeds/three bytes é"),
                 target.join("crashers/crash-length past the end é"),
             ],
+        })
+    );
+}
+
+/// How a test's own target folder holds a folder.
+#[derive(Clone, Copy)]
+enum Folder {
+    Missing,
+    Empty,
+    OneFile,
+}
+
+/// A target folder in `root` with its seeds and crashers folders as given;
+/// a folder's one file is a valid frame.
+fn target_in(root: &Path, seeds: Folder, crashers: Folder) -> PathBuf {
+    let target = root.join("target é");
+    for (name, folder) in [("seeds", seeds), ("crashers", crashers)] {
+        let path = target.join(name);
+        match folder {
+            Folder::Missing => {}
+            Folder::Empty => std::fs::create_dir_all(&path).unwrap(),
+            Folder::OneFile => {
+                std::fs::create_dir_all(&path).unwrap();
+                std::fs::write(path.join("one frame é"), b"\x01a").unwrap();
+            }
+        }
+    }
+    target
+}
+
+#[rstest]
+#[case::missing(Folder::Missing)]
+#[case::empty(Folder::Empty)]
+fn a_target_without_crashers_replays_its_seeds(#[case] crashers: Folder) {
+    let root = tempfile::tempdir().unwrap();
+    let target = target_in(root.path(), Folder::OneFile, crashers);
+
+    let replayed = replay_fuzz_target(&target, buggy_body);
+
+    assert_eq!(
+        replayed,
+        Ok(Replayed {
+            files: vec![target.join("seeds/one frame é")],
+        })
+    );
+}
+
+#[rstest]
+#[case::missing(Folder::Missing)]
+#[case::empty(Folder::Empty)]
+fn a_target_without_seeds_fails(#[case] seeds: Folder) {
+    let root = tempfile::tempdir().unwrap();
+    let target = target_in(root.path(), seeds, Folder::OneFile);
+
+    let replayed = replay_fuzz_target(&target, buggy_body);
+
+    assert_eq!(
+        replayed,
+        Err(FuzzReplayError::NoSeeds {
+            folder: target.join("seeds"),
         })
     );
 }

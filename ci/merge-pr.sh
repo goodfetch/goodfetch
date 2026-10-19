@@ -20,7 +20,8 @@ if [[ $draft != false ]]; then
   exit 1
 fi
 
-git fetch --quiet origin "$base" "pull/$number/head"
+git fetch --quiet origin "$base"
+git fetch --quiet origin "pull/$number/head"
 if [[ $(git rev-parse FETCH_HEAD) != "$head" ]]; then
   echo "error: pull request #$number moved while it was read; run the command again" >&2
   exit 1

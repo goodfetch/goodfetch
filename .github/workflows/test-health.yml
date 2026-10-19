@@ -164,9 +164,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
+      # The Release run's JUnit artifacts, which name the commit it tested.
+      actions: read
       contents: read
     outputs:
       admitted: ${{ steps.ceiling.outputs.admitted }}
+      commit: ${{ steps.tested.outputs.commit }}
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -188,6 +191,18 @@ jobs:
           cargo run --quiet --locked -p xtask -- results ceiling --store test-results
           --run constrained --today "$(date -u +%F)" --summary "$GITHUB_STEP_SUMMARY"
           | tee -a "$GITHUB_OUTPUT"
+      # A Release run tests the commit its `commit` input names, which may
+      # not be its head; each of its JUnit artifacts names it.
+      - name: Download the Release run's JUnit files
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id }}
+        run: gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --dir target/artifacts --pattern 'junit-*'
+      - name: Name the commit the Release run tested
+        id: tested
+        if: github.event_name == 'workflow_run'
+        run: cargo run --quiet --locked -p xtask -- results tested-commit --artifacts target/artifacts | tee -a "$GITHUB_OUTPUT"
 
   constrained:
     name: constrained
@@ -198,11 +213,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      # The Release run's commit after a Release run, else main's head.
+      # The commit a Release run tested after one, else main's head.
       - name: Check out the commit under test
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+          ref: ${{ needs.budget.outputs.commit || 'main' }}
           persist-credentials: false
       - name: Install the tools and dependencies
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form

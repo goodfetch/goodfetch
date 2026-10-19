@@ -7,7 +7,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -48,6 +48,7 @@ pub(crate) struct TestRun {
     pub(crate) arch: String,
     pub(crate) runtime: Option<String>,
     pub(crate) shard: String,
+    /// The commit the job tested, from its `context.json`.
     pub(crate) commit: String,
     /// The commit's tree hash: the same tree is the same input.
     pub(crate) tree: String,
@@ -89,6 +90,8 @@ pub(crate) struct RunAttempt {
     pub(crate) attempt: u32,
     pub(crate) event: String,
     pub(crate) branch: Option<String>,
+    /// The run's head commit, which its jobs need not have tested: each test
+    /// run names the commit its job tested.
     pub(crate) commit: String,
     pub(crate) tree: String,
     pub(crate) started_at: Timestamp,
@@ -278,7 +281,15 @@ pub(crate) struct Kept {
     pub(crate) run: RunAttempt,
     /// The configuration the artifact's name gives.
     pub(crate) configuration: artifact::Configuration,
+    /// The commit the artifact's job tested, from its `context.json`.
+    pub(crate) commit: String,
     pub(crate) contents: Vec<u8>,
+}
+
+/// The part of an artifact's `context.json` that a kept file needs.
+#[derive(Deserialize)]
+struct KeptContext {
+    commit: String,
 }
 
 /// Every file named `name` that an attempt of the store at `root` kept in
@@ -294,6 +305,7 @@ pub(crate) fn read_kept(root: &Path, name: &str) -> Result<Vec<Kept>> {
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
         let mut run: Option<RunAttempt> = None;
         let mut found = Vec::new();
+        let mut commits = BTreeMap::new();
         for entry in archive
             .entries()
             .with_context(|| format!("reading {}", path.display()))?
@@ -307,21 +319,37 @@ pub(crate) fn read_kept(root: &Path, name: &str) -> Result<Vec<Kept>> {
                     Some(serde_json::from_str(&text).with_context(|| context(path, &entry_path))?);
             } else if let Some(rest) = entry_path.strip_prefix("junit/")
                 && let Some((artifact_name, file)) = rest.split_once('/')
-                && file.rsplit('/').next() == Some(name)
             {
-                let mut contents = Vec::new();
-                entry.read_to_end(&mut contents)?;
-                found.push((artifact::parse(artifact_name)?, contents));
+                if file == "context.json" {
+                    let mut text = String::new();
+                    entry.read_to_string(&mut text)?;
+                    let context: KeptContext =
+                        serde_json::from_str(&text).with_context(|| context(path, &entry_path))?;
+                    commits.insert(artifact_name.to_owned(), context.commit);
+                } else if file.rsplit('/').next() == Some(name) {
+                    let mut contents = Vec::new();
+                    entry.read_to_end(&mut contents)?;
+                    found.push((artifact_name.to_owned(), contents));
+                }
             }
         }
         let Some(run) = run else {
             bail!("{} lacks run.json", path.display());
         };
-        kept.extend(found.into_iter().map(|(configuration, contents)| Kept {
-            run: run.clone(),
-            configuration,
-            contents,
-        }));
+        for (artifact_name, contents) in found {
+            let Some(commit) = commits.get(&artifact_name) else {
+                bail!(
+                    "artifact `{artifact_name}` of {} lacks its context.json",
+                    path.display()
+                );
+            };
+            kept.push(Kept {
+                run: run.clone(),
+                configuration: artifact::parse(&artifact_name)?,
+                commit: commit.clone(),
+                contents,
+            });
+        }
     }
     Ok(kept)
 }

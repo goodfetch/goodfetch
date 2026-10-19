@@ -111,10 +111,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Check out the failed run's commit
+      - name: Check out the commit the failed run tested
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ matrix.commit }}
           persist-credentials: false
       - name: Install the tools and dependencies
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
@@ -157,10 +157,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Check out the failed run's commit
+      - name: Check out the commit the failed run tested
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ matrix.commit }}
           persist-credentials: false
       - name: Install the tools and dependencies
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form

@@ -63,7 +63,7 @@ pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<Exi
                 .with_context(|| format!("reading the commit of {}", release.tag_name))?;
             Some((
                 release.tag_name,
-                latest_by_platform(kept.iter().filter(|kept| kept.run.commit == commit.sha))?,
+                latest_by_platform(kept.iter().filter(|kept| kept.commit == commit.sha))?,
             ))
         }
         None => None,
@@ -156,7 +156,7 @@ fn latest_by_platform<'a>(
             platform,
             Recording {
                 started_at: kept.run.started_at,
-                commit: kept.run.commit.clone(),
+                commit: kept.commit.clone(),
                 figures: figures
                     .figures
                     .into_iter()

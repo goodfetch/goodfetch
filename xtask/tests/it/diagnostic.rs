@@ -100,6 +100,7 @@ fn each_test_that_failed_in_the_attempt_gets_one_diagnostic_job() {
         json!({ "include": [
             {
                 "test": "nextest=sample tests::flaky",
+                "commit": "c2",
                 "suite": "pre-merge",
                 "tier": "test-health",
                 "os": "linux",
@@ -108,6 +109,7 @@ fn each_test_that_failed_in_the_attempt_gets_one_diagnostic_job() {
             },
             {
                 "test": "pytest=tests/test_sample.py::test_flaky",
+                "commit": "c2",
                 "suite": "pre-merge",
                 "tier": "test-health",
                 "os": "linux",
@@ -116,4 +118,30 @@ fn each_test_that_failed_in_the_attempt_gets_one_diagnostic_job() {
             },
         ] })
     );
+}
+
+/// The constrained run after a Release run tests the commit that run
+/// tested, which each of its JUnit artifacts names (ADR 0064).
+#[test]
+fn tested_commit_is_the_one_the_runs_artifacts_name() {
+    let workspace = Workspace::from_fixture("results-ingest");
+
+    let outcome = workspace.xtask(&["results", "tested-commit", "--artifacts", "artifacts"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "commit=c2\n");
+}
+
+#[test]
+fn artifacts_naming_two_commits_name_no_tested_commit() {
+    let workspace = Workspace::from_fixture("results-ingest");
+    workspace.write(
+        "artifacts/junit-quick-test-health-linux-x64-1/context.json",
+        br#"{ "commit": "c3", "tree": "t3", "job": "quick", "order_seed": null, "entropy_seed": null }"#,
+    );
+
+    let outcome = workspace.xtask(&["results", "tested-commit", "--artifacts", "artifacts"]);
+
+    assert_eq!(outcome.code, 2);
+    assert_eq!(outcome.stdout, "");
 }

@@ -86,6 +86,12 @@ struct ApiArtifact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Context {
+    /// The commit the job checked out and tested, which may differ from its
+    /// run's head: a Release run tests its `commit` input, a pull-request
+    /// run its merge commit.
+    commit: String,
+    /// That commit's tree hash.
+    tree: String,
     job: String,
     order_seed: Option<String>,
     entropy_seed: Option<String>,
@@ -147,6 +153,8 @@ pub(crate) fn pending(
 pub(crate) struct Failed {
     /// `<runner>=<test ID>`, as `xtask repeat --test` takes it.
     test: String,
+    /// The commit the failed run tested, which its diagnostic job checks out.
+    commit: String,
     suite: String,
     tier: String,
     os: String,
@@ -173,6 +181,7 @@ pub(crate) fn failed(source: &Source<'_>, platform: &Platform<'_>) -> Result<Vec
         .filter(|run| ["nextest", "vitest", "playwright", "pytest"].contains(&run.runner.as_str()))
         .map(|run| Failed {
             test: format!("{}={}", run.runner, run.test),
+            commit: run.commit,
             suite: run.suite,
             tier: run.tier,
             os: run.os,
@@ -264,12 +273,7 @@ fn read_artifact(
     let mut files = Vec::new();
     collect(folder, folder, &mut files)?;
     files.sort();
-    let context_path = folder.join(CONTEXT);
-    let context: Context = serde_json::from_slice(
-        &std::fs::read(&context_path)
-            .with_context(|| format!("artifact `{name}` lacks its {CONTEXT}"))?,
-    )
-    .with_context(|| format!("parsing {}", context_path.display()))?;
+    let context = read_context(name, folder)?;
     let mut test_runs = Vec::new();
     let mut kept = Vec::new();
     for relative in files {
@@ -311,8 +315,8 @@ fn read_artifact(
                     arch: configuration.arch.clone(),
                     runtime: runtime.clone(),
                     shard: configuration.shard.clone(),
-                    commit: run.commit.clone(),
-                    tree: run.tree.clone(),
+                    commit: context.commit.clone(),
+                    tree: context.tree.clone(),
                     workflow: run.workflow.clone(),
                     run: run.run,
                     attempt: run.attempt,
@@ -330,6 +334,43 @@ fn read_artifact(
         });
     }
     Ok((test_runs, kept))
+}
+
+fn read_context(name: &str, folder: &Path) -> Result<Context> {
+    let path = folder.join(CONTEXT);
+    serde_json::from_slice(
+        &std::fs::read(&path).with_context(|| format!("artifact `{name}` lacks its {CONTEXT}"))?,
+    )
+    .with_context(|| format!("parsing {}", path.display()))
+}
+
+/// The one commit that the JUnit artifacts downloaded into `artifacts`, one
+/// folder each, name as tested: what a constrained run after a Release run
+/// checks out. Fails when they name none, or more than one.
+pub(crate) fn tested_commit(artifacts: &Path) -> Result<String> {
+    let mut commits = BTreeSet::new();
+    for entry in
+        std::fs::read_dir(artifacts).with_context(|| format!("reading {}", artifacts.display()))?
+    {
+        let folder = entry?.path();
+        let Some(name) = folder.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if folder.is_dir() && artifact::is_junit(name) {
+            commits.insert(read_context(name, &folder)?.commit);
+        }
+    }
+    let mut commits = commits.into_iter();
+    match (commits.next(), commits.next()) {
+        (Some(commit), None) => Ok(commit),
+        (None, _) => bail!(
+            "no JUnit artifact in {} names its commit",
+            artifacts.display()
+        ),
+        (Some(first), Some(second)) => {
+            bail!("the JUnit artifacts name more than one tested commit: {first}, {second}")
+        }
+    }
 }
 
 /// The test runs one JUnit test case records. A test the job repeated

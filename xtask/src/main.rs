@@ -451,6 +451,13 @@ enum ResultsCommand {
         #[arg(long, default_value = "https://api.github.com")]
         api_url: String,
     },
+    /// Prints `commit=<sha>`, the one commit a downloaded run's JUnit
+    /// artifacts name as tested; fails when they name none or several.
+    TestedCommit {
+        /// The folder the run's artifacts were downloaded into, one folder each.
+        #[arg(long)]
+        artifacts: PathBuf,
+    },
     /// Opens or reopens one `flaky-test` issue per test that passed and
     /// failed on one tree hash and configuration, and opens or updates one
     /// `live-check` issue per Live check that failed or was inconclusive
@@ -896,6 +903,11 @@ fn run_results(
             for (run, attempt) in results::pending(&api, &repository, &root.join(store), since)? {
                 output::line(&format!("{run} {attempt}"));
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::TestedCommit { artifacts } => {
+            let commit = results::tested_commit(&root.join(artifacts))?;
+            output::line(&format!("commit={commit}"));
             Ok(ExitCode::SUCCESS)
         }
         ResultsCommand::Scan {

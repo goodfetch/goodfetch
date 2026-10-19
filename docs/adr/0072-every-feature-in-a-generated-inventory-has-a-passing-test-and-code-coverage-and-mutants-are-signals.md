@@ -112,6 +112,8 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 | Milestone gate | the owner test of ADR 0058 | any generated Feature, or any declared Feature due at the milestone, is untested (neither tested nor excepted) on `main`'s latest Release run |
 | Release gate | `xtask release` | any Feature present in the release is untested (neither tested nor excepted) |
 
+> Agent decision, pending owner review (#338): until `features/rows.toml` gives the matrix rows their milestones, the Feature check does not fail on a row without one, and the inventory lists such a row with no milestone. No ticket has set the rows' milestones yet, so the rule would fail every pull request; it is switched on in the change that fills `rows.toml`.
+
 - **Before the merge queue exists**, the Release suite runs on manual dispatch (ADR 0061), and the two gates read the latest such run on `main`.
   > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, "the latest such run" is `main`'s latest commit whose cells have all run, across its dispatches; a commit some of whose cells have not run yet is not read.
 - **The release pull request lists every exception**, with its evidence kind.

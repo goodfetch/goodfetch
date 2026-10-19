@@ -3,7 +3,8 @@
 # runner's own system, after .github/actions/host-tools:
 #   build       before the deny: builds the target's tests once with
 #               `cargo nextest archive`, and both Products' executables with
-#               the thin-LTO `ci` profile, from one invocation (ADR 0094);
+#               the thin-LTO `ci` profile, from one invocation (ADR 0094),
+#               and the test tool manifest of the executables tests run;
 #   size        writes the target's size report of both Products, keyed by
 #               the tree the cell tested (`xtask size`, ADR 0061);
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
@@ -38,6 +39,12 @@ mkdir -p target/junit target/release-suite
 # A selection may hold no test of a runner yet; every test it holds runs.
 export NEXTEST_NO_TESTS=pass INSTA_UPDATE=no
 
+# Every runner's tests read the suite, and find the commit's executables
+# through the test tool manifest `build` writes, as under `just test`
+# (ADRs 0062 and 0094).
+export GOODFETCH_TEST_SUITE=release
+export GOODFETCH_TEST_TOOLS="$root/target/release-suite/test-tools.json"
+
 # Vitest, Playwright and pytest order their tests by the tree under test's
 # seed, as `just test` does (TESTING.md, Before merge).
 GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
@@ -59,6 +66,8 @@ case "$part" in
     cargo nextest archive --workspace --locked --target "$target" \
       --profile ci --cargo-profile ci-test --archive-file "$archive"
     cargo build --workspace --locked --target "$target" --profile ci
+    cargo run --quiet --locked -p xtask -- test-tools --cargo-profile ci-test \
+      --target "$target" --out "$GOODFETCH_TEST_TOOLS"
     cargo run --quiet --locked -p xtask -- quarantine exclude >"$exclusions"
     ;;
   size)

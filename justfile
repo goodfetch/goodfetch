@@ -463,6 +463,11 @@ proofs:
 hooks:
     git config core.hooksPath .githooks
 
+# Merges a pull request only when `just quick all` and `just pre-merge all`
+# pass on its exact head, in a fresh worktree (AGENTS.md, "Merging").
+merge number:
+    ci/merge-pr.sh {{ number }}
+
 # Installs the owner's copy of the self-hosted allowlist and the runner's
 # pre-job and post-job scripts into a folder the runner user can read but not
 # write (ADRs 0108 and 0135). Run by the owner on the runner's machine.

@@ -2,7 +2,9 @@
 //! generators, which `xtask codegen` runs, the scanner that reads what each
 //! test declares, and the Feature check of the Quick suite.
 
+mod block_cause;
 mod check;
+mod command;
 mod contract;
 mod entry;
 mod files;
@@ -10,6 +12,7 @@ mod format;
 mod inventory;
 mod row;
 mod scan;
+mod screen;
 mod story;
 
 use std::collections::BTreeSet;
@@ -20,6 +23,7 @@ use anyhow::Result;
 use crate::environment::Environment;
 use crate::output;
 
+pub(crate) use command::{CommandLines, CommandTree, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
 

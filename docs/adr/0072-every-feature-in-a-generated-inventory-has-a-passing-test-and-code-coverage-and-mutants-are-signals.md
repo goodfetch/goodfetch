@@ -46,6 +46,11 @@ Decided in [Feature coverage and traceability](https://github.com/goodfetch/good
   | `screen:` | Console route, read statically from the Console's route definitions in source |
 
   A new kind is added only by an ADR that amends this one. Every generator reads source files or Rust types in process, so `xtask codegen --check` starts no process and stays in the Quick suite (ADR 0061). If the Console's routes can't be read from source, the Console's build writes a route list into the Console's package, which is committed and which that build checks for drift in the Pre-merge suite; the generator reads that file.
+
+  > Agent decision, pending owner review (#352): the three generators' sources, fixed before two of them exist.
+  > - `command:` is each command path with nothing below it, its names after the executable's joined by spaces (`command:browsers install`); a command group is reached through its commands, and a hidden command, such as the Attached-engine entry, is a Feature too. `xtask` links Collie's executable crate and builds both Products' clap `Command` in process; a workspace it was not built from gives them through Collie's `commands` example. A command only Foxhound's executable has is listed in the `commands` section of ADR 0087's generated table of Foxhound's names, and is Foxhound's alone.
+  > - `screen:` reads the route list, not the route definitions: no router is chosen yet, so nothing can be read statically. Each package of the Console commits `console/<package>/routes.json`, `{ "routes": ["/runs", …] }`, each route as its router writes it; the routes of `console/foxhound-screens/` are Foxhound's alone (ADR 0087), every other package's both Products'.
+  > - `block-cause:` reads the values of the type both Products share, `block_cause`, in the catalog's `shared_type_values` (ADR 0095), so a value Foxhound adds, such as `decoy`, is Foxhound's alone by its Product mark.
 - **IDs.** Generated IDs are the contract's own name, so they change only when the contract does; a renamed contract is a change every declaring test must follow, which the check enforces. Story IDs are append-only, like Journey IDs (ADR 0063): a new story takes the next number of its spec, a removed one is `retired` with a `reason`, and a number is never reused.
 
 ### The inventory

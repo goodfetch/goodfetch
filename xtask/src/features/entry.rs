@@ -14,9 +14,20 @@ pub(super) struct Entry {
     pub(super) area: Option<u32>,
     pub(super) milestone: Option<String>,
     pub(super) status: Status,
-    /// The catalog section whose Foxhound names give its Products, for a
-    /// Feature of the catalog.
-    pub(super) section: Option<&'static str>,
+    /// The Products that carry it.
+    pub(super) carriers: Carriers,
+}
+
+/// Which Products carry a Feature (ADR 0094).
+#[derive(Clone, Copy)]
+pub(super) enum Carriers {
+    /// Collie and Foxhound, which contains Collie.
+    Both,
+    /// Foxhound alone.
+    Foxhound,
+    /// Foxhound alone when ADR 0087's generated table of Foxhound's names
+    /// lists it under this section, both otherwise.
+    Table(&'static str),
 }
 
 /// A file a generator could not read, as the error `xtask codegen` stops on.

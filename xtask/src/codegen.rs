@@ -25,6 +25,7 @@
 mod deny;
 mod digest;
 mod emitter;
+mod executables;
 mod layer;
 mod names;
 mod naming;
@@ -292,7 +293,8 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
-    let foxhound_names = names::table(&catalog);
+    let command_lines = executables::command_lines(cargo, root)?;
+    let foxhound_names = names::table(&catalog, command_lines.as_ref());
     files.insert(
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
@@ -302,6 +304,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         catalog: &catalog,
         bundle: &bundle,
         foxhound_names: &foxhound_names,
+        command_lines: command_lines.as_ref(),
     };
     files.insert(
         features::INVENTORY.to_owned(),

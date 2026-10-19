@@ -12,6 +12,9 @@ publish = false
 anyhow.workspace = true
 clap.workspace = true
 flate2.workspace = true
+# Both Products' command lines, built in process for the `command:`
+# Features (ADR 0072).
+goodfetch-collie = { workspace = true, features = ["executable"] }
 goodfetch-protocol.workspace = true
 jiff.workspace = true
 jsonschema.workspace = true

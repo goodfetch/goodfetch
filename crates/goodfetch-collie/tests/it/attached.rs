@@ -84,7 +84,7 @@ fn request(id: i64, method: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {} })
 }
 
-/// Covers: story:3-1, story:3-3
+/// Covers: story:3-1, story:3-3, command:attached-engine
 #[test]
 fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input() {
     let env = TestEnv::new();

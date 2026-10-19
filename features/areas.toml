@@ -55,3 +55,10 @@ prefix = "call_cancelled"
 number = 3
 kind = "format"
 prefix = "protocol"
+
+# The hidden Attached-engine entry of both executables, which an SDK starts
+# (spec #213).
+[[area]]
+number = 3
+kind = "command"
+prefix = "attached-engine"

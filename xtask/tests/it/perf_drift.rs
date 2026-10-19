@@ -170,6 +170,123 @@ fn figure_up_more_than_10_percent_since_the_last_release_opens_one_issue() {
     );
 }
 
+/// A run records only what `xtask affected` selected for its commit, so
+/// each figure's latest value comes from the last run that measured it.
+fn instructions(subject: &str, value: u64) -> Vec<u8> {
+    json!({ "figures": [{ "subject": subject, "figure": "instructions", "value": value }] })
+        .to_string()
+        .into_bytes()
+}
+
+const PARSER: &str = "goodfetch-parser/instructions::parse";
+
+#[test]
+fn figure_drifted_before_a_run_that_measured_only_others_still_opens_one_issue() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[
+            release_suite_run(
+                1,
+                "2026-10-01T08:00:00Z",
+                RELEASE_COMMIT,
+                instructions(FRONTIER, 1_000_000),
+            ),
+            release_suite_run(
+                2,
+                "2026-10-10T08:00:00Z",
+                MAIN_COMMIT,
+                instructions(FRONTIER, 1_200_000),
+            ),
+            release_suite_run(3, "2026-10-18T08:00:00Z", "c3c3", instructions(PARSER, 500)),
+        ],
+    );
+    let github = github(Some("v0.1.0"));
+
+    let outcome = drift(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        opened(&github.writes()),
+        vec![format!(
+            "<!-- goodfetch-results: needs-triage perf-drift linux-x64 {FRONTIER} instructions -->"
+        )]
+    );
+}
+
+/// The release's figure of a benchmark its commit did not measure is the
+/// last one `main` recorded before it.
+#[test]
+fn release_figure_its_commit_did_not_measure_is_mains_last_before_it() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[
+            release_suite_run(
+                1,
+                "2026-09-20T08:00:00Z",
+                "c0c0",
+                instructions(FRONTIER, 1_000_000),
+            ),
+            release_suite_run(
+                2,
+                "2026-10-01T08:00:00Z",
+                RELEASE_COMMIT,
+                instructions(PARSER, 500),
+            ),
+            release_suite_run(
+                3,
+                "2026-10-18T08:00:00Z",
+                MAIN_COMMIT,
+                instructions(FRONTIER, 1_200_000),
+            ),
+        ],
+    );
+    let github = github(Some("v0.1.0"));
+
+    let outcome = drift(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        opened(&github.writes()),
+        vec![format!(
+            "<!-- goodfetch-results: needs-triage perf-drift linux-x64 {FRONTIER} instructions -->"
+        )]
+    );
+}
+
+/// A Release run on `main` may test an older commit than its head: the
+/// release's figures are those of the run that tested the release's commit.
+#[test]
+fn release_commit_is_the_one_a_run_tested_not_its_head() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut release = release_suite_run(
+        1,
+        "2026-10-05T08:00:00Z",
+        RELEASE_COMMIT,
+        instructions(FRONTIER, 1_000_000),
+    );
+    release.head = Some(MAIN_COMMIT);
+    write_store(
+        &workspace,
+        &[
+            release,
+            release_suite_run(
+                2,
+                "2026-10-18T08:00:00Z",
+                MAIN_COMMIT,
+                instructions(FRONTIER, 1_200_000),
+            ),
+        ],
+    );
+    let github = github(Some("v0.1.0"));
+
+    let outcome = drift(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(opened(&github.writes()).len(), 1);
+}
+
 #[test]
 fn before_the_first_release_nothing_is_compared() {
     let workspace = Workspace::from_fixture("empty");

@@ -1,0 +1,39 @@
+#:schema ./journey.schema.json
+id = "J-003"
+title = "Crawl a JavaScript-rendered site with browser rendering, with screenshots and a PDF of each page"
+goal = """
+A person crawls a site whose content its scripts load, with browser rendering. \
+The crawl MUST return every item the site's feed loads as it is scrolled, each \
+with the data its scripts put in the page, in a shadow root and in a frame, \
+and it MUST keep a screenshot and a PDF of each page it rendered."""
+area = 6
+product = "foxhound"
+status = "active"
+covers = ["row:SA-05", "row:CO-15", "row:CO-20", "row:CO-21", "row:SA-09"]
+
+[proving_ground]
+seed = 3
+tasks = [
+  { id = "rendered/1", digest = "ec38118a21e4e88492d986bfcb8251929b615fd1af6f09af01e23dcc7dd055ed" },
+]
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+mcp-stdio = "M2"
+mcp-http = "M2"
+
+[[steps]]
+text = "Crawl the feed with browser rendering, scrolling each page to its end, keeping a screenshot and a PDF of each page"
+
+[[steps]]
+text = "Export the crawl's Dataset"
+
+[[expect]]
+text = "The oracle verifies the crawl's Records"
+task = "rendered/1"
+
+[[expect]]
+text = "Each page the crawl rendered has its screenshot and its PDF"

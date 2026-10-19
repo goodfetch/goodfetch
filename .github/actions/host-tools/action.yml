@@ -2,7 +2,8 @@
 # VM: the Release suite's cells (ADRs 0061 and 0108) and the hosted test-health
 # jobs (ADR 0064). Every download happens here, before ADR 0043's deny:
 # the Rust toolchain of rust-toolchain.toml and the target, just, cargo-nextest,
-# cargo-insta and uv at the versions the CI image pins, pnpm, the runtimes,
+# cargo-insta and uv at the versions the CI image pins (ci/tool-versions.sh
+# checks they agree), pnpm, the runtimes,
 # then `just fetch`. A job calls it right after actions/checkout.
 #
 # Runtimes (ADR 0069; TESTING.md, SDK and CLI tests):

@@ -60,6 +60,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
+    ci/tool-versions.sh
 
 # Regenerates every file generated from goodfetch-protocol's types: the JSON
 # Schema bundle and catalog, each Product's projection, the names only

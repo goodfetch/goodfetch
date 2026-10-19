@@ -30,6 +30,7 @@ use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
 
 use crate::clock::Stopwatch;
+use crate::exchange::Reply;
 use crate::generator;
 use crate::observation::Observations;
 use crate::sync::Mutex;
@@ -46,7 +47,8 @@ const FAMILIES: [(&str, &str); 5] = [
     (scale::HOST, scale::FAMILY),
 ];
 
-/// The parts of a request a Crawl family reads.
+/// The parts of a request a Crawl family reads: an
+/// [`exchange::Request`](crate::exchange::Request)'s, with its host name.
 pub(crate) struct Request<'a> {
     pub(crate) method: &'a Method,
     /// The host name, without its port, in lowercase.
@@ -92,6 +94,19 @@ pub(crate) struct Page {
 }
 
 impl Page {
+    /// The reply the server sends, and how long it holds it first.
+    pub(crate) fn into_reply(self) -> (Reply, Option<Held>) {
+        (
+            Reply {
+                status: self.status,
+                content_type: self.content_type,
+                headers: self.headers,
+                body: self.body,
+            },
+            self.held,
+        )
+    }
+
     fn html(status: StatusCode, html: String) -> Self {
         Self {
             status,
@@ -262,12 +277,11 @@ fn crawl_task(
             kind: Kind::Crawl,
             start_url: format!("http://{task_host}:{port}{start}"),
             description,
+            account: None,
+            time_steps: None,
         },
         host: task_host,
-        expected: Expected {
-            records,
-            effects: Vec::new(),
-        },
+        expected: Expected::records(records),
     }
 }
 

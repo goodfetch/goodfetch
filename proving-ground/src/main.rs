@@ -4,6 +4,7 @@
 //! address, prints one JSON line, and serves each page family on its own host
 //! name, the task list at `/tasks` and the oracle at `/oracle`.
 
+mod agent;
 mod authority;
 mod catalog;
 mod client_hello;
@@ -11,21 +12,38 @@ mod clock;
 mod command;
 mod crawl;
 mod digest;
+mod encodings;
+mod exchange;
+mod extraction;
+mod files;
 mod generator;
+mod handmade;
+mod languages;
+mod login;
+mod model;
+mod network;
 mod observation;
 mod oracle;
 mod output;
+mod portal;
+mod rendered;
+mod replay;
+mod schedule;
 mod server;
 mod site;
 mod sync;
 mod tap;
 mod task;
+mod totp;
 mod version;
 
-use anyhow::{Context as _, Result};
+use std::net::{Ipv4Addr, SocketAddr};
+
+use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 
-use crate::command::{Command, Serve};
+use crate::command::{Command, NetworkProfile, Serve, Shaper};
+use crate::network::{Loss, Network, Profile};
 use crate::server::Server;
 
 fn main() -> Result<()> {
@@ -38,12 +56,64 @@ fn main() -> Result<()> {
         .enable_all()
         .build()
         .context("building the Tokio runtime")?;
-    let Serve { seed, address, .. } = serve;
-    let server = runtime.block_on(Server::bind(address, seed))?;
-    output::line(&serde_json::json!({
-        "address": server.address().to_string(),
+    let Serve {
+        seed,
+        address,
+        network_profile,
+        loss,
+        shaper,
+        ..
+    } = serve;
+    runtime.block_on(run(seed, address, network_profile, loss, shaper))
+}
+
+/// Shapes and calibrates the network, binds the server behind it, prints
+/// the output line, and serves until stopped; then undoes the shaping.
+async fn run(
+    seed: u64,
+    address: SocketAddr,
+    network_profile: NetworkProfile,
+    loss: Loss,
+    shaper: Shaper,
+) -> Result<()> {
+    let profile = match network_profile.round_trip() {
+        Some((name, round_trip)) => Some(Profile::new(name, round_trip, loss)),
+        None if loss.is_some() => bail!("a loss needs a shaped network profile, such as `rtt-0`"),
+        None => None,
+    };
+    let (network, server) = match (profile, shaper) {
+        (None, _) => (
+            Network::unshaped(),
+            Server::bind(address, None, seed).await?,
+        ),
+        (Some(profile), Shaper::Proxy) => {
+            let network = Network::proxy(profile, seed, address).await?;
+            let reached_on = network.proxy_address().map(|proxy| proxy.port());
+            let behind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+            (network, Server::bind(behind, reached_on, seed).await?)
+        }
+        (Some(profile), Shaper::Netem) => {
+            let server = Server::bind(address, None, seed).await?;
+            (
+                Network::netem(profile, server.address().port()).await?,
+                server,
+            )
+        }
+    };
+    let upstream = server.address();
+    let printed = output::line(&serde_json::json!({
+        "address": network.proxy_address().unwrap_or(upstream).to_string(),
         "version": version::VERSION,
         "seed": seed,
-    }))?;
-    runtime.block_on(server.run())
+        "network": network.report(),
+    }));
+    let outcome = match printed {
+        Ok(()) => tokio::select! {
+            outcome = server.run() => outcome,
+            () = network.forward(upstream) => Ok(()),
+        },
+        Err(error) => Err(error),
+    };
+    let stopped = network.stop().await;
+    outcome.and(stopped)
 }

@@ -1,0 +1,30 @@
+{
+  "measurement": "proving-ground-scale-throughput",
+  "question": "Does the Proving ground serve the pages of a seeded family of millions of pages faster than the fastest competitor on the same host consumes them (ticket #164, ADR 0064)?",
+  "declared": "2026-10-19",
+  "family": "scale",
+  "pages": 4194304,
+  "seed": 164,
+  "proving_ground": {
+    "build": "release",
+    "load": "64 keep-alive HTTP/1.1 connections from one Node.js process, each asking in turn for item pages drawn uniformly from /items/1 to /items/4194304 by a seeded generator, for 10 seconds; the count is of pages answered 200",
+    "note": "the load generator may be the bottleneck, so the figure is a lower bound of what the Proving ground serves"
+  },
+  "competitor": {
+    "name": "Crawlee",
+    "version": "3.18.2",
+    "crawler": "HttpCrawler, Crawlee's crawler that fetches without parsing, with its concurrency fixed at 64, no retries and no Session pool",
+    "pages": 20000,
+    "urls": "the same seeded draw of item URLs, given as the start list",
+    "count": "pages its request handler received, over the time from run() to its end"
+  },
+  "trials": 5,
+  "order": "alternating, the Proving ground first; each trial starts its own Proving ground",
+  "statistic": "pages per second of each trial; every trial counts, none is replaced",
+  "threshold": "the Proving ground's slowest trial is faster than the competitor's fastest trial",
+  "host_class": "local-controlled: an unpublished run on the owner's machine (ADR 0076)",
+  "competitors_not_run": {
+    "reason": "not installed on this host, and installing them downloads packages, which this run does not do",
+    "names": ["Scrapy", "Crawl4AI", "Spider", "Firecrawl", "Apify SDK"]
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "declaration": "declaration.json",
+  "ran": "2026-10-19T15:17:12.190Z",
+  "proving_ground_version": "0.0.0+8aae66d752622d39312a8868cc2a019505a9ef0b",
+  "commit": "6c72009bc1a18abab872b4867dd3223e8761c403",
+  "host": {
+    "class": "local-controlled",
+    "platform": "darwin 27.0.0",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "cpus": 14,
+    "memory_bytes": 38654705664,
+    "load_average_1m_at_start": 552.81640625,
+    "node": "v24.19.0"
+  },
+  "trials": [
+    {
+      "kind": "proving_ground",
+      "pages": 5520,
+      "seconds": 10.183807875000003,
+      "pages_per_second": 542.0369342935977
+    },
+    {
+      "kind": "crawlee",
+      "pages": 19954,
+      "seconds": 294.007191584,
+      "pages_per_second": 67.86908814201233
+    },
+    {
+      "kind": "proving_ground",
+      "pages": 29886,
+      "seconds": 10.012722958000028,
+      "pages_per_second": 2984.802448381087
+    },
+    {
+      "kind": "crawlee",
+      "pages": 19954,
+      "seconds": 281.688067208,
+      "pages_per_second": 70.83722146194378
+    },
+    {
+      "kind": "proving_ground",
+      "pages": 15111,
+      "seconds": 10.265269916000078,
+      "pages_per_second": 1472.0509176721278
+    },
+    {
+      "kind": "crawlee",
+      "pages": 19954,
+      "seconds": 383.47153487500003,
+      "pages_per_second": 52.03515303034003
+    },
+    {
+      "kind": "proving_ground",
+      "pages": 33567,
+      "seconds": 10.012970667000046,
+      "pages_per_second": 3352.351776144462
+    },
+    {
+      "kind": "crawlee",
+      "pages": 19954,
+      "seconds": 159.56852387500007,
+      "pages_per_second": 125.04972481685176
+    },
+    {
+      "kind": "proving_ground",
+      "pages": 13990,
+      "seconds": 10.048791041000047,
+      "pages_per_second": 1392.2072757727208
+    },
+    {
+      "kind": "crawlee",
+      "pages": 19954,
+      "seconds": 211.4621148339999,
+      "pages_per_second": 94.36205636959657
+    }
+  ],
+  "slowest_served_pages_per_second": 542.0369342935977,
+  "fastest_consumed_pages_per_second": 125.04972481685176,
+  "outcome": "met"
+}

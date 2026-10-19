@@ -15,6 +15,7 @@ mod client_hello;
 mod clock;
 mod command;
 mod connection_record;
+mod crawl;
 mod digest;
 mod dns;
 mod encodings;

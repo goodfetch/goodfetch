@@ -4,11 +4,13 @@
 //! `ClientHello` and HTTP/2 settings, pseudo-header order, status and
 //! timing), the bytes each
 //! request and each host received and sent, the Effects the site
-//! carried out, and what its pages' own scripts reported. The oracle and the
-//! suites read them, never a tool's report. The connection record beside
-//! them lists every connection the Proving ground's listeners accepted and
-//! every relay its forward proxies carried out, each entry with the time
-//! step it came at, which `PUT /time-step` sets.
+//! carried out, what its pages' own scripts reported, and the findings of
+//! the Crawl families (a page fetched twice, a trap followed, a honeypot
+//! hit, a `Retry-After` ignored). The oracle and the suites read them,
+//! never a tool's report. The connection record beside them lists every
+//! connection the Proving ground's listeners accepted and every relay its
+//! forward proxies carried out, each entry with the time step it came at,
+//! which `PUT /time-step` sets.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -23,7 +25,8 @@
 //! Only the host names the Proving ground serves are observed; its own
 //! address (the task list, the oracle, this record) is not. At most
 //! [`REQUEST_LIMIT`] requests are kept in detail; later ones are counted in
-//! `unrecorded_requests` and in their host's bytes.
+//! `unrecorded_requests` and in their host's bytes, and at most
+//! [`FINDING_LIMIT`] findings, later ones counted in `unrecorded_findings`.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -35,10 +38,13 @@ use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
 use crate::connection_record::{self, ConnectionRecord, Stamp};
 use crate::sync::Mutex;
-use crate::task::Effect;
+use crate::task::{Effect, Finding};
 
 /// The most requests kept in detail (STYLE.md: every buffer is bounded).
 const REQUEST_LIMIT: usize = 100_000;
+
+/// The most findings kept (STYLE.md: every buffer is bounded).
+const FINDING_LIMIT: usize = 10_000;
 
 /// The observations of one `serve`.
 pub(crate) struct Observations {
@@ -58,6 +64,8 @@ struct State {
     hosts: BTreeMap<Arc<str>, ByteCount>,
     effects: Vec<EffectRecord>,
     reports: Vec<ReportRecord>,
+    findings: Vec<FindingRecord>,
+    unrecorded_findings: u64,
 }
 
 /// Bytes received from and sent to a client.
@@ -280,6 +288,14 @@ struct ReportRecord {
     report: Report,
 }
 
+/// A finding of a Crawl family, with the task of the host it came on.
+#[derive(Serialize)]
+struct FindingRecord {
+    task: Option<String>,
+    #[serde(flatten)]
+    finding: Finding,
+}
+
 /// A recorded request's place in the record.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RequestId(usize);
@@ -291,6 +307,8 @@ struct Document<'a> {
     unrecorded_requests: u64,
     effects: &'a [EffectRecord],
     reports: &'a [ReportRecord],
+    findings: &'a [FindingRecord],
+    unrecorded_findings: u64,
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
     #[serde(flatten)]
@@ -423,8 +441,29 @@ impl Observations {
             .collect()
     }
 
-    /// The record as JSON: the requests, the Effects, the reports, and the bytes per task
-    /// and per host.
+    /// Records a finding of a Crawl family on a request to `authority`.
+    pub(crate) fn finding(&self, authority: &str, finding: Finding) {
+        let task = self.served(authority).and_then(|(_, task)| task.clone());
+        let mut state = self.state();
+        if state.findings.len() >= FINDING_LIMIT {
+            state.unrecorded_findings += 1;
+        } else {
+            state.findings.push(FindingRecord { task, finding });
+        }
+    }
+
+    /// The findings recorded for `task`, in order.
+    pub(crate) fn findings_of(&self, task: &str) -> Vec<Finding> {
+        self.state()
+            .findings
+            .iter()
+            .filter(|record| record.task.as_deref() == Some(task))
+            .map(|record| record.finding.clone())
+            .collect()
+    }
+
+    /// The record as JSON: the requests, the Effects, the reports, the
+    /// findings, the bytes per task and per host, and the connection record.
     pub(crate) fn document(&self) -> Vec<u8> {
         let state = self.state();
         let mut tasks = BTreeMap::new();
@@ -442,6 +481,8 @@ impl Observations {
                 unrecorded_requests: state.unrecorded_requests,
                 effects: &state.effects,
                 reports: &state.reports,
+                findings: &state.findings,
+                unrecorded_findings: state.unrecorded_findings,
                 tasks,
                 hosts: &state.hosts,
                 record,

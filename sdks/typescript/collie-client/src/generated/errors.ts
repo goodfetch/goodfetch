@@ -60,6 +60,33 @@ export class UnavailableError extends GoodfetchError {}
 export class InternalError extends GoodfetchError {}
 
 /**
+ * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
+ */
+export class ArtifactDownloadFailedError extends UnavailableError {
+  constructor(message: string) {
+    super(message, { code: "artifact_download_failed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.
+ */
+export class ArtifactUnavailableOfflineError extends RefusedError {
+  constructor(message: string) {
+    super(message, { code: "artifact_unavailable_offline", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.
+ */
+export class BrowserNotInstalledError extends UnavailableError {
+  constructor(message: string) {
+    super(message, { code: "browser_not_installed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.
  */
 export class CallCancelledError extends UnavailableError {
@@ -97,6 +124,9 @@ export class SampleRefusedError extends RefusedError {
 
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {
+  artifact_download_failed: ArtifactDownloadFailedError,
+  artifact_unavailable_offline: ArtifactUnavailableOfflineError,
+  browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   not_in_product: NotInProductError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,

@@ -5,6 +5,7 @@
 //! `xtask codegen` writes the registry into the bundle as `formats`, which
 //! `xtask compat` reads.
 
+use crate::browser_cache::BrowserCacheEntry;
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, schema_of};
 use crate::jsonrpc::Message;
 
@@ -105,8 +106,19 @@ pub const PROTOCOL: Format = Format {
     schema: schema_of::<Message>,
 };
 
+/// The Browser cache's entries (ADRs 0066 and 0098), one `entry.json` per
+/// Pinned artifact: an engine reads its own major up to its own minor, and
+/// never deletes an entry it cannot read.
+pub const BROWSER_CACHE: Format = Format {
+    name: "browser-cache",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::Default,
+    schema: schema_of::<BrowserCacheEntry>,
+};
+
 /// Every registered format.
-pub const FORMATS: &[&Format] = &[&PROTOCOL];
+pub const FORMATS: &[&Format] = &[&PROTOCOL, &BROWSER_CACHE];
 
 #[cfg(test)]
 mod tests;

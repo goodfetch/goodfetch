@@ -11,17 +11,33 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+# Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
+flate2.workspace = true
 goodfetch-protocol.workspace = true
+# The Browser cache's pinned downloads (ADR 0043): HTTPS GETs over HTTP/1.1.
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+jiff.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros"] }
+tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "fs", "net"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
+webpki-roots.workspace = true
+zip = { workspace = true, features = ["deflate-flate2"] }
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# The pinned downloads' HTTPS stand-in (tests/it/downloads.rs).
+hyper = { workspace = true, features = ["server"] }
+rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
 mimalloc.workspace = true
 rstest.workspace = true
@@ -35,6 +51,10 @@ harness = false
 [[bench]]
 name = "heap"
 harness = false
+
+[package.metadata.cargo-shear]
+# flate2 is never named: it only picks the backend zip inflates with.
+ignored = ["flate2"]
 
 [lints]
 workspace = true

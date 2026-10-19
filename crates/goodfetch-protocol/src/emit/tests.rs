@@ -19,18 +19,27 @@ fn the_bundle_holds_the_schema_of_the_releases_file() {
 }
 
 #[test]
-fn the_bundle_registers_the_protocol_with_its_rule_and_message_schema() {
+fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
 
     assert_eq!(
         emitted.bundle["formats"],
-        json!([{
-            "name": "protocol",
-            "version": "0.1",
-            "storage": "transcript",
-            "rule": "default",
-            "schema": { "$ref": "#/$defs/Message" },
-        }])
+        json!([
+            {
+                "name": "protocol",
+                "version": "0.1",
+                "storage": "transcript",
+                "rule": "default",
+                "schema": { "$ref": "#/$defs/Message" },
+            },
+            {
+                "name": "browser-cache",
+                "version": "0.1",
+                "storage": "json",
+                "rule": "default",
+                "schema": { "$ref": "#/$defs/BrowserCacheEntry" },
+            },
+        ])
     );
 }
 

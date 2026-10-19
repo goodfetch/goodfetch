@@ -7,6 +7,7 @@
 //! It never names a Foxhound type: where Foxhound adds behaviour, it fills
 //! an interface defined here.
 
+pub mod browser_cache;
 mod composition;
 mod engine;
 mod info;

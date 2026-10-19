@@ -96,11 +96,6 @@ impl ProvingGround {
             .1
     }
 
-    /// The URL of `path` on the host name `host`, with the bound port.
-    pub(crate) fn url(&self, host: &str, path: &str) -> String {
-        format!("http://{host}:{}{path}", self.port())
-    }
-
     /// Fetches a URL on one of the Proving ground's host names, connecting to
     /// the reported address with the URL's host in the `Host` header.
     pub(crate) fn get(&self, url: &str) -> Answer {

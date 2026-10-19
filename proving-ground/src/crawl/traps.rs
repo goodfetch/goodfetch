@@ -190,7 +190,7 @@ fn category(seed: u64, number: u64) -> String {
                 format!("/items/{id}?fbclid={:016x}", token.rotate_left(17)),
             ),
             3 => (
-                format!("/items/{id};jsessionid={:016X}", token),
+                format!("/items/{id};jsessionid={token:016X}"),
                 format!("/items/{id}"),
             ),
             4 => (

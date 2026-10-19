@@ -171,7 +171,7 @@ pub(crate) fn links(html: &str, hidden: bool) -> Vec<String> {
     let loc = Regex::new(r"<loc>([^<]*)</loc>").expect("a valid pattern");
     // An element that hides itself hides the links inside it.
     let hiding =
-        Regex::new(r#"(?s)<(div|span|p)\s[^>]*(hidden|display:none)[^>]*>.*?</(div|span|p)>"#)
+        Regex::new(r"(?s)<(div|span|p)\s[^>]*(hidden|display:none)[^>]*>.*?</(div|span|p)>")
             .expect("a valid pattern");
     let shown = if hidden {
         html.to_owned()
@@ -275,4 +275,22 @@ pub(crate) fn field(page: &str, pattern: &str) -> Option<String> {
         .expect("a valid pattern")
         .captures(page)
         .map(|captures| captures[1].to_owned())
+}
+
+/// The kinds of the findings in an oracle's answer, each run of one kind
+/// once.
+pub(crate) fn finding_kinds(answer: &serde_json::Value) -> Vec<String> {
+    let mut kinds: Vec<String> = answer["findings"]
+        .as_array()
+        .expect("the answer lists its findings")
+        .iter()
+        .map(|finding| {
+            finding["kind"]
+                .as_str()
+                .expect("a finding's kind")
+                .to_owned()
+        })
+        .collect();
+    kinds.dedup();
+    kinds
 }

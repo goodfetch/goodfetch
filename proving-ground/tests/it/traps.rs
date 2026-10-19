@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use crate::crawler::{Crawler, Fetched, every_url, field, links};
+use crate::crawler::{Crawler, Fetched, every_url, field, finding_kinds, links};
 use crate::proving_ground::ProvingGround;
 
 const SEED: u64 = 164;
@@ -45,18 +45,6 @@ fn judge(proving_ground: &ProvingGround, status: &str, records: &[Value]) -> Val
     proving_ground
         .judge(&json!({ "task": TASK, "status": status, "records": records }))
         .json()
-}
-
-/// The kinds of the findings in an oracle's answer.
-fn finding_kinds(answer: &Value) -> Vec<String> {
-    let mut kinds: Vec<String> = answer["findings"]
-        .as_array()
-        .expect("findings")
-        .iter()
-        .map(|finding| finding["kind"].as_str().unwrap().to_owned())
-        .collect();
-    kinds.dedup();
-    kinds
 }
 
 #[test]
@@ -160,7 +148,7 @@ fn robots_txt_disallows_the_honeypots() {
     let proving_ground = ProvingGround::start(SEED);
     let start = start_url(&proving_ground);
 
-    let robots = proving_ground.get(&format!("{}robots.txt", start));
+    let robots = proving_ground.get(&format!("{start}robots.txt"));
 
     assert_eq!(robots.status, 200);
     assert_eq!(robots.body, "User-agent: *\nDisallow: /hp/\n");

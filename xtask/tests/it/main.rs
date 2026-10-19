@@ -29,6 +29,7 @@ mod egress_hosts;
 mod egress_rules;
 mod fixture_size;
 mod ingest;
+mod journeys;
 mod minute_ceiling;
 mod mocking_lockfile;
 mod modules;

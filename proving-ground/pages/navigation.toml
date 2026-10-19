@@ -1,0 +1,119 @@
+# The `navigation` family's hand-made pages and their hand-written expected
+# results (spec #152, story 29), ported from the lab's navigation, frames and
+# files fixtures: an SPA route, a history navigation, a popup, a same-origin
+# and a cross-origin frame, an upload and a download with exact bytes. Each
+# task is served on its own host name, `<ordinal>.navigation.test`, and its
+# cross-origin frames on `<ordinal>.navigation-frame.test`, another site; an
+# ordinal is the task's place in this file from 1: append a task, never
+# reorder or remove one (ADR 0063). A page's `{frame_origin}` is replaced with
+# the frame host's origin, without its scheme (`//host:port`).
+#
+# Each page posts the event that reached its control to `/effects` on its own
+# host name, recorded as the task's Effect; the oracle requires exactly the
+# `effects` listed. A `download` is served with seeded bytes the oracle
+# requires back exactly.
+
+[shared]
+"/effects.js" = '''
+// Posts an event that reached a control to the Proving ground, which records
+// it as the task's Effect; `done` marks the page's expected end state.
+const post = effect => fetch('/effects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(effect) });
+const done = () => { document.querySelector('#done').textContent = 'done'; };
+'''
+
+[[tasks]]
+name = "spa"
+kind = "act"
+description = "Click the link Detail, which changes the page's route without loading a new page."
+effects = [{ event = "route", target = "go", trusted = true, details = { path = "/detail" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><a id="go" href="/detail">Detail</a><h1 id="view">list</h1><script src="/effects.js"></script><script>
+document.querySelector('#go').addEventListener('click', async event => {
+  event.preventDefault();
+  history.pushState({}, '', event.currentTarget.href);
+  document.querySelector('#view').textContent = 'detail';
+  await post({ event: 'route', target: 'go', trusted: event.isTrusted, details: { path: location.pathname + location.search } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "history"
+kind = "act"
+description = "Follow the link to page B, then go back to page A with the browser's history."
+effects = [{ event = "back", target = "page-a", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><h1>page A</h1><a id="next" href="/b">Page B</a><script src="/effects.js"></script><script>
+addEventListener('pageshow', async event => {
+  const type = performance.getEntriesByType('navigation')[0]?.type;
+  if (event.persisted || type === 'back_forward') { await post({ event: 'back', target: 'page-a', trusted: true }); done(); }
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+"/b" = '''<!doctype html><html><body style="margin:0"><h1>page B</h1><output id="done"></output><script>document.body.dataset.ready = 'true';</script></body></html>'''
+
+[[tasks]]
+name = "popup"
+kind = "act"
+description = "Click Open, then click Confirm in the popup window it opens."
+effects = [{ event = "click", target = "confirm", trusted = true, details = { window = "popup" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><button id="open" style="width:160px;height:40px">Open</button><script>
+document.querySelector('#open').addEventListener('click', () => { window.open('/popup', '_blank', 'width=600,height=400'); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+"/popup" = '''<!doctype html><html><body style="margin:0"><button id="confirm" style="position:absolute;left:20px;top:20px;width:160px;height:40px">Confirm</button><output id="done"></output><script src="/effects.js"></script><script>
+document.querySelector('#confirm').addEventListener('click', async event => { await post({ event: 'click', target: 'confirm', trusted: event.isTrusted, details: { window: window.opener ? 'popup' : 'top' } }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "frame"
+kind = "act"
+description = "Click Confirm inside the page's frame, which comes from the page's own origin."
+effects = [{ event = "click", target = "confirm", trusted = true, details = { host = "4.navigation.test", framed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><iframe id="frame" onload="this.dataset.loaded='true'" src="/inner" style="border:0;width:400px;height:200px;position:absolute;left:50px;top:80px"></iframe><script>document.body.dataset.ready = 'true';</script></body></html>'''
+"/inner" = '''<!doctype html><html><body style="margin:0"><button id="confirm" style="position:absolute;left:20px;top:20px;width:160px;height:40px">Confirm</button><output id="done"></output><script src="/effects.js"></script><script>
+document.querySelector('#confirm').addEventListener('click', async event => { await post({ event: 'click', target: 'confirm', trusted: event.isTrusted, details: { host: location.hostname, framed: String(window !== top) } }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "cross-frame"
+kind = "act"
+description = "Click Confirm inside the page's frame, which comes from another site."
+effects = [{ event = "click", target = "confirm", trusted = true, details = { host = "5.navigation-frame.test", framed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><iframe id="frame" onload="this.dataset.loaded='true'" src="{frame_origin}/inner" style="border:0;width:400px;height:200px;position:absolute;left:50px;top:80px"></iframe><script>document.body.dataset.ready = 'true';</script></body></html>'''
+"/inner" = '''<!doctype html><html><body style="margin:0"><button id="confirm" style="position:absolute;left:20px;top:20px;width:160px;height:40px">Confirm</button><output id="done"></output><script src="/effects.js"></script><script>
+document.querySelector('#confirm').addEventListener('click', async event => { await post({ event: 'click', target: 'confirm', trusted: event.isTrusted, details: { host: location.hostname, framed: String(window !== top) } }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "upload"
+kind = "act"
+description = "Upload the file served at `/files/upload.txt`, under its name `upload.txt`, through the file field `#file`."
+effects = [{ event = "upload", target = "file", trusted = true, details = { name = "upload.txt", content = "goodfetch-upload\n" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><input id="file" type="file"><script src="/effects.js"></script><script>
+// Automation sets a file field's files with an untrusted change event, as the
+// lab found, so the upload is judged by the file alone.
+document.querySelector('#file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  await post({ event: 'upload', target: 'file', trusted: true, details: { name: file.name, content: await file.text() } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+"/files/upload.txt" = "goodfetch-upload\n"
+
+[[tasks]]
+name = "download"
+kind = "download"
+description = "Download the file the link Download offers and return it, named as the site names it, with its exact bytes."
+download = { path = "/files/catalog.txt", name = "catalog.txt" }
+[tasks.pages]
+"/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><a id="file" href="/files/catalog.txt" download="catalog.txt">Download</a><script>document.body.dataset.ready = 'true';</script></body></html>'''

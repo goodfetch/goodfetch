@@ -47,9 +47,11 @@ RUN curl -fsSLo /tmp/mold.tar.gz "https://github.com/rui314/mold/releases/downlo
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-Clink-arg=-fuse-ld=mold
 
 # The Secret Service the keychain tests meet (ci/os-services.sh starts it):
-# a D-Bus session bus, gnome-keyring and libsecret's secret-tool.
+# a D-Bus session bus, gnome-keyring and libsecret's secret-tool; and
+# iproute2's `tc`, which the Proving ground's netem tests shape `lo` with
+# (the container gets CAP_NET_ADMIN from ci/vm/start.sh).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools \
+ && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools iproute2 \
  && rm -rf /var/lib/apt/lists/*
 
 # rust-toolchain.toml's components, the MSRV's toolchain (the workspace's

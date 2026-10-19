@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::env::{START_TIME, TestEnv};
+use crate::ssrf::SsrfTable;
 use crate::tools::Tools;
 
 /// One test's setup, as the TypeScript and Python packages read it.
@@ -51,6 +52,10 @@ impl Description {
 /// `xtask codegen` commits each under.
 pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
     BTreeMap::from([
+        (
+            "ssrf-cases.schema.json",
+            schemars::schema_for!(SsrfTable).to_value(),
+        ),
         (
             "test-env-description.schema.json",
             schemars::schema_for!(Description).to_value(),

@@ -18,13 +18,16 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::num::NonZeroU64;
 use std::path::Path;
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use toml::value::Datetime;
 
 use crate::check::Finding;
-use crate::github::Api;
+use crate::environment::Environment;
+use crate::github::{self, Api};
+use crate::output;
 
 /// The list's file, at the workspace's root.
 pub(crate) const LIST: &str = "quarantine.toml";
@@ -328,4 +331,46 @@ pub(crate) fn alternation(texts: impl Iterator<Item = String>) -> String {
         })
         .collect::<Vec<_>>()
         .join("|")
+}
+
+/// `xtask quarantine`'s commands.
+#[derive(clap::Subcommand)]
+pub(crate) enum Command {
+    /// Fails on an entry whose issue is not an open `flaky-test` issue, or
+    /// whose test its runner no longer lists.
+    Check {
+        /// The repository whose issues the entries name, and GitHub's API.
+        #[command(flatten)]
+        github: github::Arguments,
+        /// The Cargo profile nextest builds its listing with.
+        #[arg(long)]
+        cargo_profile: Option<String>,
+    },
+    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
+    /// runner skip the listed tests.
+    Exclude,
+}
+
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let root = environment.root.as_path();
+    match command {
+        Command::Check {
+            github,
+            cargo_profile,
+        } => {
+            let sources = Sources {
+                api: github.api(environment.token()),
+                repository: &github.repository,
+                cargo: &environment.cargo,
+                cargo_profile: cargo_profile.as_deref(),
+            };
+            Ok(crate::check::report(&check(root, &sources)?))
+        }
+        Command::Exclude => {
+            for (runner, argument) in exclusions(root)? {
+                output::line(&format!("{runner}\t{argument}"));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
 }

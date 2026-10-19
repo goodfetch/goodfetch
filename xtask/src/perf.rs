@@ -19,7 +19,6 @@ mod measure;
 mod pull_request;
 mod table;
 
-use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -28,7 +27,8 @@ use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
 
 use crate::check::{self, Finding};
-use crate::output;
+use crate::environment::Environment;
+use crate::{github, output};
 
 use compare::{Row, Verdict};
 
@@ -70,11 +70,8 @@ pub(crate) enum Command {
         /// A commit of `main`: the pull request that merged it.
         #[arg(long)]
         commit: Option<String>,
-        /// The repository, as `owner/name`.
-        #[arg(long)]
-        repository: String,
-        #[arg(long, default_value = "https://api.github.com")]
-        api_url: String,
+        #[command(flatten)]
+        github: github::Arguments,
         #[arg(long)]
         save: PathBuf,
     },
@@ -85,11 +82,8 @@ pub(crate) enum Command {
         /// The results store's checkout.
         #[arg(long)]
         store: PathBuf,
-        /// The repository, as `owner/name`.
-        #[arg(long)]
-        repository: String,
-        #[arg(long, default_value = "https://api.github.com")]
-        api_url: String,
+        #[command(flatten)]
+        github: github::Arguments,
     },
 }
 
@@ -130,12 +124,8 @@ pub(crate) struct Reports {
     save: Option<PathBuf>,
 }
 
-pub(crate) fn run(
-    command: Command,
-    root: &Path,
-    cargo: &OsStr,
-    token: Option<&str>,
-) -> Result<ExitCode> {
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let (root, cargo) = (environment.root.as_path(), environment.cargo.as_os_str());
     match command {
         Command::Build {
             base,
@@ -169,8 +159,7 @@ pub(crate) fn run(
         Command::PullRequest {
             number,
             commit,
-            repository,
-            api_url,
+            github,
             save,
         } => {
             // clap requires one of `--number` and `--commit`.
@@ -179,23 +168,13 @@ pub(crate) fn run(
                 (None, Some(commit)) => pull_request::Source::MergedCommit(commit),
                 (None, None) => anyhow::bail!("give --number or --commit"),
             };
-            let api = crate::github::Api {
-                url: &api_url,
-                token,
-            };
-            pull_request::save(api, &repository, &source, &root.join(save))?;
+            let api = github.api(environment.token());
+            pull_request::save(api, &github.repository, &source, &root.join(save))?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Drift {
-            store,
-            repository,
-            api_url,
-        } => drift::check(
-            &crate::github::Api {
-                url: &api_url,
-                token,
-            },
-            &repository,
+        Command::Drift { store, github } => drift::check(
+            &github.api(environment.token()),
+            &github.repository,
             &root.join(store),
         ),
     }

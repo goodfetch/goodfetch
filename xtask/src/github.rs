@@ -5,6 +5,28 @@
 use anyhow::{Context as _, Result};
 use serde::de::DeserializeOwned;
 
+/// The arguments of every command that reads or writes GitHub.
+#[derive(clap::Args)]
+#[group(skip)]
+pub(crate) struct Arguments {
+    /// The repository, as `owner/name`.
+    #[arg(long, default_value = "goodfetch/goodfetch")]
+    pub(crate) repository: String,
+    /// GitHub's API, or a stand-in's address.
+    #[arg(long, default_value = "https://api.github.com")]
+    pub(crate) api_url: String,
+}
+
+impl Arguments {
+    /// The API, read and written with `token` when there is one.
+    pub(crate) fn api<'a>(&'a self, token: Option<&'a str>) -> Api<'a> {
+        Api {
+            url: &self.api_url,
+            token,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Api<'a> {
     /// `https://api.github.com`, or a stand-in's address.

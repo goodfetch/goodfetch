@@ -17,14 +17,16 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::affected;
 use crate::check::Finding;
-use crate::github::Api;
+use crate::environment::Environment;
+use crate::github::{self, Api};
 use crate::workflow;
 
 /// The change-detection job, whose `jobs` output is the selection.
@@ -33,13 +35,12 @@ const AFFECTED_JOB: &str = "affected";
 /// GitHub's largest page of jobs.
 const PAGE_SIZE: usize = 100;
 
-pub(crate) struct Run<'a> {
-    pub(crate) api_url: &'a str,
-    pub(crate) token: Option<&'a str>,
-    pub(crate) repository: &'a str,
-    pub(crate) id: u64,
+struct Run<'a> {
+    api: Api<'a>,
+    repository: &'a str,
+    id: u64,
     /// This attempt's number, from 1.
-    pub(crate) attempt: u32,
+    attempt: u32,
 }
 
 /// One entry of `${{ toJSON(needs) }}`.
@@ -69,7 +70,7 @@ struct Step {
     conclusion: Option<String>,
 }
 
-pub(crate) fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
+fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
     let text = std::fs::read_to_string(needs_file)
         .with_context(|| format!("reading {}", needs_file.display()))?;
     let needs: BTreeMap<String, Need> =
@@ -131,10 +132,7 @@ fn not_selected(needs: &BTreeMap<String, Need>) -> Result<BTreeSet<&str>> {
 }
 
 fn attempt_jobs(run: &Run<'_>, attempt: u32) -> Result<Vec<Job>> {
-    let api = Api {
-        url: run.api_url,
-        token: run.token,
-    };
+    let api = run.api;
     let mut jobs = Vec::new();
     for page in 1.. {
         let page: JobsPage = api
@@ -150,4 +148,32 @@ fn attempt_jobs(run: &Run<'_>, attempt: u32) -> Result<Vec<Job>> {
         }
     }
     Ok(jobs)
+}
+
+/// `xtask all-green`'s arguments.
+#[derive(clap::Args)]
+pub(crate) struct Arguments {
+    /// A file holding the workflow's `${{ toJSON(needs) }}`.
+    #[arg(long)]
+    needs: PathBuf,
+    #[command(flatten)]
+    github: github::Arguments,
+    #[arg(long)]
+    run_id: u64,
+    /// This run attempt's number.
+    #[arg(long)]
+    attempt: u32,
+}
+
+pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    let run = Run {
+        api: arguments.github.api(environment.token()),
+        repository: &arguments.github.repository,
+        id: arguments.run_id,
+        attempt: arguments.attempt,
+    };
+    Ok(crate::check::report(&check(
+        &environment.path(&arguments.needs),
+        &run,
+    )?))
 }

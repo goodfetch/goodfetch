@@ -28,12 +28,13 @@ mod typescript;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
 use crate::check::Finding;
+use crate::environment::Environment;
 use layer::{Layer, Product};
 
 /// Where `goodfetch-protocol`'s committed outputs live.
@@ -395,4 +396,32 @@ fn run_generator(
     let mut contents = external.prefix.clone().into_bytes();
     contents.extend_from_slice(&generated);
     Ok(contents)
+}
+
+/// `xtask codegen`'s arguments.
+#[derive(clap::Args)]
+pub(crate) struct Arguments {
+    /// Fails on any committed file that differs from what the types
+    /// generate, without running the TypeScript and Python generators.
+    #[arg(long)]
+    check: bool,
+    /// `json-schema-to-typescript`'s executable.
+    #[arg(long, default_value = "node_modules/.bin/json2ts")]
+    json2ts: PathBuf,
+    /// `datamodel-code-generator`'s executable.
+    #[arg(long, default_value = ".venv/bin/datamodel-codegen")]
+    datamodel_codegen: PathBuf,
+}
+
+pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<ExitCode> {
+    let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
+    if arguments.check {
+        return Ok(crate::check::report(&check(cargo, root)?));
+    }
+    let generators = Generators {
+        json2ts: arguments.json2ts,
+        datamodel_codegen: arguments.datamodel_codegen,
+    };
+    write(cargo, &generators, root)?;
+    Ok(ExitCode::SUCCESS)
 }

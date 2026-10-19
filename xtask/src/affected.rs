@@ -10,8 +10,12 @@ mod workspace;
 
 use std::ffi::OsStr;
 use std::path::Path;
+use std::process::ExitCode;
 
 use anyhow::Result;
+
+use crate::environment::Environment;
+use crate::output;
 
 pub(crate) use git::Range;
 pub(crate) use selection::{Selection, selectable_job_ids};
@@ -47,6 +51,32 @@ pub(crate) fn select(cargo: &OsStr, root: &Path, range: &Range) -> Result<Select
     let paths = git::changed_paths(root, range)?;
     let workspace = workspace::read(cargo, root)?;
     Ok(selection::select(&workspace, &paths))
+}
+
+/// `xtask affected`'s arguments: a base and a head, or `--local`.
+#[derive(clap::Args)]
+#[command(group(clap::ArgGroup::new("change").required(true).args(["base", "local"])))]
+pub(crate) struct Arguments {
+    /// The change's base, for CI: the change is what `--head` changed
+    /// since its merge base with it.
+    #[arg(long, requires = "head")]
+    base: Option<String>,
+    #[arg(long, requires = "base")]
+    head: Option<String>,
+    /// The working tree, uncommitted and untracked files included,
+    /// against the merge base with `origin/main`.
+    #[arg(long, conflicts_with_all = ["base", "head"])]
+    local: bool,
+}
+
+pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<ExitCode> {
+    let range = match (arguments.base, arguments.head) {
+        (Some(base), Some(head)) => Range::Commits { base, head },
+        _ => Range::WorkingTree,
+    };
+    let selection = select(&environment.cargo, &environment.root, &range)?;
+    output::line(selection.to_string().trim_end());
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]

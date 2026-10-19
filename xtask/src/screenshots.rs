@@ -10,12 +10,13 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::check::Finding;
+use crate::environment::Environment;
 use crate::output;
 
 /// The pinned Playwright image, read by the workflows and by this module.
@@ -122,7 +123,7 @@ fn pinned_digest(root: &Path) -> Result<Digest> {
 
 /// The commit checked out in the workspace at `root`.
 fn head(root: &Path) -> Result<CommitId> {
-    let output = Command::new("git")
+    let output = Process::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(root)
         .output()
@@ -312,4 +313,26 @@ fn collect(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `xtask screenshots`'s commands.
+#[derive(clap::Subcommand)]
+pub(crate) enum Command {
+    /// Applies the screenshots of a downloaded `update-screenshots` run, or
+    /// fails when it was not made in the pinned image on the head.
+    Fetch {
+        /// The folder the run's artifact was downloaded into.
+        run: PathBuf,
+    },
+    /// Fails on a Reference screenshot that no visual test read, after a
+    /// run of every visual project.
+    Orphans,
+}
+
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let root = environment.root.as_path();
+    Ok(crate::check::report(&match command {
+        Command::Fetch { run } => fetch(root, &environment.path(&run))?,
+        Command::Orphans => orphans(root)?,
+    }))
 }

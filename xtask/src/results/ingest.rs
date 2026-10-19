@@ -18,7 +18,7 @@ use anyhow::{Context as _, Result, bail};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::artifact;
+use super::artifact::{self, Arch, Os};
 use super::junit::{self, Ending, TestCase};
 use super::store::{self, Attempt, JobRun, KeptFile, Outcome, RunAttempt, TestRun};
 use crate::github::Api;
@@ -163,21 +163,21 @@ pub(crate) struct Failed {
 }
 
 /// The OS and architecture a diagnostic job runs on, each `None` for any.
-pub(crate) struct Platform<'a> {
-    pub(crate) os: Option<&'a str>,
-    pub(crate) arch: Option<&'a str>,
+pub(crate) struct Platform {
+    pub(crate) os: Option<Os>,
+    pub(crate) arch: Option<Arch>,
 }
 
 /// The tests that failed in the attempt on `platform`, once each per
 /// configuration, of the runners `xtask repeat` repeats; never a Live check's.
-pub(crate) fn failed(source: &Source<'_>, platform: &Platform<'_>) -> Result<Vec<Failed>> {
+pub(crate) fn failed(source: &Source<'_>, platform: &Platform) -> Result<Vec<Failed>> {
     let (attempt, _) = read(source)?;
     let failed: BTreeSet<Failed> = attempt
         .test_runs
         .into_iter()
         .filter(|run| run.outcome == Outcome::Failed && run.tier != LIVE_TIER)
-        .filter(|run| platform.os.is_none_or(|os| run.os == os))
-        .filter(|run| platform.arch.is_none_or(|arch| run.arch == arch))
+        .filter(|run| platform.os.is_none_or(|os| run.os == os.name()))
+        .filter(|run| platform.arch.is_none_or(|arch| run.arch == arch.name()))
         .filter(|run| ["nextest", "vitest", "playwright", "pytest"].contains(&run.runner.as_str()))
         .map(|run| Failed {
             test: format!("{}={}", run.runner, run.test),

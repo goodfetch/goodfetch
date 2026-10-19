@@ -17,6 +17,7 @@ mod python;
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use serde::Serialize;
@@ -24,6 +25,7 @@ use serde::Serialize;
 use self::entry::{Ecosystem, Entry, Usage};
 use self::license::{Allowlist, Verdict};
 use crate::check::Finding;
+use crate::environment::Environment;
 
 /// What the inventory is built from, beyond the workspace's own files.
 pub(crate) struct Sources<'a> {
@@ -108,4 +110,34 @@ fn identity(entry: &Entry) -> (Ecosystem, &str, &str) {
 /// `<ecosystem> <name>@<version>`.
 fn subject(entry: &Entry) -> String {
     format!("{} {}@{}", entry.ecosystem, entry.name, entry.version)
+}
+
+/// `xtask notices`'s arguments.
+#[derive(clap::Args)]
+pub(crate) struct Arguments {
+    /// A further file of inputs in `third-party.toml`'s format, such as
+    /// the list a Goodfetch Chromium build writes.
+    #[arg(long)]
+    inputs: Vec<PathBuf>,
+    /// Writes the inventory, as JSON, to this file.
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
+
+pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    let inputs: Vec<PathBuf> = arguments
+        .inputs
+        .iter()
+        .map(|path| environment.path(path))
+        .collect();
+    let sources = Sources {
+        cargo: &environment.cargo,
+        inputs: &inputs,
+    };
+    let out = arguments.out.as_deref().map(|path| environment.path(path));
+    Ok(crate::check::report(&check(
+        &environment.root,
+        &sources,
+        out.as_deref(),
+    )?))
 }

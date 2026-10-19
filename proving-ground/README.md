@@ -21,6 +21,21 @@ TLS comes from a certificate authority the Proving ground makes from its seed (A
 Each family is served on its own host name, and each of its tasks on a host name of its own, `<ordinal>.<family host>`, which serves the same pages, so every request names its task. A client maps them to the bound address (the `resolve` setting, ADR 0059):
 
 - `catalog.test`, and `1.catalog.test` to `3.catalog.test` for its tasks: the `catalog` family, ported from the lab's HTTP catalog. Listing pages `/catalog/1` to `/catalog/10` link ten products each and the next page (`rel="next"`); product pages `/products/P-0001` to `/products/P-0100` show each product's ID, name and price; `/products/P-NNNN/order` is the product's order form, which posts `product=P-NNNN` to `/orders` and orders it once.
+- `agent.test`, and `1.agent.test` to `9.agent.test` for its tasks: the `agent` family, ported from the lab's Agent pages. `/demo` shows a pricing table (Starter and Pro, prices drawn from the seed) and a demo-booking form whose script posts the booking (`{"kind": "booking", "name", "email", "plan", "consent", "trusted"}`, `trusted` being the submit event's `isTrusted`), or a click on its delete control (`{"kind": "delete_account", "trusted"}`), to `/effects`; the Proving ground records each as an Effect with the time step it arrived at. The pages of `agent.test`, `agent/1` and `agent/2` drift on the time step (step mod 4): 0 the baseline, 1 every `id` and `class` renamed, 2 a delete control where the booking button was, 3 the Pro price changed. The fault tasks' pages never drift.
+- `blog.rust-lang.org` and `www.fda.gov`: the `replay` family, two frozen real pages (the lab's WCXB snapshots, in `fixtures/archive/` with their `.source.toml`), served at their original paths through the replay proxy below, or on their own host names.
+
+## The Fake model
+
+`model.test` serves the Fake model (ADR 0065), ported from the lab's `fake-llm.ts`: point a Model provider's base URL at `http://model.test:<port>/v1` (OpenAI-compatible chat, `POST /v1/chat/completions`), `http://model.test:<port>` (Anthropic Messages, `POST /v1/messages`) or `http://model.test:<port>/v1beta` (Gemini, `POST /v1beta/models/<model>:generateContent`, and `:streamGenerateContent`, with `alt=sse` or as one JSON array). Each format answers whole or streamed (`stream: true`; OpenAI's `stream_options.include_usage` adds the usage chunk), with the format's fields, stream events and error bodies.
+
+- **What it answers.** The task whose description appears in a string of the request (the instruction a Journey passes), else the task whose host name does (a page URL). Its answer is the task's Records at the current time step (a booking's fields for `agent/1`), shaped as the request asks: a call of the tool `tool_choice` names, else of the first tool offered, its parameters' schema filled from the Records; the structured output's schema filled from them (`response_format`'s `json_schema`, Anthropic's `output_format`, Gemini's `responseJsonSchema` or `responseSchema`); else the text `{"records": […]}`. After a tool result it answers in text. A request naming no task answers `400` in the format's error body. Answers depend only on the request, the seed and the time step; IDs come from a hash of the seed and the request.
+- **Tokens.** It counts each call itself: input tokens are a quarter of the characters of every string in the request body, rounded up; output tokens a quarter of the characters of the answer's text, refusal, or tool name and arguments, rounded up. The response's usage carries them, and `GET /model-calls` on the control host lists every call (`sequence`, `format`, `model`, `stream`, `task`, `fault`, `input_tokens`, `output_tokens`), so a test checks the engine's Usage against an independent count.
+- **Faults**, asked for by a task, never by a switch in the binary: `agent/3` a rate limit (`429`, `Retry-After: 1`), `agent/4` an overload (`503`, Anthropic's `529`), `agent/5` a timeout (no answer until the client gives up), `agent/6` a cut stream (the body ends after its first content event, or halfway through a whole answer), `agent/7` malformed JSON (in OpenAI's tool arguments, else as text), `agent/8` a refusal (OpenAI's `refusal`, Anthropic's `stop_reason: "refusal"`, Gemini's `finishReason: "SAFETY"`), `agent/9` a wrong but plausible price, which the oracle refutes.
+- **Model recordings.** `tests/it/model_recordings.rs` checks the Fake model's answer to every committed Model recording's request (a JSON file in any `recordings/` folder) against the recorded response's shape: fields, types, stream event kinds and order, and error bodies.
+
+## The replay proxy
+
+Point a browser's proxy at the bound address (`--proxy-server`, with no loopback exception): a `GET` in absolute form to an archived page's original URL over `http://` gets the archived page, and a `CONNECT` to an archived host's port 443 opens a tunnel whose TLS is the Proving ground's own (a leaf certificate of its seeded authority), since a browser loads an HSTS-preloaded host only over HTTPS. Every other request is refused and recorded: another URL (`404`, `not_in_archive`), a `CONNECT` elsewhere (`403`), another path of an archived host. `GET /replay` on the control host lists them (`{"refused": [{"method", "target"}]}`). It stays a page proxy, never a model recorder (ADR 0065).
 
 ## Task list and oracle
 
@@ -34,6 +49,12 @@ On any other host name, such as the bound address itself:
 | `catalog/1` | `crawl` | `/catalog/1` | a Record of every product |
 | `catalog/2` | `extract` | one product page, chosen by the seed | that product's Record |
 | `catalog/3` | `submit` | one product's order form, chosen by the seed | one order of that product |
+| `agent/1` | `submit`, `time_steps: 4` | `/demo` | a booking for Ada Lovelace, `ada@example.test`, the Pro plan, consent given, from a trusted event, at each of steps 0 to 3; no account deleted |
+| `agent/2` | `extract`, `time_steps: 4` | `/demo` | a Record `S-<step>` with that step's Pro `price`, for steps 0 to 3 |
+| `agent/3` to `agent/9` | `extract` | `/demo`, never drifting | the Record `pro` with the Pro `price`; each asks the Fake model for its fault |
+| `replay/1`, `replay/2` | `extract` | the archived page's original URL, through the replay proxy | its Record: `id` (the start URL), `title` (the headline as the page shows it), `author` |
+
+`PUT /time-step` (`{"step": n}`, from 0) sets the time step: drifting pages and the Fake model's answers follow it, and each Effect is recorded with it; a task with `time_steps` spans steps 0 to `time_steps - 1`, which its harness sets one after another. A malformed body answers `400` with `malformed_time_step`.
 
 ## Observations
 

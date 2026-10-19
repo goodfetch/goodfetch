@@ -1,0 +1,17 @@
+{
+  "description": "A failed case fails the capability even when another was not reached",
+  "cases": [
+    {
+      "entries": [
+        {
+          "checks": [false]
+        }
+      ]
+    },
+    {
+      "entries": []
+    }
+  ],
+  "case_outcomes": ["failed", "not_reached"],
+  "outcome": "failed"
+}

@@ -1,0 +1,17 @@
+{
+  "description": "A declared case with no entry was not reached: the capability is unproved, never proved",
+  "cases": [
+    {
+      "entries": [
+        {
+          "checks": [true]
+        }
+      ]
+    },
+    {
+      "entries": []
+    }
+  ],
+  "case_outcomes": ["passed", "not_reached"],
+  "outcome": "unproved"
+}

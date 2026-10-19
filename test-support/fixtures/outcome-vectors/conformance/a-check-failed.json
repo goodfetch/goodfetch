@@ -1,0 +1,21 @@
+{
+  "description": "One failed check fails its case and the capability",
+  "cases": [
+    {
+      "entries": [
+        {
+          "checks": [true, false]
+        }
+      ]
+    },
+    {
+      "entries": [
+        {
+          "checks": [true]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["failed", "passed"],
+  "outcome": "failed"
+}

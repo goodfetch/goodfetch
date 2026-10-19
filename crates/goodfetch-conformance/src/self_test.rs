@@ -56,9 +56,10 @@ pub struct Record {
 }
 
 impl References {
-    /// Reads the reference result of every `crawl` and `extract` task from
-    /// the pages: a crawl from its start page through each listing's next
-    /// link, an extract of its one page. A task of another kind gets none.
+    /// Reads the reference result of every `crawl` and `extract` task of the
+    /// `catalog` family from the pages: a crawl from its start page through
+    /// each listing's next link, an extract of its one page. A task of
+    /// another kind or family gets none.
     ///
     /// # Errors
     ///
@@ -68,6 +69,11 @@ impl References {
         let reader = Reader::new();
         let mut records = BTreeMap::new();
         for task in proving_ground.task_list()?.tasks {
+            // Only the catalog's pages are read; another family's tasks get
+            // no reference result until a case of the suite needs one.
+            if task.family != "catalog" {
+                continue;
+            }
             let read = match task.kind.as_str() {
                 "crawl" => reader.crawl(proving_ground, &task.start_url)?,
                 "extract" => vec![reader.product(proving_ground, &task.start_url)?],

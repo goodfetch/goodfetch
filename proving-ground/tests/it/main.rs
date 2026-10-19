@@ -9,6 +9,7 @@
 
 mod clients;
 mod encodings;
+mod languages;
 mod observations;
 mod oracle;
 mod pages;

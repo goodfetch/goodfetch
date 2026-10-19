@@ -12,6 +12,7 @@ mod command;
 mod digest;
 mod encodings;
 mod generator;
+mod languages;
 mod observation;
 mod oracle;
 mod output;

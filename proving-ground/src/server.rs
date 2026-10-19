@@ -220,7 +220,13 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>
         .unwrap_or_default()
         .to_owned();
     let reply = match Limited::new(body, BODY_LIMIT).collect().await {
-        Ok(body) => site.respond(&parts.method, &host, parts.uri.path(), &body.to_bytes()),
+        Ok(body) => site.respond(
+            &parts.method,
+            &host,
+            parts.uri.path(),
+            parts.uri.query().unwrap_or_default(),
+            &body.to_bytes(),
+        ),
         Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
     };
     let mut response = Response::new(Full::new(reply.body));

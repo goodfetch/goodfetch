@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::catalog;
 use crate::encodings;
+use crate::languages;
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::task::{Task, TaskList};
@@ -83,6 +84,7 @@ impl Site {
         let mut hosts = BTreeMap::from([
             (catalog::HOST.to_owned(), None),
             (encodings::HOST.to_owned(), None),
+            (languages::HOST.to_owned(), None),
         ]);
         hosts.extend(
             Self::tasks_of(seed, 0)
@@ -101,15 +103,19 @@ impl Site {
     fn tasks_of(seed: u64, port: u16) -> Vec<Task> {
         let mut tasks = catalog::tasks(seed, port);
         tasks.extend(encodings::tasks(seed, port));
+        tasks.extend(languages::tasks(seed, port));
         tasks
     }
 
     /// The reply of an Extraction family (#165) to a request on `name`, one
     /// of its host names; `None` when `name` is another family's.
-    fn extraction(&self, name: &str, method: &Method, path: &str) -> Option<Reply> {
+    fn extraction(&self, name: &str, method: &Method, path: &str, query: &str) -> Option<Reply> {
         let of = |family: &str| name == family || name.ends_with(&format!(".{family}"));
+        let html = |page: String| ("text/html; charset=utf-8", page.into_bytes());
         let page = if of(encodings::HOST) {
             encodings::page(self.seed, path)
+        } else if of(languages::HOST) {
+            languages::page(self.seed, name, path, query).map(html)
         } else {
             return None;
         };
@@ -123,11 +129,19 @@ impl Site {
         })
     }
 
-    /// Answers one request, given its `Host` header, path and body.
-    pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
+    /// Answers one request, given its `Host` header, path, query (empty
+    /// when it has none) and body.
+    pub(crate) fn respond(
+        &self,
+        method: &Method,
+        host: &str,
+        path: &str,
+        query: &str,
+        body: &Bytes,
+    ) -> Reply {
         let name = observation::host_name(host);
         if self.hosts.contains_key(&name) {
-            if let Some(reply) = self.extraction(&name, method, path) {
+            if let Some(reply) = self.extraction(&name, method, path, query) {
                 return reply;
             }
             return match (method, path) {

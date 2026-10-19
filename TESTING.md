@@ -1054,6 +1054,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 - **The embedded Console stays under 1 MB brotli,** and its initial route under the ceiling area 12 sets. Only the owner moves a ceiling.
 - **Resident memory stays under its ceiling per OS** for an Attached engine idle after `hello`, an idle Daemon, and a 1,000-page HTTP crawl of the local Proving ground. The check runs in the Release suite.
+- **`just rss [scenario…]` runs the check on this host:** each scenario on each executable it runs on, each peak against its ceiling in `ci/rss-ceilings.toml` and its Performance target. Until the owner commits that file, it reports and gates nothing. `just rss-propose` proposes the file's lines from 20 runs.
 - **Each Product's executable has its own startup benchmarks and its own ceilings** for an idle Attached engine and an idle Daemon; the 1,000-page crawl runs on Foxhound's.
 - **The Console's JS heap after 10,000 streamed events,** after a forced garbage collection, is within 10% of its value after 1,000.
 - **Resident-memory ceilings are measured on the tuned build,** after M1's optimization pass. A ceiling may sit above its target.

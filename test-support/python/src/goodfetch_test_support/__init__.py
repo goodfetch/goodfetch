@@ -10,6 +10,7 @@ from goodfetch_test_support.environment import (
     TestEnv,
     TestEnvError,
 )
+from goodfetch_test_support.result_document import write_journey_document
 from goodfetch_test_support.schemas import SchemaError
 from goodfetch_test_support.tools import Tool, Tools, ToolsError
 
@@ -22,4 +23,5 @@ __all__ = [
     "Tool",
     "Tools",
     "ToolsError",
+    "write_journey_document",
 ]

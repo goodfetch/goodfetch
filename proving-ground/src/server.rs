@@ -11,7 +11,7 @@
 
 use std::convert::Infallible;
 use std::future::Future;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -88,6 +88,12 @@ impl Server {
         })
     }
 
+    /// What the server observes, which the network fixtures record into
+    /// too.
+    pub(crate) fn observations(&self) -> Arc<Observations> {
+        Arc::clone(&self.observations)
+    }
+
     /// The bound address.
     pub(crate) fn address(&self) -> SocketAddr {
         self.listener
@@ -114,7 +120,7 @@ impl Server {
                     break;
                 }
                 accepted = self.listener.accept() => {
-                    let Ok((stream, _)) = accepted else {
+                    let Ok((stream, source)) = accepted else {
                         // A connection that failed before it was accepted
                         // concerns only its client.
                         continue;
@@ -124,6 +130,7 @@ impl Server {
                         observations: Arc::clone(&self.observations),
                         acceptor: self.acceptor.clone(),
                         executor: Tracked(tracker.clone()),
+                        peer: source.ip(),
                         tunnels: Tunnels {
                             address: self.address(),
                             tracker: tracker.clone(),
@@ -133,7 +140,7 @@ impl Server {
                     let stop = stop.clone();
                     tracker.spawn(async move {
                         tokio::select! {
-                            () = connection.serve(stream) => {}
+                            () = connection.serve(stream, source) => {}
                             () = stop.cancelled() => {}
                         }
                     });
@@ -153,24 +160,29 @@ struct Connection {
     observations: Arc<Observations>,
     acceptor: TlsAcceptor,
     executor: Tracked,
+    /// The address the connection came from.
+    peer: IpAddr,
     tunnels: Tunnels,
 }
 
 impl Connection {
     /// Serves one connection to its end; a failed one concerns only its
     /// client.
-    async fn serve(self, stream: TcpStream) {
+    async fn serve(self, stream: TcpStream, source: SocketAddr) {
+        let Ok(destination) = stream.local_addr() else {
+            return;
+        };
         let mut first = [0; 1];
         let Ok(read) = stream.peek(&mut first).await else {
             return;
         };
-        let (site, tunnels) = (self.site, self.tunnels);
+        let (site, tunnels, peer) = (self.site, self.tunnels, self.peer);
         let service = service_fn(move |request| {
             let (site, tunnels) = (Arc::clone(&site), tunnels.clone());
-            async move { Ok::<_, hyper::Error>(answer(&site, &tunnels, request).await) }
+            async move { Ok::<_, hyper::Error>(answer(&site, &tunnels, request, peer).await) }
         });
         let builder = auto::Builder::new(self.executor);
-        let observed = self.observations.connection();
+        let observed = self.observations.connection(source, destination);
         let tls = read == 1 && first[0] == TLS_HANDSHAKE;
         let wire = Wire::new(stream, Arc::clone(&observed), tls);
         if tls {
@@ -223,9 +235,16 @@ async fn stop_signal() -> Result<()> {
     }
 }
 
-/// Reads one request, asks the site, and writes its reply. The host is the
-/// `Host` header, or an HTTP/2 request's `:authority`.
-async fn answer(site: &Site, tunnels: &Tunnels, request: Request<Incoming>) -> Response<Body> {
+/// Reads one request, asks the site, and writes its reply, once the time a
+/// held reply asks for has passed. The host is the `Host` header, or an
+/// HTTP/2 request's `:authority`; `peer` is the address the request came
+/// from.
+async fn answer(
+    site: &Site,
+    tunnels: &Tunnels,
+    request: Request<Incoming>,
+    peer: IpAddr,
+) -> Response<Body> {
     if request.method() == Method::CONNECT {
         return tunnels.open(site, request);
     }
@@ -254,7 +273,7 @@ async fn answer(site: &Site, tunnels: &Tunnels, request: Request<Incoming>) -> R
         .filter_map(|value| value.to_str().ok())
         .collect::<Vec<_>>()
         .join("; ");
-    let reply = match Limited::new(body, BODY_LIMIT).collect().await {
+    let (reply, held) = match Limited::new(body, BODY_LIMIT).collect().await {
         Ok(body) => {
             let body = body.to_bytes();
             let target = parts
@@ -267,9 +286,9 @@ async fn answer(site: &Site, tunnels: &Tunnels, request: Request<Incoming>) -> R
             // A request in absolute form is one to the replay proxy;
             // HTTP/2's requests always carry their scheme.
             if parts.uri.scheme().is_some() && parts.version <= Version::HTTP_11 {
-                site.proxy(&parts.method, &parts.uri)
+                (site.proxy(&parts.method, &parts.uri), None)
             } else {
-                site.respond(
+                site.respond_held(
                     &host,
                     &exchange::Request {
                         method: &parts.method,
@@ -277,12 +296,19 @@ async fn answer(site: &Site, tunnels: &Tunnels, request: Request<Incoming>) -> R
                         query: parts.uri.query().unwrap_or_default(),
                         cookies: &cookies,
                         body: &body,
+                        peer,
                     },
                 )
             }
         }
-        Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
+        Err(_) => (
+            Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
+            None,
+        ),
     };
+    if let Some(held) = held {
+        held.release().await;
+    }
     let mut response = Response::new(Either::Left(Full::new(reply.body)));
     *response.status_mut() = reply.status;
     let headers = response.headers_mut();

@@ -127,6 +127,7 @@ fn a_connect_to_an_archived_host_serves_its_page_over_tls() {
         response,
         written: 0,
         read: 0,
+        source: String::new(),
     };
     assert_eq!(exchange.status(), 200);
     assert_eq!(exchange.body(), archived("wcxb-0379.html"));

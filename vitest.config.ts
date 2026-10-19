@@ -11,6 +11,7 @@
 // target/visual/read/ for the orphan check (`xtask screenshots orphans`).
 import { appendFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
 import { playwright } from "@vitest/browser-playwright";
 import {
   defineConfig,
@@ -27,6 +28,29 @@ const outside = [
   "target/**",
 ];
 const visualTests = "**/*.visual.test.{ts,tsx}";
+
+// A `.test.tsx` file renders or needs the DOM, so it runs in Vitest Browser
+// Mode with the Playwright provider (ADR 0068; TESTING.md, Components), never
+// in Node. It starts a browser, so it runs above the Quick suite. Test
+// support's setup resets hover and browser state before each test, and its
+// commands set that state through the provider.
+const component: TestProjectInlineConfiguration = {
+  extends: true,
+  test: {
+    name: "component",
+    include: ["**/*.test.tsx"],
+    exclude: [...outside, visualTests],
+    testTimeout: 300_000,
+    setupFiles: ["@goodfetch/test-support/vitest-browser/setup"],
+    browser: {
+      enabled: true,
+      headless: true,
+      provider: playwright(),
+      instances: [{ browser: "chromium" }],
+      commands: browserCommands,
+    },
+  },
+};
 
 const visual: TestProjectInlineConfiguration = {
   extends: true,
@@ -95,6 +119,9 @@ const config: ViteUserConfig = defineConfig({
     passWithNoTests: true,
     tags: [...journeyTags, ...surfaceTags],
     strictTags: true,
+    // Attachments, a failed browser test's screenshot among them, go beside
+    // the JUnit files, never into the source tree.
+    attachmentsDir: "target/vitest-attachments",
     // The Quick suite passes `--slowTestThreshold=1000`; Vitest sets it per run, not per project.
     slowTestThreshold: 30_000,
     reporters: ["default", "junit"],
@@ -104,7 +131,7 @@ const config: ViteUserConfig = defineConfig({
         extends: true,
         test: {
           name: "unit",
-          include: ["**/src/**/*.test.{ts,tsx}"],
+          include: ["**/src/**/*.test.ts"],
           exclude: [...outside, visualTests],
           testTimeout: 10_000,
         },
@@ -113,11 +140,12 @@ const config: ViteUserConfig = defineConfig({
         extends: true,
         test: {
           name: "integration",
-          include: ["**/tests/**/*.test.{ts,tsx}"],
+          include: ["**/tests/**/*.test.ts"],
           exclude: [...outside, visualTests],
           testTimeout: 300_000,
         },
       },
+      component,
       ...(process.env["GOODFETCH_VISUAL_IMAGE"] === undefined ? [] : [visual]),
     ],
   },

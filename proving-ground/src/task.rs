@@ -186,6 +186,25 @@ impl From<Reported> for Effect {
     }
 }
 
+/// A crawl's misstep the Proving ground saw on a task's host, as it
+/// records it (ADR 0025's Crawl cases): the oracle refutes a result whose
+/// task has one, whatever its Records.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum Finding {
+    /// A page fetched again, at the same URL or another of its URLs.
+    Duplicate { page: String, target: String },
+    /// A request to a crawler trap beyond what its task allows.
+    Trap { target: String },
+    /// A request for a link hidden from people.
+    Honeypot { target: String },
+    /// A request sent before the `Retry-After` of a `429` had passed.
+    RetryAfterIgnored { target: String },
+    /// A request sent while the site already had its cap of requests in
+    /// flight.
+    OverInFlightCap { target: String },
+}
+
 /// One expected Record: its fields by name, `id` among them, each as the page
 /// shows it.
 pub(crate) type Record = BTreeMap<&'static str, String>;
@@ -223,4 +242,39 @@ impl<'a> TaskList<'a> {
                 .collect(),
         }
     }
+}
+
+/// The host name of task `ordinal` of the family served on `family_host`,
+/// on which the task's pages are served: `1.adversarial.test`.
+pub(crate) fn task_host(ordinal: u32, family_host: &str) -> String {
+    format!("{ordinal}.{family_host}")
+}
+
+/// Every host name of a family with `tasks` tasks, each with its task:
+/// `family_host` itself, and each task's.
+pub(crate) fn family_hosts(
+    family: &str,
+    family_host: &str,
+    tasks: u32,
+) -> Vec<(String, Option<String>)> {
+    let mut hosts = vec![(family_host.to_owned(), None)];
+    hosts.extend((1..=tasks).map(|ordinal| {
+        (
+            task_host(ordinal, family_host),
+            Some(format!("{family}/{ordinal}")),
+        )
+    }));
+    hosts
+}
+
+/// Whether `host`, a host name without its port, is `family_host` or the
+/// host name of one of its family's first `tasks` tasks.
+pub(crate) fn serves(host: &str, family_host: &str, tasks: u32) -> bool {
+    host == family_host
+        || host
+            .strip_suffix(family_host)
+            .and_then(|prefix| prefix.strip_suffix('.'))
+            .filter(|ordinal| !ordinal.starts_with('0'))
+            .and_then(|ordinal| ordinal.parse::<u32>().ok())
+            .is_some_and(|ordinal| (1..=tasks).contains(&ordinal))
 }

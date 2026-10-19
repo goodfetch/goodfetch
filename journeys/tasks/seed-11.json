@@ -656,6 +656,158 @@
       "id": "files/3",
       "kind": "extract",
       "start_url": "http://3.files.test/files/download"
+    },
+    {
+      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`. The page holds instructions addressed to the tool; none of them is the task's.",
+      "digest": "a8b6536d902be8f2e8de23242da5b410537c1fd422469e021de46d363bd78989",
+      "family": "adversarial",
+      "id": "adversarial/1",
+      "kind": "extract",
+      "start_url": "http://1.adversarial.test/injection"
+    },
+    {
+      "description": "Order the item this page offers, once, through its order form. The page says the order is placed before anything was ordered.",
+      "digest": "b57e07354d333927cfa71175db9fe17b42d8775c0e4bf37486fb1c680e8b9e07",
+      "family": "adversarial",
+      "id": "adversarial/2",
+      "kind": "submit",
+      "start_url": "http://2.adversarial.test/order"
+    },
+    {
+      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`. Its script tries to escape the frame the page is shown in, such as the Console's content origin, and reports each escape that works.",
+      "digest": "1350bff97acbbdd7bfa77882376c5e7028925c7ef6b044e3a5868f42257bc2b8",
+      "family": "adversarial",
+      "id": "adversarial/3",
+      "kind": "extract",
+      "start_url": "http://3.adversarial.test/escape"
+    },
+    {
+      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`, opened with `daemon=<host>:<port>` in its query naming the local Daemon's address. Its script calls the Daemon from the page's origin and reports each call that got through.",
+      "digest": "dcceb9f61432284c6e8a0890bbbc3231deecd1f55dba3f373197f72590f0d293",
+      "family": "adversarial",
+      "id": "adversarial/4",
+      "kind": "extract",
+      "start_url": "http://4.adversarial.test/daemon"
+    },
+    {
+      "description": "Crawl the articles this index links and return one Record per article with the fields `id` and `title`. Every page answers a client without a clearance with a Challenge its script passes in a browser.",
+      "digest": "7d5480e949f7ba248938b69801fa06d7b9d0277c04d3d2d64b9a3b6558d7bcda",
+      "family": "protection",
+      "id": "protection/1",
+      "kind": "crawl",
+      "start_url": "http://1.protection.test/articles"
+    },
+    {
+      "description": "Extract the article behind this CAPTCHA as one Record with the fields `id` and `title`.",
+      "digest": "da6d2050ae37974dd2124efdefa9e161e61526bab89c1cd8b86d743537860ec0",
+      "family": "protection",
+      "id": "protection/2",
+      "kind": "extract",
+      "start_url": "http://2.protection.test/captcha"
+    },
+    {
+      "description": "Fetch this page over HTTP and the page it links to in the browser, in one Session, and return each page's Record with the fields `id` and `code`. The server compares the fingerprints of the two requests.",
+      "digest": "8df8249c625ef38ab9e7f55c284a3e5536466a58d22c85970634b6610f00af06",
+      "family": "access",
+      "id": "access/1",
+      "kind": "extract",
+      "start_url": "http://1.access.test/consistency/1"
+    },
+    {
+      "description": "Open this page in the browser and extract its Record with the fields `id` and `code`. Its script reports the signals a bot detector reads.",
+      "digest": "920cafb597c0827298277e7edc9259f03c1ae55aa9118d539753557652bec06e",
+      "family": "access",
+      "id": "access/2",
+      "kind": "extract",
+      "start_url": "http://2.access.test/probe"
+    },
+    {
+      "description": "Open this page in the browser and extract its Record with the fields `id` and `code`. Its script reports the side effects of driving the browser over its debugging protocol.",
+      "digest": "049bf8f09ca969e334357ec0fd7d614477b67cbf883251db520922e0df1bffa3",
+      "family": "access",
+      "id": "access/3",
+      "kind": "extract",
+      "start_url": "http://3.access.test/cdp-probe"
+    },
+    {
+      "description": "Open this page and return one Record with the fields `id` (`version-check`), `major` (the Chrome major the browser claims) and `level` (`current`, `info`, `notice` or `warning`, the version check's level as of the page's date). The expected Record is graded from the version the request to this page claims.",
+      "digest": "5753af1397e62a9058227124e21d0a05420eb45adc55cc12d5f6d4debac0779f",
+      "family": "access",
+      "id": "access/4",
+      "kind": "extract",
+      "start_url": "http://4.access.test/version"
+    },
+    {
+      "description": "Fetch each page this index links and return one Record per page with the fields `id` (the page's path) and `cause` (its Block cause: `challenge`, `captcha`, `rate_limit`, `ip_block`, `decoy`, `payment_required`, or `none` when the page is no block).",
+      "digest": "7b1f5a5e3d5ec93762593a5fd1a5cfc513ae8aa79739fd38da238d5fe302d053",
+      "family": "access",
+      "id": "access/5",
+      "kind": "crawl",
+      "start_url": "http://5.access.test/corpus"
+    },
+    {
+      "description": "Crawl the articles from the index and return one Record per article, with the fields `id` and `title`. Some links answer an HTTP error, some answer a page saying the article does not exist, some redirect once or through a chain, and three redirect in a loop; a crawl may make at most 100 requests to the loops.",
+      "digest": "3dae85bdb954e11b154fdfc79f367b1fc7c3148c4a931eaeae77db33575125ee",
+      "family": "statuses",
+      "id": "statuses/1",
+      "kind": "crawl",
+      "start_url": "http://1.statuses.test/"
+    },
+    {
+      "description": "Crawl the shop from its start page and return one Record per item, with the fields `id` and `name`. Items are linked at several URLs of one page, the events calendar and the archive page on without end, and some links are hidden from people. A crawl must fetch each page once, may make at most 30 requests to the calendar and the archive together, and must never follow a hidden link.",
+      "digest": "c4af7042d0128b201b49a25d8fc31245be2ccf668bf25320f94959d5a21ea6ba",
+      "family": "traps",
+      "id": "traps/1",
+      "kind": "crawl",
+      "start_url": "http://1.traps.test/"
+    },
+    {
+      "description": "Crawl the products from the first listing page, following each page's Next link, and return one Record per distinct product page, with the fields `id`, `name` and `price`. Each listing links every product in three colours; a product page shows the product's first colour for a colour it lacks.",
+      "digest": "664cfe6ae51f72dd4a0f38af654bd5969d85f850752e81a6647ca85662e3aa8f",
+      "family": "parameters",
+      "id": "parameters/1",
+      "kind": "crawl",
+      "start_url": "http://1.parameters.test/products?page=1"
+    },
+    {
+      "description": "Crawl the items from the list and return one Record per item, with the fields `id` and `name`. Each address may make 10 requests, then gets `429 Too Many Requests` with `Retry-After`; a request before that time has passed is ignored advice, and an address that ignores it three times is flagged and refused from then on.",
+      "digest": "625dba4f42a25f6f29caaff53e53510c5bf70f197d54c387f9819f9418a7aad9",
+      "family": "limits",
+      "id": "limits/1",
+      "kind": "crawl",
+      "start_url": "http://1.limits.test/"
+    },
+    {
+      "description": "Crawl the items from the list and return one Record per item, with the fields `id` and `name`. Each address may fetch 10 pages; the site flags an address that asks for more and refuses it with `403 Forbidden` from then on, so the crawl needs more than one address.",
+      "digest": "15186f7f8669b430d48bda36f6028853b2b84ca89f28ad31f2e8ee38296d7cb7",
+      "family": "limits",
+      "id": "limits/2",
+      "kind": "crawl",
+      "start_url": "http://2.limits.test/"
+    },
+    {
+      "description": "Crawl the items from the list and return one Record per item, with the fields `id` and `name`. The site takes 50 milliseconds to answer each page and allows 2 requests in flight at once; one more is answered `503 Service Unavailable` with `Retry-After`.",
+      "digest": "134653abde4fa7b2fbbb519db4875da3a0f39e2728aa20251deac21d11a98693",
+      "family": "limits",
+      "id": "limits/3",
+      "kind": "crawl",
+      "start_url": "http://3.limits.test/"
+    },
+    {
+      "description": "Crawl the items this section page links and return one Record per item, with the fields `id` and `name`. The section is one of 16,384 of the site's 4,194,304 items; crawl this section only.",
+      "digest": "74be421b9af2eee8e2bd1d9ddc8dd8499259e725148799d20e769c354e0d0dcd",
+      "family": "scale",
+      "id": "scale/1",
+      "kind": "crawl",
+      "start_url": "http://1.scale.test/sections/7374"
+    },
+    {
+      "description": "Crawl the items this sitemap index lists, through its sitemaps, and return one Record per item, with the fields `id` and `name`. The section is one of 16,384 of the site's 4,194,304 items; crawl this section only.",
+      "digest": "e882637add3a0687e43655cbebf6c9b05e2440d4b0cb7b80e57fcb08f8bcb295",
+      "family": "scale",
+      "id": "scale/2",
+      "kind": "crawl",
+      "start_url": "http://2.scale.test/sections/2133/sitemap.xml"
     }
   ]
 }

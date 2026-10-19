@@ -1,0 +1,42 @@
+#:schema ./journey.schema.json
+id = "J-007"
+title = "Two Crawls of one site share Politeness, never more than its in-flight cap together"
+goal = """
+A person runs two Crawls of one site at once, with that site's Politeness \
+allowing the two requests in flight the site itself allows. Together the two \
+Crawls MUST never have more requests in flight on the site than that cap, so \
+the site refuses none of their requests, and each Crawl MUST return every item \
+of the site's list."""
+area = 6
+product = "foxhound"
+status = "active"
+covers = ["row:CO-09", "row:compliance-site-owner-politeness"]
+
+[proving_ground]
+seed = 7
+tasks = [
+  { id = "limits/3", digest = "5708c2ae6e0867e4c1001b2f673779e68cdb0683f831f8209623aa41435ea9be" },
+]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Set the site's Politeness to at most 2 requests in flight"
+
+[[steps]]
+text = "Start two Crawls of the site's list at once"
+
+[[steps]]
+text = "Wait for both Crawls to finish"
+
+[[expect]]
+text = "The oracle verifies the first Crawl's Records"
+task = "limits/3"
+
+[[expect]]
+text = "The oracle verifies the second Crawl's Records"
+task = "limits/3"
+
+[[expect]]
+text = "The Proving ground saw no request beyond the site's 2 in flight, from either Crawl"

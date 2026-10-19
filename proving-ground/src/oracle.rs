@@ -3,12 +3,17 @@
 //! `false_success` or `failed` with what was missing, extra or wrong, the task
 //! it judged and its own time. Effects are judged from the Proving ground's
 //! own record of what it carried out, never from the tool's report: an
-//! Effect carried out twice is an extra one. The tool's status is recorded, never what
+//! Effect carried out twice is an extra one. So are a Crawl's findings (a page
+//! fetched twice, a trap followed, a honeypot hit, a `Retry-After` ignored):
+//! a task with one is never verified. The tool's status is recorded, never what
 //! makes a result verified: a correct `needs-review` result is verified
 //! (ADR 0013), and only a result the tool calls a success can be a false
 //! success. A downloaded file is judged by its name and exact bytes. Where the
 //! only right result is a refusal, the tool's report of a failure is part of
 //! it: nothing carried out and a success reported is a false success.
+//! What else the Proving ground's own record refutes, such as a
+//! fingerprint that changed between requests or an escape a page's script
+//! reported, is a finding, and a result with a finding is never verified.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,7 +22,7 @@ use serde_json::Value;
 
 use crate::clock::Stopwatch;
 use crate::digest;
-use crate::task::{Effect, Expected, Record};
+use crate::task::{self, Effect, Expected, Record};
 
 /// A tool's result for one task, as submitted to `POST /oracle`.
 #[derive(Deserialize)]
@@ -32,6 +37,10 @@ pub(crate) struct Submission {
     /// The files the tool downloaded.
     #[serde(default)]
     files: Vec<SubmittedFile>,
+    /// The Access dimensions the result was run under, which the answer
+    /// repeats so results are reported per each.
+    #[serde(default)]
+    access: Option<AccessDimensions>,
 }
 
 /// A file a tool returns: its name and its bytes in lowercase or uppercase
@@ -41,6 +50,77 @@ pub(crate) struct Submission {
 struct SubmittedFile {
     name: String,
     hex: String,
+}
+
+/// The dimensions an Access result is reported per (ADR 0035): the
+/// Fingerprint method, the browser engine, the Access mode and the build,
+/// whose age the Proving ground reckons; and, for a control run of stock
+/// Chrome, which control it is.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AccessDimensions {
+    fingerprint_method: FingerprintMethod,
+    engine: BrowserEngine,
+    access_mode: AccessMode,
+    /// The major version of the browser build that ran.
+    pub(crate) browser_major: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    control: Option<Control>,
+}
+
+/// How a Session's browser comes to present its Identity profile (ADR 0035).
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum FingerprintMethod {
+    None,
+    JsInjection,
+    Basic,
+    Engine,
+}
+
+/// The engine of the browser that ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BrowserEngine {
+    Chromium,
+    Firefox,
+    Webkit,
+}
+
+/// How a Session presents itself to sites.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AccessMode {
+    Standard,
+    Identified,
+    Stealth,
+}
+
+/// A control run every Access result is set against.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Control {
+    StockHeadless,
+    StockHeadful,
+}
+
+impl AccessDimensions {
+    /// The Chrome major of a Chromium build, from which its age is reckoned;
+    /// `None` for another engine.
+    pub(crate) fn chromium_major(&self) -> Option<u32> {
+        (self.engine == BrowserEngine::Chromium).then_some(self.browser_major)
+    }
+}
+
+impl Submission {
+    /// The `id` of each submitted Record that has one, in order.
+    pub(crate) fn record_ids(&self) -> Vec<String> {
+        self.records
+            .iter()
+            .filter_map(|record| record.get("id").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 /// What the tool said of its own result.
@@ -94,8 +174,68 @@ pub(crate) struct Answer {
     /// submitted.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     extra_files: Vec<String>,
+    /// What the Proving ground's own record refutes beside the Records,
+    /// Effects and files: what it saw the tool do wrong on the task's host,
+    /// and the checks of what it observed that failed.
+    findings: Vec<Refutation>,
     quality: Quality,
+    /// The Access dimensions the submission named.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access: Option<AccessDimensions>,
     oracle_time_microseconds: u64,
+}
+
+/// A finding of the oracle's answer: a Crawl's misstep the family that
+/// served the request recorded (named by its `kind`), or a check of what
+/// the Proving ground observed that failed (named by its `check`).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub(crate) enum Refutation {
+    /// A Crawl's misstep: a page fetched twice, a trap followed, a honeypot
+    /// hit, a `Retry-After` ignored, a request past the in-flight cap.
+    Crawl(task::Finding),
+    /// A check of the Proving ground's own record that failed.
+    Check(Finding),
+}
+
+/// Something the Proving ground's own record refutes: a fingerprint that
+/// changed between a task's requests, a probe's signal, an escape or a call
+/// to the Daemon a page's script reported, a Record of a page no request
+/// cleared.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct Finding {
+    /// What was checked, such as `ja4` or `escape`.
+    pub(crate) check: String,
+    /// The page or request target it was found on.
+    pub(crate) at: String,
+    /// What the check expected, when it compares with a value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) expected: Option<Value>,
+    pub(crate) observed: Value,
+}
+
+impl Answer {
+    /// The Access dimensions the submission named, if any.
+    pub(crate) fn access(&self) -> Option<&AccessDimensions> {
+        self.access.as_ref()
+    }
+
+    /// The answer with `findings` added: a result they refute is no longer
+    /// verified nor incomplete, but a false success when the tool claimed a
+    /// success and failed otherwise.
+    #[must_use]
+    pub(crate) fn refuted_by(mut self, findings: Vec<Finding>) -> Self {
+        if !findings.is_empty() && matches!(self.outcome, Outcome::Verified | Outcome::Incomplete) {
+            self.outcome = if self.tool_status == ToolStatus::Success {
+                Outcome::FalseSuccess
+            } else {
+                Outcome::Failed
+            };
+        }
+        self.findings
+            .extend(findings.into_iter().map(Refutation::Check));
+        self
+    }
 }
 
 /// Extraction quality (pain 14), scored field by field against the ground
@@ -215,10 +355,16 @@ struct Files {
 }
 
 /// Judges `submission` against `expected`, and the Effects carried out for
-/// its task, `effects`, against the expected ones. A task whose expected
-/// result is a refusal is verified only when nothing was carried out and the
-/// tool reported a failure.
-pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effect]) -> Answer {
+/// its task, `effects`, against the expected ones; any of the task's
+/// `findings` refutes it. A task whose expected result is a refusal is
+/// verified only when nothing was carried out and the tool reported a
+/// failure.
+pub(crate) fn judge(
+    expected: &Expected,
+    submission: Submission,
+    effects: &[Effect],
+    findings: Vec<task::Finding>,
+) -> Answer {
     let stopwatch = Stopwatch::start();
     let records = judge_records(expected, submission.records);
     let effects = judge_effects(expected, effects);
@@ -226,6 +372,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
     let correct = records.missing.is_empty()
         && effects.missing.is_empty()
         && files.missing.is_empty()
+        && findings.is_empty()
         && nothing_wrong(&records, &effects, &files);
     let outcome = if expected.refusal {
         match submission.status {
@@ -237,7 +384,8 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         Outcome::Verified
     } else if submission.status == ToolStatus::Success {
         Outcome::FalseSuccess
-    } else if nothing_wrong(&records, &effects, &files)
+    } else if findings.is_empty()
+        && nothing_wrong(&records, &effects, &files)
         && (records.any_correct || effects.any_expected || files.any_correct)
     {
         Outcome::Incomplete
@@ -256,7 +404,9 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         missing_files: files.missing,
         wrong_files: files.wrong,
         extra_files: files.extra,
+        findings: findings.into_iter().map(Refutation::Crawl).collect(),
         quality: records.quality,
+        access: submission.access,
         oracle_time_microseconds: stopwatch.microseconds(),
     }
 }

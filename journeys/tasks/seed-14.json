@@ -746,6 +746,110 @@
       "start_url": "http://5.access.test/corpus"
     },
     {
+      "description": "Wait until this page's network is idle (no request in flight for 500 ms, its WebSocket and server-sent events left out), then extract its board as one Record with the fields `id` (the board's `data-id`), `state`, `updates` and `reading`. The page holds a WebSocket and a server-sent events stream open for as long as it is open, and makes periodic requests, one after another, until it settles.",
+      "digest": "2c209fa773de414511c330615ec1b050feb8d2fe1082afa9fc8047cb72efce71",
+      "family": "live",
+      "id": "live/1",
+      "kind": "extract",
+      "start_url": "http://1.live.test/board"
+    },
+    {
+      "description": "Wait until this page's network is idle (no request in flight for 500 ms, its WebSocket and server-sent events left out), then extract its board as one Record with the fields `id` (the board's `data-id`), `state`, `updates` and `reading`. The page holds a WebSocket and a server-sent events stream open for as long as it is open, and makes periodic requests, one after another, that never stop: its network never becomes idle, so the only right result is a failure.",
+      "digest": "3ce797eb334134f88bdd3ba23872b9ed598fc20eb7733ad4f862b5c703e08c95",
+      "family": "live",
+      "id": "live/2",
+      "kind": "extract",
+      "start_url": "http://2.live.test/board"
+    },
+    {
+      "description": "Click, once, the button this page's canvas asks for: the canvas draws two buttons and, above them, the label of the one to press. Both are pixels on the canvas, with no element, role or text a DOM selector could reach, and a click anywhere on the canvas but on that button is a miss.",
+      "digest": "a2530fcb12b65debc55ccf5ce63bf23fff1cb82f6228994fdb6a2a4d3342b515",
+      "family": "canvas",
+      "id": "canvas/1",
+      "kind": "act",
+      "start_url": "http://1.canvas.test/button"
+    },
+    {
+      "description": "Draw with the mouse the one stroke this page asks for on its drawing surface, between the two points it names, then read the surface back through `evaluate` and return one Record with the fields `id` (`stroke`), `start` and `end`: the colour of the canvas's pixel at each of the two points, as `#rrggbb`.",
+      "digest": "236d0e576c5b09349290609ddf438aba59acd4b8acfebf1d5ba1a02df2c704a0",
+      "family": "canvas",
+      "id": "canvas/2",
+      "kind": "act",
+      "start_url": "http://2.canvas.test/surface"
+    },
+    {
+      "description": "Save this page as it prints (print media, as a PDF of it holds it) and return one Record for each entry the saved page shows, with the fields `id` (the entry's `data-id`) and `title`.",
+      "digest": "3c3a1a8275d896693870f9d54ef4bdd5eba493ce0a1617d39921b9abc5826de4",
+      "family": "print",
+      "id": "print/1",
+      "kind": "extract",
+      "start_url": "http://1.print.test/report"
+    },
+    {
+      "description": "Save this page as the screen shows it (screen media) and return one Record for each entry the saved page shows, with the fields `id` (the entry's `data-id`) and `title`.",
+      "digest": "d39771fc92a5d7bb423471e8e065c216908a9759457d696c8a0405f497d2ec23",
+      "family": "print",
+      "id": "print/2",
+      "kind": "extract",
+      "start_url": "http://2.print.test/report"
+    },
+    {
+      "description": "Save this page as one MHTML file and return one Record for each part the file holds, with the field `id`: the path of the part's `Content-Location`, without its scheme, host and port.",
+      "digest": "2dd5012360dc8b28ca7b2e16e2efc3038b7f52f67abce119f8ee62c51d3637f4",
+      "family": "print",
+      "id": "print/3",
+      "kind": "extract",
+      "start_url": "http://3.print.test/report"
+    },
+    {
+      "description": "Open this page in a viewport 390 CSS pixels wide and 844 high at a device pixel ratio of 3, as a phone shows it, and extract its layout as one Record with the fields `id` (`layout`), `breakpoint` (the shown plan's `data-breakpoint`), `plan` and `density`, as the page shows them.",
+      "digest": "68ce9cb1255117b919b3b2a452d87ce003ef618a8d559495c474ab1fd3a0af38",
+      "family": "responsive",
+      "id": "responsive/1",
+      "kind": "extract",
+      "start_url": "http://1.responsive.test/layout"
+    },
+    {
+      "description": "Open this page in a viewport 820 CSS pixels wide and 1,180 high at a device pixel ratio of 2, as a tablet shows it, and extract its layout as one Record with the fields `id` (`layout`), `breakpoint` (the shown plan's `data-breakpoint`), `plan` and `density`, as the page shows them.",
+      "digest": "85d6341d8ee95f0e9abc67c2eb09aa63b2521ba1adc5f896b74dd1f6e781d82e",
+      "family": "responsive",
+      "id": "responsive/2",
+      "kind": "extract",
+      "start_url": "http://2.responsive.test/layout"
+    },
+    {
+      "description": "Open this page in a viewport 1,440 CSS pixels wide and 900 high at a device pixel ratio of 1, as a desktop shows it, and extract its layout as one Record with the fields `id` (`layout`), `breakpoint` (the shown plan's `data-breakpoint`), `plan` and `density`, as the page shows them.",
+      "digest": "5db25ce4ab26aa6ed115d4e4a946ed922b72fdf18a64a59e7c14f44c50245304",
+      "family": "responsive",
+      "id": "responsive/3",
+      "kind": "extract",
+      "start_url": "http://3.responsive.test/layout"
+    },
+    {
+      "description": "Type into this page's text field the text the page asks for, one key press per character, as a US QWERTY keyboard sends it.",
+      "digest": "4c6d3e23b9c19ed8ecedd9ce7cd3e309994203a1260d1e9e6948269b7d91f5e6",
+      "family": "keys",
+      "id": "keys/1",
+      "kind": "act",
+      "start_url": "http://1.keys.test/type"
+    },
+    {
+      "description": "Type into this page's text field the text the page asks for, one key press per character, as a French AZERTY keyboard sends it: each key press's `code` names the physical key that types the character on that layout.",
+      "digest": "22f081b0bf812141a732580795700f22b1585e11c6cd79d1b1221ee95f67d3f1",
+      "family": "keys",
+      "id": "keys/2",
+      "kind": "act",
+      "start_url": "http://2.keys.test/type"
+    },
+    {
+      "description": "Type into this page's text field the text the page asks for through an input method: one composition that commits the whole text.",
+      "digest": "9497fae5247e5d2d9c26880a5c4ee18f1b7d7b84cc04c0fdb97b6d87ddfe7e8d",
+      "family": "keys",
+      "id": "keys/3",
+      "kind": "act",
+      "start_url": "http://3.keys.test/type"
+    },
+    {
       "description": "Crawl the articles from the index and return one Record per article, with the fields `id` and `title`. Some links answer an HTTP error, some answer a page saying the article does not exist, some redirect once or through a chain, and three redirect in a loop; a crawl may make at most 100 requests to the loops.",
       "digest": "e47ed21164d8c3b8a673a2f0a11c5c92ee645523a356ae0c97ca5dc2156a944b",
       "family": "statuses",
@@ -808,6 +912,71 @@
       "id": "scale/2",
       "kind": "crawl",
       "start_url": "http://2.scale.test/sections/8667/sitemap.xml"
+    },
+    {
+      "description": "Crawl the books this shelf links and return one Record per book, with the fields `id` and `title`. The shelf's links are relative to its `<base href>`.",
+      "digest": "90899786f258ce8c4a1d7b546a2273cab016ebdc4b7d44e060d6a7d4a9696a6e",
+      "family": "links",
+      "id": "links/1",
+      "kind": "crawl",
+      "start_url": "http://1.links.test/guide/"
+    },
+    {
+      "description": "Crawl the books this shelf links and return one Record per book, with the fields `id` and `title`. The shelf has moved; its links are relative to the URL it moved to.",
+      "digest": "3c7fab73f359de03990c8a9565ef8db8642e99e8e2573ce7c1a4e974b7051d89",
+      "family": "links",
+      "id": "links/2",
+      "kind": "crawl",
+      "start_url": "http://2.links.test/old/shelf"
+    },
+    {
+      "description": "Crawl the rooms this page links and return one Record per room, with the fields `id` and `title`. Some rooms are linked only from the page's scripts: a button that navigates, one that opens a popup and one that pushes a history entry.",
+      "digest": "fcd6553c8709a6c9d2a1db09a79571161bd04aef0535d1089c397a02da54230b",
+      "family": "links",
+      "id": "links/3",
+      "kind": "crawl",
+      "start_url": "http://3.links.test/"
+    },
+    {
+      "description": "Crawl the articles this page links and return one Record per article, with the fields `id` and `title`, while the Proving ground's time step goes from 0 to the last of the task's time steps. The site answers more slowly at each step.",
+      "digest": "f87121bac73f3a41ac0503710f0c16942f176d180b86537f3018485e06cdf5d8",
+      "family": "pacing",
+      "id": "pacing/1",
+      "kind": "crawl",
+      "start_url": "http://1.pacing.test/",
+      "time_steps": 6
+    },
+    {
+      "description": "Crawl the products this shop lists and return one Record per product, with the fields `id` and `name`. Its listing links every combination of its facets (`colour`, `size`, `material` and `sort`), which list no product `/shop` does not; request at most 24 faceted listings (`/shop` with a query), bounding them with a path budget or an exclude pattern.",
+      "digest": "d3af7cc6fcb1fc3aa54677c5b57b040195e1801708d462711d8ef36c471d9939",
+      "family": "facets",
+      "id": "facets/1",
+      "kind": "crawl",
+      "start_url": "http://1.facets.test/shop"
+    },
+    {
+      "description": "Crawl the listings from the first page, following each page's link to newer listings, and return one Record per listing, with the field `id` and every field its page shows. Newer listings show fields older ones lack.",
+      "digest": "4d37855e1d5bebe36d89cf885d497ffca58a73c68a2a430f16795ac0f79e0039",
+      "family": "fields",
+      "id": "fields/1",
+      "kind": "crawl",
+      "start_url": "http://1.fields.test/listings?page=1"
+    },
+    {
+      "description": "Crawl the items the sitemaps of this sitemap index list and return one Record per item, with the fields `id` and `name`. The index lists more sitemaps than the protocol's 50,000; most of them are empty.",
+      "digest": "a23ab608e234139b92ac4e2d53d665b2d019768e6a6e357d13acff81e5c3f224",
+      "family": "sitemaps",
+      "id": "sitemaps/1",
+      "kind": "crawl",
+      "start_url": "http://1.sitemaps.test/sitemap-index.xml"
+    },
+    {
+      "description": "Crawl the items the sitemaps of this sitemap index list and return one Record per item, with the fields `id` and `name`. The index lists more sitemaps than the protocol's 50,000; most of them are empty.",
+      "digest": "646c8438871e2576cb0254a225b6ed3ec7f7209449e4a50a9e072075f3d5cc07",
+      "family": "sitemaps",
+      "id": "sitemaps/2",
+      "kind": "crawl",
+      "start_url": "http://2.sitemaps.test/sitemap-index.xml.gz"
     },
     {
       "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page first answers `429` with `Retry-After: 1`.",

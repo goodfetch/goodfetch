@@ -91,6 +91,15 @@ journeys-tests:
     cargo run --quiet -p xtask -- journeys listings --out target/journey-listings --cargo-profile {{ test_profile }}
     cargo run --quiet -p xtask -- journeys check --listings target/journey-listings
 
+# ADR 0072's Feature check over every runner's declarations, in the Pre-merge
+# suite: after `journeys-tests`, it reads the same listings, so the Vitest
+# tags, Playwright annotations and pytest markers count beside the Rust
+# `Covers:` lines and the Journeys' and conformance cases' `covers` lists. A
+# generated Feature none of them declares fails it; the Quick suite's check,
+# which reads no listing, only notes one.
+features-tests: journeys-tests
+    cargo run --quiet -p xtask -- features check --listings target/journey-listings
+
 # Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
 # 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
 # repeatable; values of one flag add variants, different flags intersect.
@@ -148,9 +157,12 @@ journeys *arguments:
 
 # What the changed packages declare, then the Feature check's verdict (ADR
 # 0072): the Features each crate `xtask affected` selects declares, one
-# `<feature> <level> <test>` line each, and the check's findings over the
-# workspace, which are the Features missing a test, an exception or an area.
-# Takes `xtask affected`'s change, `--local` by default.
+# `<feature> <level> <source> <test>` line each, and the check's findings over
+# the workspace, which are the Features missing a test, an exception or an
+# area. It reads no runner listing, so it notes rather than fails a generated
+# Feature only a Vitest, Playwright or pytest test might declare; `just
+# features-tests` reads those too. Takes `xtask affected`'s change, `--local`
+# by default.
 features *change:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -480,7 +492,7 @@ pre-merge *all:
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
     "$just" journeys-tasks --check
-    "$just" journeys-tests
+    "$just" features-tests
     "$just" _tlc "{{ all }}"
     "$just" proofs
     "$just" supply-chain

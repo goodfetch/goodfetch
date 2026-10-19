@@ -155,8 +155,8 @@ jobs:
         run: ci/vm/exec.sh just stress HEAD^1
       - name: Check the Journeys' task lists against the Proving ground
         run: ci/vm/exec.sh just journeys-tasks --check
-      - name: Check each Journey variant's tests against the catalog
-        run: ci/vm/exec.sh just journeys-tests
+      - name: Check each Journey variant's tests and every runner's Feature declarations
+        run: ci/vm/exec.sh just features-tests
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check

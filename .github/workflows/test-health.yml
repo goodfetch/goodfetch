@@ -83,7 +83,7 @@ jobs:
         if: always()
         run: ci/junit-context.sh 50
       - name: Summarize the failed tests
-        if: failure()
+        if: always()
         run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
@@ -243,7 +243,7 @@ jobs:
           GOODFETCH_ORDER_SEED: ${{ steps.seed.outputs.seed }}
         run: ci/junit-context.sh
       - name: Summarize the failed tests
-        if: failure()
+        if: always()
         run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()

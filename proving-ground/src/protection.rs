@@ -280,8 +280,8 @@ fn captcha_article(seed: u64) -> String {
 
 /// The family's tasks for `seed`, their start URLs on their own host names
 /// and `port`. Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let origin = |ordinal| format!("http://{}:{port}", task::task_host(ordinal, HOST));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let origin = |ordinal| task::origin(&task::task_host(ordinal, HOST), port);
     let record =
         |number| Record::from([("id", article_id(number)), ("title", title(seed, number))]);
     vec![

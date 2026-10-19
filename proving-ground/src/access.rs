@@ -154,8 +154,8 @@ fn version_page() -> String {
 
 /// The family's tasks for `seed`, their start URLs on their own host names
 /// and `port`. Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let origin = |ordinal| format!("http://{}:{port}", task::task_host(ordinal, HOST));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let origin = |ordinal| task::origin(&task::task_host(ordinal, HOST), port);
     let records = |ids: &[&str]| Expected::records(ids.iter().map(|id| record(seed, id)).collect());
     let task = |ordinal, kind, path: &str, description, expected| Task {
         host: task::task_host(ordinal, HOST),

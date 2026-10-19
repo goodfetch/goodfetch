@@ -1,0 +1,81 @@
+# The one uv workspace (ADR 0032; STYLE.md, Python) and the Python tools'
+# settings. Members are listed one by one: each SDK, adapter and Integration
+# joins in the pull request that adds its `pyproject.toml`. `rnd/` is frozen
+# and never read.
+[project]
+name = "goodfetch-workspace"
+version = "0.0.0"
+description = "The root of Goodfetch's uv workspace; never built or published."
+# Every CPython not past its end of life (ADR 0024).
+requires-python = ">=3.11"
+
+[dependency-groups]
+# No rerun plugin and no mocking library (ADRs 0062 and 0064); `xtask
+# mocking-lockfile` checks uv.lock. datamodel-code-generator is pinned
+# exactly: `xtask codegen`'s committed output depends on its version.
+dev = [
+  "anyio>=4.15.1",
+  "datamodel-code-generator==0.86.0",
+  "goodfetch-collie-client",
+  "goodfetch-foxhound",
+  "goodfetch-test-support",
+  "inline-snapshot>=0.36.1",
+  "mypy>=2.4.0",
+  "pip-audit>=2.10.1",
+  "pyright>=1.1.414",
+  "pytest>=9.1.1",
+  "pytest-randomly>=5.0.0",
+  "pytest-repeat>=0.9.4",
+  "pytest-timeout>=2.4.0",
+  "pytest-xdist>=3.8.0",
+  "ruff>=0.17.1",
+]
+
+[tool.uv]
+package = false
+required-version = ">=0.9.28"
+
+[tool.uv.workspace]
+members = ["sdks/python/collie-client", "sdks/python/foxhound", "test-support/python"]
+
+[tool.uv.sources]
+goodfetch-collie-client = { workspace = true }
+goodfetch-foxhound = { workspace = true }
+goodfetch-test-support = { workspace = true }
+
+[tool.pytest]
+minversion = "9.0"
+# strict covers strict_markers, strict_config, strict_xfail and strict
+# parametrization IDs; strict_markers is named too, as TESTING.md names it.
+strict = true
+strict_markers = true
+addopts = ["--import-mode=importlib", "--junitxml=target/junit/pytest.xml"]
+# pytest-timeout: killed at 5 min above the Quick suite; `just test quick`
+# passes `--timeout=10`.
+timeout = "300"
+# Replaces pytest's default list, so hidden folders (other worktrees under
+# `.claude/`) and fixture folders (samples xtask runs on purpose) are named.
+norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "target"]
+
+[tool.ruff]
+extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
+ignore = ["D206", "D300"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"unittest.mock".msg = "Mocks owned code (ADR 0062); test through the interface with a local stand-in."
+"pytest.MonkeyPatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
+
+[tool.pyright]
+typeCheckingMode = "strict"
+exclude = ["rnd", "ci/proofs", "**/node_modules", "target", ".venv", "**/fixtures"]
+
+[tool.mypy]
+strict = true
+enable_error_code = ["deprecated"]
+exclude = ["^rnd/", "^ci/proofs/", "^target/", "/fixtures/"]

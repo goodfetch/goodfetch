@@ -1,0 +1,254 @@
+# Test health (ADR 0064; TESTING.md, After merge), from M1 on, whether or not
+# the repository is public, on GitHub-hosted Linux:
+#
+# - the daily test-health job, on `main`'s head, 15 minutes in all: the 10
+#   oldest quarantined tests 50 times each (`quarantined`), then the scan of
+#   the results store, the drift check of `xtask perf` (ADR 0071) and the
+#   Allure Report 3 build from it (`report`). The Feature report (ADR 0072)
+#   joins `report` with its ticket.
+# - the constrained test-health run, weekly and after each manual-dispatch
+#   Release run: the Pre-merge suite under a cgroup that halves the runner's
+#   CPU and memory, with a fresh order seed and Vitest's `detectAsyncLeaks`,
+#   120 minutes for all its shards. `budget` first checks the month's minutes
+#   against the ceiling and skips it there, saying so in the job summary.
+#
+# While the repository is private, these jobs, the diagnostic runs and the
+# coverage and mutation jobs share 1,000 included minutes a month (ADRs 0064,
+# 0072 and 0108). Once the nightly tier is on, both jobs move to it, nightly,
+# with no ceiling. Each finished run is ingested into the results store
+# (results.yml), and a failed one gets its diagnostic runs (diagnostic.yml).
+#
+# Jobs that run the product deny outbound traffic before their test step
+# (ADR 0043) through ci/egress/egress.sh's hosted backend, and run the tests
+# through ci/egress/under-deny.sh; the hosted tools come from the
+# host-tools action (both from #145).
+name: test health
+
+# `workflow_run` follows the release suite, which starts only by hand, never
+# from a fork's pull request; the constrained run holds no secret.
+on: # zizmor: ignore[dangerous-triggers]
+  schedule:
+    # The daily test-health job.
+    - cron: "17 3 * * *"
+    # The weekly constrained test-health run, on Sundays.
+    - cron: "41 4 * * 0"
+  # The constrained run after each manual-dispatch Release run (#145).
+  workflow_run:
+    workflows: [release suite]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run:
+        description: "daily or constrained"
+        required: true
+        type: choice
+        options: [daily, constrained]
+
+permissions: {}
+
+concurrency:
+  group: test-health-${{ github.event.schedule || inputs.run || 'constrained' }}
+  cancel-in-progress: false
+
+jobs:
+  quarantined:
+    name: quarantined
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '17 3 * * *')
+      || (github.event_name == 'workflow_dispatch' && inputs.run == 'daily')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the 10 oldest quarantined tests, 50 times each"
+        run: ci/egress/under-deny.sh just repeat 50 --quarantined 10
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh 50
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
+      - name: Upload the JUnit files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-quarantined-test-health-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  report:
+    name: report
+    needs: quarantined
+    if: >-
+      always()
+      && ((github.event_name == 'schedule' && github.event.schedule == '17 3 * * *')
+      || (github.event_name == 'workflow_dispatch' && inputs.run == 'daily'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The scan opens and reopens flaky-test and live-check issues, and the
+      # drift check needs-triage ones.
+      issues: write
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Check out the results store
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/test-results
+          token: ${{ secrets.TEST_RESULTS_TOKEN }}
+          path: test-results
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Scan the store for flaky tests and Live checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- results scan --store test-results
+          --repository "$GITHUB_REPOSITORY"
+      # ADR 0071: main's latest counted figures against the last release's;
+      # before the first release it compares none with a release.
+      - name: Check the store's performance figures for drift
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- perf drift --store test-results
+          --repository "$GITHUB_REPOSITORY"
+      - name: Build the Allure report from the store
+        if: always()
+        run: |
+          cargo run --quiet --locked -p xtask -- results allure --store test-results --out target/allure
+          cd target/allure
+          pnpm exec allure generate results --config allurerc.json
+      # Published on the store's GitHub Pages once the repository is public;
+      # attached to the run until then.
+      - name: Attach the Allure report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: allure-report
+          path: target/allure/report/
+          if-no-files-found: ignore
+
+  budget:
+    name: budget
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '41 4 * * 0')
+      || (github.event_name == 'workflow_dispatch' && inputs.run == 'constrained')
+      || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      # The Release run's JUnit artifacts, which name the commit it tested.
+      actions: read
+      contents: read
+    outputs:
+      admitted: ${{ steps.ceiling.outputs.admitted }}
+      commit: ${{ steps.tested.outputs.commit }}
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Check out the results store
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/test-results
+          token: ${{ secrets.TEST_RESULTS_TOKEN }}
+          path: test-results
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Check the month's minutes against the ceiling
+        id: ceiling
+        run: >-
+          cargo run --quiet --locked -p xtask -- results ceiling --store test-results
+          --run constrained --today "$(date -u +%F)" --summary "$GITHUB_STEP_SUMMARY"
+          | tee -a "$GITHUB_OUTPUT"
+      # A Release run tests the commit its `commit` input names, which may
+      # not be its head; each of its JUnit artifacts names it.
+      - name: Download the Release run's JUnit files
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id }}
+        run: gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --dir target/artifacts --pattern 'junit-*'
+      - name: Name the commit the Release run tested
+        id: tested
+        if: github.event_name == 'workflow_run'
+        run: cargo run --quiet --locked -p xtask -- results tested-commit --artifacts target/artifacts | tee -a "$GITHUB_OUTPUT"
+
+  constrained:
+    name: constrained
+    needs: budget
+    if: needs.budget.outputs.admitted == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      # The commit a Release run tested after one, else main's head.
+      - name: Check out the commit under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.budget.outputs.commit || 'main' }}
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Draw a fresh order seed
+        id: seed
+        run: echo "seed=$(shuf --input-range=1-2147483647 --head-count=1)" >>"$GITHUB_OUTPUT"
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the Pre-merge suite on half the CPU and memory"
+        env:
+          GOODFETCH_ORDER_SEED: ${{ steps.seed.outputs.seed }}
+        run: ci/egress/under-deny.sh ci/test-health/constrained.sh
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        env:
+          GOODFETCH_ORDER_SEED: ${{ steps.seed.outputs.seed }}
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
+      - name: Upload the JUnit files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-pre-merge-test-health-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore

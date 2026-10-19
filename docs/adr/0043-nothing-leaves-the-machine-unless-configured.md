@@ -35,6 +35,8 @@ Goodfetch's users send it the URLs, accounts and tasks they care most about, so 
   - **Before the deny:** checkout, toolchain and dependency installs, pinned container images and cache restores.
   - **Outside the rule:** jobs that run none of the product, such as publishing, signing, the Plugin index signature, deploying the docs, deploying the online Proving ground and the watchlist job (ADR 0035).
   - **The pinned artifact mirror** is the set of digest-pinned downloads this ADR's rule lists, or a CI cache of them.
+
+    > Amended on 2026-10-19 (owner decision of 2026-10-19): the mirror is fetched before the deny and is not reachable under it. A job under the deny reaches only the fixtures, and its named endpoints when this ADR names it; every pinned download, the test V8 build (ADR 0067) and Goodfetch's own releases from `compat/releases.toml` (ADR 0066) included, comes before the deny, so a denied step that reaches GitHub fails the job ([#135](https://github.com/goodfetch/goodfetch/issues/135)).
   - **A canary** in every job under the deny tries a forbidden connection after the deny starts and must be refused.
 - Only these jobs may also reach named endpoints, and only those:
 

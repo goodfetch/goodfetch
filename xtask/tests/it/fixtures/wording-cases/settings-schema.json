@@ -1,0 +1,14 @@
+{
+  "$defs": {
+    "ProxySettings": {
+      "description": "Where requests go.",
+      "properties": {
+        "bypass": {
+          "description": "The hosts to bypass, undetectable and undetected, that solve any CAPTCHA.",
+          "type": "array"
+        }
+      }
+    }
+  },
+  "title": "Goodfetch protocol"
+}

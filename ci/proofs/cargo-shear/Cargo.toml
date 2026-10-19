@@ -1,0 +1,5 @@
+# The fixture of the unused-dependency proof (just proofs): a crate that
+# declares a dependency it never uses, which cargo-shear refuses (#133).
+[workspace]
+resolver = "3"
+members = ["declares-it", "unused-dependency"]

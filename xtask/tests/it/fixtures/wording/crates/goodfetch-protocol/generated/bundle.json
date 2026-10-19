@@ -1,0 +1,14 @@
+{
+  "$defs": {
+    "ProxySettings": {
+      "description": "Where requests go.",
+      "properties": {
+        "bypass": {
+          "description": "The hosts reached without the proxy.",
+          "type": "array"
+        }
+      }
+    }
+  },
+  "title": "Goodfetch protocol"
+}

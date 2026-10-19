@@ -1,0 +1,10 @@
+# The third-party inputs a Goodfetch Chromium build lists, beyond those its
+# folder declares (ADR 0043).
+set = "chromium"
+
+[[input]]
+name = "Variations seed"
+version = "150.0.7800.0"
+license = "LicenseRef-Google-Variations-Seed"
+source = "https://clientservices.googleapis.com/chrome-variations/seed"
+use = "unmodified"

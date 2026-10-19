@@ -1,0 +1,6 @@
+# The fixture of the feature-combinations proof (just proofs): Collie's SDK
+# crate with two Cargo features that build alone and break together, and
+# Foxhound's with two that build in every combination.
+[workspace]
+resolver = "3"
+members = ["goodfetch-collie", "goodfetch-foxhound"]

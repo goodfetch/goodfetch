@@ -1,0 +1,6 @@
+# crates.io, stood in for by the crates under vendor/, so Cargo runs offline.
+[source.crates-io]
+replace-with = "fixture"
+
+[source.fixture]
+directory = "vendor"

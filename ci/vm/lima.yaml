@@ -1,0 +1,35 @@
+# The throwaway VM of each pull-request-tier job on the owner's machine
+# (ADR 0135): Linux arm64 under Apple's Virtualization framework, with Rosetta
+# for Linux registered for x86-64 binaries, so the job's userland (the CI
+# image, ci/image/Containerfile) runs as Linux x86-64. `ci/vm/start.sh` adds
+# the workspace and cache folder mounts; the VM is destroyed after the job.
+vmType: vz
+rosetta:
+  enabled: true
+  binfmt: true
+cpus: 8
+memory: 16GiB
+disk: 80GiB
+images:
+  # Ubuntu 24.04's cloud image of 2026-09-26, pinned by digest.
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: aarch64
+    digest: "sha256:1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55"
+# The host's home folder is never mounted: only the job's workspace and the
+# cache folder, which start.sh lists.
+mounts: []
+mountType: virtiofs
+containerd:
+  system: false
+  user: true
+# nftables carries ADR 0043's deny (ci/egress/egress.sh); it is installed at
+# boot, before the deny, when the image lacks it.
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      command -v nft >/dev/null || {
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends nftables
+      }

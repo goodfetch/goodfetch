@@ -1,0 +1,9 @@
+[modules]
+clock = []
+retry = ["clock"]
+dispatch = ["retry"]
+
+[submodules.retry]
+backoff = ["policy"]
+jitter = []
+policy = []

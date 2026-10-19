@@ -1,0 +1,85 @@
+{
+  "name": "sample-protocol",
+  "schema": {
+    "$defs": {
+      "SampleEchoParams": {
+        "additionalProperties": false,
+        "description": "What `sample.echo` repeats.",
+        "properties": {
+          "text": {
+            "description": "The text to repeat.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "SampleEchoResult": {
+        "additionalProperties": false,
+        "description": "What `sample.echo` answers.",
+        "properties": {
+          "text": {
+            "description": "The text, repeated.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "SampleMessage": {
+        "description": "One message of the sample protocol.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A request.",
+            "properties": {
+              "id": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "method": {
+                "type": "string"
+              },
+              "params": {
+                "$ref": "#/$defs/SampleEchoParams"
+              }
+            },
+            "required": [
+              "id",
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A response.",
+            "properties": {
+              "id": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "$ref": "#/$defs/SampleEchoResult"
+              }
+            },
+            "required": [
+              "id",
+              "result"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "$ref": "#/$defs/SampleMessage"
+  },
+  "storage": "transcript",
+  "version": "0.1"
+}

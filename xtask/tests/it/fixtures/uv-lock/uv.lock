@@ -1,0 +1,21 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[manifest]
+members = ["goodfetch-test-support"]
+
+[[package]]
+name = "goodfetch-test-support"
+version = "0.0.0"
+source = { editable = "test-support/python" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[[package]]
+name = "pytest"
+version = "9.0.2"
+source = { registry = "https://pypi.org/simple" }

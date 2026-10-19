@@ -1,0 +1,23 @@
+{
+  "name": "sample-store",
+  "schema": {
+    "$defs": {
+      "SampleStore": {
+        "description": "A sample SQLite store, whose tables its SQL text dump defines.",
+        "properties": {
+          "tables": {
+            "const": [
+              "pages",
+              "runs"
+            ],
+            "description": "The store's tables."
+          }
+        },
+        "type": "object"
+      }
+    },
+    "$ref": "#/$defs/SampleStore"
+  },
+  "storage": "sqlite",
+  "version": "0.1"
+}

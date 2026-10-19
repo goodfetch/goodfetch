@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="1" skipped="0" failures="0" errors="0" uuid="fc1e906a-ab3e-498f-a4a6-62a29a3db01f" timestamp="2026-10-17T03:01:03.471+00:00" time="0.010">
+    <testsuite name="sample" tests="1" skipped="0" errors="0" failures="0">
+        <testcase name="tests::earlier_attempt" classname="sample" time="0.008"/>
+    </testsuite>
+</testsuites>

@@ -1,0 +1,11 @@
+[project]
+name = "goodfetch-test-support"
+version = "0.0.0"
+description = "Goodfetch's shared pytest plugin (ADR 0062); never published."
+requires-python = ">=3.11"
+# PyPI refuses an upload that carries this classifier.
+classifiers = ["Private :: Do Not Upload"]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

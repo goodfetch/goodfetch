@@ -1,0 +1,132 @@
+# ADR 0043's outbound-traffic deny in CI: the one place that says what each
+# job may reach. `xtask egress check` (Quick suite) fails on a workflow job
+# missing here, and `ci/egress/egress.sh` builds each job's deny from it.
+#
+# - [[deny]]: a job that runs Goodfetch's product. Under the deny it reaches
+#   only the fixtures, local to its VM. It denies after its installs, cache
+#   restores and pinned downloads (`just fetch`, run when the VM starts, and
+#   the pinned artifact mirror's downloads) and before its first test step,
+#   runs the Egress canary right after, and fails on any other connection.
+# - [[named]]: a job ADR 0043 names, under the deny but also reaching its own
+#   `endpoints` ("<host>:<port>"). Its `exception` says which of ADR 0043's
+#   jobs it is: saas-sinks, benchmark, testnets, vendor-conformance,
+#   clean-up-rules-daily, cloud-run-deploy, model, integration-account,
+#   unpinned-releases or fixture-licence.
+# - [[outside]]: a job that runs none of the product, with the reason.
+
+# The Egress canary's forbidden connection: a public address no job may reach.
+canary = "1.1.1.1:443"
+
+# The pinned artifact mirror (ADR 0043's digest-pinned downloads: the test V8
+# build, ADR 0067, and Goodfetch's own releases from every `url` of
+# compat/releases.toml, ADR 0066, among them) is no endpoint here: a job
+# fetches what it needs before its deny, so a denied step that reaches
+# GitHub fails the job (owner decision of 2026-10-19).
+
+[[deny]]
+job = "pull-request.yml#quick"
+
+[[deny]]
+job = "pull-request.yml#pre-merge"
+
+# The counted performance gates (ADR 0071): the base's and the head's
+# benchmarks build, and the pull request's acceptance is read, before the
+# deny; the benchmarks run under it.
+[[deny]]
+job = "pull-request.yml#perf"
+
+# The visual projects, in the pinned Playwright image (ADR 0073). The job also
+# loads the CI image, whose container runs the deny's xtask commands.
+[[deny]]
+job = "pull-request.yml#visual"
+
+[[deny]]
+job = "update-screenshots.yml#update"
+
+# The Release suite's cells (ADR 0108). The hosted Linux cells deny in a
+# network namespace, the Windows cell with firewall rules on the product's
+# programs, the macOS cells with a sandbox profile, and the visual job in
+# the owner's machine's VM (ci/egress/egress.sh).
+[[deny]]
+job = "release-suite.yml#linux-x64"
+
+[[deny]]
+job = "release-suite.yml#linux-arm64"
+
+[[deny]]
+job = "release-suite.yml#windows-x64"
+
+[[deny]]
+job = "release-suite.yml#macos-arm64"
+
+[[deny]]
+job = "release-suite.yml#macos-x64"
+
+[[deny]]
+job = "release-suite.yml#visual"
+
+[[outside]]
+job = "pull-request.yml#chromium-build-gate"
+reason = "Until its first build lands (#445) it builds and runs nothing. Then its fetches come before the deny and its tests run under it (ADR 0074)."
+
+[[outside]]
+job = "pull-request.yml#affected"
+reason = "It selects the jobs and tests a change needs from its files and runs none of the product."
+
+# The supply-chain gates (#133): the sign-offs, the audits against public
+# advisory databases (RustSec, the npm registry, PyPI and OSV), the MSRV
+# build, cargo-hack and the notice inventory's license check run before the
+# deny; Miri's tests run under it.
+[[deny]]
+job = "pull-request.yml#supply-chain"
+
+[[outside]]
+job = "pull-request.yml#all-green"
+reason = "It judges the run through GitHub's API and runs none of the product."
+
+[[outside]]
+job = "lab.yml#lab"
+reason = "It runs the frozen R&D lab under rnd/, which is no Product."
+
+[[outside]]
+job = "cache-warming.yml#warm"
+reason = "It fetches and builds the tier's targets without running them, and saves the build cache."
+
+# Test health (ADR 0064): the jobs that run tests deny; those that read and
+# write the results store, GitHub's interface and the ceiling run none of the
+# product.
+[[deny]]
+job = "test-health.yml#quarantined"
+
+[[deny]]
+job = "test-health.yml#constrained"
+
+[[outside]]
+job = "test-health.yml#report"
+reason = "It scans the results store, keeps the flaky-test and live-check issues, checks the performance figures for drift and builds the Allure report; it runs none of the product (ADRs 0064 and 0071)."
+
+[[outside]]
+job = "test-health.yml#budget"
+reason = "It counts the month's minutes from the results store; it runs none of the product."
+
+[[deny]]
+job = "diagnostic.yml#rerun"
+
+[[deny]]
+job = "diagnostic.yml#rerun-owner-machine"
+
+[[outside]]
+job = "diagnostic.yml#select"
+reason = "It reads the failed run's JUnit files and the results store to choose the tests to run again; it runs none of the product."
+
+[[outside]]
+job = "results.yml#ingest"
+reason = "The ingest copies JUnit files into the results store and runs none of the product (ADR 0064)."
+
+[[outside]]
+job = "results.yml#daily"
+reason = "The daily ingest copies JUnit files into the results store and runs none of the product (ADRs 0064 and 0135)."
+
+[[outside]]
+job = "release-suite.yml#plan"
+reason = "It reads and writes the Release runs' records through GitHub's API to choose the cells, and runs none of the product."

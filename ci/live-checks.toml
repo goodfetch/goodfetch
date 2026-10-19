@@ -1,0 +1,13 @@
+# Every Live check (ADR 0064; TESTING.md, Live checks) and its owning area,
+# numbered as ADR 0037's table numbers the V1 areas. A Live check reports to
+# the results store under the `live` tier: its ID is its JUnit test case's,
+# as the ingest names it, and a skipped test case is an inconclusive result.
+#
+# The scan (`xtask results scan`) opens or updates a Live check's one
+# `live-check` issue on a fail or three inconclusive results in a row, with
+# its area in the title, and fails on a Live check this list does not name.
+# Each area adds its checks in the pull request that adds their jobs:
+#
+# [[live-check]]
+# id = "saas-sinks snowflake"
+# area = 6

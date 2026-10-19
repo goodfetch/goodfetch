@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# The Rust toolchain of a job that runs on its runner's own system
+# (.github/actions/host-tools): rustup when the runner's user lacks it,
+# checked against its published SHA-256, then rust-toolchain.toml's channel
+# and the job's target ($TARGET). With ARCHITECTURE=x64 on Apple silicon the
+# toolchain is the x86-64 one, run under Rosetta 2, so the build scripts and
+# the tests run as x86-64 too (ADR 0108's `macos-x64 (Rosetta 2)` cell).
+set -euo pipefail
+
+target=${TARGET:?the job sets TARGET}
+architecture=${ARCHITECTURE:-native}
+root=$(cd "$(dirname "$0")/../.." && pwd)
+channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$root/rust-toolchain.toml")
+system="$(uname -s)-$(uname -m)"
+
+if ! command -v rustup >/dev/null; then
+  case "$system" in
+    Darwin-arm64) host=aarch64-apple-darwin ;;
+    Darwin-x86_64) host=x86_64-apple-darwin ;;
+    Linux-x86_64) host=x86_64-unknown-linux-gnu ;;
+    Linux-aarch64) host=aarch64-unknown-linux-gnu ;;
+    *)
+      echo "error: no rustup on $system, and this script installs it only on macOS and Linux" >&2
+      exit 2
+      ;;
+  esac
+  folder=$(mktemp -d)
+  trap 'rm -rf "$folder"' EXIT
+  url="https://static.rust-lang.org/rustup/dist/$host/rustup-init"
+  curl --proto '=https' --tlsv1.2 -fsSLo "$folder/rustup-init" "$url"
+  curl --proto '=https' --tlsv1.2 -fsSLo "$folder/rustup-init.sha256" "$url.sha256"
+  expected=$(cut -d ' ' -f 1 "$folder/rustup-init.sha256")
+  actual=$(shasum -a 256 "$folder/rustup-init" | cut -d ' ' -f 1)
+  if [[ "$expected" != "$actual" ]]; then
+    echo "error: rustup-init's SHA-256 is $actual, not the published $expected" >&2
+    exit 1
+  fi
+  chmod +x "$folder/rustup-init"
+  "$folder/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+  export PATH="$HOME/.cargo/bin:$PATH"
+  echo "$HOME/.cargo/bin" >>"${GITHUB_PATH:?the runner sets GITHUB_PATH}"
+fi
+
+if [[ "$architecture" == x64 && "$system" == Darwin-arm64 ]]; then
+  toolchain="$channel-x86_64-apple-darwin"
+  rustup toolchain install "$toolchain" --profile minimal --force-non-host
+  echo "RUSTUP_TOOLCHAIN=$toolchain" >>"${GITHUB_ENV:?the runner sets GITHUB_ENV}"
+else
+  toolchain=$channel
+  rustup toolchain install "$toolchain" --profile minimal
+fi
+rustup target add --toolchain "$toolchain" "$target"
+
+# musl's C toolchain, for the crates that build C code.
+if [[ "$target" == *-linux-musl ]]; then
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq musl-tools
+fi

@@ -1,0 +1,2 @@
+{"id":1,"method":"sample.echo","params":{"text":"hello"}}
+{"id":1,"result":{"text":"hello"}}

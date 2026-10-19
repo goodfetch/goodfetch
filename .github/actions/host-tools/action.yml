@@ -1,0 +1,94 @@
+# Installs what a job that runs on its runner's own system needs, outside any
+# VM: the Release suite's cells (ADRs 0061 and 0108) and the hosted test-health
+# jobs (ADR 0064). Every download happens here, before ADR 0043's deny:
+# the Rust toolchain of rust-toolchain.toml and the target, just, cargo-nextest,
+# cargo-insta and uv at the versions the CI image pins (ci/tool-versions.sh
+# checks they agree), pnpm, the runtimes,
+# then `just fetch`. A job calls it right after actions/checkout.
+#
+# Runtimes (ADR 0069; TESTING.md, SDK and CLI tests):
+#   one   the newest Node LTS line and CPython, as the Pre-merge suite runs;
+#   ends  the oldest and newest Node line and CPython, and Bun and Deno 2;
+#   all   every supported Node line and CPython, and Bun and Deno 2.
+# On Linux, the free-threaded CPython builds from 3.14t join every set.
+# Supported lines: Node 24 and 26 (package.json's `engines`), CPython 3.11 to
+# 3.14 (pyproject.toml's `requires-python`; 3.15 joins once uv ships it).
+# Each runtime is pinned to its exact version in ci/host/runtimes.env.
+#
+# Later steps read GOODFETCH_NODE_LINES (`<line>=<bin folder>` pairs) and
+# GOODFETCH_PYTHONS (uv's Python requests) from the job's environment.
+name: Host tools
+description: Installs the toolchains, tools and runtimes of a job that runs on its runner's own system.
+
+inputs:
+  target:
+    description: The Rust target triple the job builds for.
+    required: true
+  runtimes:
+    description: "`one`, `ends` or `all`."
+    required: false
+    default: one
+  architecture:
+    description: "`x64` on Apple silicon runs the toolchains and runtimes as x86-64 under Rosetta 2 (the `macos-x64 (Rosetta 2)` cell); otherwise the runner's own."
+    required: false
+    default: native
+
+runs:
+  using: composite
+  steps:
+    - name: Install the Rust toolchain and target
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        ARCHITECTURE: ${{ inputs.architecture }}
+      run: ci/host/rust.sh
+
+    - name: Read the pinned runtimes
+      id: runtimes
+      shell: bash
+      run: grep -E '^[A-Z0-9_]+=' ci/host/runtimes.env >>"$GITHUB_OUTPUT"
+
+    - name: Install just, cargo-nextest, cargo-insta and uv
+      uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
+      with:
+        tool: just@1.46.0,cargo-nextest@0.9.146,cargo-insta@1.49.0,uv@0.9.28
+
+    # The newest line first, so the oldest, the default `node`, wins PATH.
+    - name: Install Node 26
+      if: inputs.runtimes != 'one'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ steps.runtimes.outputs.NODE_26 }}
+        architecture: ${{ inputs.architecture == 'x64' && 'x64' || '' }}
+    - name: Record Node 26
+      if: inputs.runtimes != 'one'
+      shell: bash
+      run: ci/host/record-node.sh 26
+
+    - name: Install Node 24
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ steps.runtimes.outputs.NODE_24 }}
+        architecture: ${{ inputs.architecture == 'x64' && 'x64' || '' }}
+    - name: Record Node 24
+      shell: bash
+      run: ci/host/record-node.sh 24
+
+    - name: Install Bun
+      if: inputs.runtimes != 'one'
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: ${{ steps.runtimes.outputs.BUN }}
+
+    - name: Install Deno 2
+      if: inputs.runtimes != 'one'
+      uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+      with:
+        deno-version: ${{ steps.runtimes.outputs.DENO }}
+
+    - name: Install pnpm and the CPython lines, then fetch the workspace's dependencies
+      shell: bash
+      env:
+        RUNTIMES: ${{ inputs.runtimes }}
+        ARCHITECTURE: ${{ inputs.architecture }}
+      run: ci/host/fetch.sh

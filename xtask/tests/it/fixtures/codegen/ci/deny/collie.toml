@@ -1,0 +1,16 @@
+# The codegen fixture's cargo-deny configuration for Collie's executable.
+
+[[bans.deny]]
+crate = "duckdb"
+reason = "only Foxhound's Datasets use DuckDB (ADR 0088)"
+
+# xtask codegen: begin, Foxhound's crates, which Collie's executable never ships (ADR 0087). Never edit by hand; run `xtask codegen`.
+[[bans.deny]]
+crate = "goodfetch-frontier"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-sink"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+# xtask codegen: end

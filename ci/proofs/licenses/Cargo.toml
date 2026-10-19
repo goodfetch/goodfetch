@@ -1,0 +1,5 @@
+# The fixture of cargo-deny's license proof (just proofs): one crate taking
+# dependencies under licenses on and off ADR 0018's allowlist.
+[workspace]
+resolver = "3"
+members = ["*"]

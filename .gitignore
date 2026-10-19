@@ -1,7 +1,12 @@
 .DS_Store
 node_modules/
+# Cargo's builds, and every runner's JUnit XML and test output under target/
 target/
 __pycache__/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Local secrets (ADR 0076): only .env.example is committed
 .env

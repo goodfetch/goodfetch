@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "rnd/**",
+    "**/generated/**",
+    "**/compat/**",
+    ".agents/**",
+    "ci/proofs/**",
+    "**/*.md",
+    "**/*.toml",
+    "pnpm-lock.yaml"
+  ]
+}

@@ -1,0 +1,375 @@
+{
+  "$defs": {
+    "Artifact": {
+      "additionalProperties": false,
+      "description": "A published file or package.",
+      "properties": {
+        "attestation": {
+          "$ref": "#/$defs/Attestation",
+          "description": "Its Sigstore attestation bundle."
+        },
+        "name": {
+          "description": "Its name as published: a package or crate name, a file name, or an\nOCI reference without its tag.",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256",
+          "description": "The SHA-256 digest of what `url` serves."
+        },
+        "url": {
+          "$ref": "#/$defs/HttpsUrl",
+          "description": "Where it is downloaded from."
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "sha256",
+        "attestation"
+      ],
+      "type": "object"
+    },
+    "Attestation": {
+      "additionalProperties": false,
+      "description": "A Sigstore attestation bundle, checked offline with `gh attestation\nverify --bundle` (ADR 0066).",
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/Sha256",
+          "description": "The SHA-256 digest of the bundle."
+        },
+        "url": {
+          "$ref": "#/$defs/HttpsUrl",
+          "description": "Where the bundle is downloaded from."
+        }
+      },
+      "required": [
+        "url",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "ClientPackages": {
+      "additionalProperties": false,
+      "description": "The Collie client packages, one per language (ADR 0095).",
+      "properties": {
+        "crates_io": {
+          "$ref": "#/$defs/Artifact",
+          "description": "The `goodfetch-collie-client` crate."
+        },
+        "npm": {
+          "$ref": "#/$defs/Artifact",
+          "description": "`@goodfetch/collie-client`."
+        },
+        "pypi": {
+          "$ref": "#/$defs/Artifact",
+          "description": "`goodfetch-collie-client`'s wheel."
+        }
+      },
+      "required": [
+        "npm",
+        "pypi",
+        "crates_io"
+      ],
+      "type": "object"
+    },
+    "FormatVersion": {
+      "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
+      "type": "string"
+    },
+    "HttpsUrl": {
+      "description": "An https:// URL with a host.",
+      "pattern": "^https://[^/?#\\s]+[^\\s]*$",
+      "type": "string"
+    },
+    "ProductArtifacts": {
+      "additionalProperties": false,
+      "description": "One Product's files at one release (ADR 0094).",
+      "properties": {
+        "crates_io": {
+          "default": [],
+          "description": "Its crates on crates.io.",
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "type": "array"
+        },
+        "executables": {
+          "default": [],
+          "description": "Its executable's archive for each target.",
+          "items": {
+            "$ref": "#/$defs/TargetArtifact"
+          },
+          "type": "array"
+        },
+        "helm_chart": {
+          "$ref": "#/$defs/Artifact",
+          "description": "Its Helm chart, an OCI artifact."
+        },
+        "image": {
+          "$ref": "#/$defs/Artifact",
+          "description": "Its OCI image."
+        },
+        "npm": {
+          "default": [],
+          "description": "Its npm package and its platform packages.",
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "type": "array"
+        },
+        "pypi": {
+          "default": [],
+          "description": "Its Python wheels on the Python Package Index.",
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "helm_chart",
+        "image"
+      ],
+      "type": "object"
+    },
+    "ProductVersion": {
+      "description": "A Product version of a stable release or patch, `X.Y.Z` (ADR 0030).",
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
+      "type": "string"
+    },
+    "Release": {
+      "additionalProperties": false,
+      "description": "What one Product version shipped.",
+      "properties": {
+        "collie": {
+          "$ref": "#/$defs/ProductArtifacts",
+          "description": "Collie's files."
+        },
+        "collie_client": {
+          "$ref": "#/$defs/ClientPackages",
+          "description": "The Collie client packages both Products' SDKs build on (ADR 0095)."
+        },
+        "formats": {
+          "additionalProperties": false,
+          "description": "The version of every registered format the release shipped, read from\nits tag's format registry.",
+          "patternProperties": {
+            "^[a-z0-9]+(-[a-z0-9]+)*$": {
+              "$ref": "#/$defs/FormatVersion"
+            }
+          },
+          "type": "object"
+        },
+        "foxhound": {
+          "$ref": "#/$defs/ProductArtifacts",
+          "description": "Foxhound's files."
+        },
+        "plugins": {
+          "default": [],
+          "description": "The first-party Plugins, one OCI artifact per target (ADR 0094).",
+          "items": {
+            "$ref": "#/$defs/TargetArtifact"
+          },
+          "type": "array"
+        },
+        "version": {
+          "$ref": "#/$defs/ProductVersion",
+          "description": "The Product version both Products carry (ADR 0090)."
+        }
+      },
+      "required": [
+        "version",
+        "formats",
+        "collie",
+        "foxhound",
+        "collie_client"
+      ],
+      "type": "object"
+    },
+    "ReleasesFile": {
+      "additionalProperties": false,
+      "description": "The whole file: every release, oldest first.",
+      "properties": {
+        "release": {
+          "default": [],
+          "description": "One entry per stable release or patch; release candidates and\nnightlies have none.",
+          "items": {
+            "$ref": "#/$defs/Release"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "SampleCrawlParams": {
+      "additionalProperties": false,
+      "description": "What `sample.crawl` starts from.",
+      "properties": {
+        "echo": {
+          "$ref": "#/$defs/SampleEchoParams",
+          "description": "The text each page repeats, a type Collie's catalog defines."
+        },
+        "pages": {
+          "description": "How many pages to visit.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "echo",
+        "pages"
+      ],
+      "type": "object"
+    },
+    "SampleCrawlResult": {
+      "description": "What `sample.crawl` answers.",
+      "properties": {
+        "visited": {
+          "description": "How many pages were visited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "visited"
+      ],
+      "type": "object"
+    },
+    "SampleCrawled": {
+      "description": "What `sample.crawled` reports.",
+      "properties": {
+        "visited": {
+          "description": "How many pages were visited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "visited"
+      ],
+      "type": "object"
+    },
+    "SampleEchoParams": {
+      "additionalProperties": false,
+      "description": "What `sample.echo` repeats.",
+      "properties": {
+        "text": {
+          "description": "The text to repeat.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleEchoResult": {
+      "description": "What `sample.echo` answers.",
+      "properties": {
+        "text": {
+          "description": "The text, repeated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleEchoed": {
+      "description": "What `sample.echoed` reports.",
+      "properties": {
+        "text": {
+          "description": "The text that was repeated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleStorePutParams": {
+      "description": "What a sample store keeps.",
+      "properties": {
+        "key": {
+          "description": "The key to keep the value under.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to keep.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SampleStorePutResult": {
+      "additionalProperties": false,
+      "description": "What a sample store answers once it kept a value.",
+      "properties": {
+        "replaced": {
+          "description": "Whether a value was already kept under the key.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "replaced"
+      ],
+      "type": "object"
+    },
+    "Sha256": {
+      "description": "A SHA-256 digest of 64 lowercase hexadecimal digits.",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "TargetArtifact": {
+      "additionalProperties": false,
+      "description": "A published file built for one target.",
+      "properties": {
+        "attestation": {
+          "$ref": "#/$defs/Attestation",
+          "description": "Its Sigstore attestation bundle."
+        },
+        "name": {
+          "description": "Its name as published.",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256",
+          "description": "The SHA-256 digest of what `url` serves."
+        },
+        "target": {
+          "description": "The Rust target triple it was built for.",
+          "type": "string"
+        },
+        "url": {
+          "$ref": "#/$defs/HttpsUrl",
+          "description": "Where it is downloaded from."
+        }
+      },
+      "required": [
+        "target",
+        "name",
+        "url",
+        "sha256",
+        "attestation"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "files": {
+    "compat/releases.toml": {
+      "$ref": "#/$defs/ReleasesFile"
+    }
+  },
+  "protocol_version": "0.1",
+  "title": "Goodfetch protocol"
+}

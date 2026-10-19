@@ -1,0 +1,125 @@
+# While the repository is private, the owner's machine runs the pull-request tier in a throwaway Linux VM, and private fuzzing nightly
+
+While the repository is private, ADR 0108's self-hosted runner on the owner's machine (Apple M3 Max) also runs the pull-request tier: every job of the tier runs there, and each job's build and tests run inside a Linux VM that Lima creates for that job and destroys after it. The VM runs an x86-64 userland through Rosetta for Linux, so the tier's Linux x64 checks keep their platform. Its build cache is a folder on the machine that only a `main` job writes. Private fuzzing runs there too, nightly on `main`'s head, in the same kind of VM. Nothing falls back to GitHub-hosted runners. The hosted jobs left (the ingest of test results and the checks run by hand) take at most 240 of the 400 included minutes a month that ADRs 0064 and 0108 leave, each line under a budget of its own.
+
+ADR 0108 holds 600 of the account's 2,000 included minutes a month for the manual-dispatch Release runs, beside ADR 0064's 1,000 for test health, and leaves at most 400 for every other hosted job of the account. Two consumers had no budget. The pull-request tier (ADR 0061: `just quick all`, then the Pre-merge suite on Linux) runs on every push of every pull request, and agents open many. Private fuzzing (ADRs 0067 and 0076) needs about 1,800 minutes a month for its nightly `batch` of 3,600 s alone, before 600 s of `code-change` after every push. The cache-warming job on every push to `main` (ADR 0061), the ingest workflow after every finished run (ADR 0064) and the checks run by hand, such as ADR 0065's Live checks and ADR 0043's online conformance, draw on the same remainder. Without a payment method, an account that runs out is blocked, not billed, so pull requests would stop getting checks.
+
+Facts this rests on, checked on 2026-10-18:
+
+- **Pull-request volume:** 183 pull requests were opened in the 30 days before 2026-10-18 (`gh pr list`), before any code exists. At 10 hosted minutes a pull request, that is about 1,800 minutes a month, more than four times what is left.
+- **Minutes are rounded per job** ([Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)): each job's minutes and partial minutes are rounded up to the nearest whole minute, so a hosted job that runs for seconds after every pull-request run costs a minute each time.
+- **Self-hosted runners are free today** ([GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)): "GitHub Actions usage is free for self-hosted runners". The $0.002-a-minute charge for self-hosted runners in private repositories was postponed, not cancelled, with no new date (ADR 0108's facts).
+- **Pre-job and post-job scripts** ([run scripts](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/run-scripts)): the scripts see the job's default variables and the full event payload at `GITHUB_EVENT_PATH`, run as the runner's service user, block the job while they run and have no timeout setting. The docs do not say whether the post-job script runs when a job is cancelled.
+- **A queued job fails after 24 hours** on a self-hosted runner (ADR 0108's facts).
+- **Lima** ([multi-architecture](https://lima-vm.io/docs/config/multi-arch/)) is free and open source. On an Apple silicon Mac its VMs run Linux arm64 natively. "Running a VM with a foreign architecture is extremely slow"; x86-64 programs run faster in an arm64 VM through "Rosetta for Linux", which is "available for VZ instances on ARM hosts".
+- **Rosetta's end is announced.** Apple: "Rosetta is available for any Mac with Apple silicon using macOS 27 or earlier"; from macOS 28 it serves only certain older games (ADR 0108's facts). Whether Rosetta for Linux in a VM outlives macOS 27 was not found.
+- **Actions run where the runner runs.** `actions/checkout`, `Swatinem/rust-cache` and `actions/upload-artifact` run on the macOS host, not in the VM, and rust-cache's key includes the runner's OS and architecture ([rust-cache](https://github.com/Swatinem/rust-cache)).
+
+Decided by the owner on 2026-10-17 in [Fit the pull-request tier, private fuzzing and other hosted jobs in the included minutes left](https://github.com/goodfetch/goodfetch/issues/545): the owner's machine runs the pull-request tier, in a throwaway Linux VM, and private fuzzing runs nightly on merged `main` there. On 2026-10-18 the owner settled the rest:
+
+- the VM tool is Lima; the machine never sleeps while on power; a check that failed because the runner was offline is re-run with `gh run rerun` once it is back; and nothing falls back to GitHub-hosted runners;
+- the VM runs an x86-64 userland under Rosetta for Linux, re-pinning a check to Linux arm64 only where Rosetta fails it;
+- the build cache is a folder on the machine, written only by a `main` job there and read-only to pull-request VMs;
+- the pull-request tier keeps ADR 0061's time budgets, measured on the machine from each job's start;
+- ADR 0072's in-diff mutation job runs on the machine;
+- runs that ran only on the machine reach the results store through one daily hosted ingest job.
+
+This ADR records those and settles what they and earlier ADRs imply. It builds on ADRs 0032, 0061, 0064, 0067, 0071, 0072, 0076 and 0108.
+
+## Decision
+
+> Amended on 2026-10-19 (owner decision of 2026-10-19): GitHub Actions is turned off for the repository, and the owner runs CI locally. A pull request merges once `just quick all` and `just pre-merge all` pass in a checkout of its exact head (`AGENTS.md`, "Merging"). The workflows stay in `.github/workflows/`, unused, so turning Actions back on restores the setup this ADR describes.
+
+### Where each job runs, and its included minutes
+
+| Job | Where it runs | Budget, Linux-equivalent minutes a month |
+|---|---|---|
+| The pull-request tier: the Quick job, the Pre-merge jobs, "all green", the Chromium build gate's check, the lab job; and ADR 0072's in-diff mutation job | the owner's machine; whatever builds or runs the repository's code runs in a Linux VM recreated for the job | none |
+| The cache-warming job, on `main` | the owner's machine, in a Linux VM recreated for the job | none |
+| Private fuzzing: nightly `batch` on `main`'s head, then `prune` and `coverage` | the owner's machine, in a Linux VM recreated for the job | none |
+| The ingest of each finished run that had a hosted job | GitHub-hosted Linux | 90 |
+| The daily ingest of the runs that ran only on the owner's machine | GitHub-hosted Linux | 60 |
+| Checks run by hand: ADR 0065's Live checks, ADR 0043's online conformance | GitHub-hosted | 90 |
+| **Total** | | **240** |
+
+The other 160 of the 400 stay unallocated, as headroom for these lines' estimates. The other hosted jobs keep their own ceilings: the Release runs' hosted cells under ADR 0108's 600, and test health and the coverage job under ADR 0064's 1,000. The three ceilings add up to the account's 2,000.
+
+### The pull-request tier on the owner's machine
+
+- **Every job of the pull-request tier runs on the owner's machine,** through ADR 0108's runner: the Quick job, the Pre-merge jobs, "all green", the Chromium build gate's check and the lab job. ADR 0072's in-diff mutation job runs there too; the test V8 build already does (ADR 0067). A step that builds or runs the repository's code runs inside a Linux VM that Lima starts for the job and destroys when the job ends. A job that builds and runs nothing of the repository's, such as the Chromium build gate's placeholder check, needs no VM.
+- **The VM is recreated for every job,** from a base image pinned by digest. It holds no secret and has only the job's `contents: read` token. No host folder it can write survives the job, except the job's own workspace, which the runner cleans at start and end; the cache folder below is read-only to it. The pre-job script destroys any VM an earlier job left behind before it admits the next job, since a cancelled job may skip the post-job script.
+  > Amended on 2026-10-19 (owner decision of 2026-10-19): a named job may also pass read-only scopes into the VM: `issues: read` for the quarantine-list check ([#315](https://github.com/goodfetch/goodfetch/issues/315)), `pull-requests: read` for the `perf` job and the Release suite's Linux jobs ([#319](https://github.com/goodfetch/goodfetch/issues/319)), and `actions: read` for "all green". Never a write scope and never a secret; each job's `permissions` hold exactly what it needs.
+- **The VM runs an x86-64 userland through Rosetta for Linux.** Lima starts a VZ VM, Linux arm64, with Rosetta for Linux on, and the tier's toolchains, tools and images are their Linux x86-64 builds. So the checks pinned to Linux x64 keep their platform: visual tests in the pinned Playwright image (ADR 0073), the count snapshots, `xtask perf` and benchmark admission (ADR 0071), the size estimate (ADR 0057), `cargo fuzz check` (ADR 0067) and the in-diff mutation job (ADR 0072). The tier matches what it becomes on hosted Linux x64 runners once the repository is public.
+- **A check that Rosetta fails is re-pinned to Linux arm64 alone, while private.** [#132](https://github.com/goodfetch/goodfetch/issues/132) proves the setup with a quick trial: Callgrind, the pinned Playwright image and `cargo fuzz check` under Rosetta. A check that fails there runs natively on Linux arm64 in the VM, one check at a time, and the ticket that finds it amends the ADR that pins it, with a one-line note.
+- **Rosetta may end with macOS 27.** If Rosetta for Linux stops working on the owner's machine before the repository is public, every check falls back to Linux arm64 in the VM as above. That is decided with macOS x64 support in [#546](https://github.com/goodfetch/goodfetch/issues/546), before the machine moves to macOS 28.
+- **The build cache is a folder on the owner's machine.** The cache-warming job runs on the machine, in a VM, after each push to `main`, one run at a time, a newer waiting run replacing an older one. It builds the tier's dependencies, tests and benchmark targets without running them, as ADR 0061 has it, and is the only job that mounts the cache folder writable. Pull-request VMs mount it read-only and copy what they need, so no pull request writes what another job reads. GitHub's cache is not used by the tier. Hosted Linux jobs, such as test health and the coverage job, restore the Linux caches that manual-dispatch Release runs on `main` save (ADR 0061).
+- **The allowlist admits pull-request jobs only from branches of this repository.** Its pull-request entry is the tier's jobs, on the `pull_request` event; the cache-warming job's entry is a `push` to `refs/heads/main`. The pre-job script reads the event payload and fails a pull-request job before its first step unless the pull request's head repository is this repository. A pull request from a fork never runs a step on the machine (ADR 0076), and the list still admits no other job.
+  > Amended on 2026-10-19 (owner decision of 2026-10-19): the list also admits `update-screenshots.yml`, dispatched from a branch other than `main`, and `diagnostic.yml#rerun-owner-machine`, both on `owner-machine`. The repository is private, only the owner pushes branches, and forks are refused.
+- **Write access is still the boundary.** A pull request runs its workflow file from its own branch, so its steps outside the VM run whatever the branch asks, as the runner's standard user. Only those with write access can push a branch: the owner, and agents acting for the owner. They can already push to `main`, which has no branch protection while private (ADR 0108). The VM keeps the build and the tests, and anything they leave, from outliving the job.
+- **This squares the entry with ADRs 0032 and 0071,** which keep pull-request code off the machine that times the benchmark and the Performance series. The machine runs one job at a time, so no pull-request job runs during a timing. Nothing a pull-request job builds or leaves survives its VM, and timings run on the macOS host, outside any VM.
+- **Its time budgets are ADR 0061's, measured on the owner's machine from each job's start.** ADR 0061 measures them on GitHub-hosted runs, and none exist while this holds. Each job's p50 runs from the job's start, and "all green" from the first job's start, so time spent waiting for the machine is not counted. Breaches open issues as ADR 0061 says.
+- **The in-diff mutation job keeps ADR 0072's rules but not its minute limits.** It uses no included minutes there, so the four-shard cap and the 550-minute threshold no longer apply to it; its shards keep to the 15-minute job budget.
+- **Once the repository is public,** standard hosted minutes are free, and the pull-request tier goes back to GitHub-hosted Linux runners. Its allowlist entries are removed, and the cache-warming job, the in-diff mutation job and the ingest go back to ADR 0061's, ADR 0072's and ADR 0064's rules.
+
+### Private fuzzing on the owner's machine
+
+- **A second runner instance on the machine serves the private fuzzing repository.** A runner is registered on one repository, never on the organization (ADR 0108), and ADR 0067 keeps fuzzing's logs and results in that repository, so the main repository's runner cannot run it. The instance runs as its own standard macOS user, as a launchd service, with the label `owner-machine` and the same pre-job script. Its allowlist copy admits only that repository's nightly `schedule` on its default branch.
+- **The machine still runs one job at a time.** The two instances' pre-job scripts share one lock on the machine, so a job on one instance waits until the other instance's job ends. No job overlaps a timing, as ADR 0108's single instance ensured.
+- **Fuzzing runs nightly on `main`'s head, in a VM recreated for the job,** running ClusterFuzzLite's x86-64 images through Rosetta for Linux. It builds the fuzz targets, runs `batch` for 3,600 s, then `prune` and `coverage`. Push fuzzing (600 s of `code-change` after every push) and the continuous builds it needs do not run; the next night's `batch` covers each day's pushes.
+- **ADR 0067's containment holds.** The job that builds and runs the targets holds no secret and a token with no permissions. A later job stores the results with the fuzzing repository's own token, on the same machine, after the VM is gone. Crashes, corpora, coverage and logs stay in that repository.
+- **It stays on the owner's machine after the main repository is public,** since the fuzzing repository stays private. OSS-Fuzz replaces its `batch` run once Goodfetch qualifies (ADR 0067).
+
+### Availability, and how a queued or failed check is noticed
+
+- **A job waits in GitHub's queue while the runner is offline, and fails after 24 hours there.** The machine is set never to sleep while on power ([#1562](https://github.com/goodfetch/goodfetch/issues/1562)), so the runner is offline only when the machine is off or loses its network.
+- **A check that failed because the runner was offline is re-run once the runner is back,** with `gh run rerun <run-id> --failed`. Such a job never reached a runner: it has no runner name in `gh run view <run-id> --json jobs`. A job that reached the runner and failed, whether the pre-job script refused it or a test failed, is an ordinary failure and is never re-run (ADR 0064).
+  > Amended on 2026-10-19 (owner decision of 2026-10-19): a job with no `Test` steps whose figures are deterministic, `perf` and, where it gates, `size`, may be re-run after the owner's acceptance comment. It is no retry, since nothing flaky is masked; "all green" still refuses a run whose earlier attempt failed a `Test` step.
+- **No job falls back to GitHub-hosted runners.**
+- **The merging agent reads the checks before every merge** with `gh pr checks <number>`. It never merges while "all green" is pending or failed. When a check is pending and `gh api repos/goodfetch/goodfetch/actions/runners` shows the `owner-machine` runner offline, it tells the owner that the check is waiting for the machine. When a check failed because the runner was offline, it re-runs it once that call shows the runner online.
+- **The owner is notified by GitHub's own Actions notifications,** on by default, which report a failed run to the account that triggered it; agents push and dispatch under the owner's account. A queued check shows as pending on its pull request, and the merging agent reports it as above. Nothing else is set up, and nothing costs money.
+- **A nightly fuzzing run that failed because the runner was offline is re-run the same way,** or left to the next night's run, which covers the same `main`.
+
+### The hosted jobs that still draw on the included minutes
+
+Every line is counted in ADR 0108's Linux-equivalent minutes, from the job durations the ingest records, as ADRs 0064 and 0108 count theirs.
+
+- **The ingest of each finished run that had a hosted job** stays as ADR 0064 has it, so the ceilings' counts stay current. A workflow whose jobs all run on the owner's machine, the pull-request tier first among them, is left out of its trigger: one hosted ingest job after each pull-request run would cost a minute each time, 183 minutes or more a month on its own.
+- **The daily ingest job** copies those workflows' finished runs of the past day into the results store, in one scheduled hosted job with a 2-minute timeout. Flaky tests in pull-request runs are then detected a day later, which nothing gates on.
+- **The checks run by hand** are dispatched through their recipes, which read this line's count for the month from the results store before dispatching, locally and with no runner. A dispatch whose estimate would take the line past 90 is refused with the minutes needed and the date the month turns.
+- **A line past its budget opens an issue.** The daily test-health job, which already reads the month's counts, opens or updates one `needs-triage` issue per line that has passed its budget, as a budget breach does (ADR 0061). The fix is to shorten its jobs or move work to the owner's machine. Nothing is bought.
+
+### When things change
+
+- **If GitHub announces a date for the self-hosted charge in private repositories,** this design is revisited before that date: the agent that finds the announcement opens a `needs-triage` issue that links this ADR. The pull-request tier would not fit the included minutes even at one third of a Linux minute, and the charge is never paid (ADR 0076).
+- **If Rosetta for Linux ends,** the checks it serves move to Linux arm64 in the VM, as above.
+- **Once the repository is public,** the pull-request tier leaves the owner's machine, as above. Fuzzing stays.
+
+## Considered Options
+
+- **The pull-request tier and fuzzing on GitHub-hosted runners, with per-run caps and a reduced fuzzing schedule:** rejected. With 183 pull requests a month, the pull-request tier alone passes the 400 minutes left, and nightly fuzzing alone needs about 1,800.
+- **Paid minutes, or a payment method with a spending limit:** declined while there is no revenue (ADR 0076).
+- **Making the repository public now:** declined by the owner for now (ADR 0108); reopening it is the owner's call alone.
+- **The pull-request tier directly on the macOS host:** rejected by the owner's decision of a throwaway Linux VM. Nothing a job left behind would be cleared before the next job or a timing, and the Pre-merge suite's platform is Linux.
+- **A fallback to GitHub-hosted runners while the machine is offline:** declined by the owner on 2026-10-18. A day of queued checks would spend the month's minutes, and a re-run once the runner is back costs nothing.
+- **Native Linux arm64 in the VM, with the Linux x64 checks re-pinned to arm64 while private:** not chosen by the owner on 2026-10-18, except check by check where Rosetta fails. Reference screenshots and counted figures recorded on arm64 would be recorded again on x64 once the tier is hosted, and ClusterFuzzLite's arm64 support was not confirmed.
+- **The Linux x64 checks on hosted Linux x64 runners:** rejected. Run on every pull request, they would not fit the 400 minutes.
+- **The cache-warming job on GitHub-hosted runners, restored on the host and handed to the VM:** not chosen by the owner on 2026-10-18. It would cost included minutes, a download per job and room in GitHub's 10 GB, where a folder on the machine costs none.
+- **No build cache:** rejected. Every job would build its dependencies from scratch, against the 20-minute "all green" budget.
+- **Suspending the tier's time budgets, or new budgets for the owner's machine:** not chosen by the owner on 2026-10-18. ADR 0061's budgets keep guarding test speed; measuring from each job's start keeps the machine's queue out of them.
+- **The in-diff mutation job kept hosted under ADR 0064's ceiling:** not chosen by the owner on 2026-10-18. It would stop after about nine runs a month.
+- **Ingesting the owner's-machine runs in the daily test-health job, or on the owner's machine:** not chosen by the owner on 2026-10-18. The first takes room ADR 0064's ceiling does not have; the second would put the results store's token on the runner, which holds no secret (ADR 0108).
+- **Fuzzing in the main repository's workflows, on its runner instance:** rejected. Their logs would become public with the repository, which ADR 0067's containment forbids.
+- **One runner registered on the organization, serving both repositories:** rejected. ADR 0108 registers the runner on the repository only, so that no other repository of the organization reaches the machine.
+
+## Consequences
+
+- **Amends ADR 0108:** its allowlist gains the pull-request tier's and the cache-warming job's entries, squared with ADRs 0032 and 0071 above, and its "one runner instance" becomes two instances that never run jobs at once, the second serving the private fuzzing repository. One-line notes sit at its allowlist rule and its single-instance rule.
+- **Amends ADR 0061:** while the repository is private, the pull-request tier runs on the owner's machine in a Linux VM with an x86-64 userland, never on GitHub-hosted runners; its budgets are measured there from each job's start; and the cache-warming job runs there, writing a cache folder on the machine. One-line notes sit at its tier table, its budgets and its cache-warming job.
+- **Amends ADR 0064:** while the repository is private, the ingest after each run covers only workflows with a hosted job, and a daily hosted job ingests the rest. A one-line note sits at its ingest workflow.
+- **Amends ADR 0067:** fuzzing runs nightly only, on the owner's machine in a VM, through a runner instance of the private fuzzing repository; push fuzzing and continuous builds do not run. A one-line note sits at where it runs.
+- **Amends ADR 0072:** while the repository is private, the in-diff mutation job runs on the owner's machine, without the four-shard cap or the 550-minute threshold. A one-line note sits at its in-diff job.
+- **Amends ADR 0076:** the owner's machine also runs the pull-request tier while private, and private fuzzing, instead of fuzzing within the included minutes. One-line notes sit at its CI rule and at the fuzzing row of its table.
+- **Amends ADR 0032's rule, which ADR 0071 restates:** the machine that stands in for the reference host runs pull-request code, in a VM recreated for each job and never during a timing. A one-line note sits at ADR 0032's release-candidate benchmark.
+- **`TESTING.md`** states where the pull-request tier, the cache-warming job and fuzzing run, the VM's rules, the budgets' measure, the budget lines of the 400 and how a queued or failed check is noticed.
+- **[Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)** builds the pull-request workflow on the owner's machine with its VM, its x86-64 userland and the Rosetta trial, the allowlist entries, the pre-job script's fork check, VM clean-up and shared lock, the cache-warming job and its folder, the ingest's narrower trigger and the daily ingest job, the hand-run recipes' count check and the breach issues. Its private-period lines say so.
+- **[Owner step: register the Mac as the self-hosted runner](https://github.com/goodfetch/goodfetch/issues/1562)** covers Lima with VZ and Rosetta for Linux, the cache folder, never sleeping on power, and the fuzzing repository's runner instance. It blocks [#132](https://github.com/goodfetch/goodfetch/issues/132), whose pull-request workflow is the first to need the runner, and [Private fuzzing repository and the private gates App](https://github.com/goodfetch/goodfetch/issues/320).

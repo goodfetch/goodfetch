@@ -1,0 +1,5 @@
+[project]
+name = "goodfetch-collie"
+version = "0.0.0"
+description = "Browser automation that runs on your machine."
+keywords = ["browser", "bypass", "UNDETECTABLE", "undetected", "solve any captcha"]

@@ -1,0 +1,26 @@
+[package]
+name = "goodfetch-frontier"
+description = "The Frontier of a Foxhound crawl."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# benches/scenarios.rs is a module of the bench targets, not a target.
+autobenches = false
+
+[dev-dependencies]
+gungraun.workspace = true
+
+# ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "heap"
+harness = false
+
+[lints]
+workspace = true

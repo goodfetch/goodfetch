@@ -50,6 +50,7 @@ Decided in [Performance regression testing](https://github.com/goodfetch/goodfet
   > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): the absolute ceilings are checked beside this threshold, in the same job.
 - **Accepting an increase.** A pull request that trips the threshold passes when its body has a **"Performance change"** section listing each tripped benchmark with its measured change and its reason, and the fresh review accepts that section explicitly on the pull request's exact head. This is ADR 0057's rule for a size increase.
   > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the owner accepts the section when merging.
+> Amended on 2026-10-19 (owner decision of 2026-10-19): the `perf` job has no `Test` steps and its counted figures repeat exactly, so once the owner accepts the section on the head, the job is re-run and passes. It is no retry (ADR 0064), and "all green" still refuses a run whose earlier attempt failed a `Test` step.
 - The thresholds are constants of `xtask perf` that cite this ADR. They change only by changing it.
 
 ### Counts kept as snapshots

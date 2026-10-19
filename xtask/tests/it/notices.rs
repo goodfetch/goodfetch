@@ -1,0 +1,347 @@
+//! `xtask notices`: the third-party notice inventory (ADRs 0018 and 0047).
+//! It lists every dependency of Cargo, npm and Python and every declared
+//! input (the Console's bundled assets, the Goodfetch Chromium's inputs and
+//! the Clean-up rules' inputs) with its license, and fails on a license
+//! outside ADR 0018's allowlist, naming the dependency and its ecosystem.
+//! Covers: story:1-62, story:1-101
+
+use rstest::rstest;
+
+use crate::workspace::{Workspace, finding};
+
+/// Where `pnpm install` leaves each npm package's manifest.
+const PERMISSIVE_PACKAGE: &str = "node_modules/.pnpm/permissive-package@1.0.0_peer-package@4.0.0/node_modules/permissive-package/package.json";
+
+/// Where `uv sync` leaves each Python distribution's metadata.
+const PERMISSIVE_DIST: &str =
+    ".venv/lib/python3.14/site-packages/permissive_dist-1.0.0.dist-info/METADATA";
+
+/// The fixture's installed packages, as `pnpm install` and `uv sync` leave
+/// them, each `(fixture file, path in the workspace)`. The platform package
+/// is for AIX, and the Windows-only distribution is not installed either.
+const INSTALLED: [(&str, &str); 8] = [
+    (
+        "notices-installed/permissive-package.json",
+        PERMISSIVE_PACKAGE,
+    ),
+    (
+        "notices-installed/scoped-transitive-package.json",
+        "node_modules/.pnpm/@scoped+transitive-package@2.0.0/node_modules/@scoped/transitive-package/package.json",
+    ),
+    (
+        "notices-installed/peer-package.json",
+        "node_modules/.pnpm/peer-package@4.0.0/node_modules/peer-package/package.json",
+    ),
+    (
+        "notices-installed/dev-only-tool.json",
+        "node_modules/.pnpm/dev-only-tool@1.0.0/node_modules/dev-only-tool/package.json",
+    ),
+    (
+        "notices-installed/permissive_dist-1.0.0.METADATA",
+        PERMISSIVE_DIST,
+    ),
+    (
+        "notices-installed/speed_dist-2.3.0.METADATA",
+        ".venv/lib/python3.14/site-packages/speed_dist-2.3.0.dist-info/METADATA",
+    ),
+    (
+        "notices-installed/dev_only_dist-5.0.0.METADATA",
+        ".venv/lib/python3.14/site-packages/dev_only_dist-5.0.0.dist-info/METADATA",
+    ),
+    (
+        "notices-installed/typing_extensions-4.16.0.METADATA",
+        ".venv/lib/python3.14/site-packages/typing_extensions-4.16.0.dist-info/METADATA",
+    ),
+];
+
+/// The `notices` fixture with its packages installed.
+fn installed_workspace() -> Workspace {
+    let workspace = Workspace::from_fixture("notices");
+    for (fixture, relative) in INSTALLED {
+        workspace.add_fixture_file(fixture, relative);
+    }
+    workspace
+}
+
+#[test]
+fn allowed_dependencies_and_inputs_pass() {
+    let workspace = installed_workspace();
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// Each case gives one dependency or input a license outside the allowlist.
+#[rstest]
+#[case::cargo(
+    "vendor/permissive-crate/Cargo.toml",
+    r#"license = "MIT OR Apache-2.0""#,
+    r#"license = "SSPL-1.0""#,
+    "cargo permissive-crate@1.0.0"
+)]
+#[case::npm(
+    PERMISSIVE_PACKAGE,
+    r#""license": "MIT""#,
+    r#""license": "SSPL-1.0""#,
+    "npm permissive-package@1.0.0"
+)]
+#[case::python(
+    PERMISSIVE_DIST,
+    "License-Expression: BSD-3-Clause",
+    "License-Expression: SSPL-1.0",
+    "python permissive-dist@1.0.0"
+)]
+#[case::console_asset(
+    "console/third-party.toml",
+    r#"license = "ISC""#,
+    r#"license = "CC-BY-NC-4.0""#,
+    "console-assets Lucide icons@0.900.0"
+)]
+#[case::chromium_input(
+    "chromium/third-party.toml",
+    r#"license = "Unicode-3.0""#,
+    r#"license = "SSPL-1.0""#,
+    "chromium ICU@77.1"
+)]
+#[case::clean_up_rules_input(
+    "clean-up-rules/third-party.toml",
+    r#"license = "Apache-2.0 AND MPL-2.0""#,
+    r#"license = "Apache-2.0 AND CC-BY-NC-SA-4.0""#,
+    "clean-up-rules DuckDuckGo's tracker surrogates@1d2e3f4"
+)]
+#[case::cc_by_sa_code(
+    "clean-up-rules/third-party.toml",
+    r#"license = "Apache-2.0 AND MPL-2.0""#,
+    r#"license = "CC-BY-SA-4.0""#,
+    "clean-up-rules DuckDuckGo's tracker surrogates@1d2e3f4"
+)]
+fn license_outside_the_allowlist_fails_with_the_dependency_and_its_ecosystem(
+    #[case] file: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] subject: &str,
+) {
+    let workspace = installed_workspace();
+    workspace.edit(file, from, to);
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("license-not-allowed", subject)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The inventory `notices --out` wrote, as JSON.
+fn inventory(workspace: &Workspace) -> serde_json::Value {
+    serde_json::from_str(&workspace.read_text("target/notices.json")).unwrap()
+}
+
+/// The one notice of `name` in `ecosystem`.
+fn notice<'a>(
+    inventory: &'a serde_json::Value,
+    ecosystem: &str,
+    name: &str,
+) -> &'a serde_json::Value {
+    let matching: Vec<_> = inventory["notices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|notice| notice["ecosystem"] == ecosystem && notice["name"] == name)
+        .collect();
+    assert_eq!(matching.len(), 1, "{ecosystem} {name} in {inventory:#}");
+    matching[0]
+}
+
+#[test]
+fn inventory_lists_every_dependency_and_input_with_its_license() {
+    let workspace = installed_workspace();
+
+    let outcome = workspace.xtask(&["notices", "--out", "target/notices.json"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    insta::assert_snapshot!(workspace.read_text("target/notices.json"));
+}
+
+/// An MPL-2.0 entry's notice says where its source is (ADR 0047).
+#[rstest]
+#[case::crate_from_its_registry("cargo", "mpl-crate", "https://crates.io/crates/mpl-crate/2.1.0")]
+#[case::declared_input(
+    "clean-up-rules",
+    "autoconsent",
+    "https://github.com/duckduckgo/autoconsent/tree/v14.20.0"
+)]
+fn mpl_entry_carries_its_source_location(
+    #[case] ecosystem: &str,
+    #[case] name: &str,
+    #[case] source: &str,
+) {
+    let workspace = installed_workspace();
+
+    let outcome = workspace.xtask(&["notices", "--out", "target/notices.json"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let inventory = inventory(&workspace);
+    let notice = notice(&inventory, ecosystem, name);
+    assert_eq!(notice["license"], "MPL-2.0");
+    assert_eq!(notice["source"], source);
+}
+
+/// A compiled Filter list is recorded under CC BY-SA, whether its authors
+/// offer CC BY-SA beside the GPL or, as fanboy.co.nz's copies say, CC BY
+/// (ADRs 0018 and 0047).
+#[rstest]
+#[case::cc_by_sa_or_gpl("EasyList")]
+#[case::cc_by("Fanboy Annoyance (fanboy.co.nz)")]
+fn compiled_filter_list_is_recorded_as_cc_by_sa(#[case] name: &str) {
+    let workspace = installed_workspace();
+
+    let outcome = workspace.xtask(&["notices", "--out", "target/notices.json"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let inventory = inventory(&workspace);
+    let notice = notice(&inventory, "clean-up-rules", name);
+    assert_eq!(notice["license"], "CC-BY-SA-4.0");
+}
+
+/// A GPL list may only be downloaded, never embedded (ADRs 0018 and 0047).
+#[rstest]
+#[case::compiled_into_the_embedded_part("compiled-filter-list")]
+#[case::embedded_as_published("unmodified")]
+fn gpl_list_marked_for_the_embedded_part_fails(#[case] usage: &str) {
+    let workspace = installed_workspace();
+    workspace.edit(
+        "clean-up-rules/third-party.toml",
+        "filters\"\nuse = \"download-only\"",
+        &format!("filters\"\nuse = \"{usage}\""),
+    );
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "gpl-embedded",
+            "clean-up-rules uBlock filters@5e6f7a8"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// MPL-2.0 is allowed for unmodified files only (ADR 0018).
+#[test]
+fn modified_mpl_file_fails() {
+    let workspace = installed_workspace();
+    workspace.edit(
+        "clean-up-rules/third-party.toml",
+        "shims\"\nuse = \"unmodified\"",
+        "shims\"\nuse = \"modified\"",
+    );
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "license-modified-file",
+            "clean-up-rules Mozilla's web-compatibility shims@150.0"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// PSF-2.0 is allowed for typing-extensions alone (the owner's decision of
+/// 2026-10-19), which the fixture ships beside this distribution.
+#[test]
+fn license_allowed_for_one_package_fails_on_another() {
+    let workspace = installed_workspace();
+    workspace.edit(
+        PERMISSIVE_DIST,
+        "License-Expression: BSD-3-Clause",
+        "License-Expression: PSF-2.0",
+    );
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "license-not-allowed",
+            "python permissive-dist@1.0.0"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn dependency_without_a_license_fails() {
+    let workspace = installed_workspace();
+    workspace.edit(PERMISSIVE_PACKAGE, "\"license\": \"MIT\",\n", "");
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("license-unknown", "npm permissive-package@1.0.0")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A further file of inputs, such as the list a Goodfetch Chromium build
+/// writes with the variations seed (ADR 0043), joins the inventory and its
+/// check; the seed's license is on no allowlist yet.
+#[test]
+fn further_inputs_join_the_inventory_and_its_check() {
+    let workspace = installed_workspace();
+    workspace.add_fixture_file(
+        "notices-cases/chromium-build.toml",
+        "target/chromium-build.toml",
+    );
+
+    let outcome = workspace.xtask(&[
+        "notices",
+        "--inputs",
+        "target/chromium-build.toml",
+        "--out",
+        "target/notices.json",
+    ]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "license-not-allowed",
+            "chromium Variations seed@150.0.7800.0"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    let inventory = inventory(&workspace);
+    let notice = notice(&inventory, "chromium", "Variations seed");
+    assert_eq!(notice["license"], "LicenseRef-Google-Variations-Seed");
+}
+
+/// A shipped package missing from `node_modules` leaves its license unknown,
+/// so the check reaches no verdict rather than passing.
+#[test]
+fn uninstalled_package_reaches_no_verdict() {
+    let workspace = installed_workspace();
+    workspace.remove(PERMISSIVE_PACKAGE);
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+}

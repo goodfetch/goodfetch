@@ -1,0 +1,6 @@
+[profile.default]
+retries = 0
+flaky-result = "fail"
+
+[profile.ci]
+flaky-result = "pass"

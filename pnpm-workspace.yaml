@@ -1,0 +1,26 @@
+# The one pnpm workspace (ADR 0032; STYLE.md, TypeScript). `rnd/lab` keeps a
+# workspace of its own and is not part of this one.
+packages:
+  - console
+  - console/*
+  - sdks/typescript/*
+  - adapters/*/*
+  - integrations/*/*
+  - bench
+  - website
+  - conformance/*
+  - test-support/typescript
+
+# One version of each shared tool for every package. Playwright's entry is
+# shared by Playwright Test and Vitest's browser provider (ADR 0068).
+catalog:
+  "@playwright/test": 1.64.1
+  "@types/node": 26.6.5
+  "@vitest/browser-playwright": 5.0.5
+  allure: 3.20.1
+  oxfmt: 0.73.0
+  oxlint: 1.88.0
+  oxlint-tsgolint: 7.0.2004
+  playwright: 1.64.1
+  typescript: 7.0.2
+  vitest: 5.0.5

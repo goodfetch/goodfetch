@@ -1,0 +1,20 @@
+# The modules Miri runs on (STYLE.md, `unsafe`; ADR 0067): pure-Rust
+# `unsafe` that opted in with `#![expect(unsafe_code, reason = "…")]` and that
+# Miri can execute. FFI and system-call modules, which Miri cannot run, are
+# left to the tests on each real OS and the Release suite's AddressSanitizer
+# run. `just miri` runs each module's unit tests under Miri, in the
+# pull-request tier's supply-chain job.
+#
+# None opts in yet, so the job runs nothing. The pull request that adds the
+# first module adds an entry here, the pinned nightly toolchain with its
+# `miri` and `rust-src` components to ci/image/Containerfile, and a proof on a
+# fixture with undefined behaviour to ci/proofs/run.sh.
+#
+# [[module]]
+# crate = "goodfetch-…"
+# filter = "pipe::"     # the libtest filter that selects the module's tests
+
+# The nightly toolchain Miri comes with, pinned.
+toolchain = "nightly-2026-10-05"
+
+module = []

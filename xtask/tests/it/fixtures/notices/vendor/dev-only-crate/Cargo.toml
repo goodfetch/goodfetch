@@ -1,0 +1,6 @@
+[package]
+name = "dev-only-crate"
+version = "3.0.0"
+edition = "2021"
+# Off the allowlist: a crate the Products never ship is no notice of theirs.
+license = "SSPL-1.0"

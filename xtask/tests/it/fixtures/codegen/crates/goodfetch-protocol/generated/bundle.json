@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "SampleCrawlParams": {
+      "additionalProperties": false,
+      "description": "What `sample.crawl` starts from.",
+      "properties": {
+        "echo": {
+          "$ref": "#/$defs/SampleEchoParams",
+          "description": "The text each page repeats, a type Collie's catalog defines."
+        },
+        "pages": {
+          "description": "How many pages to visit.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "echo",
+        "pages"
+      ],
+      "type": "object"
+    },
+    "SampleCrawlResult": {
+      "description": "What `sample.crawl` answers.",
+      "properties": {
+        "visited": {
+          "description": "How many pages were visited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "visited"
+      ],
+      "type": "object"
+    },
+    "SampleCrawled": {
+      "description": "What `sample.crawled` reports.",
+      "properties": {
+        "visited": {
+          "description": "How many pages were visited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "visited"
+      ],
+      "type": "object"
+    },
+    "SampleEchoParams": {
+      "additionalProperties": false,
+      "description": "What `sample.echo` repeats.",
+      "properties": {
+        "text": {
+          "description": "The text to repeat.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleEchoResult": {
+      "description": "What `sample.echo` answers.",
+      "properties": {
+        "text": {
+          "description": "The text, repeated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleEchoed": {
+      "description": "What `sample.echoed` reports.",
+      "properties": {
+        "text": {
+          "description": "The text that was repeated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleStorePutParams": {
+      "description": "What a sample store keeps.",
+      "properties": {
+        "key": {
+          "description": "The key to keep the value under.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to keep.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SampleStorePutResult": {
+      "additionalProperties": false,
+      "description": "What a sample store answers once it kept a value.",
+      "properties": {
+        "replaced": {
+          "description": "Whether a value was already kept under the key.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "replaced"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "protocol_version": "0.1",
+  "title": "Goodfetch protocol"
+}

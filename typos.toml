@@ -1,0 +1,9 @@
+# typos, run by `just lint` on every pull request (STYLE.md). `rnd/` is frozen.
+[files]
+extend-exclude = ["rnd/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE"]
+
+[default]
+# Words typos misreads in the ADRs: a vendor's name, "mis-templated",
+# "PNGs" and "look-alikes"; and nftables' neighbour-discovery types
+# (`nd-router-solicit`) in the egress deny's rules.
+extend-ignore-re = ["ThreatMetrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-"]

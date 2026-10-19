@@ -1,0 +1,18 @@
+# The test quarantine list (ADR 0064; TESTING.md, A flaky test found after
+# merge). Reviewed like code. Each flaky test found after merge gets one entry,
+# the same day, and leaves only through a fix that passes 200 runs. Every suite
+# command skips the listed tests (`xtask quarantine exclude`), the Quick suite
+# checks every entry (`xtask quarantine check`), and `xtask release` refuses
+# while any entry is left.
+#
+# [[test]]
+# runner = "nextest"  # nextest, vitest, playwright or pytest
+# id = "goodfetch-engine::it dispatch::route_waits_for_its_frame"
+# issue = 1601        # its open `flaky-test` issue
+# date = 2026-10-18   # the day it was quarantined
+#
+# The ID is the test's as its runner lists it:
+#   nextest     `<binary ID> <test name>`, as `cargo nextest list` prints it;
+#   vitest      its full name, suites and title joined by ` > `;
+#   playwright  its file, suites and title joined by ` › `;
+#   pytest      its node ID, `tests/test_page.py::test_title`.

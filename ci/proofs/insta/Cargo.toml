@@ -1,0 +1,9 @@
+# Three crates, each with one snapshot fault the Pre-merge suite's insta run
+# must fail on without writing anything (ADR 0062): a mismatched snapshot, a
+# missing one and an orphaned one.
+[workspace]
+resolver = "3"
+members = ["mismatched", "missing", "orphaned"]
+
+[workspace.dependencies]
+insta = { version = "1.49.0", default-features = false }

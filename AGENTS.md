@@ -17,6 +17,10 @@ versioned format readers, upgrade commands and published-version semantics.
 Nightlies and previews count as publication: if any channel is published while
 this status remains pre-release, ask the owner before a breaking change.
 
+## Merging
+
+CI runs locally (owner decision of 2026-10-19, ADR 0135): GitHub Actions is turned off for the repository. Merge a pull request once `just quick all` and `just pre-merge all` pass in a checkout of its exact head. In a stack of pull requests, merge the bottom one first.
+
 ## Authorship
 
 Follow global authorship rules. Sign off every commit (`git commit -s`) as the

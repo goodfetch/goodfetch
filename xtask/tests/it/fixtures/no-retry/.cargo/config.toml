@@ -1,0 +1,2 @@
+[env]
+NEXTEST_NO_TESTS = "pass"

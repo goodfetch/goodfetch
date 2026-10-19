@@ -1,0 +1,35 @@
+[package]
+name = "xtask"
+description = "Goodfetch's release and CI tool: the checks and commands the workflows and `just` call."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+flate2.workspace = true
+goodfetch-protocol.workspace = true
+jiff.workspace = true
+proc-macro2.workspace = true
+quick-xml.workspace = true
+quote.workspace = true
+serde-saphyr.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+syn.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+toml.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+rstest.workspace = true
+
+[lints]
+workspace = true

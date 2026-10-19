@@ -1,0 +1,8 @@
+canary = "1.1.1.1:443"
+
+[[deny]]
+job = "pull-request.yml#quick"
+
+[[outside]]
+job = "pull-request.yml#all-green"
+reason = "It judges the run through GitHub's API and runs none of the product."

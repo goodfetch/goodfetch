@@ -1,0 +1,62 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[manifest]
+members = [
+    "goodfetch-collie",
+    "goodfetch-workspace",
+]
+
+[[package]]
+name = "dev-only-dist"
+version = "5.0.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "goodfetch-collie"
+version = "0.0.0"
+source = { editable = "sdks/python/collie" }
+dependencies = [
+    { name = "permissive-dist", extra = ["speed"] },
+    { name = "typing-extensions" },
+]
+
+[[package]]
+name = "goodfetch-workspace"
+version = "0.0.0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "dev-only-dist" },
+    { name = "goodfetch-collie" },
+]
+
+[[package]]
+name = "permissive-dist"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "windows-only-dist", marker = "sys_platform == 'win32'" },
+]
+
+[package.optional-dependencies]
+speed = [
+    { name = "speed-dist" },
+]
+
+[[package]]
+name = "speed-dist"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "typing-extensions"
+version = "4.16.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "windows-only-dist"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }

@@ -1,0 +1,12 @@
+[package]
+name = "goodfetch-test-support"
+description = "Goodfetch's shared Rust test helpers (ADR 0062); only ever a dev-dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

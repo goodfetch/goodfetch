@@ -1,0 +1,15 @@
+# A stand-in for compat/releases.toml (ADR 0066): its format is #316's. Its
+# artifacts are fetched before the deny, so the deny allows none of its hosts.
+[[release]]
+version = "0.1.0"
+
+[[release.artifact]]
+target = "x86_64-unknown-linux-gnu"
+url = "https://github.com/goodfetch/goodfetch/releases/download/v0.1.0/goodfetch-collie-x86_64-unknown-linux-gnu.tar.xz"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[release.image]
+url = "https://ghcr.io/v2/goodfetch/collie/manifests/sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+[release.chart]
+url = "https://artifacts.example.org:8443/charts/collie-0.1.0.tgz"

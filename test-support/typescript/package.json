@@ -1,0 +1,18 @@
+{
+  "name": "@goodfetch/test-support",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Goodfetch's shared Vitest fixtures and Playwright helpers (ADR 0062); never published.",
+  "type": "module",
+  "exports": {
+    "./screenshot": "./src/screenshot.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

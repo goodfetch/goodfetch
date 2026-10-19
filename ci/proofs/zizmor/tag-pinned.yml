@@ -1,0 +1,11 @@
+# An Action pinned by tag: zizmor's hash-pin policy must refuse it (story 1-71).
+name: tag pinned
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false

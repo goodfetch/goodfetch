@@ -1,0 +1,11 @@
+name: pull request
+on:
+  pull_request:
+    branches: [main]
+permissions: {}
+jobs:
+  quick:
+    if: always()
+    runs-on: [self-hosted, owner-machine]
+    steps:
+      - run: just quick all

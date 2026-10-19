@@ -1,0 +1,48 @@
+# cargo-nextest's profiles (TESTING.md, No retries and Time budgets; ADRs 0061
+# and 0064). Every profile keeps zero retries with every lock on, fails leaky
+# tests and writes JUnit XML to `target/nextest/<profile>/junit.xml`.
+nextest-version = { required = "0.9.131" }
+
+# Local runs without a suite: the Pre-merge caps.
+[profile.default]
+retries = 0
+flaky-result = "fail"
+fail-fast = false
+slow-timeout = { period = "30s", terminate-after = 10 }
+leak-timeout = { period = "200ms", result = "fail" }
+
+[profile.default.junit]
+path = "junit.xml"
+
+# The Quick suite: in-process tests only, marked slow after 1 s, killed at 10 s.
+[profile.quick]
+default-filter = "kind(lib) | kind(bin) | kind(proc-macro)"
+retries = 0
+flaky-result = "fail"
+fail-fast = false
+slow-timeout = { period = "1s", terminate-after = 10 }
+leak-timeout = { period = "200ms", result = "fail" }
+
+[profile.quick.junit]
+path = "junit.xml"
+
+# The Pre-merge and Release suites in CI: slow after 30 s, killed at 5 min.
+[profile.ci]
+retries = 0
+flaky-result = "fail"
+fail-fast = false
+slow-timeout = { period = "30s", terminate-after = 10 }
+leak-timeout = { period = "200ms", result = "fail" }
+
+[profile.ci.junit]
+path = "junit.xml"
+
+# `xtask codegen`'s tests build each copy of their fixture crate into one
+# shared target folder, where the copies' artifacts share their names: they
+# run one at a time, in every profile.
+[test-groups]
+fixture-builds = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^perf_build::/))"
+test-group = "fixture-builds"

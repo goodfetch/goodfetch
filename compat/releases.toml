@@ -1,0 +1,16 @@
+# What each stable release and patch shipped (ADR 0066): one [[release]] entry
+# per Product version, which both Products share (ADRs 0090 and 0094). The
+# release's pull request to `main` appends it; nothing is released yet.
+#
+# Each entry gives the Product `version`, the version of every registered
+# format it shipped (`formats`, which `xtask compat check` reads to require a
+# frozen set for each), each Product's executables per target, npm and PyPI
+# packages, crates, Helm chart and OCI image (`collie`, `foxhound`), the Collie
+# client packages (`collie_client`) and the Plugin artifacts (`plugins`), each
+# with its `url`, `sha256` and Sigstore `attestation` bundle. CI fetches each
+# `url` by digest before ADR 0043's deny, which allows none of them
+# (ci/egress/endpoints.toml).
+#
+# Its schema is `files."compat/releases.toml"` in
+# crates/goodfetch-protocol/generated/bundle.json, generated from
+# goodfetch_protocol::releases by `xtask codegen`.

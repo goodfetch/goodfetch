@@ -1,0 +1,7 @@
+[profile.default]
+retries = 0
+flaky-result = "fail"
+
+[[profile.default.overrides]]
+filter = "test(=slow::case)"
+flaky-result = "pass"

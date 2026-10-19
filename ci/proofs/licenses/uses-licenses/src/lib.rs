@@ -1,0 +1,1 @@
+//! Takes every licensed dependency.

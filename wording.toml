@@ -1,0 +1,22 @@
+# ADR 0035's wording policy, as ADR 0097 amends it: the terms no text
+# published about either Product uses. `xtask wording` reads this file, and
+# only this file, in the Quick suite; it matches whole words, whatever their
+# case, in prose, and skips code. Rewrite the sentence that fails; extend the
+# list only on counsel's review (TESTING.md, Docs).
+#
+# A term is one or more words matched in a row. `every_form = true` also
+# matches every word its last word starts, such as "bypasses", "bypassed" and
+# "bypassing".
+
+[[term]]
+words = "bypass"
+every_form = true
+
+[[term]]
+words = "undetectable"
+
+[[term]]
+words = "undetected"
+
+[[term]]
+words = "solve any CAPTCHA"

@@ -1,0 +1,54 @@
+use rstest::rstest;
+use serde_json::json;
+
+use super::emit;
+use crate::catalog::Product;
+
+#[test]
+fn the_bundle_holds_the_schema_of_the_releases_file() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["files"]["compat/releases.toml"],
+        json!({ "$ref": "#/$defs/ReleasesFile" })
+    );
+    assert_eq!(
+        emitted.bundle["$defs"]["ReleasesFile"]["properties"]["release"]["items"],
+        json!({ "$ref": "#/$defs/Release" })
+    );
+}
+
+#[test]
+fn every_event_an_operation_names_is_in_the_catalog() {
+    let catalog = emit().catalog;
+
+    let listed: Vec<&str> = catalog["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["name"].as_str().unwrap())
+        .collect();
+    let unlisted: Vec<&str> = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|operation| operation["events"].as_array().unwrap())
+        .map(|event| event.as_str().unwrap())
+        .filter(|event| !listed.contains(event))
+        .collect();
+    assert_eq!(unlisted, Vec::<&str>::new());
+}
+
+#[rstest]
+#[case::collie(Product::Collie, "collie")]
+#[case::foxhound(Product::Foxhound, "foxhound")]
+fn product_reads_and_writes_the_mark_the_catalog_writes(
+    #[case] product: Product,
+    #[case] mark: &str,
+) {
+    let written = serde_json::to_value(product).unwrap();
+
+    assert_eq!(written, json!(mark));
+    assert_eq!(product.as_str(), mark);
+    assert_eq!(serde_json::from_value::<Product>(written).unwrap(), product);
+}

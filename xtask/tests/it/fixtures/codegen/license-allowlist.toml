@@ -1,0 +1,15 @@
+# The codegen fixture's license allowlist.
+
+[[license]]
+id = "MIT"
+
+[[license]]
+id = "Apache-2.0"
+
+[[license]]
+id = "MPL-2.0"
+only = "unmodified-files"
+
+[[license]]
+id = "CC-BY-SA-4.0"
+only = "compiled-filter-lists"

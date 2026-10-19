@@ -1,0 +1,231 @@
+{
+  "$defs": {
+    "SampleEchoParams": {
+      "additionalProperties": false,
+      "description": "What `sample.echo` repeats.",
+      "properties": {
+        "text": {
+          "description": "The text to repeat.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleEchoResult": {
+      "additionalProperties": false,
+      "description": "What `sample.echo` answers.",
+      "properties": {
+        "text": {
+          "description": "The text, repeated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleLimits": {
+      "additionalProperties": false,
+      "description": "What a run may use.",
+      "properties": {
+        "bytes": {
+          "description": "How many bytes it may download.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pages": {
+          "description": "How many pages it may visit.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pages",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "SampleMessage": {
+      "description": "One message of the sample protocol.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A request.",
+          "properties": {
+            "id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "method": {
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/SampleEchoParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A response.",
+          "properties": {
+            "id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "result": {
+              "$ref": "#/$defs/SampleEchoResult"
+            }
+          },
+          "required": [
+            "id",
+            "result"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SampleProxy": {
+      "additionalProperties": false,
+      "description": "The proxy a run goes through.",
+      "properties": {
+        "url": {
+          "description": "Its URL, a Secret reference.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "SampleRetry": {
+      "additionalProperties": false,
+      "description": "When to retry a page.",
+      "properties": {
+        "delay_ms": {
+          "description": "How long to wait first.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "description": "The status that retries.",
+          "format": "uint16",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "delay_ms"
+      ],
+      "type": "object"
+    },
+    "SampleSettings": {
+      "additionalProperties": false,
+      "description": "A sample settings file.",
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The headers every request sends.",
+          "type": "object"
+        },
+        "limits": {
+          "$ref": "#/$defs/SampleLimits",
+          "description": "What a run may use."
+        },
+        "name": {
+          "description": "The settings' name.",
+          "type": "string"
+        },
+        "proxy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SampleProxy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The proxy, if any."
+        },
+        "retries": {
+          "description": "When to retry.",
+          "items": {
+            "$ref": "#/$defs/SampleRetry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "limits",
+        "headers",
+        "retries"
+      ],
+      "type": "object"
+    },
+    "SampleStore": {
+      "description": "A sample SQLite store, whose tables its SQL text dump defines.",
+      "properties": {
+        "tables": {
+          "const": [
+            "pages",
+            "runs"
+          ],
+          "description": "The store's tables."
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "files": {},
+  "formats": [
+    {
+      "name": "sample-protocol",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/SampleMessage"
+      },
+      "storage": "transcript",
+      "version": "0.1"
+    },
+    {
+      "name": "sample-settings",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/SampleSettings"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "name": "sample-store",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/SampleStore"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    }
+  ],
+  "protocol_version": "0.1",
+  "title": "Goodfetch protocol"
+}

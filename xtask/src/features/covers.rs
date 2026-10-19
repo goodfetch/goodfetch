@@ -8,6 +8,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -38,7 +39,9 @@ fn journeys(root: &Path) -> Result<Vec<Declaration>> {
     };
     let mut names: Vec<String> = entries
         .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-        .filter(|name| name.starts_with("J-") && name.ends_with(".toml"))
+        .filter(|name| {
+            name.starts_with("J-") && Path::new(name).extension() == Some(OsStr::new("toml"))
+        })
         .collect();
     names.sort();
     for name in names {

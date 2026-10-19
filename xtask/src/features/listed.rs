@@ -89,23 +89,23 @@ impl Root {
             name(&text)
         })
     }
+}
 
-    fn declaration(
-        &self,
-        feature: &str,
-        source: Source,
-        test: String,
-        path: String,
-        package: Option<String>,
-    ) -> Declaration {
-        Declaration {
-            feature: feature.to_owned(),
-            level: Level::of(Path::new(&path)),
-            source,
-            test,
-            package,
-            path,
-        }
+/// A test's declaration of `feature`, at the level its file's path gives.
+fn declaration(
+    feature: &str,
+    source: Source,
+    test: String,
+    path: String,
+    package: Option<String>,
+) -> Declaration {
+    Declaration {
+        feature: feature.to_owned(),
+        level: Level::of(Path::new(&path)),
+        source,
+        test,
+        package,
+        path,
     }
 }
 
@@ -144,7 +144,7 @@ fn vitest(root: &Root, bytes: &[u8]) -> Result<Vec<Declaration>> {
         let path = root.relative(&test.file);
         let package = root.package(&path, "package.json", npm_name);
         for tag in test.tags.iter().filter(|tag| tag.contains(':')) {
-            declarations.push(root.declaration(
+            declarations.push(declaration(
                 tag,
                 Source::Vitest,
                 test.name.clone(),
@@ -213,7 +213,7 @@ fn playwright(root: &Root, bytes: &[u8]) -> Result<Vec<Declaration>> {
         let mut tests = Vec::new();
         collect_playwright(file, &file.title, &mut tests);
         for (test, feature) in tests {
-            declarations.push(root.declaration(
+            declarations.push(declaration(
                 feature,
                 Source::Playwright,
                 test,
@@ -271,7 +271,7 @@ fn pytest(root: &Root, bytes: &[u8]) -> Result<Vec<Declaration>> {
             .map_or(test.id.as_str(), |(file, _)| file);
         let package = root.package(path, "pyproject.toml", python_name);
         for feature in &test.covers {
-            declarations.push(root.declaration(
+            declarations.push(declaration(
                 feature,
                 Source::Pytest,
                 test.id.clone(),

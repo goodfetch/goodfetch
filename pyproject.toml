@@ -71,6 +71,7 @@ convention = "google"
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "unittest.mock".msg = "Mocks owned code (ADR 0062); test through the interface with a local stand-in."
 "pytest.MonkeyPatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
+"_pytest.monkeypatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
 
 [tool.pyright]
 typeCheckingMode = "strict"

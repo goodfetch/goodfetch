@@ -105,7 +105,7 @@ Decided in [ADR 0094](docs/adr/0094-both-products-are-released-and-signed-togeth
 - **No mocking of owned code:**
   - `cargo-deny` denies `mockall`, `mockito`, `wiremock`, `faux` and `mry`;
   - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn`, `vi.stubGlobal` and `vi.stubEnv`;
-  - ruff's `TID251` bans `unittest.mock` and `pytest.MonkeyPatch`;
+  - ruff's `TID251` bans `unittest.mock`, `pytest.MonkeyPatch` and `_pytest.monkeypatch`;
   - pytest-mock is in no dependency group (CI checks `uv.lock`), and the test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`, directly or through another fixture. A third-party plugin fixture that uses `monkeypatch` therefore cannot be adopted.
 
   _Why:_ a mocked collaborator ties the test to the implementation.
@@ -139,6 +139,9 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 - **TypeScript and Python reuse the Rust setup, never rewrite it.** The `goodfetch-test-env` executable of `goodfetch-test-support` prepares a test's folder, home and environment, starts what it is asked to, prints one JSON description (paths, environment map, seed, addresses), and tears everything down when its standard input closes.
   - `@goodfetch/test-support` (`test-support/typescript/`, private) gives Vitest fixtures through `test.extend`.
   - `goodfetch-test-support` (`test-support/python/`, never published) is a pytest plugin registered through `pytest11`.
+    - `test_env` is the test's `TestEnv`: `folder`, `home`, the cleared `env` map, `seed`, `start_time` and `tools`, from the description `goodfetch-test-env --test-name <node ID>` prints, checked against `test-support/fixtures/schemas/`. `test_env.start(args)` starts a process in the folder with the cleared map, and the teardown, which closes `goodfetch-test-env`'s stdin, fails the test when one is still alive.
+    - `env` is the map an SDK takes as `env=`: the cleared map with the engine-path variable of the test's `product`, `GOODFETCH_COLLIE_ENGINE_PATH` or `GOODFETCH_FOXHOUND_ENGINE_PATH`, naming that Product's executable from the test tool manifest. `product` is `Product.COLLIE`; a test that needs Foxhound overrides the fixture with `Product.FOXHOUND`.
+    - It registers the `journey` and `covers` markers, and `pytest --collect-only --marker-listing=<file>` writes every collected test's node ID with its `journey` and `covers` values as JSON, for the Feature scanner and the Journey check.
 - **The `test-util` feature of `goodfetch-collie` and `goodfetch-foxhound` is for people who embed them**, never Goodfetch's own helper home.
 - **Expected results of Proving ground pages come from its oracle**, never copied into test code.
 - **A helper written twice moves into test support.**

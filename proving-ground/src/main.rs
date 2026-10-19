@@ -16,6 +16,7 @@ mod model;
 mod observation;
 mod oracle;
 mod output;
+mod replay;
 mod server;
 mod site;
 mod sync;

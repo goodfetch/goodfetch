@@ -21,7 +21,7 @@ use http_body_util::{BodyExt as _, Either, Full, Limited};
 use hyper::body::{Bytes, Frame, Incoming};
 use hyper::header::{CONTENT_TYPE, HOST, HeaderValue};
 use hyper::service::service_fn;
-use hyper::{Request, Response, StatusCode};
+use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto;
 use tokio::net::{TcpListener, TcpStream};
@@ -114,6 +114,11 @@ impl Server {
                         observations: Arc::clone(&self.observations),
                         acceptor: self.acceptor.clone(),
                         executor: Tracked(tracker.clone()),
+                        tunnels: Tunnels {
+                            address: self.address(),
+                            tracker: tracker.clone(),
+                            stop: stop.clone(),
+                        },
                     };
                     let stop = stop.clone();
                     tracker.spawn(async move {
@@ -138,6 +143,7 @@ struct Connection {
     observations: Arc<Observations>,
     acceptor: TlsAcceptor,
     executor: Tracked,
+    tunnels: Tunnels,
 }
 
 impl Connection {
@@ -148,10 +154,10 @@ impl Connection {
         let Ok(read) = stream.peek(&mut first).await else {
             return;
         };
-        let site = self.site;
+        let (site, tunnels) = (self.site, self.tunnels);
         let service = service_fn(move |request| {
-            let site = Arc::clone(&site);
-            async move { Ok::<_, hyper::Error>(answer(&site, request).await) }
+            let (site, tunnels) = (Arc::clone(&site), tunnels.clone());
+            async move { Ok::<_, hyper::Error>(answer(&site, &tunnels, request).await) }
         });
         let builder = auto::Builder::new(self.executor);
         let observed = self.observations.connection();
@@ -162,11 +168,11 @@ impl Connection {
                 return;
             };
             let _ = builder
-                .serve_connection(TokioIo::new(Tap::new(stream, observed)), service)
+                .serve_connection_with_upgrades(TokioIo::new(Tap::new(stream, observed)), service)
                 .await;
         } else {
             let _ = builder
-                .serve_connection(TokioIo::new(Tap::new(wire, observed)), service)
+                .serve_connection_with_upgrades(TokioIo::new(Tap::new(wire, observed)), service)
                 .await;
         }
     }
@@ -209,7 +215,10 @@ async fn stop_signal() -> Result<()> {
 
 /// Reads one request, asks the site, and writes its reply. The host is the
 /// `Host` header, or an HTTP/2 request's `:authority`.
-async fn answer(site: &Site, request: Request<Incoming>) -> Response<Body> {
+async fn answer(site: &Site, tunnels: &Tunnels, request: Request<Incoming>) -> Response<Body> {
+    if request.method() == Method::CONNECT {
+        return tunnels.open(site, request);
+    }
     let (parts, body) = request.into_parts();
     let host = parts
         .headers
@@ -233,7 +242,13 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Body> {
             if let Some(answer) = site.model(&parts.method, &host, target, &body) {
                 return model_response(answer).await;
             }
-            site.respond(&parts.method, &host, parts.uri.path(), &body)
+            // A request in absolute form is one to the replay proxy;
+            // HTTP/2's requests always carry their scheme.
+            if parts.uri.scheme().is_some() && parts.version <= Version::HTTP_11 {
+                site.proxy(&parts.method, &parts.uri)
+            } else {
+                site.respond(&parts.method, &host, parts.uri.path(), &body)
+            }
         }
         Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
     };
@@ -243,6 +258,53 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Body> {
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
     response
+}
+
+/// What a `CONNECT` to the replay proxy needs: the server's own address,
+/// which each tunnel connects to so its TLS is the Proving ground's own, and
+/// the tracker and stop signal its task runs under.
+#[derive(Clone)]
+struct Tunnels {
+    address: SocketAddr,
+    tracker: TaskTracker,
+    stop: CancellationToken,
+}
+
+impl Tunnels {
+    /// Answers a `CONNECT`: `200`, then the tunnel to the server's own
+    /// address, when it names an archived host's port 443; `403` otherwise.
+    fn open(&self, site: &Site, request: Request<Incoming>) -> Response<Body> {
+        let authority = request
+            .uri()
+            .authority()
+            .map(hyper::http::uri::Authority::as_str)
+            .unwrap_or_default();
+        let mut response = Response::new(Either::Left(Full::new(Bytes::new())));
+        if !site.tunnel(authority) {
+            *response.status_mut() = StatusCode::FORBIDDEN;
+            return response;
+        }
+        let (address, stop) = (self.address, self.stop.clone());
+        self.tracker.spawn(async move {
+            tokio::select! {
+                () = tunnel(request, address) => {}
+                () = stop.cancelled() => {}
+            }
+        });
+        response
+    }
+}
+
+/// Carries a tunnel's bytes to and from a new connection to `address`
+/// until either side closes; a failed one concerns only its client.
+async fn tunnel(request: Request<Incoming>, address: SocketAddr) {
+    let Ok(upgraded) = hyper::upgrade::on(request).await else {
+        return;
+    };
+    let Ok(mut inner) = TcpStream::connect(address).await else {
+        return;
+    };
+    let _ = tokio::io::copy_bidirectional(&mut TokioIo::new(upgraded), &mut inner).await;
 }
 
 /// The response body: whole, or cut before its end.

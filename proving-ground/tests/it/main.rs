@@ -14,6 +14,7 @@ mod observations;
 mod oracle;
 mod pages;
 mod proving_ground;
+mod replay;
 mod serve;
 mod task_list;
 mod transport;

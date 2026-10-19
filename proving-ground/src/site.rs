@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
-use hyper::{Method, StatusCode};
+use hyper::http::uri::PathAndQuery;
+use hyper::{Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 
 use crate::agent;
@@ -17,6 +18,7 @@ use crate::catalog;
 use crate::model::{self, Candidate, FakeModel};
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
+use crate::replay::{self, Refusals};
 use crate::sync::Mutex;
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
@@ -32,6 +34,7 @@ pub(crate) struct Site {
     observations: Arc<Observations>,
     time_step: Mutex<u64>,
     model: FakeModel,
+    refusals: Refusals,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -88,6 +91,7 @@ impl Site {
             observations,
             time_step: Mutex::new(0),
             model: FakeModel::new(seed),
+            refusals: Refusals::default(),
         }
     }
 
@@ -116,6 +120,7 @@ impl Site {
     fn all_tasks(seed: u64, port: u16) -> Vec<Task> {
         let mut tasks = catalog::tasks(seed, port);
         tasks.extend(agent::tasks(seed, port));
+        tasks.extend(replay::tasks());
         tasks
     }
 
@@ -125,6 +130,9 @@ impl Site {
         if name == model::HOST {
             // The Fake model answers its own paths (`Self::model`).
             return Reply::error(StatusCode::NOT_FOUND, "not_found");
+        }
+        if replay::serves(&name) {
+            return self.replay(method, &name, path);
         }
         if self.hosts.contains_key(&name) && agent::serves(&name) {
             return self.agent(method, host, &name, path, body);
@@ -152,6 +160,11 @@ impl Site {
             ),
             (&Method::POST, "/oracle") => self.judge(body),
             (&Method::PUT, "/time-step") => self.set_time_step(body),
+            (&Method::GET, "/replay") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/json",
+                body: self.refusals.document().into(),
+            },
             (&Method::GET, "/model-calls") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
@@ -233,6 +246,48 @@ impl Site {
             })
             .collect();
         self.model.answer(target, body, &candidates)
+    }
+
+    /// Answers a request to an archived host on its own name, as through a
+    /// tunnel: its archived page, else a refusal it records.
+    fn replay(&self, method: &Method, host: &str, path: &str) -> Reply {
+        self.archived(method, host, path, || format!("{host}{path}"))
+    }
+
+    /// Answers a request in absolute form, as a browser sends one to its
+    /// proxy: an archived page, else a refusal it records.
+    pub(crate) fn proxy(&self, method: &Method, uri: &Uri) -> Reply {
+        let host = uri.host().unwrap_or_default();
+        let target = uri.path_and_query().map_or("/", PathAndQuery::as_str);
+        self.archived(method, host, target, || uri.to_string())
+    }
+
+    /// The archived page a `GET` to `host` and `target` asks for; else a
+    /// refusal of the request `named`, recorded.
+    fn archived(
+        &self,
+        method: &Method,
+        host: &str,
+        target: &str,
+        named: impl FnOnce() -> String,
+    ) -> Reply {
+        if method == Method::GET
+            && let Some(page) = replay::page(host, target)
+        {
+            return Reply::html(page.to_owned());
+        }
+        self.refusals.record(method.as_str(), named());
+        Reply::error(StatusCode::NOT_FOUND, "not_in_archive")
+    }
+
+    /// Whether a `CONNECT` to `authority` may open its tunnel: only to an
+    /// archived host's port 443. A refused one is recorded.
+    pub(crate) fn tunnel(&self, authority: &str) -> bool {
+        let open = replay::tunnels(authority);
+        if !open {
+            self.refusals.record("CONNECT", authority.to_owned());
+        }
+        open
     }
 
     /// Sets the time step drifting pages follow.

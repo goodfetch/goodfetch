@@ -46,6 +46,8 @@ fn the_task_list_names_the_tasks_of_every_family() {
             json!(["agent/7", "agent", "extract"]),
             json!(["agent/8", "agent", "extract"]),
             json!(["agent/9", "agent", "extract"]),
+            json!(["replay/1", "replay", "extract"]),
+            json!(["replay/2", "replay", "extract"]),
         ]
     );
     assert_eq!(

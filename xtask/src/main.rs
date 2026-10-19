@@ -23,6 +23,7 @@ mod dco;
 mod dependency_direction;
 mod egress;
 mod environment;
+mod evict_caches;
 mod fixture_size;
 mod foxhound_side;
 mod github;
@@ -123,6 +124,10 @@ enum Command {
         #[command(subcommand)]
         command: egress::Command,
     },
+    /// Once the repository's caches pass 9 GB, deletes the least recently
+    /// used ones that are not the pull-request tier's Linux caches until they
+    /// fit (ADR 0061).
+    EvictCaches(evict_caches::Arguments),
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
     /// The Journey catalog under `journeys/` (ADR 0063).
@@ -340,6 +345,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
         Command::Egress { command } => egress::run(command, environment),
+        Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::Journeys { command } => journeys::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),

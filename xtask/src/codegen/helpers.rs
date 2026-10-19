@@ -85,6 +85,12 @@ fn input(bundle: &Value, python: bool) -> Result<Value> {
     if python {
         input["type"] = Value::from("object");
         input["additionalProperties"] = Value::Bool(false);
+        // `datamodel-code-generator` writes an object default as a `dict`
+        // literal, which no type checker accepts for a model; without it the
+        // field defaults to `None`, and the dump leaves an unset one out.
+        if let Some(definitions) = input.get_mut("$defs") {
+            drop_object_defaults(definitions);
+        }
     } else {
         // `json-schema-to-typescript` reads a `$ref` as draft-07 does and
         // drops its siblings, which would leave each kind of the tagged
@@ -94,6 +100,20 @@ fn input(bundle: &Value, python: bool) -> Result<Value> {
         }
     }
     Ok(input)
+}
+
+/// Removes every `default` whose value is an object.
+fn drop_object_defaults(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            if object.get("default").is_some_and(Value::is_object) {
+                object.remove("default");
+            }
+            object.values_mut().for_each(drop_object_defaults);
+        }
+        Value::Array(items) => items.iter_mut().for_each(drop_object_defaults),
+        _ => {}
+    }
 }
 
 /// Moves every `$ref` that has sibling keywords other than `description`

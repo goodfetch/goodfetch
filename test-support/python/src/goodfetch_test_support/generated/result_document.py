@@ -405,7 +405,7 @@ class CaseEntry(BaseModel):
     )
     checks: list[CaseCheck]
     """Each check's result."""
-    evidence: Annotated[Evidence | None, Field(validate_default=True)] = {}
+    evidence: Evidence | None = None
     """What it saw."""
     mode: str | None = None
     """

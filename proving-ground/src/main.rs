@@ -32,7 +32,7 @@ use crate::task::TaskList;
 
 fn main() -> Result<()> {
     match Command::parse() {
-        Command::Serve(serve) => run(serve),
+        Command::Serve(serve) => run(&serve),
         Command::Tasks(Tasks { seed }) => output::line(&TaskList::new(
             version::VERSION,
             seed,
@@ -42,16 +42,16 @@ fn main() -> Result<()> {
 }
 
 /// Prints the one output line, then serves until stopped.
-fn run(serve: Serve) -> Result<()> {
+fn run(serve: &Serve) -> Result<()> {
     #[expect(
         clippy::disallowed_methods,
-        reason = "`main` builds the Proving ground's one runtime (ADR 0060)"
+        reason = "`serve` builds the Proving ground's one runtime here (ADR 0060)"
     )]
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("building the Tokio runtime")?;
-    let Serve { seed, address, .. } = serve;
+    let &Serve { seed, address, .. } = serve;
     let server = runtime.block_on(Server::bind(address, seed))?;
     output::line(&serde_json::json!({
         "address": server.address().to_string(),

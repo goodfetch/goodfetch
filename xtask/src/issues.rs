@@ -5,7 +5,11 @@
 //! be edited. A new one goes to the current milestone, the earliest open
 //! milestone with an open issue
 //! (docs/agents/issue-tracker.md, Frontier); an open one gets the current
-//! results; a closed one reopens only for a result after it closed.
+//! results; a closed one reopens only for a result after it closed. The
+//! checks of the files that name an issue (the quarantine list, the axe
+//! exception file) read it through [`find`].
+
+use std::num::NonZeroU64;
 
 use anyhow::{Context as _, Result};
 use jiff::Timestamp;
@@ -46,6 +50,44 @@ struct Issue {
 enum State {
     Open,
     Closed,
+}
+
+/// An issue a file names, as its check reads it.
+pub(crate) struct NamedIssue {
+    pub(crate) open: bool,
+    /// Its labels' names.
+    pub(crate) labels: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ReadIssue {
+    state: State,
+    #[serde(default)]
+    labels: Vec<ReadLabel>,
+    /// Present when the number is a pull request's.
+    pull_request: Option<serde::de::IgnoredAny>,
+}
+
+#[derive(Deserialize)]
+struct ReadLabel {
+    name: String,
+}
+
+/// Issue `number` of `repository`; `None` when the number is no issue of the
+/// repository (GitHub answers 404, or it is a pull request's) or the token
+/// cannot read it.
+pub(crate) fn find(
+    api: &Api<'_>,
+    repository: &str,
+    number: NonZeroU64,
+) -> Result<Option<NamedIssue>> {
+    let issue: Option<ReadIssue> = api.find(&format!("/repos/{repository}/issues/{number}"))?;
+    Ok(issue
+        .filter(|issue| issue.pull_request.is_none())
+        .map(|issue| NamedIssue {
+            open: issue.state == State::Open,
+            labels: issue.labels.into_iter().map(|label| label.name).collect(),
+        }))
 }
 
 #[derive(Deserialize)]

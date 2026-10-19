@@ -42,6 +42,11 @@ pub struct Tools {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "PathBuf")]
     pub scripted_engine: Option<PathBuf>,
+    /// `goodfetch-conformance`, whose `read` loads a result document
+    /// through `goodfetch-protocol`'s reader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "PathBuf")]
+    pub conformance: Option<PathBuf>,
 }
 
 /// One executable of the manifest.
@@ -57,6 +62,8 @@ pub enum Tool {
     TestEnv,
     /// `goodfetch-scripted-engine`.
     ScriptedEngine,
+    /// `goodfetch-conformance`.
+    Conformance,
 }
 
 impl fmt::Display for Tool {
@@ -67,6 +74,7 @@ impl fmt::Display for Tool {
             Self::ProvingGround => "proving_ground",
             Self::TestEnv => "test_env",
             Self::ScriptedEngine => "scripted_engine",
+            Self::Conformance => "conformance",
         })
     }
 }
@@ -93,6 +101,7 @@ impl Tools {
             Tool::ProvingGround => &self.proving_ground,
             Tool::TestEnv => &self.test_env,
             Tool::ScriptedEngine => &self.scripted_engine,
+            Tool::Conformance => &self.conformance,
         };
         path.as_deref().ok_or(ToolsError::Missing(tool))
     }

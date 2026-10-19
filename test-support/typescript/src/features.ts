@@ -1,0 +1,86 @@
+// The Feature inventory as the Vitest and Playwright configurations read it
+// (ADR 0072): `xtask codegen` writes `features/inventory.json`, validated
+// here against the repository's committed `features/inventory.schema.json`.
+// Vitest declares each Feature ID as a tag, so `strictTags` refuses a tag
+// naming an unknown Feature; Playwright passes the IDs to the `covers`
+// check of test support's `test`.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { Ajv2020, type SchemaObject, type ValidateFunction } from "ajv/dist/2020.js";
+import { TestSupportError } from "./errors.ts";
+
+/** The inventory's file, from the workspace's folder. */
+const INVENTORY = join("features", "inventory.json");
+
+/** What test support reads of the inventory; the schema checks the rest. */
+interface Inventory {
+  readonly features: readonly { readonly id: string }[];
+}
+
+const ajv = new Ajv2020({ allErrors: true });
+// schemars writes Rust's `u32` as this format, which an area number is.
+ajv.addFormat("uint32", {
+  type: "number",
+  validate: (value: number) => Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff,
+});
+
+const schema: SchemaObject = JSON.parse(
+  readFileSync(new URL("../../../features/inventory.schema.json", import.meta.url), "utf8"),
+);
+const isInventory: ValidateFunction<Inventory> = ajv.compile<Inventory>(schema);
+
+/**
+ * Every Feature ID of the inventory of the workspace at `root`, retired ones
+ * included, so that a declaration of a retired Feature reaches the Feature
+ * check; `inventory_invalid` when the file is missing or fails its schema.
+ */
+export function readFeatureIds(root: string): string[] {
+  const path = join(root, INVENTORY);
+  let inventory: unknown;
+  try {
+    inventory = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new TestSupportError(
+      "inventory_invalid",
+      `${path} cannot be read: run \`just codegen\`, which writes it`,
+      { cause: error },
+    );
+  }
+  if (!isInventory(inventory)) {
+    throw new TestSupportError(
+      "inventory_invalid",
+      `${path} fails features/inventory.schema.json (${ajv.errorsText(isInventory.errors)}): run \`just codegen\`, which writes it`,
+    );
+  }
+  return inventory.features.map((feature) => feature.id);
+}
+
+/** A Playwright annotation, as `testInfo.annotations` holds it. */
+export interface Annotation {
+  readonly type: string;
+  readonly description?: string | undefined;
+}
+
+/** The type of the annotation that declares a Feature in Playwright (ADR 0072). */
+export const COVERS = "covers";
+
+/**
+ * Fails with `covers_unknown` when a `covers` annotation names no Feature of
+ * `features`, or names none at all.
+ */
+export function refuseUnknownCovers(
+  annotations: readonly Annotation[],
+  features: readonly string[],
+): void {
+  const known = new Set(features);
+  const unknown = annotations
+    .filter((annotation) => annotation.type === COVERS)
+    .map((annotation) => annotation.description ?? "")
+    .filter((feature) => !known.has(feature));
+  if (unknown.length > 0) {
+    throw new TestSupportError(
+      "covers_unknown",
+      `the test's covers annotations name Features the inventory does not list: ${unknown.map((feature) => JSON.stringify(feature)).join(", ")}`,
+    );
+  }
+}

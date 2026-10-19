@@ -1,0 +1,40 @@
+{
+  "$defs": {
+    "UnicodeField": {
+      "additionalProperties": false,
+      "description": "One field of the Unicode record.",
+      "properties": {
+        "name": {
+          "description": "The field's name, in snake case.",
+          "type": "string"
+        },
+        "text": {
+          "description": "Its text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "text"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The Unicode record: one Record's fields, each a kind of hard text.",
+  "properties": {
+    "fields": {
+      "description": "The fields, in the committed file's order: `bidi` (right-to-left text\nwith marks and an isolate), `nfc` and `nfd` (one word in each\nnormalization form), `zwj_emoji` (a ZWJ emoji sequence), `astral` (a\ncharacter beyond the Basic Multilingual Plane), `zero_width_joiner`,\n`bom` (text that starts with a byte order mark) and `tab_and_newline`.",
+      "items": {
+        "$ref": "#/$defs/UnicodeField"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "fields"
+  ],
+  "title": "UnicodeRecord",
+  "type": "object"
+}

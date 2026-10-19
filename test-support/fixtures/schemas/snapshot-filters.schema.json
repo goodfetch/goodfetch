@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "PatternFilter": {
+      "additionalProperties": false,
+      "description": "A rule that replaces every match of a pattern.",
+      "properties": {
+        "name": {
+          "description": "The rule's name, in snake case.",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "The regular expression.",
+          "type": "string"
+        },
+        "replacement": {
+          "description": "Its replacement, literal text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "pattern",
+        "replacement"
+      ],
+      "type": "object"
+    },
+    "RunValue": {
+      "description": "A run's value that its snapshots redact.",
+      "oneOf": [
+        {
+          "const": "folder",
+          "description": "The test's folder.",
+          "type": "string"
+        },
+        {
+          "const": "product_version",
+          "description": "The executable's Product version.",
+          "type": "string"
+        },
+        {
+          "const": "commit",
+          "description": "The commit the executable was built from.",
+          "type": "string"
+        }
+      ]
+    },
+    "ValueFilter": {
+      "additionalProperties": false,
+      "description": "A rule that replaces one of a run's values wherever it appears.",
+      "properties": {
+        "replacement": {
+          "description": "Its replacement, literal text.",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/RunValue",
+          "description": "Which value."
+        }
+      },
+      "required": [
+        "value",
+        "replacement"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The committed rules, as their file holds them.",
+  "properties": {
+    "patterns": {
+      "description": "The patterns to replace, after the values.",
+      "items": {
+        "$ref": "#/$defs/PatternFilter"
+      },
+      "type": "array"
+    },
+    "values": {
+      "description": "The run's values to replace, first.",
+      "items": {
+        "$ref": "#/$defs/ValueFilter"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "values",
+    "patterns"
+  ],
+  "title": "SnapshotFilters",
+  "type": "object"
+}

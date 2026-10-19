@@ -3,7 +3,10 @@
 //! process is told to stop. One port serves TLS and plain text: a
 //! connection whose first byte starts a TLS handshake gets TLS from the
 //! seed's certificate authority, then HTTP/2 or HTTP/1.1 as its first bytes
-//! say, whatever ALPN chose.
+//! say, whatever ALPN chose. The first request head of an HTTP/1.1
+//! connection is read before hyper reads it, so a page whose head hyper
+//! cannot write, such as one with a NUL in a header value, is answered with
+//! its own bytes.
 #![expect(
     clippy::disallowed_types,
     reason = "the Proving ground opens its own listening socket, outside the engine's transport (ADR 0060)"
@@ -19,12 +22,13 @@ use std::task::{Context, Poll};
 use anyhow::{Context as _, Result};
 use http_body_util::{BodyExt as _, Either, Full, Limited};
 use hyper::body::{Bytes, Frame, Incoming};
-use hyper::header::{CONTENT_TYPE, COOKIE, HOST, HeaderValue};
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, HOST, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto;
 use rustls::ServerConfig;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::LazyConfigAcceptor;
 use tokio_util::sync::CancellationToken;
@@ -47,6 +51,13 @@ const BODY_LIMIT: usize = 16 * 1024 * 1024;
 
 /// The first byte of a TLS handshake record.
 const TLS_HANDSHAKE: u8 = 0x16;
+
+/// The most bytes read of a connection's first request head before hyper
+/// reads it; a longer head goes to hyper as it is.
+const FIRST_HEAD_LIMIT: usize = 64 * 1024;
+
+/// The most header fields of a first request head that is parsed.
+const FIRST_HEAD_FIELDS: usize = 64;
 
 /// A bound listener and the site it serves.
 pub(crate) struct Server {
@@ -112,6 +123,11 @@ impl Server {
             raw_site: Arc::new(RawSite::new(seed)),
             _blackhole: blackhole,
         })
+    }
+
+    /// The site it serves.
+    pub(crate) fn site(&self) -> &Site {
+        &self.site
     }
 
     /// What the server observes, which the network fixtures record into
@@ -205,6 +221,7 @@ impl Connection {
             return;
         };
         let (site, tunnels, peer) = (self.site, self.tunnels, self.peer);
+        let heads = Arc::clone(&site);
         let service = service_fn(move |request| {
             let (site, tunnels) = (Arc::clone(&site), tunnels.clone());
             async move { Ok::<_, hyper::Error>(answer(&site, &tunnels, request, peer).await) }
@@ -223,7 +240,10 @@ impl Connection {
                 .client_hello()
                 .server_name()
                 .map(observation::host_name);
-            let config = if name.as_deref().is_some_and(raw_site::http1_only) {
+            let config = if name
+                .as_deref()
+                .is_some_and(|name| raw_site::http1_only(name) || Site::http1_only(name))
+            {
                 Arc::clone(&self.tls.http1)
             } else {
                 Arc::clone(&self.tls.any)
@@ -244,14 +264,114 @@ impl Connection {
                 .await;
                 return;
             }
+            let Some(stream) = first_head(&heads, Tap::new(stream, observed)).await else {
+                return;
+            };
             let _ = builder
-                .serve_connection_with_upgrades(TokioIo::new(Tap::new(stream, observed)), service)
+                .serve_connection_with_upgrades(TokioIo::new(stream), service)
                 .await;
         } else {
+            let Some(stream) = first_head(&heads, Tap::new(wire, observed)).await else {
+                return;
+            };
             let _ = builder
-                .serve_connection_with_upgrades(TokioIo::new(Tap::new(wire, observed)), service)
+                .serve_connection_with_upgrades(TokioIo::new(stream), service)
                 .await;
         }
+    }
+}
+
+/// Reads a connection's first request head before hyper does. When the
+/// site answers it with a whole response of its own bytes, writes them and
+/// closes the connection, returning `None`; otherwise returns the stream,
+/// which gives hyper what was read first. Only a first request is answered
+/// so: a page whose head hyper cannot write is on its own host name, which
+/// a client reaches on a new connection.
+async fn first_head<S: AsyncRead + AsyncWrite + Unpin>(
+    site: &Site,
+    mut stream: S,
+) -> Option<Rewind<S>> {
+    let mut read = Vec::new();
+    let mut chunk = [0; 4096];
+    while read.len() < FIRST_HEAD_LIMIT && !read.windows(4).any(|end| end == b"\r\n\r\n") {
+        match stream.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(count) => read.extend_from_slice(&chunk[..count]),
+            Err(_) => return None,
+        }
+    }
+    if let Some(response) = raw_response(site, &read) {
+        // A failed write concerns only the client.
+        if stream.write_all(&response).await.is_ok() {
+            let _ = stream.shutdown().await;
+        }
+        return None;
+    }
+    Some(Rewind {
+        read,
+        at: 0,
+        inner: stream,
+    })
+}
+
+/// The site's own bytes for the request head `read` begins with, if it
+/// answers it so.
+fn raw_response(site: &Site, read: &[u8]) -> Option<Vec<u8>> {
+    let mut fields = [httparse::EMPTY_HEADER; FIRST_HEAD_FIELDS];
+    let mut request = httparse::Request::new(&mut fields);
+    if !request.parse(read).ok()?.is_complete() {
+        return None;
+    }
+    let host = request
+        .headers
+        .iter()
+        .find(|field| field.name.eq_ignore_ascii_case("host"))
+        .and_then(|field| std::str::from_utf8(field.value).ok())?;
+    let target = request.path?;
+    let path = target.split_once('?').map_or(target, |(path, _)| path);
+    site.raw_response(host, path)
+}
+
+/// A stream that gives back the bytes read from it first, then reads on.
+struct Rewind<S> {
+    read: Vec<u8>,
+    /// How many of `read` were given back.
+    at: usize,
+    inner: S,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Rewind<S> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        if this.at < this.read.len() {
+            let count = buffer.remaining().min(this.read.len() - this.at);
+            buffer.put_slice(&this.read[this.at..this.at + count]);
+            this.at += count;
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.inner).poll_read(context, buffer)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for Rewind<S> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(context, buffer)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(context)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(context)
     }
 }
 
@@ -335,6 +455,15 @@ async fn answer(
                 .uri
                 .path_and_query()
                 .map_or("/", hyper::http::uri::PathAndQuery::as_str);
+            site.sight_canaries(
+                &host,
+                target,
+                parts
+                    .headers
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_bytes())),
+                &body,
+            );
             if let Some(answer) = site.model(&parts.method, &host, target, &body) {
                 return model_response(answer).await;
             }
@@ -350,6 +479,7 @@ async fn answer(
                         path: parts.uri.path(),
                         query: parts.uri.query().unwrap_or_default(),
                         cookies: &cookies,
+                        authorization: header(AUTHORIZATION).unwrap_or_default(),
                         body: &body,
                         peer,
                     },

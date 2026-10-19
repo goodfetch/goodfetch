@@ -1,0 +1,14 @@
+# axe's known false positives on the Console (ADR 0073; TESTING.md,
+# Accessibility). A test never disables an axe rule: an element axe misjudges
+# is excepted here only, for one rule, as an `[[exception]]` entry:
+#
+#   [[exception]]
+#   rule = "color-contrast"          # the axe rule's ID
+#   selector = "#brand"              # a CSS selector of the excepted elements
+#   reason = "why axe is wrong here"
+#   issue = 1234                     # its open issue, which the fix closes
+#
+# `@goodfetch/test-support`'s axe fixture reads this file and fails a page
+# where an entry's rule ran and its selector matches nothing;
+# `xtask axe-exceptions check` fails an entry missing a field or whose issue
+# is not open.

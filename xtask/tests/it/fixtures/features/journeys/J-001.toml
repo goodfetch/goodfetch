@@ -1,0 +1,17 @@
+id = "J-001"
+title = "Reach the goal"
+goal = "A person reaches the goal, which MUST be reached."
+area = 1
+product = "collie"
+status = "active"
+covers = ["story:1-1", "operation:sample.echo"]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Reach the goal"
+on = "cli"
+
+[[expect]]
+text = "The goal is reached"

@@ -1,6 +1,7 @@
 """One test's setup, which `goodfetch-test-env` prepares (ADR 0062).
 
-`TestEnv.open` starts `goodfetch-test-env` from the test tool manifest, reads
+`TestEnv.open` starts `goodfetch-test-env` from the test tool manifest (with
+the Proving ground on a seed, when asked for), reads
 its one-line JSON description, checks it against the committed schema, and
 records every process the test starts through it. `TestEnv.close` closes
 `goodfetch-test-env`'s stdin, which tears the setup down, and fails when a
@@ -16,6 +17,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Self, cast
 
+from goodfetch_test_support.proving_ground import ProvingGround
 from goodfetch_test_support.schemas import validate
 from goodfetch_test_support.tools import Tool, Tools, read_tools
 
@@ -76,14 +78,27 @@ class TestEnv:
         """The test's start time, in UTC."""
         self.tools = Tools.from_json(description["tools"])
         """The commit's executables, from the test tool manifest."""
+        proving_ground = description.get("proving_ground")
+        self.proving_ground = (
+            None if proving_ground is None else ProvingGround.from_json(proving_ground)
+        )
+        """The Proving ground started on the seed the test asked for, if any."""
 
     @classmethod
-    def open(cls, test_name: str, environ: Mapping[str, str]) -> Self:
+    def open(
+        cls,
+        test_name: str,
+        environ: Mapping[str, str],
+        *,
+        proving_ground_seed: int | None = None,
+    ) -> Self:
         """Starts `goodfetch-test-env` for the test named `test_name`.
 
         Args:
             test_name: The test's full name, from which its seed and folder come.
             environ: The runner's environment, which names the tool manifest.
+            proving_ground_seed: The seed of a Proving ground to start beside
+                the setup, if any.
 
         Raises:
             ToolsError: The manifest or its `test_env` entry is missing.
@@ -91,8 +106,13 @@ class TestEnv:
             SchemaError: The description fails its committed schema.
         """
         executable = read_tools(environ).path(Tool.TEST_ENV)
+        proving_ground = (
+            []
+            if proving_ground_seed is None
+            else ["--proving-ground", str(proving_ground_seed)]
+        )
         process = subprocess.Popen(
-            [executable, "--test-name", test_name],
+            [executable, "--test-name", test_name, *proving_ground],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             env=dict(environ),

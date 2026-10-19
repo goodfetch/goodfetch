@@ -9,8 +9,9 @@
 // ci/visual/run.sh sets GOODFETCH_VISUAL_IMAGE. Reference screenshots are
 // named without the platform, and each one a test reads is recorded under
 // target/visual/read/ for the orphan check (`xtask screenshots orphans`).
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import { readFeatureIds } from "@goodfetch/test-support/features";
 import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
 import { playwright } from "@vitest/browser-playwright";
 import {
@@ -97,6 +98,18 @@ const orderSeedText = process.env["GOODFETCH_ORDER_SEED"];
 const orderSeed =
   orderSeedText === undefined ? undefined : Number(BigInt(orderSeedText) % 2n ** 53n);
 
+// The tags a Journey test carries (ADR 0063; TESTING.md, Journeys): its
+// Journey's ID, one per file of the catalog, and its surface, of those
+// Vitest runs. `strictTags` refuses any other tag.
+const journeyTags = readdirSync(join(import.meta.dirname, "journeys"))
+  .filter((name) => /^J-\d{3,9}\.toml$/.test(name))
+  .map((name) => ({ name: name.slice(0, -".toml".length) }));
+const surfaceTags = [{ name: "sdk-typescript" }];
+// A test declares a Feature with a tag of its ID (ADR 0072), one per Feature
+// of the inventory, validated against its schema. Vitest takes the IDs as
+// they are: its tag names accept `:` and `.` (checked on Vitest 5.0.5).
+const featureTags = readFeatureIds(import.meta.dirname).map((name) => ({ name }));
+
 const config: ViteUserConfig = defineConfig({
   test: {
     retry: 0,
@@ -109,6 +122,8 @@ const config: ViteUserConfig = defineConfig({
     },
     detectAsyncLeaks: process.env["GOODFETCH_DETECT_ASYNC_LEAKS"] === "1",
     passWithNoTests: true,
+    tags: [...journeyTags, ...surfaceTags, ...featureTags],
+    strictTags: true,
     // Attachments, a failed browser test's screenshot among them, go beside
     // the JUnit files, never into the source tree.
     attachmentsDir: "target/vitest-attachments",

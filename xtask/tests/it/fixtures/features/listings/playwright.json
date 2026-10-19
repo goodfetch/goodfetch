@@ -1,0 +1,55 @@
+{
+  "config": { "rootDir": "." },
+  "suites": [
+    {
+      "title": "packages/web/tests/crawl.spec.ts",
+      "file": "packages/web/tests/crawl.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "Crawl",
+          "file": "packages/web/tests/crawl.spec.ts",
+          "specs": [
+            {
+              "title": "crawls the site",
+              "tags": [],
+              "tests": [
+                {
+                  "projectName": "default",
+                  "annotations": [
+                    { "type": "covers", "description": "event:sample.crawled" },
+                    { "type": "issue", "description": "https://example.invalid/1" }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "crawls the site",
+              "tags": [],
+              "tests": [
+                {
+                  "projectName": "firefox",
+                  "annotations": [
+                    { "type": "covers", "description": "event:sample.crawled" },
+                    { "type": "issue", "description": "https://example.invalid/1" }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "shows the page",
+              "tags": [],
+              "tests": [
+                {
+                  "projectName": "default",
+                  "annotations": [{ "type": "covers", "description": "story:1-1" }]
+                }
+              ]
+            }
+          ],
+          "suites": []
+        }
+      ]
+    }
+  ]
+}

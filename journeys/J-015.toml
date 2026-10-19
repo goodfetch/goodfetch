@@ -1,0 +1,54 @@
+#:schema ./journey.schema.json
+id = "J-015"
+title = "Run the Daemon in the foreground, drain it with `SIGTERM` and resume its runs when it starts again"
+goal = """
+A person runs the Daemon in the foreground, configured from files and \
+environment variables, starts runs on it and sends it `SIGTERM`. The \
+foreground Daemon MUST listen on the configured address, log JSON to stdout, \
+write no runtime file and never stop on its own when idle; on `SIGTERM` it \
+MUST stop taking runs, checkpoint every run as resumable and exit within its \
+grace period; and when it starts again its runs MUST resume with nothing \
+lost."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["story:3-98", "story:3-99"]
+
+[proving_ground]
+seed = 15
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Configure the Daemon's address through a configuration file and its drain grace period through an environment variable"
+
+[[steps]]
+text = "Run the Daemon in the foreground (`daemon run`)"
+
+[[steps]]
+text = "Wait past the Daemon's idle time with no Client connected"
+
+[[steps]]
+text = "Start two runs on the Daemon, each extracting the catalog's product pages one after another"
+
+[[steps]]
+text = "Send the Daemon `SIGTERM` while both runs are going on"
+
+[[steps]]
+text = "Run the Daemon in the foreground again and let both runs finish"
+
+[[expect]]
+text = "The foreground Daemon listened on the configured address and wrote no runtime file"
+
+[[expect]]
+text = "The foreground Daemon logged JSON lines to stdout"
+
+[[expect]]
+text = "The foreground Daemon was still running after its idle time with no Client connected"
+
+[[expect]]
+text = "On `SIGTERM` the Daemon refused new runs, checkpointed both runs as resumable and exited within its drain grace period"
+
+[[expect]]
+text = "When the Daemon started again, both runs resumed and finished with every product page extracted, none lost and none twice"

@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 use crate::digest;
 use crate::exchange::{Reply, Request};
-use crate::task::{Effect, Entry, Expected, File, Kind, Reported, Task, origin};
+use crate::task::{Effect, Entry, Expected, File, Kind, Naming, Reported, Task, origin};
 
 /// One hand-made family: its name, its host name, the host name of its
 /// cross-origin frames, if it has any, and its data file.
@@ -141,6 +141,7 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                         .map(|download| File {
                             name: download.name.clone(),
                             sha256: digest::sha256(&download_bytes(seed)),
+                            naming: Naming::Exact,
                         })
                         .collect(),
                     refusal: task.refusal,

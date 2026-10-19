@@ -3,6 +3,7 @@
 //! refusal every layer must give, which each layer's thin runner applies.
 
 use std::borrow::Cow;
+use std::fmt;
 use std::net::IpAddr;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -256,6 +257,127 @@ impl SsrfTable {
     /// table's format, such as a case naming an unknown family.
     pub fn parse(text: &str) -> Result<Self, SsrfTableError> {
         Ok(toml::from_str(text)?)
+    }
+}
+
+/// What a layer did with one case, as its runner observed it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Outcome {
+    /// The typed refusal the layer gave, if any.
+    pub refusal: Option<Refusal>,
+    /// The addresses connections reached while the layer handled the case,
+    /// from the Proving ground's connection record end to end.
+    pub connections: Vec<IpAddr>,
+}
+
+impl Outcome {
+    /// A refusal with no connection.
+    pub fn refused(refusal: Refusal) -> Self {
+        Self {
+            refusal: Some(refusal),
+            connections: Vec::new(),
+        }
+    }
+
+    /// No refusal, and connections to `addresses`.
+    pub fn connected(addresses: impl IntoIterator<Item = IpAddr>) -> Self {
+        Self {
+            refusal: None,
+            connections: addresses.into_iter().collect(),
+        }
+    }
+}
+
+/// A case a layer let through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Miss {
+    /// The case's name.
+    pub case: String,
+    /// The refusal the case expects.
+    pub expected: Refusal,
+    /// The refusal the layer gave, if any.
+    pub refusal: Option<Refusal>,
+    /// Whether a connection reached the case's target.
+    pub reached_target: bool,
+}
+
+/// Every case a layer let through, in the table's order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LetThrough {
+    /// The cases.
+    pub misses: Vec<Miss>,
+}
+
+impl fmt::Display for LetThrough {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "the layer let {} SSRF cases through:",
+            self.misses.len()
+        )?;
+        for miss in &self.misses {
+            write!(formatter, "\n  {miss}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for LetThrough {}
+
+/// Runs each case through `layer`, a layer's thin runner, and judges it:
+/// a case passes when the layer gave its expected refusal and no connection
+/// reached its target.
+///
+/// # Errors
+///
+/// [`LetThrough`] listing every case that did not pass, not only the
+/// first.
+pub fn run_cases<'case>(
+    cases: impl IntoIterator<Item = &'case SsrfCase>,
+    mut layer: impl FnMut(&SsrfCase) -> Outcome,
+) -> Result<(), LetThrough> {
+    let misses: Vec<Miss> = cases
+        .into_iter()
+        .filter_map(|case| {
+            let outcome = layer(case);
+            // An IPv4-mapped target and its IPv4 address are one destination.
+            let reached_target = case.target.is_some_and(|target| {
+                outcome
+                    .connections
+                    .iter()
+                    .any(|connection| connection.to_canonical() == target.to_canonical())
+            });
+            let refused = outcome.refusal.as_ref() == Some(&case.refusal);
+            (!refused || reached_target).then(|| Miss {
+                case: case.name.clone(),
+                expected: case.refusal.clone(),
+                refusal: outcome.refusal,
+                reached_target,
+            })
+        })
+        .collect();
+    if misses.is_empty() {
+        Ok(())
+    } else {
+        Err(LetThrough { misses })
+    }
+}
+
+impl fmt::Display for Miss {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let refusal = self
+            .refusal
+            .as_ref()
+            .map_or_else(|| "no refusal".to_owned(), |refusal| format!("{refusal:?}"));
+        write!(
+            formatter,
+            "{}: expected {:?}, got {refusal}",
+            self.case, self.expected
+        )?;
+        if self.reached_target {
+            formatter.write_str(", and a connection reached the target")?;
+        }
+        Ok(())
     }
 }
 

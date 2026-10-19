@@ -36,8 +36,8 @@ pub use process::{
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use ssrf::{
-    Answer, CaseLookup, EgressRule, Family, Redirect, Refusal, Route, SsrfCase, SsrfTable,
-    SsrfTableError,
+    Answer, CaseLookup, EgressRule, Family, LetThrough, Miss, Outcome, Redirect, Refusal, Route,
+    SsrfCase, SsrfTable, SsrfTableError, run_cases,
 };
 pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};

@@ -1,6 +1,9 @@
-//! Runs `goodfetch-protocol`'s `emit` example, which writes the JSON Schema
-//! bundle and catalog file through schemars (ADR 0038). It is the one process
-//! `xtask codegen --check` starts: the Rust toolchain, never a generator.
+//! The JSON Schema bundle and catalog file, which `goodfetch-protocol`
+//! writes through schemars (ADR 0038). On the workspace `xtask` is built
+//! from, `xtask` links that crate and emits them itself, so `xtask codegen
+//! --check` starts no process. Another workspace, such as a test's fixture
+//! with its own `goodfetch-protocol`, is emitted by running its `emit`
+//! example: the Rust toolchain, never a generator.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -18,7 +21,33 @@ pub(super) struct Emitted {
     pub(super) catalog: Vec<u8>,
 }
 
+/// The workspace this `xtask` was built from.
+const BUILT_FROM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+
 pub(super) fn emit(cargo: &OsStr, root: &Path) -> Result<Emitted> {
+    let canonical = |path: &Path| path.canonicalize().ok();
+    if canonical(root).is_some() && canonical(root) == canonical(Path::new(BUILT_FROM)) {
+        return linked();
+    }
+    run_example(cargo, root)
+}
+
+/// The files as the `emit` example writes them: pretty JSON with a final
+/// newline.
+fn linked() -> Result<Emitted> {
+    let emitted = goodfetch_protocol::emit::emit();
+    let text = |value: &serde_json::Value| -> Result<Vec<u8>> {
+        let mut text = serde_json::to_string_pretty(value)?;
+        text.push('\n');
+        Ok(text.into_bytes())
+    };
+    Ok(Emitted {
+        bundle: text(&emitted.bundle)?,
+        catalog: text(&emitted.catalog)?,
+    })
+}
+
+fn run_example(cargo: &OsStr, root: &Path) -> Result<Emitted> {
     let folder = tempfile::tempdir().context("creating a folder for the emitter")?;
     let output = Command::new(cargo)
         .args([

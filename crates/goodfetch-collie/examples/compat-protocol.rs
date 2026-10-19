@@ -1,0 +1,97 @@
+//! The JSON-RPC protocol's writer for the Compatibility corpus (ADR 0066):
+//! runs a fixed scenario against Collie's engine over the in-memory network
+//! and writes, into the folder given as the only argument, the messages the
+//! Client sent as `client.jsonl` and those the engine answered as
+//! `engine.jsonl`, one per line. Each call waits for its reply, so the
+//! transcript is byte-stable. `xtask compat write` runs it.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a synchronous corpus writer that builds its runtime and writes files (ADR 0066)"
+)]
+
+use std::path::PathBuf;
+
+use goodfetch_engine::transport::{self, Network};
+use goodfetch_engine::{Channel, Engine, Identity};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::ProductVersion;
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+
+/// What the Client sends; each request waits for its reply.
+fn scenario() -> Vec<Value> {
+    vec![
+        json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "hello",
+            "params": {
+                "protocol_version": "0.1",
+                "surface": "sdk_python",
+                "needs": "collie",
+                "product_version": "0.0.0",
+            },
+        }),
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "engine.info", "params": {} }),
+        json!({ "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": 1 } }),
+        json!({ "jsonrpc": "2.0", "id": "echo", "method": "sample.echo", "params": { "text": "é" } }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "sample.crawl", "params": { "echo": { "text": "a" }, "pages": 1 } }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "page.levitate", "params": {} }),
+    ]
+}
+
+fn lines(messages: &[Value]) -> Vec<u8> {
+    let mut text = Vec::new();
+    for message in messages {
+        text.extend(serde_json::to_vec(message).expect("invariant: JSON values encode"));
+        text.push(b'\n');
+    }
+    text
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let folder = PathBuf::from(
+        std::env::args_os()
+            .nth(1)
+            .ok_or("usage: compat-protocol <folder>")?,
+    );
+    let identity = Identity {
+        product: Product::Collie,
+        product_version: ProductVersion::parse("0.0.0")?,
+        channel: Channel::CratesIo,
+    };
+    let engine = Engine::new(identity, &goodfetch_collie::composition())?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let sent = scenario();
+    let answered = runtime.block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let client = async {
+            let (reader, mut writer) = dialer.connect().await?.split();
+            let mut replies = BufReader::new(reader).lines();
+            let mut answered = Vec::new();
+            for message in &sent {
+                writer
+                    .write_all(&lines(std::slice::from_ref(message)))
+                    .await?;
+                if message.get("id").is_some() {
+                    let line = replies
+                        .next_line()
+                        .await?
+                        .ok_or("the engine closed early")?;
+                    answered.push(serde_json::from_str::<Value>(&line)?);
+                }
+            }
+            writer.shutdown().await?;
+            Ok::<_, Box<dyn std::error::Error>>(answered)
+        };
+        let (served, answered) =
+            tokio::join!(engine.run_attached(Network::InMemory(network)), client);
+        served?;
+        answered
+    })?;
+    std::fs::write(folder.join("client.jsonl"), lines(&sent))?;
+    std::fs::write(folder.join("engine.jsonl"), lines(&answered))?;
+    Ok(())
+}

@@ -1,0 +1,40 @@
+{
+  "description": "A Journey that touches no page names no task, and a document holding none is accepted",
+  "journey": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page"
+      },
+      {
+        "text": "Wait for the crawl to end"
+      }
+    ],
+    "expect": [
+      {
+        "text": "The Daemon stops on its own"
+      }
+    ],
+    "tasks": []
+  },
+  "document": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page",
+        "outcome": "passed"
+      },
+      {
+        "text": "Wait for the crawl to end",
+        "outcome": "passed"
+      }
+    ],
+    "checks": [
+      {
+        "text": "The Daemon stops on its own",
+        "outcome": "passed"
+      }
+    ],
+    "tasks": [],
+    "outcome": "proved"
+  },
+  "read": "accepted"
+}

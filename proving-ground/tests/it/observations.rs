@@ -1,7 +1,7 @@
 //! Server-side observations: every request a page host receives, as the
 //! Proving ground saw it on the wire (its headers in order, its TLS
 //! `ClientHello` and JA4, its HTTP/2 settings and pseudo-header order, its
-//! cookies, signature and timing) and the bytes each request and each host
+//! cookies, HTTP message signature and timing) and the bytes each request and each host
 //! received and sent, which the oracle and the suites read at
 //! `GET /observations`, never from a tool's report.
 
@@ -64,7 +64,7 @@ fn a_request_is_recorded_with_its_headers_in_the_order_sent() {
                 ["Connection", "close"],
             ],
             "cookies": [["session", "s1"], ["theme", "dark"]],
-            "signature": null,
+            "message_signature": null,
             "tls": null,
             "http2": null,
             "status": 200,
@@ -74,7 +74,7 @@ fn a_request_is_recorded_with_its_headers_in_the_order_sent() {
 }
 
 #[test]
-fn a_signed_request_is_recorded_with_its_signature() {
+fn a_signed_request_is_recorded_with_its_message_signature() {
     let proving_ground = ProvingGround::start(SEED);
     clients::raw(
         proving_ground.address(),
@@ -84,7 +84,7 @@ fn a_signed_request_is_recorded_with_its_signature() {
     let observations = proving_ground.observations();
 
     assert_eq!(
-        observations["requests"][0]["signature"],
+        observations["requests"][0]["message_signature"],
         json!({
             "signature_agent": "\"https://agent.test\"",
             "signature_input": "sig1=(\"@authority\");tag=\"web-bot-auth\"",

@@ -1,7 +1,8 @@
 //! Server-side observations (spec #152): every request a page host receives,
 //! recorded as the Proving ground saw it (method, target, headers in the
-//! order sent, cookies, signature, the connection's TLS `ClientHello` and
-//! HTTP/2 settings, pseudo-header order, status and timing), the bytes each
+//! order sent, cookies, HTTP message signature, the connection's TLS
+//! `ClientHello` and HTTP/2 settings, pseudo-header order, status and
+//! timing), the bytes each
 //! request and each host received and sent, and the Effects the site
 //! carried out. The oracle and the suites read them, never a tool's report.
 //!
@@ -117,7 +118,7 @@ struct Request {
     pseudo_header_order: Option<Vec<String>>,
     headers: Vec<(String, String)>,
     cookies: Vec<(String, String)>,
-    signature: Option<SignatureHeaders>,
+    message_signature: Option<SignatureHeaders>,
     tls: Option<Arc<ClientHello>>,
     http2: Option<Http2Stream>,
     status: Option<u16>,
@@ -358,7 +359,7 @@ impl Connection {
             host: host.to_owned(),
             protocol: head.protocol,
             cookies: cookies(&head.headers),
-            signature: signature(&head.headers),
+            message_signature: message_signature(&head.headers),
             method: head.method,
             target: head.target,
             pseudo_header_order: head.pseudo_header_order,
@@ -417,8 +418,8 @@ fn cookies(headers: &[(String, String)]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The signature headers, if the request carries any.
-fn signature(headers: &[(String, String)]) -> Option<SignatureHeaders> {
+/// The HTTP Message Signatures headers (RFC 9421), if the request carries any.
+fn message_signature(headers: &[(String, String)]) -> Option<SignatureHeaders> {
     let header = |wanted: &str| {
         headers
             .iter()

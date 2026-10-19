@@ -808,6 +808,198 @@
       "id": "scale/2",
       "kind": "crawl",
       "start_url": "http://2.scale.test/sections/12012/sitemap.xml"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page first answers `429` with `Retry-After: 1`.",
+      "digest": "11f810c0b236fa7ba99f079e086277dec01dcc3952781da9d7585d59a531a980",
+      "family": "incidents",
+      "id": "incidents/1",
+      "kind": "crawl",
+      "start_url": "https://1.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page first answers `503`.",
+      "digest": "d7659cb603dec5e22f5a82e2b584abb58af8aca0e03d03ee5442f8a5a14d7590",
+      "family": "incidents",
+      "id": "incidents/2",
+      "kind": "crawl",
+      "start_url": "https://2.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page's body always ends before its `Content-Length`; report the failure.",
+      "digest": "582413cc691ea5f617e560377deff0e412620f051a6fbdc607c4062ae35b2d41",
+      "family": "incidents",
+      "id": "incidents/3",
+      "kind": "crawl",
+      "start_url": "https://3.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page's connection always drops mid-body, before the chunked body's last chunk; report the failure.",
+      "digest": "96e7648515d2c3efc17714773efab90b646c0cb89952d9e45d9aec3f2586bc66",
+      "family": "incidents",
+      "id": "incidents/4",
+      "kind": "crawl",
+      "start_url": "https://4.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page always redirects to itself; report the failure.",
+      "digest": "c1b361f72305e7a317763ad7d193416c6101362e82881914229009d7bc95a2d0",
+      "family": "incidents",
+      "id": "incidents/5",
+      "kind": "crawl",
+      "start_url": "https://5.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`, within 5 seconds per page. Its second page answers only after 8 seconds; report the failure.",
+      "digest": "11917b865b61d1374d24bc59c3e22b235ba91c408c0f533a7dda8ae7d276f021",
+      "family": "incidents",
+      "id": "incidents/6",
+      "kind": "crawl",
+      "start_url": "https://6.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links, obeying the site's robots.txt, and return every Record with its `id` and `price` that it lets you reach.",
+      "digest": "66fd1c2cdce500c1796f358735f82be5528f5eb323d3e29b601008494146fa72",
+      "family": "access-policy",
+      "id": "access-policy/1",
+      "kind": "crawl",
+      "start_url": "https://1.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. The site's robots.txt answers `503`, which disallows the whole site (RFC 9309); report the failure.",
+      "digest": "3dcb9cd4f147f2b7e7a0a96229a73e936ebb9859f14befd8f8c65e9fbe9640de",
+      "family": "access-policy",
+      "id": "access-policy/2",
+      "kind": "crawl",
+      "start_url": "https://2.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page to train an AI model, and return every Record with its `id` and `price`. The site's robots.txt says `Content-Signal: ai-train=no`; report the failure.",
+      "digest": "0519c61ded77d98b3631594db9e3ef91b52a1c01e15eaf07bcb7076501824dd0",
+      "family": "access-policy",
+      "id": "access-policy/3",
+      "kind": "crawl",
+      "start_url": "https://3.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page for text and data mining, and return every Record with its `id` and `price`. The site's `/.well-known/tdmrep.json` reserves its catalog; report the failure.",
+      "digest": "d1bfb40d17a6988405c3b78234fa6688f039a3b879e6da79b2c50821e92c51d9",
+      "family": "access-policy",
+      "id": "access-policy/4",
+      "kind": "crawl",
+      "start_url": "https://4.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page as input to an AI model, and return every Record with its `id` and `price`. Its second page answers with `tdm-reservation: 1`; report the failure.",
+      "digest": "61a9bc32f5a2e9f08ae6b58cc894f8bcda08ef66f8b2f5352e6105c933ba4bb9",
+      "family": "access-policy",
+      "id": "access-policy/5",
+      "kind": "crawl",
+      "start_url": "https://5.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page to train an AI model, and return every Record with its `id` and `price`. Its second page carries `<meta name=\"robots\" content=\"noai, noimageai\">`; report the failure.",
+      "digest": "a69190e839e5be4fa172f9660e81b33c0d06bf3a94b46c74d919c46b964f7b42",
+      "family": "access-policy",
+      "id": "access-policy/6",
+      "kind": "crawl",
+      "start_url": "https://6.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. Its second page answers `402`; report the failure.",
+      "digest": "e56c1680d8d4fad10d7e76ad87f68dabc23aaa5d4b8a02965859a3e35c6d8b5c",
+      "family": "access-policy",
+      "id": "access-policy/7",
+      "kind": "crawl",
+      "start_url": "https://7.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. Its second page answers `403`; report the failure.",
+      "digest": "ed56e8f55fe7a6fd219cf4a5e30b4334a319ee2e6ba3b0b6e803dfb89546cec6",
+      "family": "access-policy",
+      "id": "access-policy/8",
+      "kind": "crawl",
+      "start_url": "https://8.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. Its second page is a challenge served with `200`; report the failure.",
+      "digest": "17634ea021a0d81c1df1c160b8cfb34303619848ef8c7f66cca11c7d7c385328",
+      "family": "access-policy",
+      "id": "access-policy/9",
+      "kind": "crawl",
+      "start_url": "https://9.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links as an identified agent, signing every request with Web Bot Auth (HTTP Message Signatures, RFC 9421, with a `Signature-Agent` naming your key directory), and return every Record with its `id` and `price`.",
+      "digest": "b2085070fde27579b2346db369db3afa58952eec7c556a6fbdaba67880162789",
+      "family": "identity",
+      "id": "identity/1",
+      "kind": "crawl",
+      "start_url": "https://1.identity.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links as a standard browser, signing no request, and return every Record with its `id` and `price`.",
+      "digest": "8c870164ca353ec27f52307307ed62b49e258154b41ad33776317c25d34c1c70",
+      "family": "identity",
+      "id": "identity/2",
+      "kind": "crawl",
+      "start_url": "https://2.identity.test/catalog/1"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: gzip` but plain, so a browser fails to decode it; report the failure.",
+      "digest": "a67c6c32539988338e45ab124b6465b05547b12d2915cf77dcfa746e8ab09849",
+      "family": "content-coding",
+      "id": "content-coding/1",
+      "kind": "extract",
+      "start_url": "https://1.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. Its gzip header is invalid, so a browser fails to decode it; report the failure.",
+      "digest": "764d801d45d4cbb1c7c75feb51fde67818571c20384a7b8402def1eb1d591d65",
+      "family": "content-coding",
+      "id": "content-coding/2",
+      "kind": "extract",
+      "start_url": "https://2.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: gzip, br`.",
+      "digest": "141029f75cd5aa8f13408043d6fd194a966a3cbd991e10435ff853619bcb09fc",
+      "family": "content-coding",
+      "id": "content-coding/3",
+      "kind": "extract",
+      "start_url": "https://3.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is raw deflate, with no zlib wrapper, labelled `Content-Encoding: deflate`.",
+      "digest": "e26e83ddf8f2f8dd693cf8a7ec95baa7f506ad9bc9669dc2a80c6cb58dfaf6c6",
+      "family": "content-coding",
+      "id": "content-coding/4",
+      "kind": "extract",
+      "start_url": "https://4.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled with the unknown coding `utf-8`.",
+      "digest": "64f376ec54f66c5175ab54e080f5d97b08cac96a2cfac6ac917171048d236dbe",
+      "family": "content-coding",
+      "id": "content-coding/5",
+      "kind": "extract",
+      "start_url": "https://5.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is compressed twice with gzip but labelled once, so a browser fails to decode it; report the failure.",
+      "digest": "e7c05f2a1f5fea01ecb23666d593b53600d163fe7174379dd59ce997a1cca6f9",
+      "family": "content-coding",
+      "id": "content-coding/6",
+      "kind": "extract",
+      "start_url": "https://6.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is compressed twice with zstd but labelled once, so a browser fails to decode it; report the failure.",
+      "digest": "da2e81f545846f0abbc05988d81dd4c5417124b13552825fefb3daffbf8e97d7",
+      "family": "content-coding",
+      "id": "content-coding/7",
+      "kind": "extract",
+      "start_url": "https://7.content-coding.test/page"
     }
   ]
 }

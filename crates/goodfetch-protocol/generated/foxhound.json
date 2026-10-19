@@ -357,7 +357,7 @@
     }
   ],
   "protocol_version": "0.1",
-  "setting_keys": [
+  "settings": [
     {
       "arrived_in": "0.1",
       "description": "How many pages the sample crawl visits.",

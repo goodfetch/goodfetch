@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric,
-    Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion, SettingKey, SharedType,
+    Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
     SharedTypeValue, Stability, schema_of,
 };
 
@@ -113,7 +113,7 @@ pub const ENTRIES: Entries = Entries {
         stability: Stability::Stable,
         arrived_in: ARRIVED_IN,
     }],
-    setting_keys: &[SettingKey {
+    settings: &[Setting {
         name: "sample.echo_repeats",
         description: "How many times the sample operation repeats a text.",
         arrived_in: ARRIVED_IN,

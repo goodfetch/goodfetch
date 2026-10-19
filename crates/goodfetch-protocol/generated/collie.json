@@ -206,7 +206,7 @@
     }
   ],
   "protocol_version": "0.1",
-  "setting_keys": [
+  "settings": [
     {
       "arrived_in": "0.1",
       "description": "How many times the sample operation repeats a text.",

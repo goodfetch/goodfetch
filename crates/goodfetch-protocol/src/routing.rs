@@ -91,7 +91,7 @@ fn names_something_only_foxhound_carries(target: &Target<'_>) -> bool {
     let named_in =
         |names: &[&str], foxhound: &[&str]| names.iter().any(|name| foxhound.contains(name));
     named_in(target.operations, foxhound_names::OPERATIONS)
-        || named_in(target.setting_keys, foxhound_names::SETTING_KEYS)
+        || named_in(target.setting_keys, foxhound_names::SETTINGS)
         || named_in(target.plugin_kinds, foxhound_names::PLUGIN_KINDS)
         || named_in(target.hook_stages, foxhound_names::HOOK_STAGES)
         || named_in(

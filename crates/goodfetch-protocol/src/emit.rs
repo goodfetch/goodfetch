@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Metric, Operation,
-    PROTOCOL_VERSION, PluginKind, Product, SettingKey, SharedTypeValue,
+    PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
 use crate::journey::{Journey, JourneyCatalog};
 use crate::releases::ReleasesFile;
@@ -77,7 +77,7 @@ struct Sections {
     error_codes: Vec<Value>,
     plugin_kinds: Vec<Value>,
     metrics: Vec<Value>,
-    setting_keys: Vec<Value>,
+    settings: Vec<Value>,
     hook_stages: Vec<Value>,
     shared_type_values: Vec<Value>,
 }
@@ -115,11 +115,11 @@ impl Sections {
                 .iter()
                 .map(|metric| metric_entry(product, metric)),
         );
-        self.setting_keys.extend(
+        self.settings.extend(
             entries
-                .setting_keys
+                .settings
                 .iter()
-                .map(|key| setting_key_entry(product, key)),
+                .map(|setting| setting_entry(product, setting)),
         );
         self.hook_stages.extend(
             entries
@@ -144,7 +144,7 @@ impl Sections {
             "error_codes": sorted(self.error_codes),
             "plugin_kinds": sorted(self.plugin_kinds),
             "metrics": sorted(self.metrics),
-            "setting_keys": sorted(self.setting_keys),
+            "settings": sorted(self.settings),
             "hook_stages": sorted(self.hook_stages),
             "shared_type_values": sorted(self.shared_type_values),
         })
@@ -256,12 +256,12 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
     })
 }
 
-fn setting_key_entry(product: Product, key: &SettingKey) -> Value {
+fn setting_entry(product: Product, setting: &Setting) -> Value {
     json!({
-        "name": key.name,
+        "name": setting.name,
         "product": product.as_str(),
-        "description": key.description,
-        "arrived_in": key.arrived_in.to_string(),
+        "description": setting.description,
+        "arrived_in": setting.arrived_in.to_string(),
     })
 }
 

@@ -21,8 +21,8 @@ pub const OPERATIONS: &[&str] = &["sample.crawl"];
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];
 
-/// The setting keys only Foxhound carries.
-pub const SETTING_KEYS: &[&str] = &["crawl.sample_pages"];
+/// The settings only Foxhound carries.
+pub const SETTINGS: &[&str] = &["crawl.sample_pages"];
 
 /// The shared type values only Foxhound carries.
 pub const SHARED_TYPE_VALUES: &[&str] = &["sample_crawled_pages"];

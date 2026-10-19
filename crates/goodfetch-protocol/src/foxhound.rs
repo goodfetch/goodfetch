@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric, Operation,
-    OperationClass, PluginKind, PluginMethod, ProtocolVersion, SettingKey, SharedType,
+    OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
     SharedTypeValue, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
@@ -106,7 +106,7 @@ pub const ENTRIES: Entries = Entries {
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],
-    setting_keys: &[SettingKey {
+    settings: &[Setting {
         name: "crawl.sample_pages",
         description: "How many pages the sample crawl visits.",
         arrived_in: ARRIVED_IN,

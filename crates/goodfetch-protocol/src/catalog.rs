@@ -1,5 +1,5 @@
 //! What a catalog entry declares: an operation, an event, an Error code, a
-//! Plugin kind, a metric, a setting key, a Hook stage or a value of a shared
+//! Plugin kind, a metric, a Setting, a Hook stage or a value of a shared
 //! type, with the markers and versions ADRs 0030, 0038, 0050 and 0095 give
 //! it. Each module that defines entries lists them in one
 //! `Entries` value, which the emitter reads.
@@ -334,10 +334,10 @@ pub struct Metric {
     pub arrived_in: ProtocolVersion,
 }
 
-/// A setting key (ADR 0028), which ADR 0087 refuses on a Product that
-/// lacks it.
-pub struct SettingKey {
-    /// Its dotted `snake_case` path, such as `crawl.max_pages`.
+/// A Setting (ADR 0028), named by its key, which ADR 0087 refuses on a
+/// Product that lacks it.
+pub struct Setting {
+    /// Its key, a dotted `snake_case` path such as `crawl.max_pages`.
     pub name: &'static str,
     /// What the setting shapes.
     pub description: &'static str,
@@ -405,8 +405,8 @@ pub struct Entries {
     pub plugin_kinds: &'static [PluginKind],
     /// Its metrics.
     pub metrics: &'static [Metric],
-    /// Its setting keys.
-    pub setting_keys: &'static [SettingKey],
+    /// Its Settings.
+    pub settings: &'static [Setting],
     /// Its Hook stages.
     pub hook_stages: &'static [HookStage],
     /// The values it adds to types both Products share.

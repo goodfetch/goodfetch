@@ -4,6 +4,7 @@
 
 use std::fmt;
 
+use goodfetch_protocol::catalog::Product;
 use serde::{Deserialize, Serialize};
 
 /// A size in bytes. The ADRs' "MB" is 1,000,000 bytes and "MiB" 1,048,576.
@@ -29,13 +30,6 @@ const FOXHOUND_EXECUTABLE_CEILING: Bytes = Bytes(160 * MB);
 const COLLIE_COMPRESSED_CEILING: Bytes = Bytes(50 * MB);
 /// ADR 0087: Collie's raw executable per platform.
 const COLLIE_EXECUTABLE_CEILING: Bytes = Bytes(120 * MB);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Product {
-    Collie,
-    Foxhound,
-}
 
 /// What a built file is, which decides the rule it is held to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -93,25 +87,6 @@ pub(crate) fn ceiling(product: Product, kind: Kind) -> Limit {
         (Kind::Executable, Product::Foxhound) => Limit::Ceiling(FOXHOUND_EXECUTABLE_CEILING),
         (Kind::Crate, _) => Limit::Ceiling(CRATE_CEILING),
         (Kind::OciImage, _) => Limit::None,
-    }
-}
-
-impl fmt::Display for Product {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Collie => "Collie",
-            Self::Foxhound => "Foxhound",
-        })
-    }
-}
-
-impl Product {
-    /// The Product's name in a file's identifier, as the manifest spells it.
-    pub(crate) fn key(self) -> &'static str {
-        match self {
-            Self::Collie => "collie",
-            Self::Foxhound => "foxhound",
-        }
     }
 }
 

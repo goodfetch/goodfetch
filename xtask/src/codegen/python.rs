@@ -12,7 +12,9 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 
-use super::layer::{Deprecation, Layer, Product, Stability};
+use goodfetch_protocol::catalog::Product;
+
+use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{pascal, snake};
 use super::{Generated, TypesFile};
 
@@ -39,10 +41,9 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 13] = [
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
 pub(super) fn generate(layer: &Layer) -> Generated {
-    let (mut input, _) = layer
-        .generator_input(&format!("{}Types", layer.product.title()), |name| {
-            ("customTypePath", format!("{CLIENT_PACKAGE}.models.{name}"))
-        });
+    let (mut input, _) = layer.generator_input(&format!("{}Types", layer.product.name()), |name| {
+        ("customTypePath", format!("{CLIENT_PACKAGE}.models.{name}"))
+    });
     allow_unknown_fields(&mut input);
     Generated {
         files: vec![
@@ -163,12 +164,12 @@ fn deprecation_message(deprecated: &Deprecation) -> String {
 fn init(layer: &Layer) -> String {
     header(&format!(
         "The layer generated from {}'s entries of the catalog (ADR 0095).",
-        layer.product.title()
+        layer.product.name()
     ))
 }
 
 fn operations(layer: &Layer) -> String {
-    let product = layer.product.title();
+    let product = layer.product.name();
     let types: BTreeSet<String> = layer
         .operations
         .iter()
@@ -288,7 +289,7 @@ def _fields(result: object) -> dict[str, Any]:
 "#;
 
 fn events(layer: &Layer) -> String {
-    let product = layer.product.title();
+    let product = layer.product.name();
     let types: BTreeSet<String> = layer
         .events
         .iter()
@@ -349,7 +350,7 @@ fn group_class(group: &str) -> String {
 }
 
 fn errors(layer: &Layer) -> String {
-    let product = layer.product.title();
+    let product = layer.product.name();
     let mut text = header(&format!(
         "The exception class of each of {product}'s Error codes (ADR 0079)."
     ));
@@ -452,7 +453,7 @@ class GoodfetchError(Exception):
 "#;
 
 fn plugins(layer: &Layer) -> String {
-    let product = layer.product.title();
+    let product = layer.product.name();
     let types: BTreeSet<String> = layer
         .plugin_kinds
         .iter()

@@ -6,8 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Event, Instrument, Metric, Operation,
-    OperationClass, ProtocolVersion, Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, Instrument, Metric, Operation, OperationClass,
+    ProtocolVersion, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
 
@@ -37,33 +37,34 @@ pub struct SampleCrawled {
     pub visited: u32,
 }
 
+/// What the operation `sample` reports.
+const SAMPLE_CRAWLED: Event = Event {
+    name: "sample.crawled",
+    description: "The sample crawl finished.",
+    payload: schema_of::<SampleCrawled>,
+    stability: Stability::Stable,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
+    defined_in: module_path!(),
     operations: &[Operation {
         name: "sample.crawl",
-        defined_in: module_path!(),
         description: "Visits sample pages, each repeating a text.",
         class: OperationClass::Effect,
         params: schema_of::<SampleCrawlParams>,
         result: schema_of::<SampleCrawlResult>,
-        events: &["sample.crawled"],
+        events: &[&SAMPLE_CRAWLED],
         cancellable: false,
         stability: Stability::Stable,
         deprecated: None,
         arrived_in: ARRIVED_IN,
     }],
-    events: &[Event {
-        name: "sample.crawled",
-        defined_in: module_path!(),
-        description: "The sample crawl finished.",
-        payload: schema_of::<SampleCrawled>,
-        stability: Stability::Stable,
-        deprecated: None,
-        arrived_in: ARRIVED_IN,
-    }],
+    events: &[SAMPLE_CRAWLED],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_crawl_refused",
-        defined_in: module_path!(),
         description: "The sample crawl refused its pages.",
         group: ErrorGroup::Refused,
         retryable: true,
@@ -72,7 +73,6 @@ pub const ENTRIES: Entries = Entries {
     plugin_kinds: &[],
     metrics: &[Metric {
         name: "goodfetch.sample.crawled_pages",
-        defined_in: module_path!(),
         description: "Pages the sample crawl visited.",
         instrument: Instrument::Counter,
         unit: "{page}",

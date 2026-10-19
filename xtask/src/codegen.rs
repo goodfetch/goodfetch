@@ -35,7 +35,8 @@ use serde_json::Value;
 
 use crate::check::Finding;
 use crate::environment::Environment;
-use layer::{Layer, Product};
+use goodfetch_protocol::catalog::Product;
+use layer::Layer;
 
 /// Where `goodfetch-protocol`'s committed outputs live.
 const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";
@@ -214,7 +215,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
                 Language::TypeScript => Generator::Json2ts,
                 Language::Python => Generator::DatamodelCodegen,
             },
-            input_name: package.product.input_name(),
+            input_name: layer::input_name(package.product),
             input: json_text(&generated.types.input)?,
             prefix: generated.types.prefix,
         });

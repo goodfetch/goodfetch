@@ -44,7 +44,7 @@ pub(crate) fn render(rows: &[Row]) -> String {
         let _ = writeln!(
             table,
             "| {} | {} | {} | {} | {} | {} | {} | {} |",
-            row.file.product,
+            row.file.product.name(),
             row.file.target.as_deref().unwrap_or("—"),
             row.file.name,
             row.file.bytes.megabytes(),

@@ -3,7 +3,10 @@
 //! 0050 and 0095 give it. Each module that defines entries lists them in one
 //! `Entries` value, which the emitter reads.
 
+use std::fmt;
+
 use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde::{Deserialize, Serialize};
 
 /// The protocol's version, `major.minor` (ADR 0030).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,11 +17,20 @@ pub struct ProtocolVersion {
     pub minor: u16,
 }
 
+impl fmt::Display for ProtocolVersion {
+    /// `major.minor`, as the catalog and the SDKs write it.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}", self.major, self.minor)
+    }
+}
+
 /// The version this crate speaks.
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
-/// One of Goodfetch's two Products (ADR 0084).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
+/// writes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Product {
     /// Browser automation; Foxhound contains it.
     Collie,
@@ -45,6 +57,14 @@ impl Product {
             Self::Foxhound => "foxhound",
         }
     }
+
+    /// Its name, as prose and type names write it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Collie => "Collie",
+            Self::Foxhound => "Foxhound",
+        }
+    }
 }
 
 /// What calling an operation does (ADR 0011).
@@ -58,6 +78,17 @@ pub enum OperationClass {
     Effect,
 }
 
+impl OperationClass {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::IdempotentWrite => "idempotent_write",
+            Self::Effect => "effect",
+        }
+    }
+}
+
 /// Whether an entry is under semver's promise (ADR 0030).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stability {
@@ -65,6 +96,16 @@ pub enum Stability {
     Stable,
     /// Outside semver until it is promoted.
     Experimental,
+}
+
+impl Stability {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Experimental => "experimental",
+        }
+    }
 }
 
 /// An entry's deprecation (ADR 0030).
@@ -87,11 +128,8 @@ pub fn schema_of<T: JsonSchema>(generator: &mut SchemaGenerator) -> Schema {
 
 /// An operation of the Operation catalog (ADR 0038).
 pub struct Operation {
-    /// `<namespace>.<member>` in snake_case words (ADR 0099).
+    /// `<namespace>.<member>` in `snake_case` words (ADR 0099).
     pub name: &'static str,
-    /// The `module_path!()` of the module that defines it, which gives its
-    /// Product (ADR 0099).
-    pub defined_in: &'static str,
     /// The one text of its SDK docstrings, MCP tool description and
     /// reference page.
     pub description: &'static str,
@@ -101,8 +139,9 @@ pub struct Operation {
     pub params: SchemaOf,
     /// The type of its result.
     pub result: SchemaOf,
-    /// The names of the events a call may send.
-    pub events: &'static [&'static str],
+    /// The events a call may send, each one of its module's or another's
+    /// `Entries::events`.
+    pub events: &'static [&'static Event],
     /// Whether a Client may cancel a call in flight.
     pub cancellable: bool,
     /// Its semver status.
@@ -115,10 +154,8 @@ pub struct Operation {
 
 /// An event the engine sends.
 pub struct Event {
-    /// Its snake_case name, dotted by namespace.
+    /// Its `snake_case` name, dotted by namespace.
     pub name: &'static str,
-    /// The `module_path!()` of the module that defines it.
-    pub defined_in: &'static str,
     /// What it reports.
     pub description: &'static str,
     /// The type of its payload.
@@ -162,7 +199,7 @@ impl ErrorGroup {
         Self::Internal,
     ];
 
-    /// Its snake_case name.
+    /// Its `snake_case` name.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Program => "program",
@@ -215,10 +252,8 @@ impl ErrorGroup {
 
 /// An Error code (ADR 0038).
 pub struct ErrorCodeDefinition {
-    /// The code's snake_case string.
+    /// The code's `snake_case` string.
     pub name: &'static str,
-    /// The `module_path!()` of the module that defines it.
-    pub defined_in: &'static str,
     /// What went wrong.
     pub description: &'static str,
     /// Its group, whose numeric class the wire carries.
@@ -231,7 +266,7 @@ pub struct ErrorCodeDefinition {
 
 /// One request the engine sends to an implementation of a Plugin kind.
 pub struct PluginMethod {
-    /// Its snake_case name.
+    /// Its `snake_case` name.
     pub name: &'static str,
     /// What the implementation does.
     pub description: &'static str,
@@ -243,10 +278,8 @@ pub struct PluginMethod {
 
 /// A Plugin kind (ADR 0033), whose SDK handlers get a generated base class.
 pub struct PluginKind {
-    /// Its snake_case name.
+    /// Its `snake_case` name.
     pub name: &'static str,
-    /// The `module_path!()` of the module that defines it.
-    pub defined_in: &'static str,
     /// What its implementations do.
     pub description: &'static str,
     /// The requests the engine sends to an implementation.
@@ -271,7 +304,7 @@ pub enum Instrument {
 }
 
 impl Instrument {
-    /// Its snake_case name.
+    /// Its `snake_case` name.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Counter => "counter",
@@ -286,8 +319,6 @@ impl Instrument {
 pub struct Metric {
     /// Its OpenTelemetry name under `goodfetch.`.
     pub name: &'static str,
-    /// The `module_path!()` of the module that defines it.
-    pub defined_in: &'static str,
     /// What it measures.
     pub description: &'static str,
     /// Its instrument.
@@ -302,6 +333,9 @@ pub struct Metric {
 
 /// Every entry one module defines.
 pub struct Entries {
+    /// The `module_path!()` of the module, which gives each entry's Product
+    /// (ADR 0099).
+    pub defined_in: &'static str,
     /// Its operations.
     pub operations: &'static [Operation],
     /// Its events.

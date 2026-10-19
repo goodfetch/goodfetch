@@ -273,7 +273,7 @@ fn finding(row: &Row) -> Finding {
             format!(
                 "{} is over {}'s ceiling of {}",
                 row.file.bytes.megabytes(),
-                row.file.product,
+                row.file.product.name(),
                 row.limit
             ),
         ),

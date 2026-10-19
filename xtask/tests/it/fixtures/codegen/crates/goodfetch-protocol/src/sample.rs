@@ -56,16 +56,26 @@ pub struct SampleStorePutResult {
     pub replaced: bool,
 }
 
+/// What the operation `sample` reports.
+const SAMPLE_ECHOED: Event = Event {
+    name: "sample.echoed",
+    description: "A text was repeated.",
+    payload: schema_of::<SampleEchoed>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
+    defined_in: module_path!(),
     operations: &[Operation {
         name: "sample.echo",
-        defined_in: module_path!(),
         description: "Repeats a text back to the caller.",
         class: OperationClass::Read,
         params: schema_of::<SampleEchoParams>,
         result: schema_of::<SampleEchoResult>,
-        events: &["sample.echoed"],
+        events: &[&SAMPLE_ECHOED],
         cancellable: true,
         stability: Stability::Experimental,
         deprecated: Some(Deprecation {
@@ -74,18 +84,9 @@ pub const ENTRIES: Entries = Entries {
         }),
         arrived_in: ARRIVED_IN,
     }],
-    events: &[Event {
-        name: "sample.echoed",
-        defined_in: module_path!(),
-        description: "A text was repeated.",
-        payload: schema_of::<SampleEchoed>,
-        stability: Stability::Experimental,
-        deprecated: None,
-        arrived_in: ARRIVED_IN,
-    }],
+    events: &[SAMPLE_ECHOED],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_refused",
-        defined_in: module_path!(),
         description: "The sample operation refused the text.",
         group: ErrorGroup::Refused,
         retryable: false,
@@ -93,7 +94,6 @@ pub const ENTRIES: Entries = Entries {
     }],
     plugin_kinds: &[PluginKind {
         name: "sample_store",
-        defined_in: module_path!(),
         description: "Keeps values by key for the sample operations.",
         methods: &[PluginMethod {
             name: "put",
@@ -106,7 +106,6 @@ pub const ENTRIES: Entries = Entries {
     }],
     metrics: &[Metric {
         name: "goodfetch.sample.echoes",
-        defined_in: module_path!(),
         description: "Texts the sample operation repeated.",
         instrument: Instrument::Counter,
         unit: "{echo}",
@@ -138,8 +137,7 @@ mod tests {
     #[test]
     fn plugin_params_from_a_newer_engine_read_without_their_unknown_field() {
         let params: SampleStorePutParams =
-            serde_json::from_str(r#"{ "key": "k", "value": "v", "added_in_a_minor": 1 }"#)
-                .unwrap();
+            serde_json::from_str(r#"{ "key": "k", "value": "v", "added_in_a_minor": 1 }"#).unwrap();
 
         assert_eq!(params.key, "k");
     }

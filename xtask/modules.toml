@@ -41,7 +41,7 @@ workflow = []
 
 # Which of `size`'s own modules may import which.
 [submodules.size]
-budget = ["figure"]
+budget = []
 files = ["budget"]
 pull_request = ["budget"]
 report = ["budget", "files"]

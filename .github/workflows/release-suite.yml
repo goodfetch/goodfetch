@@ -583,3 +583,32 @@ jobs:
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
+
+  # Cache priority within GitHub's 10 GB (ADR 0061): once the repository's
+  # caches pass 9 GB, the least recently used ones that are not the
+  # pull-request tier's Linux caches are deleted until they fit. While the
+  # repository is private, Release runs on `main` save the caches hosted
+  # jobs restore, and the cache-warming job's token holds no write scope on
+  # the owner's machine (ADR 0135), so the eviction runs here, after the
+  # cells have saved theirs.
+  caches:
+    name: caches
+    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual]
+    if: "!cancelled() && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # Deleting a cache needs `actions: write`.
+      actions: write
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Evict caches past 9 GB
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: cargo run --quiet --locked -p xtask -- evict-caches --repository "$GITHUB_REPOSITORY"

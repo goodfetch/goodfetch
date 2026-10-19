@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "id": "python/sample/tests/integration/test_echo.py::test_echo_repeats",
+      "journey": [],
+      "covers": ["story:1-2"]
+    },
+    {
+      "id": "python/sample/tests/integration/test_echo.py::test_echo_keeps_the_case",
+      "journey": [],
+      "covers": []
+    },
+    {
+      "id": "python/sample/tests/unit/test_store.py::test_keeps_a_value[full]",
+      "journey": [],
+      "covers": ["event:sample.echoed"]
+    }
+  ]
+}

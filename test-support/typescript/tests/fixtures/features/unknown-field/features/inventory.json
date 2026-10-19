@@ -1,0 +1,13 @@
+{
+  "features": [
+    {
+      "id": "operation:sample.echo",
+      "kind": "operation",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": ["collie", "foxhound"],
+      "owner": "area 1"
+    }
+  ]
+}

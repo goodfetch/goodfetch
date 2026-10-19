@@ -72,9 +72,11 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
     files
 }
 
-const GENERATED_FOLDERS: [&str; 6] = [
+const GENERATED_FOLDERS: [&str; 8] = [
     "crates/goodfetch-protocol/generated",
     "test-support/fixtures/schemas",
+    "test-support/typescript/src/generated",
+    "test-support/python/src/goodfetch_test_support/generated",
     "sdks/typescript/collie-client/src/generated",
     "sdks/typescript/foxhound/src/generated",
     "sdks/python/collie-client/src/goodfetch_collie_client/generated",
@@ -106,6 +108,7 @@ const SAMPLE: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
 const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
+const RESULT_DOCUMENT: &str = "crates/goodfetch-protocol/src/result_document.rs";
 
 #[rstest]
 #[case::field_added_to_a_collie_type(
@@ -150,6 +153,16 @@ const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
     vec![
         finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
         finding("drift", JOURNEY_SCHEMA),
+    ],
+)]
+#[case::field_added_to_the_result_document(
+    RESULT_DOCUMENT,
+    "    /// Its outcome.\n    pub outcome: String,\n",
+    "    /// Its outcome.\n    pub outcome: String,\n    /// Its surface.\n    pub surface: String,\n",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
+        finding("stale", "test-support/typescript/src/generated/result-document.ts"),
     ],
 )]
 fn check_fails_after_a_type_change_that_was_not_regenerated(
@@ -205,6 +218,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
     vec![
         finding("stale", "sdks/typescript/collie-client/src/generated/types.ts"),
         finding("stale", "sdks/typescript/foxhound/src/generated/types.ts"),
+        finding("stale", "test-support/typescript/src/generated/result-document.ts"),
     ],
 )]
 #[case::datamodel_code_generator(
@@ -214,6 +228,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
     vec![
         finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
         finding("stale", "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
     ],
 )]
 #[case::ruff_which_formats_the_python_models(
@@ -223,6 +238,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
     vec![
         finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
         finding("stale", "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
     ],
 )]
 fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(

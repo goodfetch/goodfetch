@@ -14,6 +14,7 @@
 mod endpoints;
 mod observation_log;
 mod probe;
+mod proving_ground;
 mod reported;
 mod seed;
 mod seeded_kill;

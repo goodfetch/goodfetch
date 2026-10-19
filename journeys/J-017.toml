@@ -1,0 +1,33 @@
+#:schema ./journey.schema.json
+id = "J-017"
+title = "Move to a new major with `upgrade-files`, leaving the previous major's files unchanged"
+goal = """
+A person whose Goodfetch home holds the previous major's files moves to a new \
+major with `upgrade-files`. The command MUST give the new major its own copy \
+of every per-user file and state, which the new major then reads, and MUST \
+never change the previous major's files, so that the person can go back."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["story:1-36", "story:3-96"]
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Start from a Goodfetch home holding the previous major's files, from the Compatibility corpus"
+
+[[steps]]
+text = "Move the per-user files and state to the new major with `upgrade-files`"
+
+[[steps]]
+text = "Read the moved settings, runs and Limits with the new major"
+
+[[expect]]
+text = "The new major has its own copy of every per-user file and state the previous major held"
+
+[[expect]]
+text = "The new major reads the moved settings, runs and Limits with the values the previous major held"
+
+[[expect]]
+text = "Every file of the previous major is byte for byte as it was before `upgrade-files` ran"

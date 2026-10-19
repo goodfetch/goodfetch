@@ -19,6 +19,35 @@
       ],
       "type": "object"
     },
+    "ResultDocument": {
+      "description": "A sample result document.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A sample Journey variant's result.",
+          "properties": {
+            "journey_id": {
+              "description": "The Journey.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "journey",
+              "type": "string"
+            },
+            "outcome": {
+              "description": "Its outcome.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "journey_id",
+            "outcome"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SampleCrawlParams": {
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
@@ -144,6 +173,11 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "documents": {
+    "result_document": {
+      "$ref": "#/$defs/ResultDocument"
+    }
+  },
   "files": {
     "journeys/J-*.toml": {
       "$ref": "#/$defs/Journey"

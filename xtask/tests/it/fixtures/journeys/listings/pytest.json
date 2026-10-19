@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "id": "sdks/python/foxhound/tests/journeys/test_j003.py::test_sdk_python",
+      "journey": [{ "id": "J-003", "surface": "sdk-python" }],
+      "covers": []
+    },
+    {
+      "id": "sdks/python/foxhound/tests/integration/test_client.py::test_connects",
+      "journey": [],
+      "covers": ["story:3-18"]
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+#:schema ./journey.schema.json
+id = "J-022"
+title = "Call an Exposed Daemon from an edge function over WebSocket"
+goal = """
+A person exposes a Daemon, gives an edge function its address in \
+`GOODFETCH_URL` and a scoped token, and calls it from the edge function. The \
+SDK MUST reach the Exposed Daemon over WebSocket with that token alone, each \
+call scoped to the edge function's request, so that a Worker or edge \
+function can make request-scoped calls."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["story:3-13"]
+
+[proving_ground]
+seed = 22
+tasks = [
+  { id = "catalog/2", digest = "0d9d23574dd35e75c26527ecaf4f4ae987bb0050095442f9dfc7383900a4eda4" },
+]
+
+[surfaces]
+sdk-typescript = "M4"
+
+[[steps]]
+text = "Expose the Daemon and make a token scoped to running extractions"
+on = "cli"
+
+[[steps]]
+text = "Set the edge function's `GOODFETCH_URL` to the Exposed Daemon and give it the scoped token"
+
+[[steps]]
+text = "Send the edge function a request that extracts the catalog's product page"
+
+[[steps]]
+text = "Send the edge function a second request that extracts the catalog's product page"
+
+[[expect]]
+text = "Each request's calls reached the Exposed Daemon over WebSocket, accepted on the scoped token"
+
+[[expect]]
+text = "The oracle verifies the first request's result"
+task = "catalog/2"
+
+[[expect]]
+text = "The oracle verifies the second request's result"
+task = "catalog/2"
+
+[[expect]]
+text = "Each request's connection closed when the request ended, and no connection outlived it"

@@ -28,5 +28,20 @@
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
+  },
+  "test-support/python/src/goodfetch_test_support/generated/result_document.py": {
+    "input": "34e583182f2c866a20d05e2676b493270ed1316337cf2349efe30aba57960a85",
+    "output": "37a4bae42d23fabef8600cb525df3bc77ae6927ffed1956c43d92fb50769a13a",
+    "tools": {
+      "datamodel-code-generator": "0.86.0",
+      "ruff": "0.17.1"
+    }
+  },
+  "test-support/typescript/src/generated/result-document.ts": {
+    "input": "001dccfe417bd6da68f3190fb1aa7a75d7da62726a47a634b3250a8a5016b89b",
+    "output": "4246b05b60e1c91bf0bb6f693d44c811137cbc1f249e6c5fd1c076f008667c8a",
+    "tools": {
+      "json-schema-to-typescript": "16.0.0"
+    }
   }
 }

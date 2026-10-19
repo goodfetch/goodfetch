@@ -26,6 +26,7 @@ mod files;
 mod forward_proxy;
 mod generator;
 mod handmade;
+mod hostile;
 mod languages;
 mod login;
 mod model;
@@ -54,6 +55,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
+use serde_json::Value;
 
 use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
 use crate::network::{Loss, Network, Profile};
@@ -138,8 +140,10 @@ async fn shape_and_serve(
     outcome.and(stopped)
 }
 
-/// Binds the network fixtures beside the server, prints the output line,
-/// and serves until stopped.
+/// Binds the network fixtures beside the server, prints the output line
+/// (with every host name the site serves and its certificate authority, so a
+/// caller maps each name to the address and trusts the authority with no
+/// further request), and serves until stopped.
 async fn serve(server: Server, network: &Network, seed: u64) -> Result<()> {
     let upstream = server.address();
     let reached = network.proxy_address().unwrap_or(upstream);
@@ -148,6 +152,12 @@ async fn serve(server: Server, network: &Network, seed: u64) -> Result<()> {
     line.insert("address".to_owned(), reached.to_string().into());
     line.insert("version".to_owned(), version::VERSION.into());
     line.insert("seed".to_owned(), seed.into());
+    let hosts: Vec<_> = server.site().host_names().map(Value::from).collect();
+    line.insert("hosts".to_owned(), hosts.into());
+    line.insert(
+        "certificate_authority".to_owned(),
+        server.site().certificate_authority().into(),
+    );
     line.insert(
         "network".to_owned(),
         serde_json::to_value(network.report()).context("reporting the network profile")?,

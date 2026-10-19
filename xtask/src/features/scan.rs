@@ -1,8 +1,10 @@
-//! The Rust declarations of Features (ADRs 0072 and 0075): a `/// Covers:`
-//! line on a test function, or a `//! Covers:` line on a test module for
-//! every test in it, read with `syn` from each Cargo target's module tree and
-//! named as nextest names the test, an rstest case included. Each
-//! declaration's level comes from the path of the file that holds the test.
+//! What a declaration is, and the Rust declarations of Features (ADRs 0072
+//! and 0075): a `/// Covers:` line on a test function, or a `//! Covers:`
+//! line on a test module for every test in it, read with `syn` from each
+//! Cargo target's module tree and named as nextest names the test, an rstest
+//! case included. Each declaration's level comes from the path of the file
+//! that holds the test. The sibling modules `listed` and `covers` read the
+//! other idioms.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -33,7 +35,7 @@ pub(crate) enum Level {
 
 impl Level {
     /// The level of a test held in `path`, relative to the workspace's root.
-    fn of(path: &Path) -> Self {
+    pub(crate) fn of(path: &Path) -> Self {
         let folders: Vec<&OsStr> = path
             .parent()
             .into_iter()
@@ -79,6 +81,39 @@ impl fmt::Display for Level {
     }
 }
 
+/// What declares a Feature: a runner's test, a Journey or a conformance case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Source {
+    Nextest,
+    Vitest,
+    Playwright,
+    Pytest,
+    /// A Journey's `covers` list.
+    Journey,
+    /// A conformance case's `covers` list, a Client conformance case's
+    /// included.
+    Conformance,
+}
+
+impl Source {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Nextest => "nextest",
+            Self::Vitest => "vitest",
+            Self::Playwright => "playwright",
+            Self::Pytest => "pytest",
+            Self::Journey => "journey",
+            Self::Conformance => "conformance",
+        }
+    }
+}
+
+impl fmt::Display for Source {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 /// One test's claim that it proves one Feature.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Declaration {
@@ -86,10 +121,16 @@ pub(crate) struct Declaration {
     pub(crate) feature: String,
     /// Where the test sits.
     pub(crate) level: Level,
-    /// The test as nextest names it: `<binary id> <test name>`.
+    /// What declares it.
+    pub(crate) source: Source,
+    /// The test as its runner names it (the quarantine list's test IDs): for
+    /// nextest `<binary id> <test name>`; for a Journey its ID; for a
+    /// conformance case `<suite> <case id>`.
     pub(crate) test: String,
-    /// The package that holds the test.
-    pub(crate) package: String,
+    /// The package that holds the test: the crate, or the nearest
+    /// `package.json`'s or `pyproject.toml`'s name; none for a Journey or a
+    /// conformance case.
+    pub(crate) package: Option<String>,
     /// The file that holds the test, relative to the workspace's root.
     pub(crate) path: String,
 }
@@ -259,8 +300,9 @@ impl Target<'_> {
                 declarations.push(Declaration {
                     feature: feature.clone(),
                     level: Level::of(Path::new(&path)),
+                    source: Source::Nextest,
                     test: format!("{} {test}", self.binary),
-                    package: self.package.to_owned(),
+                    package: Some(self.package.to_owned()),
                     path: path.clone(),
                 });
             }

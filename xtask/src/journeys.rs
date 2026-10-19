@@ -34,10 +34,10 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
-use std::process::ExitCode;
+use std::path::{Path, PathBuf};
+use std::process::{ExitCode, Stdio};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -67,12 +67,153 @@ pub(crate) enum Command {
     /// surface ADR 0063 does not list or one due before it ships, or it is
     /// retired without a reason.
     Check,
+    /// Writes the Proving ground's task list of each seed the catalog uses
+    /// to `journeys/tasks/seed-<seed>.json`, from its `tasks --seed`, and
+    /// removes the list of any seed no Journey uses; with `--check`, writes
+    /// nothing and fails on each committed list that differs.
+    Tasks(Tasks),
+}
+
+#[derive(clap::Args)]
+pub(crate) struct Tasks {
+    /// The Proving ground's executable, built from this commit.
+    #[arg(long)]
+    proving_ground: PathBuf,
+    /// Writes nothing, and fails on a committed list that differs from the
+    /// Proving ground's, is missing, or is of a seed no Journey uses.
+    #[arg(long)]
+    check: bool,
 }
 
 pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
     match command {
         Command::Check => Ok(crate::check::report(&check(&environment.root)?)),
+        Command::Tasks(tasks) => {
+            let proving_ground = environment.path(&tasks.proving_ground);
+            let lists = proving_ground_lists(&environment.root, &proving_ground)?;
+            if tasks.check {
+                Ok(crate::check::report(&drift(&environment.root, &lists)?))
+            } else {
+                write_lists(&environment.root, &lists)?;
+                Ok(ExitCode::SUCCESS)
+            }
+        }
     }
+}
+
+/// The task list the Proving ground prints for each seed the parsed
+/// Journeys use, rendered as committed, by its path from the root.
+fn proving_ground_lists(root: &Path, proving_ground: &Path) -> Result<BTreeMap<String, String>> {
+    let mut journeys = Vec::new();
+    for path in journey_files(root)? {
+        let text =
+            std::fs::read_to_string(root.join(&path)).with_context(|| format!("reading {path}"))?;
+        // A file that does not parse is `check`'s finding; it uses no seed.
+        if let Ok((journey, _)) = parse(&text) {
+            journeys.push(journey);
+        }
+    }
+    let mut lists = BTreeMap::new();
+    for seed in seeds(journeys.iter()) {
+        let output = std::process::Command::new(proving_ground)
+            .args(["tasks", "--seed", &seed.to_string()])
+            .stdin(Stdio::null())
+            .stderr(Stdio::inherit())
+            .output()
+            .with_context(|| format!("running {}", proving_ground.display()))?;
+        if !output.status.success() {
+            bail!(
+                "{} tasks --seed {seed} failed: {}",
+                proving_ground.display(),
+                output.status
+            );
+        }
+        let printed: Value = serde_json::from_slice(&output.stdout)
+            .with_context(|| format!("reading the task list of seed {seed}"))?;
+        let tasks = printed
+            .get("tasks")
+            .filter(|tasks| tasks.is_array())
+            .with_context(|| format!("the task list of seed {seed} holds no `tasks` array"))?;
+        // The Proving ground's version names its commit, so it stays out of
+        // the committed list, which changes only with the tasks.
+        let list = serde_json::json!({ "seed": seed, "tasks": tasks });
+        let rendered = serde_json::to_string_pretty(&list)? + "\n";
+        lists.insert(task_list_path(seed), rendered);
+    }
+    Ok(lists)
+}
+
+/// Every committed task list, by its path from the root.
+fn committed_lists(root: &Path) -> Result<BTreeSet<String>> {
+    let folder = root.join(TASK_LISTS);
+    let mut lists = BTreeSet::new();
+    let Ok(entries) = std::fs::read_dir(&folder) else {
+        return Ok(lists);
+    };
+    for entry in entries {
+        let entry = entry.with_context(|| format!("reading {}", folder.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.file_type()?.is_file()
+            && Path::new(&name)
+                .extension()
+                .is_some_and(|extension| extension == "json")
+        {
+            lists.insert(format!("{TASK_LISTS}/{name}"));
+        }
+    }
+    Ok(lists)
+}
+
+/// Each committed list that is not the Proving ground's: a differing or
+/// missing one, and one of a seed no Journey uses.
+fn drift(root: &Path, lists: &BTreeMap<String, String>) -> Result<Vec<Finding>> {
+    let fix = "run `just journeys-tasks`, check that each Journey whose tasks moved still fits, and commit the result";
+    let mut findings = Vec::new();
+    for (path, list) in lists {
+        match std::fs::read_to_string(root.join(path)) {
+            Ok(committed) if committed == *list => {}
+            Ok(_) => findings.push(Finding::new(
+                "task-list-drift",
+                path.clone(),
+                format!("it differs from the Proving ground's; {fix}"),
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                findings.push(Finding::new(
+                    "task-list-drift",
+                    path.clone(),
+                    format!("a Journey uses its seed, but it is not committed; {fix}"),
+                ));
+            }
+            Err(error) => return Err(error).with_context(|| format!("reading {path}")),
+        }
+    }
+    for path in committed_lists(root)?.difference(&lists.keys().cloned().collect()) {
+        findings.push(Finding::new(
+            "task-list-drift",
+            path.clone(),
+            format!("no Journey uses its seed; {fix}"),
+        ));
+    }
+    findings.sort_by(|left, right| left.subject.cmp(&right.subject));
+    Ok(findings)
+}
+
+/// Writes each list, and removes the committed list of any seed no Journey
+/// uses.
+fn write_lists(root: &Path, lists: &BTreeMap<String, String>) -> Result<()> {
+    for path in committed_lists(root)? {
+        if !lists.contains_key(&path) {
+            std::fs::remove_file(root.join(&path)).with_context(|| format!("removing {path}"))?;
+        }
+    }
+    if !lists.is_empty() {
+        std::fs::create_dir_all(root.join(TASK_LISTS))
+            .with_context(|| format!("creating {TASK_LISTS}"))?;
+    }
+    for (path, list) in lists {
+        std::fs::write(root.join(path), list).with_context(|| format!("writing {path}"))?;
+    }
+    Ok(())
 }
 
 /// A Journey file that parsed, by its path from the root.

@@ -2788,6 +2788,7 @@ dependencies = [
  "clap",
  "flate2",
  "goodfetch-protocol",
+ "goodfetch-test-support",
  "insta",
  "jiff",
  "jsonschema",

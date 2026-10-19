@@ -147,6 +147,8 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: "Test: just test-affected pre-merge"
         run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
+      - name: Check the Journeys' task lists against the Proving ground
+        run: ci/vm/exec.sh just journeys-tasks --check
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check

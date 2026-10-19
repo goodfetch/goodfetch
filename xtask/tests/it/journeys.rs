@@ -13,7 +13,9 @@
 
 use std::path::Path;
 
+use goodfetch_test_support::Tool;
 use rstest::rstest;
+use serde_json::Value;
 
 use crate::workspace::{Workspace, finding};
 
@@ -364,4 +366,90 @@ fn task_rule_reads_the_committed_lists_and_starts_no_process() {
 
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// `xtask journeys tasks` on the commit's real Proving ground, which `just
+/// test` builds and lists in the test tool manifest.
+fn tasks(workspace: &Workspace, arguments: &[&str]) -> crate::workspace::Outcome {
+    let tools = goodfetch_test_support::tools().unwrap();
+    let proving_ground = tools.path(Tool::ProvingGround).unwrap();
+    let mut command = vec![
+        "journeys",
+        "tasks",
+        "--proving-ground",
+        proving_ground.to_str().unwrap(),
+    ];
+    command.extend_from_slice(arguments);
+    workspace.xtask(&command)
+}
+
+/// A seed no Journey of the fixture catalog uses.
+const UNUSED_LIST: &str = "journeys/tasks/seed-9.json";
+
+#[test]
+fn tasks_commits_the_proving_grounds_list_of_each_seed_the_catalog_uses() {
+    let workspace = catalog();
+    workspace.remove(TASK_LIST);
+    workspace.write(UNUSED_LIST, b"{}\n");
+
+    let outcome = tasks(&workspace, &[]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let list: Value = serde_json::from_str(&workspace.read_text(TASK_LIST)).unwrap();
+    assert_eq!(list["seed"], 3, "{list}");
+    let crawl = list["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|task| task["id"] == "catalog/1")
+        .unwrap_or_else(|| panic!("the list names catalog/1: {list}"));
+    assert_eq!(crawl["start_url"], "http://1.catalog.test/catalog/1");
+    let digest = crawl["digest"].as_str().unwrap();
+    assert!(
+        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "{digest}"
+    );
+    assert_eq!(workspace.read(UNUSED_LIST), None);
+    let checked = tasks(&workspace, &["--check"]);
+    assert_eq!(checked.findings(), vec![], "{}", checked.stderr);
+    assert_eq!(checked.code, 0, "{}", checked.stderr);
+}
+
+/// The Pre-merge drift check: a committed list that is not the Proving
+/// ground's for its seed fails, and the check writes nothing.
+#[rstest]
+#[case::digest_changed("digest", TASK_LIST)]
+#[case::list_missing("missing", TASK_LIST)]
+#[case::seed_no_journey_uses("unused", UNUSED_LIST)]
+fn drift_check_fails_on_a_list_that_is_not_the_proving_grounds(
+    #[case] drift: &str,
+    #[case] subject: &str,
+) {
+    let workspace = catalog();
+    let refreshed = tasks(&workspace, &[]);
+    assert_eq!(refreshed.code, 0, "{}", refreshed.stderr);
+    match drift {
+        "digest" => {
+            let mut list: Value = serde_json::from_str(&workspace.read_text(TASK_LIST)).unwrap();
+            list["tasks"][0]["digest"] = Value::from("0".repeat(64));
+            workspace.write(TASK_LIST, &serde_json::to_vec_pretty(&list).unwrap());
+        }
+        "missing" => workspace.remove(TASK_LIST),
+        _ => workspace.write(UNUSED_LIST, &workspace.read(TASK_LIST).unwrap()),
+    }
+    let before = (workspace.read(TASK_LIST), workspace.read(UNUSED_LIST));
+
+    let outcome = tasks(&workspace, &["--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("task-list-drift", subject)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+    assert_eq!(
+        (workspace.read(TASK_LIST), workspace.read(UNUSED_LIST)),
+        before
+    );
 }

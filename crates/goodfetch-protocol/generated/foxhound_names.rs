@@ -9,6 +9,9 @@ pub const ERROR_GROUPS: &[&str] = &[];
 /// The events only Foxhound carries.
 pub const EVENTS: &[&str] = &["sample.crawled"];
 
+/// The hook stages only Foxhound carries.
+pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
+
 /// The metrics only Foxhound carries.
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages"];
 
@@ -16,4 +19,10 @@ pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages"];
 pub const OPERATIONS: &[&str] = &["sample.crawl"];
 
 /// The plugin kinds only Foxhound carries.
-pub const PLUGIN_KINDS: &[&str] = &[];
+pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];
+
+/// The setting keys only Foxhound carries.
+pub const SETTING_KEYS: &[&str] = &["crawl.sample_pages"];
+
+/// The shared type values only Foxhound carries.
+pub const SHARED_TYPE_VALUES: &[&str] = &["sample_crawled_pages"];

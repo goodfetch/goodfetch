@@ -6,8 +6,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Event, Instrument, Metric, Operation, OperationClass,
-    ProtocolVersion, Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric, Operation,
+    OperationClass, PluginKind, PluginMethod, ProtocolVersion, SettingKey, SharedType,
+    SharedTypeValue, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
 
@@ -35,6 +36,21 @@ pub struct SampleCrawlResult {
 pub struct SampleCrawled {
     /// How many pages were visited.
     pub visited: u32,
+}
+
+/// What a sample page filter is asked about a page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SamplePageFilterAdmitParams {
+    /// The page's URL.
+    pub url: String,
+}
+
+/// What a sample page filter answers about a page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SamplePageFilterAdmitResult {
+    /// Whether the sample crawl visits the page.
+    pub admitted: bool,
 }
 
 /// What the operation `sample` reports.
@@ -70,13 +86,40 @@ pub const ENTRIES: Entries = Entries {
         retryable: true,
         arrived_in: ARRIVED_IN,
     }],
-    plugin_kinds: &[],
+    plugin_kinds: &[PluginKind {
+        name: "sample_page_filter",
+        description: "Chooses the pages the sample crawl visits.",
+        methods: &[PluginMethod {
+            name: "admit",
+            description: "Says whether the sample crawl visits a page.",
+            params: schema_of::<SamplePageFilterAdmitParams>,
+            result: schema_of::<SamplePageFilterAdmitResult>,
+        }],
+        stability: Stability::Experimental,
+        arrived_in: ARRIVED_IN,
+    }],
     metrics: &[Metric {
         name: "goodfetch.sample.crawled_pages",
         description: "Pages the sample crawl visited.",
         instrument: Instrument::Counter,
         unit: "{page}",
         stability: Stability::Experimental,
+        arrived_in: ARRIVED_IN,
+    }],
+    setting_keys: &[SettingKey {
+        name: "crawl.sample_pages",
+        description: "How many pages the sample crawl visits.",
+        arrived_in: ARRIVED_IN,
+    }],
+    hook_stages: &[HookStage {
+        name: "sample_crawled_page",
+        description: "After the sample crawl visits a page.",
+        arrived_in: ARRIVED_IN,
+    }],
+    shared_type_values: &[SharedTypeValue {
+        shared_type: SharedType::UsageKind,
+        name: "sample_crawled_pages",
+        description: "Pages the sample crawl visited.",
         arrived_in: ARRIVED_IN,
     }],
 };

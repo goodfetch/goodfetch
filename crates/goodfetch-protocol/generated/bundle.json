@@ -292,6 +292,33 @@
       ],
       "type": "object"
     },
+    "SamplePageFilterAdmitParams": {
+      "description": "What a sample page filter is asked about a page.",
+      "properties": {
+        "url": {
+          "description": "The page's URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "SamplePageFilterAdmitResult": {
+      "additionalProperties": false,
+      "description": "What a sample page filter answers about a page.",
+      "properties": {
+        "admitted": {
+          "description": "Whether the sample crawl visits the page.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "admitted"
+      ],
+      "type": "object"
+    },
     "SampleStorePutParams": {
       "description": "What a sample store keeps.",
       "properties": {

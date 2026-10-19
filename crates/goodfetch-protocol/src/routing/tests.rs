@@ -27,10 +27,28 @@ const FOXHOUND_OPERATION: Target<'static> = Target {
     operations: &["sample.echo", "sample.crawl"],
     ..NOTHING
 };
+const FOXHOUND_SETTING_KEY: Target<'static> = Target {
+    setting_keys: &["sample.echo_repeats", "crawl.sample_pages"],
+    ..NOTHING
+};
+const FOXHOUND_PLUGIN_KIND: Target<'static> = Target {
+    plugin_kinds: &["sample_store", "sample_page_filter"],
+    ..NOTHING
+};
+const FOXHOUND_HOOK_STAGE: Target<'static> = Target {
+    hook_stages: &["sample_before_echo", "sample_crawled_page"],
+    ..NOTHING
+};
+const FOXHOUND_SHARED_TYPE_VALUE: Target<'static> = Target {
+    shared_type_values: &["sample_echoes", "sample_crawled_pages"],
+    ..NOTHING
+};
 const COLLIE_NAMES_ONLY: Target<'static> = Target {
     operations: &["sample.echo"],
+    setting_keys: &["sample.echo_repeats"],
     plugin_kinds: &["sample_store"],
-    ..NOTHING
+    hook_stages: &["sample_before_echo"],
+    shared_type_values: &["sample_echoes"],
 };
 
 fn new_run(
@@ -94,6 +112,12 @@ fn new_run(
     FOXHOUND_OPERATION,
     Product::Collie
 )]
+#[case::collie_recipe_setting_a_crawl_key_from_the_console(
+    Starter::Console,
+    Some(Product::Collie),
+    FOXHOUND_SETTING_KEY,
+    Product::Collie
+)]
 #[case::collie_recipe_from_a_schedule(
     Starter::Schedule,
     Some(Product::Collie),
@@ -105,6 +129,30 @@ fn new_run(
     Starter::Console,
     None,
     FOXHOUND_OPERATION,
+    Product::Foxhound
+)]
+#[case::console_target_setting_a_crawl_key(
+    Starter::Console,
+    None,
+    FOXHOUND_SETTING_KEY,
+    Product::Foxhound
+)]
+#[case::console_target_enabling_a_foxhound_plugin_kind(
+    Starter::Console,
+    None,
+    FOXHOUND_PLUGIN_KIND,
+    Product::Foxhound
+)]
+#[case::console_target_enabling_a_foxhound_hook_stage(
+    Starter::Console,
+    None,
+    FOXHOUND_HOOK_STAGE,
+    Product::Foxhound
+)]
+#[case::console_target_using_a_value_foxhound_adds_to_a_shared_type(
+    Starter::Console,
+    None,
+    FOXHOUND_SHARED_TYPE_VALUE,
     Product::Foxhound
 )]
 #[case::schedule_target_naming_a_foxhound_operation(

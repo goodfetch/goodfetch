@@ -48,3 +48,27 @@ export interface SampleCrawled {
    */
   visited: number;
 }
+/**
+ * What a sample page filter is asked about a page.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SamplePageFilterAdmitParams".
+ */
+export interface SamplePageFilterAdmitParams {
+  /**
+   * The page's URL.
+   */
+  url: string;
+}
+/**
+ * What a sample page filter answers about a page.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SamplePageFilterAdmitResult".
+ */
+export interface SamplePageFilterAdmitResult {
+  /**
+   * Whether the sample crawl visits the page.
+   */
+  admitted: boolean;
+}

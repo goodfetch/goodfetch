@@ -141,6 +141,14 @@
       "stability": "experimental"
     }
   ],
+  "hook_stages": [
+    {
+      "arrived_in": "0.1",
+      "description": "Before the sample operation repeats a text.",
+      "name": "sample_before_echo",
+      "product": "collie"
+    }
+  ],
   "metrics": [
     {
       "arrived_in": "0.1",
@@ -197,5 +205,22 @@
       "stability": "experimental"
     }
   ],
-  "protocol_version": "0.1"
+  "protocol_version": "0.1",
+  "setting_keys": [
+    {
+      "arrived_in": "0.1",
+      "description": "How many times the sample operation repeats a text.",
+      "name": "sample.echo_repeats",
+      "product": "collie"
+    }
+  ],
+  "shared_type_values": [
+    {
+      "arrived_in": "0.1",
+      "description": "Texts the sample operation repeated.",
+      "name": "sample_echoes",
+      "product": "collie",
+      "type": "usage_kind"
+    }
+  ]
 }

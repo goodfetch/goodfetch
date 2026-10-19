@@ -87,6 +87,20 @@
       "stability": "experimental"
     }
   ],
+  "hook_stages": [
+    {
+      "arrived_in": "0.1",
+      "description": "Before the sample operation repeats a text.",
+      "name": "sample_before_echo",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "After the sample crawl visits a page.",
+      "name": "sample_crawled_page",
+      "product": "foxhound"
+    }
+  ],
   "metrics": [
     {
       "arrived_in": "0.1",
@@ -153,6 +167,25 @@
   "plugin_kinds": [
     {
       "arrived_in": "0.1",
+      "description": "Chooses the pages the sample crawl visits.",
+      "methods": [
+        {
+          "description": "Says whether the sample crawl visits a page.",
+          "name": "admit",
+          "params": {
+            "$ref": "#/$defs/SamplePageFilterAdmitParams"
+          },
+          "result": {
+            "$ref": "#/$defs/SamplePageFilterAdmitResult"
+          }
+        }
+      ],
+      "name": "sample_page_filter",
+      "product": "foxhound",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Keeps values by key for the sample operations.",
       "methods": [
         {
@@ -171,5 +204,35 @@
       "stability": "experimental"
     }
   ],
-  "protocol_version": "0.1"
+  "protocol_version": "0.1",
+  "setting_keys": [
+    {
+      "arrived_in": "0.1",
+      "description": "How many pages the sample crawl visits.",
+      "name": "crawl.sample_pages",
+      "product": "foxhound"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "How many times the sample operation repeats a text.",
+      "name": "sample.echo_repeats",
+      "product": "collie"
+    }
+  ],
+  "shared_type_values": [
+    {
+      "arrived_in": "0.1",
+      "description": "Pages the sample crawl visited.",
+      "name": "sample_crawled_pages",
+      "product": "foxhound",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Texts the sample operation repeated.",
+      "name": "sample_echoes",
+      "product": "collie",
+      "type": "usage_kind"
+    }
+  ]
 }

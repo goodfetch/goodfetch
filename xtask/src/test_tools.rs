@@ -59,13 +59,23 @@ struct Target {
 
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
     let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
-    let binaries: Vec<String> = metadata::packages(cargo, root)?
-        .into_iter()
-        .flat_map(|package| package.targets)
-        .filter(|target| target.kind.iter().any(|kind| kind == "bin"))
-        .map(|target| target.name)
-        .filter(|name| TOOLS.iter().any(|(binary, _)| binary == name))
-        .collect();
+    let mut binaries = Vec::new();
+    let mut features = std::collections::BTreeSet::new();
+    for package in metadata::packages(cargo, root)? {
+        for target in package.targets {
+            if !target.kind.iter().any(|kind| kind == "bin")
+                || !TOOLS.iter().any(|(binary, _)| *binary == target.name)
+            {
+                continue;
+            }
+            // A Product's binary target requires its `executable` feature
+            // (ADR 0094). Named alone, a feature applies to each selected
+            // package that has it; `<package>/<feature>` would name the
+            // package's dev-dependency on itself, which a build leaves off.
+            features.extend(target.required_features);
+            binaries.push(target.name);
+        }
+    }
     let mut manifest = BTreeMap::new();
     if !binaries.is_empty() {
         let mut command = Command::new(cargo);
@@ -79,6 +89,15 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                     .flat_map(|target| ["--target", target]),
             )
             .args(binaries.iter().flat_map(|binary| ["--bin", binary]))
+            .args(
+                (!features.is_empty())
+                    .then(|| {
+                        let names: Vec<String> = features.into_iter().collect();
+                        ["--features".to_owned(), names.join(",")]
+                    })
+                    .into_iter()
+                    .flatten(),
+            )
             .current_dir(root)
             .stderr(Stdio::inherit());
         let output = command.output().context("running cargo build")?;

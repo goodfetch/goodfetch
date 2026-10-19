@@ -1,5 +1,69 @@
 {
   "$defs": {
+    "EngineInfo": {
+      "description": "What `engine.info` answers.",
+      "properties": {
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product the engine runs as."
+        },
+        "product_major": {
+          "arrived_in": "0.1",
+          "description": "The major of its Product version, which names its per-major state.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "The engine's Product version."
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version the engine speaks."
+        }
+      },
+      "required": [
+        "product",
+        "product_version",
+        "protocol_version",
+        "product_major"
+      ],
+      "type": "object"
+    },
+    "EngineInfoParams": {
+      "additionalProperties": false,
+      "description": "What `engine.info` takes: nothing.",
+      "type": "object"
+    },
+    "Product": {
+      "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
+      "oneOf": [
+        {
+          "const": "collie",
+          "description": "Browser automation; Foxhound contains it.",
+          "type": "string"
+        },
+        {
+          "const": "foxhound",
+          "description": "Crawling, which contains Collie.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProductVersion": {
+      "description": "A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+      "type": "string"
+    },
+    "ProtocolVersion": {
+      "description": "A version `major.minor` (ADR 0030).",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "type": "string"
+    },
     "SampleCrawlParams": {
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
@@ -154,7 +218,38 @@
   "error_codes": [
     {
       "arrived_in": "0.1",
+      "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "call_cancelled",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
+      "exit_code": 10,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "not_in_product",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
+      "exit_code": 11,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "protocol_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The sample crawl refused its pages.",
+      "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_crawl_refused",
@@ -164,6 +259,7 @@
     {
       "arrived_in": "0.1",
       "description": "The sample operation refused the text.",
+      "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
@@ -274,6 +370,23 @@
     }
   ],
   "operations": [
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
+      "events": [],
+      "name": "engine.info",
+      "params": {
+        "$ref": "#/$defs/EngineInfoParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/EngineInfo"
+      },
+      "stability": "stable"
+    },
     {
       "arrived_in": "0.1",
       "cancellable": false,

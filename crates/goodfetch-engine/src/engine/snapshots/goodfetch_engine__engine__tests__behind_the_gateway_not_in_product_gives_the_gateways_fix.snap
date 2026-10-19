@@ -1,0 +1,21 @@
+---
+source: crates/goodfetch-engine/src/engine/tests.rs
+expression: "pretty(&received[1])"
+---
+{
+  "error": {
+    "code": -32006,
+    "data": {
+      "code": "not_in_product",
+      "fix": "Only a run started for Foxhound carries `sample.crawl`; start the run for Foxhound.",
+      "needs": "foxhound",
+      "product": "collie",
+      "product_version": "1.4.0",
+      "requested": "sample.crawl",
+      "retryable": false
+    },
+    "message": "`sample.crawl` is part of Foxhound, and this run is Collie's."
+  },
+  "id": 1,
+  "jsonrpc": "2.0"
+}

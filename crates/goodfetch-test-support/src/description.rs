@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
+use crate::ssrf::SsrfTable;
 use crate::tools::Tools;
 
 /// One test's setup, as the TypeScript and Python packages read it.
@@ -55,6 +56,10 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "endpoint-table.schema.json",
             schemars::schema_for!(EndpointTable).to_value(),
+        ),
+        (
+            "ssrf-cases.schema.json",
+            schemars::schema_for!(SsrfTable).to_value(),
         ),
         (
             "test-env-description.schema.json",

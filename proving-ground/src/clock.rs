@@ -1,9 +1,11 @@
 //! The Proving ground's clock, the one place it reads time (ADR 0059): the
 //! oracle's own time, which the benchmark keeps apart from a task's time,
-//! the time of each request it observes, and the date its leaf certificates
-//! start from. Times are measurements, never asserted by a test (ADR 0064).
+//! the time of each request it observes, the date its leaf certificates
+//! start from, the system time a TOTP code is checked at, and the latency
+//! proxy's delays and calibration. None ever changes a page or an expected
+//! result; times are measurements, never asserted by a test (ADR 0064).
 
-use std::time::{Instant, SystemTime};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Monotonic time since it started.
 pub(crate) struct Stopwatch(Instant);
@@ -23,6 +25,17 @@ impl Stopwatch {
     }
 }
 
+/// Tokio's monotonic time now, which the latency proxy schedules each delay
+/// from: a test that pauses Tokio's clock (`start_paused`, `TESTING.md`'s
+/// test `Clock`) moves it, so no delay takes real time there.
+pub(crate) fn now() -> tokio::time::Instant {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the clock module is the Proving ground's one reader of time (ADR 0059)"
+    )]
+    tokio::time::Instant::now()
+}
+
 /// The wall clock's time now, which dates the leaf certificates.
 pub(crate) fn wall_now() -> SystemTime {
     #[expect(
@@ -30,4 +43,11 @@ pub(crate) fn wall_now() -> SystemTime {
         reason = "the clock module is the Proving ground's one reader of time (ADR 0059)"
     )]
     SystemTime::now()
+}
+
+/// Whole seconds since the Unix epoch by the system's clock, 0 before it.
+pub(crate) fn unix_seconds() -> u64 {
+    wall_now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
 }

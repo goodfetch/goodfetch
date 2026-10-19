@@ -36,18 +36,37 @@ assert_cmd = { version = "2.2.2", default-features = false }
 # A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
+goodfetch-collie = { path = "crates/goodfetch-collie" }
+goodfetch-engine = { path = "crates/goodfetch-engine" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
+goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+# The base32 (RFC 4648) of the Proving ground's TOTP secrets.
+data-encoding = { version = "2.11.1", default-features = false, features = ["alloc"] }
+# The Proving ground's login forms (application/x-www-form-urlencoded).
+form_urlencoded = { version = "1.2.2", default-features = false, features = ["alloc"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+# HMAC-SHA-1, from which the Proving ground and its tests compute TOTP codes
+# (RFC 6238).
+hmac = { version = "0.12.1", default-features = false }
+# The Proving ground's encodings family writes each page in its legacy
+# encoding with the WHATWG Encoding standard's encoders (ADRs 0073, 0119), and
+# its ZIP download's checksum is CRC-32.
+crc32fast = { version = "1.5.2", default-features = false }
+encoding_rs = { version = "0.8.42", default-features = false, features = ["alloc"] }
 # The Proving ground's page server (area 2): hyper's HTTP/1.1 and HTTP/2
 # server on Tokio, behind rustls with ring (the provider ureq already brings).
 # Its observations decode each HTTP/2 header block with loona-hpack, which
 # keeps the fields in the order they were sent (h2 keeps its decoder private
 # and hands out a map). h2 is the tests' HTTP/2 client.
 h2 = { version = "0.4.19", default-features = false }
+# The Proving ground's forward proxy (spec #152) reads each request head with
+# httparse, which hyper already brings.
+httparse = { version = "1.10.1", default-features = false, features = ["std"] }
 http-body-util = { version = "0.1.5", default-features = false }
 hyper = { version = "1.12.0", default-features = false }
 hyper-util = { version = "0.1.21", default-features = false }
@@ -58,7 +77,17 @@ p256 = { version = "0.13.2", default-features = false }
 rcgen = { version = "0.14.10", default-features = false }
 rustls = { version = "0.23.46", default-features = false }
 tokio-rustls = { version = "0.26.4", default-features = false }
+# The Proving ground's identity site verifies Web Bot Auth signatures with
+# Cloudflare's own verifier, as the lab's did with its npm package (#162).
+web-bot-auth = { version = "0.7.0", default-features = false }
+# The identity site's tests sign as an agent would: web-bot-auth's signer
+# takes its covered components as an `IndexMap` and its keys as Ed25519.
+ed25519-dalek = { version = "2.2.0", default-features = false }
+indexmap = { version = "2.14.2", default-features = false }
 insta = { version = "1.49.0", default-features = false }
+# The executables' global allocator (ADR 0024), and the Callgrind
+# benchmarks' (ADR 0071).
+mimalloc = { version = "0.1.48", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the
@@ -73,12 +102,19 @@ quick-xml = { version = "0.41", default-features = false }
 quote = { version = "1.0.47", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode"] }
 rstest = { version = "0.27.0", default-features = false }
+# Run state, the Usage ledger and the Politeness file (ADR 0057), on the
+# SQLite it bundles. goodfetch-test-support's crash VFS (ADR 0060) registers
+# with that same SQLite through sqlite-plugin, whose build script runs
+# bindgen (libclang) and downloads nothing.
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+sqlite-plugin = { version = "0.11.0", default-features = false, features = ["static"] }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
 # RFC 8785, which a Proving ground task's digest serializes in (ADR 0063).
 serde_json_canonicalizer = { version = "0.3.2", default-features = false }
+sha1 = { version = "0.10.6", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
 tar = { version = "0.4.46", default-features = false }

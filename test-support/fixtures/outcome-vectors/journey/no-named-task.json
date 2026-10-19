@@ -1,0 +1,7 @@
+{
+  "description": "A Journey that names no Proving ground task is proved on its steps and checks",
+  "steps": ["passed"],
+  "checks": ["passed", "passed"],
+  "tasks": [],
+  "outcome": "proved"
+}

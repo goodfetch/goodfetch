@@ -7,7 +7,7 @@
 use std::fmt::Write as _;
 
 use crate::generator;
-use crate::task::{Effect, Entry, Expected, Kind, Record, Task};
+use crate::task::{self, Effect, Entry, Expected, Kind, Record, Task};
 
 /// The host name the family is served on, which tests map to loopback with
 /// the `resolve` setting (ADR 0059).
@@ -180,10 +180,11 @@ fn task_host(ordinal: u32) -> String {
 }
 
 /// The family's tasks for `seed`, their start URLs on their own host names
-/// and `port`. Ordinals are append-only: a new task takes the next one, and
+/// and `port`, or on no port when `tasks` lists them without serving.
+/// Ordinals are append-only: a new task takes the next one, and
 /// a removed one is never reused (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let origin = |ordinal| format!("http://{}:{port}", task_host(ordinal));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let origin = |ordinal| task::origin(&task_host(ordinal), port);
     let extracted = 1 + generator::below(seed, &[FAMILY_PLACE, 0, EXTRACT_PLACE], PRODUCTS);
     let ordered = 1 + generator::below(seed, &[FAMILY_PLACE, 0, ORDER_PLACE], PRODUCTS);
     vec![
@@ -197,11 +198,12 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 description: "Crawl the catalog from its first listing page, following each page's \
                     Next link, and return one Record per product, read from its product page, \
                     with the fields `id`, `name` and `price`.",
+                account: None,
+                time_steps: None,
             },
-            expected: Expected {
-                records: (1..=PRODUCTS).map(|number| record(seed, number)).collect(),
-                effects: Vec::new(),
-            },
+            expected: Expected::records(
+                (1..=PRODUCTS).map(|number| record(seed, number)).collect(),
+            ),
         },
         Task {
             host: task_host(2),
@@ -212,11 +214,10 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 start_url: format!("{}/products/{}", origin(2), product_id(extracted)),
                 description: "Extract the product this page shows as one Record with the fields \
                     `id`, `name` and `price`.",
+                account: None,
+                time_steps: None,
             },
-            expected: Expected {
-                records: vec![record(seed, extracted)],
-                effects: Vec::new(),
-            },
+            expected: Expected::records(vec![record(seed, extracted)]),
         },
         Task {
             host: task_host(3),
@@ -226,13 +227,12 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 kind: Kind::Submit,
                 start_url: format!("{}/products/{}/order", origin(3), product_id(ordered)),
                 description: "Order the product this page offers, once, through its order form.",
+                account: None,
+                time_steps: None,
             },
-            expected: Expected {
-                records: Vec::new(),
-                effects: vec![Effect::Order {
-                    product: product_id(ordered),
-                }],
-            },
+            expected: Expected::effects(vec![Effect::Order {
+                product: product_id(ordered),
+            }]),
         },
     ]
 }

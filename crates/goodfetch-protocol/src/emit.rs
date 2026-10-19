@@ -7,13 +7,19 @@
 //! schema: `compat/releases.toml` (ADR 0066), and the Journey catalog's
 //! files, every `journeys/J-*.toml` and `journeys/catalog.toml` (ADR 0063),
 //! whose Journey schema `xtask codegen` also writes on its own to
-//! `journeys/journey.schema.json`. What later decisions put in the bundle
+//! `journeys/journey.schema.json`. Its `documents` holds the schemas of the
+//! documents tests write rather than files the repository keeps: the result
+//! document and the case log's entry (ADRs 0063 and 0069). What later
+//! decisions put in the bundle
 //! joins here once its types exist, through the same `xtask codegen`: the
 //! format registry (ADR 0066), the `--json` output types and the exit-code
-//! table (ADR 0069), and the Feature inventory schemas (ADR 0072). `xtask compat` reads the format registry as the
-//! bundle's `formats`: an array of `{name, version, storage, schema}`, where
-//! `storage` is `json`, `sqlite` or `transcript`; without it, no format is
-//! registered. A new catalog section
+//! table (ADR 0069), and the Feature inventory schemas (ADR 0072). The
+//! format registry is the bundle's `formats`, which `xtask compat` reads: an
+//! array of `{name, version, storage, rule, schema}`, where `storage` is
+//! `json`, `sqlite` or `transcript`. The bundle's `connection` holds the
+//! types of `hello` and `$/cancel`, which open and govern every Connection
+//! outside the catalog; each Error code's entry carries its row of the
+//! exit-code table, `exit_code`. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
 
@@ -21,16 +27,17 @@ use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
+use crate::case_log::CaseLogEntry;
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Metric, Operation,
     PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
+use crate::connection::{CancelParams, HelloParams, HelloResult};
+use crate::entries::MODULES;
+use crate::formats::FORMATS;
 use crate::journey::{Journey, JourneyCatalog};
 use crate::releases::ReleasesFile;
-use crate::{foxhound, sample};
-
-/// Every module that defines entries.
-const MODULES: [&Entries; 2] = [&sample::ENTRIES, &foxhound::ENTRIES];
+use crate::result_document::ResultDocument;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
 pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
@@ -53,6 +60,27 @@ pub fn emit() -> Emitted {
     let releases = generator.subschema_for::<ReleasesFile>();
     let journey = generator.subschema_for::<Journey>();
     let journey_catalog = generator.subschema_for::<JourneyCatalog>();
+    let formats: Vec<Value> = FORMATS
+        .iter()
+        .map(|format| {
+            json!({
+                "name": format.name,
+                "version": format.version.to_string(),
+                "storage": format.storage.as_str(),
+                "rule": format.rule.as_str(),
+                "schema": (format.schema)(&mut generator),
+            })
+        })
+        .collect();
+    let connection = json!({
+        "hello": {
+            "params": generator.subschema_for::<HelloParams>(),
+            "result": generator.subschema_for::<HelloResult>(),
+        },
+        "cancel": { "params": generator.subschema_for::<CancelParams>() },
+    });
+    let result_document = generator.subschema_for::<ResultDocument>();
+    let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
     Emitted {
         bundle: json!({
@@ -63,6 +91,12 @@ pub fn emit() -> Emitted {
                 "compat/releases.toml": releases,
                 JOURNEY_FILES: journey,
                 "journeys/catalog.toml": journey_catalog,
+            },
+            "formats": formats,
+            "connection": connection,
+            "documents": {
+                "result_document": result_document,
+                "case_log_entry": case_log_entry,
             },
             "$defs": definitions,
         }),
@@ -213,6 +247,7 @@ fn error_code_entry(product: Product, code: &ErrorCodeDefinition) -> Value {
         "group": code.group.as_str(),
         "json_rpc_class": code.group.json_rpc_class(),
         "retryable": code.retryable,
+        "exit_code": code.exit_code,
         "arrived_in": code.arrived_in.to_string(),
     })
 }

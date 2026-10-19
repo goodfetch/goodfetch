@@ -17,6 +17,23 @@ pub(crate) fn below(seed: u64, place: &[u64], bound: u64) -> u64 {
     draw(seed, place) % bound
 }
 
+/// `count` distinct indices below `len` at `place` for `seed`, in the order
+/// drawn: the first `count` of a seeded shuffle of `0..len`.
+pub(crate) fn distinct(seed: u64, place: &[u64], len: usize, count: usize) -> Vec<usize> {
+    let mut indices: Vec<usize> = (0..len).collect();
+    for at in 0..count.min(len) {
+        let mut position = place.to_vec();
+        position.push(at as u64);
+        let left = (len - at) as u64;
+        let chosen = at
+            + usize::try_from(below(seed, &position, left))
+                .expect("invariant: an index below a slice's length fits a usize");
+        indices.swap(at, chosen);
+    }
+    indices.truncate(count.min(len));
+    indices
+}
+
 /// `SplitMix64`'s output function over one step of its Weyl sequence.
 fn mix(value: u64) -> u64 {
     let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);

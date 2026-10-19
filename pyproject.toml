@@ -29,6 +29,7 @@ dev = [
   "pytest-timeout>=2.4.0",
   "pytest-xdist>=3.8.0",
   "ruff>=0.17.1",
+  "types-jsonschema>=4.26.0.20261006",
 ]
 
 [tool.uv]
@@ -74,6 +75,7 @@ convention = "google"
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "unittest.mock".msg = "Mocks owned code (ADR 0062); test through the interface with a local stand-in."
 "pytest.MonkeyPatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
+"_pytest.monkeypatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
 
 [tool.pyright]
 typeCheckingMode = "strict"

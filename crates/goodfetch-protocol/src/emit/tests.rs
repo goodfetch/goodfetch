@@ -19,6 +19,22 @@ fn the_bundle_holds_the_schema_of_the_releases_file() {
 }
 
 #[test]
+fn the_bundle_registers_the_protocol_with_its_rule_and_message_schema() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["formats"],
+        json!([{
+            "name": "protocol",
+            "version": "0.1",
+            "storage": "transcript",
+            "rule": "default",
+            "schema": { "$ref": "#/$defs/Message" },
+        }])
+    );
+}
+
+#[test]
 fn every_event_an_operation_names_is_in_the_catalog() {
     let catalog = emit().catalog;
 
@@ -51,4 +67,17 @@ fn product_reads_and_writes_the_mark_the_catalog_writes(
     assert_eq!(written, json!(mark));
     assert_eq!(product.as_str(), mark);
     assert_eq!(serde_json::from_value::<Product>(written).unwrap(), product);
+}
+
+#[test]
+fn the_bundle_holds_the_schemas_of_the_result_document_and_the_case_log_entry() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["documents"],
+        json!({
+            "result_document": { "$ref": "#/$defs/ResultDocument" },
+            "case_log_entry": { "$ref": "#/$defs/CaseLogEntry" },
+        })
+    );
 }

@@ -1,0 +1,38 @@
+//! Every module's entries, in one list: what the emitter writes into the
+//! catalog, and what each Product's catalog holds, by the Product mark of
+//! where each entry is defined (ADRs 0095 and 0099).
+
+use crate::catalog::{Entries, Operation, Product};
+use crate::{connection, engine, foxhound, sample};
+
+/// Every module that defines entries.
+pub const MODULES: [&Entries; 4] = [
+    &connection::ENTRIES,
+    &engine::ENTRIES,
+    &sample::ENTRIES,
+    &foxhound::ENTRIES,
+];
+
+/// The operations of `product`'s catalog: Collie's own for Collie, every
+/// operation for Foxhound, which contains Collie.
+pub fn operations_of(product: Product) -> impl Iterator<Item = &'static Operation> {
+    MODULES
+        .into_iter()
+        .filter(move |entries| product.contains(Product::of_module(entries.defined_in)))
+        .flat_map(|entries| entries.operations)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::operations_of;
+    use crate::catalog::Product;
+
+    #[test]
+    fn foxhounds_catalog_holds_collies_and_its_own_operations() {
+        let collie: Vec<&str> = operations_of(Product::Collie).map(|op| op.name).collect();
+        let foxhound: Vec<&str> = operations_of(Product::Foxhound).map(|op| op.name).collect();
+
+        assert_eq!(collie, ["engine.info", "sample.echo"]);
+        assert_eq!(foxhound, ["engine.info", "sample.echo", "sample.crawl"]);
+    }
+}

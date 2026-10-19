@@ -14,7 +14,14 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+crc32fast.workspace = true
+data-encoding.workspace = true
+encoding_rs.workspace = true
+flate2.workspace = true
+form_urlencoded.workspace = true
+hmac.workspace = true
 http-body-util.workspace = true
+httparse.workspace = true
 hyper = { workspace = true, features = ["server", "http1", "http2"] }
 hyper-util = { workspace = true, features = ["tokio", "server-auto", "http1", "http2"] }
 loona-hpack.workspace = true
@@ -24,17 +31,26 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 serde_json_canonicalizer.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 time.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "macros", "io-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "macros", "io-util", "time", "sync", "process"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
+toml.workspace = true
+web-bot-auth.workspace = true
 
 [dev-dependencies]
+data-encoding.workspace = true
+ed25519-dalek = { workspace = true, features = ["std"] }
+indexmap = { workspace = true, features = ["std"] }
 h2 = { workspace = true }
+hmac.workspace = true
 proptest.workspace = true
 regex.workspace = true
 rstest.workspace = true
+sha1.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 tokio-rustls = { workspace = true }
 ureq.workspace = true
 

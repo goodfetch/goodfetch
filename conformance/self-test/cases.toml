@@ -1,0 +1,95 @@
+# The self-test suite's case list (spec #152): it proves the Proving
+# ground's own oracle. Each case submits a result made from the reference
+# result of its task, as `goodfetch-conformance` reads it from the pages, and
+# checks the oracle's outcome:
+#
+# - submit: `reference` (as read), `one-record-missing` (its last Record
+#   dropped), `wrong-price` (its first Record's price changed),
+#   `extra-record` (a Record the family does not have added) or
+#   `record-twice` (its first Record submitted again);
+# - status: the tool's status the result claims, `success`, `needs-review` or
+#   `failure`;
+# - expect: the outcome the oracle must give.
+#
+# A case whose task has no reference result is not reached, which leaves its
+# capability `unproved`. Bump the version whenever a case changes.
+
+[suite]
+name = "self-test"
+version = "1"
+
+[[capability]]
+name = "catalog.verified"
+
+[[capability.case]]
+id = "catalog-crawl-reference"
+covers = ["story:2-3", "story:2-32"]
+task = "catalog/1"
+submit = "reference"
+status = "success"
+expect = "verified"
+
+[[capability.case]]
+id = "catalog-crawl-reference-needs-review"
+covers = ["story:2-3", "story:2-5"]
+task = "catalog/1"
+submit = "reference"
+status = "needs-review"
+expect = "verified"
+
+[[capability.case]]
+id = "catalog-extract-reference"
+covers = ["story:2-3", "story:2-32"]
+task = "catalog/2"
+submit = "reference"
+status = "success"
+expect = "verified"
+
+[[capability]]
+name = "catalog.incomplete"
+
+[[capability.case]]
+id = "catalog-crawl-one-record-missing"
+covers = ["story:2-32"]
+task = "catalog/1"
+submit = "one-record-missing"
+status = "needs-review"
+expect = "incomplete"
+
+[[capability]]
+name = "catalog.false_success"
+
+[[capability.case]]
+id = "catalog-crawl-success-one-record-missing"
+covers = ["story:2-4", "story:2-32"]
+task = "catalog/1"
+submit = "one-record-missing"
+status = "success"
+expect = "false_success"
+
+[[capability.case]]
+id = "catalog-extract-wrong-price"
+covers = ["story:2-4", "story:2-32"]
+task = "catalog/2"
+submit = "wrong-price"
+status = "success"
+expect = "false_success"
+
+[[capability.case]]
+id = "catalog-extract-record-twice"
+covers = ["story:2-4", "story:2-32"]
+task = "catalog/2"
+submit = "record-twice"
+status = "success"
+expect = "false_success"
+
+[[capability]]
+name = "catalog.failed"
+
+[[capability.case]]
+id = "catalog-crawl-extra-record"
+covers = ["story:2-32"]
+task = "catalog/1"
+submit = "extra-record"
+status = "failure"
+expect = "failed"

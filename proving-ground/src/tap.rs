@@ -232,7 +232,10 @@ mod tests {
             "catalog.test".to_owned(),
             None,
         )])));
-        let connection = observations.connection();
+        let connection = observations.connection(
+            "127.0.0.1:50000".parse().unwrap(),
+            "127.0.0.1:8080".parse().unwrap(),
+        );
         let mut parser = Parser::Detecting(Vec::new());
         let requests = [ORDER, PAGE].concat();
         let answers = [CONTINUE, NOT_FOUND, FOUND].concat();

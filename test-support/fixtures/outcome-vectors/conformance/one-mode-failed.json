@@ -1,0 +1,17 @@
+{
+  "description": "A case with an entry per mode fails when either entry has a failed check",
+  "cases": [
+    {
+      "entries": [
+        {
+          "checks": [true]
+        },
+        {
+          "checks": [false]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["failed"],
+  "outcome": "failed"
+}

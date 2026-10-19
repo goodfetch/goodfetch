@@ -1,0 +1,40 @@
+[package]
+name = "goodfetch-engine"
+description = "The engine both Products' executables compose from the values their domain crates export (ADR 0087)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# benches/scenarios.rs is a module of the bench targets, not a target.
+autobenches = false
+
+[dependencies]
+goodfetch-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros"] }
+tokio-util = { workspace = true, features = ["rt"] }
+tracing.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+gungraun.workspace = true
+insta.workspace = true
+mimalloc.workspace = true
+rstest.workspace = true
+tracing-subscriber.workspace = true
+
+# ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "heap"
+harness = false
+
+[lints]
+workspace = true

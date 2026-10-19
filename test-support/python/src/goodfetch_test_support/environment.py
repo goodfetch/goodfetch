@@ -1,0 +1,176 @@
+"""One test's setup, which `goodfetch-test-env` prepares (ADR 0062).
+
+`TestEnv.open` starts `goodfetch-test-env` from the test tool manifest, reads
+its one-line JSON description, checks it against the committed schema, and
+records every process the test starts through it. `TestEnv.close` closes
+`goodfetch-test-env`'s stdin, which tears the setup down, and fails when a
+recorded process is still alive (ADR 0069).
+"""
+
+import json
+import os
+import subprocess
+from collections.abc import Mapping, Sequence
+from datetime import datetime
+from enum import StrEnum
+from pathlib import Path
+from typing import Self, cast
+
+from goodfetch_test_support.schemas import validate
+from goodfetch_test_support.tools import Tool, Tools, read_tools
+
+TEARDOWN_DEADLINE_SECONDS = 10.0
+"""How long `goodfetch-test-env` has to tear down once its stdin closes."""
+
+
+class Product(StrEnum):
+    """A Goodfetch Product, whose executable an engine test runs (ADR 0094)."""
+
+    COLLIE = "collie"
+    FOXHOUND = "foxhound"
+
+    @property
+    def tool(self) -> Tool:
+        """The Product's executable in the test tool manifest."""
+        return Tool(self.value)
+
+    @property
+    def engine_path_variable(self) -> str:
+        """The variable its SDK reads the engine's path from (ADR 0090)."""
+        return f"GOODFETCH_{self.name}_ENGINE_PATH"
+
+
+class TestEnvError(Exception):
+    """`goodfetch-test-env` failed to start or to tear down."""
+
+
+class ProcessesAlive(Exception):
+    """Processes the test started were still alive after its teardown (ADR 0069)."""
+
+    def __init__(self, commands: Sequence[Sequence[str]]) -> None:
+        """Names each live process by its command line."""
+        self.commands = [list(command) for command in commands]
+        super().__init__(f"processes alive after the test's teardown: {self.commands}")
+
+
+class TestEnv:
+    """One test's folder, home, cleared environment map, seed, start time and tools."""
+
+    __test__ = False
+
+    def __init__(
+        self, process: subprocess.Popen[bytes], description: Mapping[str, object]
+    ) -> None:
+        """Takes the running `goodfetch-test-env` and its checked description."""
+        self._process = process
+        self._started: list[tuple[list[str], subprocess.Popen[bytes]]] = []
+        self.folder = Path(cast("str", description["folder"]))
+        """The test's own folder, removed when the test ends."""
+        self.home = Path(cast("str", description["home"]))
+        """`<folder>/home`, the `GOODFETCH_HOME` of everything the test starts."""
+        self.env: Mapping[str, str] = dict(cast("dict[str, str]", description["env"]))
+        """The cleared environment of every child the test starts."""
+        self.seed = cast("int", description["seed"])
+        """The test's seed, fixed by its name unless `GOODFETCH_TEST_SEED` is set."""
+        self.start_time = datetime.fromisoformat(cast("str", description["start_time"]))
+        """The test's start time, in UTC."""
+        self.tools = Tools.from_json(description["tools"])
+        """The commit's executables, from the test tool manifest."""
+
+    @classmethod
+    def open(cls, test_name: str, environ: Mapping[str, str]) -> Self:
+        """Starts `goodfetch-test-env` for the test named `test_name`.
+
+        Args:
+            test_name: The test's full name, from which its seed and folder come.
+            environ: The runner's environment, which names the tool manifest.
+
+        Raises:
+            ToolsError: The manifest or its `test_env` entry is missing.
+            TestEnvError: `goodfetch-test-env` printed no description.
+            SchemaError: The description fails its committed schema.
+        """
+        executable = read_tools(environ).path(Tool.TEST_ENV)
+        process = subprocess.Popen(
+            [executable, "--test-name", test_name],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            env=dict(environ),
+        )
+        line = process.stdout.readline() if process.stdout is not None else b""
+        try:
+            if not line:
+                status = process.wait()
+                message = (
+                    f"goodfetch-test-env exited with {status} before its description"
+                )
+                raise TestEnvError(message)
+            description: object = json.loads(line)
+            validate(description, "test-env-description.schema.json")
+        except BaseException:
+            _stop(process)
+            raise
+        return cls(process, cast("dict[str, object]", description))
+
+    def start(
+        self,
+        args: Sequence[str | os.PathLike[str]],
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> subprocess.Popen[bytes]:
+        """Starts a process in the test's folder, recorded until teardown.
+
+        Its stdin and stdout are pipes, and its stderr is the test's own.
+
+        Args:
+            args: The program and its arguments.
+            env: Its environment, the test's cleared map unless given.
+        """
+        command = [os.fspath(arg) for arg in args]
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            cwd=self.folder,
+            env=dict(self.env if env is None else env),
+        )
+        self._started.append((command, process))
+        return process
+
+    def close(self) -> None:
+        """Tears the setup down, failing if a process the test started is alive.
+
+        Raises:
+            ProcessesAlive: A recorded process or `goodfetch-test-env` was alive.
+            TestEnvError: `goodfetch-test-env` failed its teardown.
+        """
+        alive = [
+            command for command, process in self._started if process.poll() is None
+        ]
+        for _, process in self._started:
+            _stop(process)
+        if self._process.stdin is not None:
+            self._process.stdin.close()
+        try:
+            status = self._process.wait(TEARDOWN_DEADLINE_SECONDS)
+        except subprocess.TimeoutExpired:
+            alive.append(
+                [os.fspath(arg) for arg in cast("list[str]", self._process.args)]
+            )
+            status = 0
+        _stop(self._process)
+        if alive:
+            raise ProcessesAlive(alive)
+        if status != 0:
+            message = f"goodfetch-test-env exited with {status} at teardown"
+            raise TestEnvError(message)
+
+
+def _stop(process: subprocess.Popen[bytes]) -> None:
+    """Kills `process` if it still runs, and closes its pipes."""
+    if process.poll() is None:
+        process.kill()
+    process.wait()
+    for pipe in (process.stdin, process.stdout):
+        if pipe is not None:
+            pipe.close()

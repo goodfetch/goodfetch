@@ -60,6 +60,33 @@ export class UnavailableError extends GoodfetchError {}
 export class InternalError extends GoodfetchError {}
 
 /**
+ * The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.
+ */
+export class CallCancelledError extends UnavailableError {
+  constructor(message: string) {
+    super(message, { code: "call_cancelled", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.
+ */
+export class NotInProductError extends UnavailableError {
+  constructor(message: string) {
+    super(message, { code: "not_in_product", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
+ */
+export class ProtocolVersionUnsupportedError extends UnavailableError {
+  constructor(message: string) {
+    super(message, { code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The sample operation refused the text.
  */
 export class SampleRefusedError extends RefusedError {
@@ -70,5 +97,8 @@ export class SampleRefusedError extends RefusedError {
 
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {
+  call_cancelled: CallCancelledError,
+  not_in_product: NotInProductError,
+  protocol_version_unsupported: ProtocolVersionUnsupportedError,
   sample_refused: SampleRefusedError,
 };

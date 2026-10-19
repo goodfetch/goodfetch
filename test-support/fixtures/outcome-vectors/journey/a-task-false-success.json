@@ -1,0 +1,7 @@
+{
+  "description": "A task the oracle answers false_success fails the variant, whatever its steps and checks say",
+  "steps": ["passed", "passed"],
+  "checks": ["passed"],
+  "tasks": ["false_success"],
+  "outcome": "failed"
+}

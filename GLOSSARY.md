@@ -48,6 +48,10 @@ _Avoid_: client (for the Connection), engine (for the Connection), session (a Se
 What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.
 _Avoid_: consumer API, public surface
 
+**CLI**:
+The command-line interface of each Product's executable, through which a person or a script runs that Product's commands; Foxhound's keeps every command of Collie's.
+_Avoid_: shell, terminal, command-line tool
+
 **Attached engine**:
 An engine started by one Client for its own use, which stops when that Client goes away.
 _Avoid_: sidecar, child engine
@@ -575,6 +579,14 @@ _Avoid_: cassette, fixture (alone), snapshot
 **Proving ground task**:
 One thing the Proving ground asks a tool to do on one page family, with its starting URL and the expected result its oracle judges against. Called a task where the Proving ground is already the subject.
 _Avoid_: fixture, test case
+
+**Result document**:
+The one JSON document a conformance suite or a Journey variant writes each time it is run, of kind `conformance` or `journey`, whose outcomes are derived from what it records and recomputed by every reader, never set by the test.
+_Avoid_: test report, run result, results file
+
+**Case log**:
+The JSON Lines a runner writes as it runs Client conformance cases, one entry per case run with its checks and evidence and no outcome, which the conformance harness turns into a Result document.
+_Avoid_: test log, results log
 
 **Journey**:
 A goal a person reaches through a Product's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.

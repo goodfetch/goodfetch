@@ -1,0 +1,67 @@
+{
+  "description": "A failed variant whose document still holds every step, check and task, the unreached ones included, is accepted",
+  "journey": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page"
+      },
+      {
+        "text": "Wait for the crawl to end"
+      },
+      {
+        "text": "Export the crawl's Records to a file"
+      }
+    ],
+    "expect": [
+      {
+        "text": "The crawl's Records are the first listing's products",
+        "task": "catalog/1"
+      },
+      {
+        "text": "The crawl's Records include the second listing's products",
+        "task": "catalog/2"
+      }
+    ],
+    "tasks": ["catalog/1", "catalog/2"]
+  },
+  "document": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page",
+        "outcome": "passed"
+      },
+      {
+        "text": "Wait for the crawl to end",
+        "outcome": "failed"
+      },
+      {
+        "text": "Export the crawl's Records to a file",
+        "outcome": "not_reached"
+      }
+    ],
+    "checks": [
+      {
+        "text": "The crawl's Records are the first listing's products",
+        "task": "catalog/1",
+        "outcome": "not_reached"
+      },
+      {
+        "text": "The crawl's Records include the second listing's products",
+        "task": "catalog/2",
+        "outcome": "not_reached"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "catalog/1",
+        "answer": null
+      },
+      {
+        "id": "catalog/2",
+        "answer": null
+      }
+    ],
+    "outcome": "failed"
+  },
+  "read": "accepted"
+}

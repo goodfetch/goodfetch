@@ -1,0 +1,9 @@
+[package]
+name = "goodfetch-conformance"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Its tests run the Proving ground's executable.
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]

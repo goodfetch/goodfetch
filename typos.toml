@@ -1,10 +1,14 @@
 # typos, run by `just lint` on every pull request (STYLE.md). `rnd/` is frozen.
 [files]
-extend-exclude = ["rnd/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE"]
+# `journeys/tasks/` holds the Proving ground's task lists, which
+# `xtask journeys tasks` writes from seeds (its generated names, such as
+# `portal-b6caa2ba`, are no words).
+extend-exclude = ["rnd/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE", "journeys/tasks/"]
 
 [default]
 # Words typos misreads in the ADRs: a vendor's name, "mis-templated",
 # "PNGs" and "look-alikes"; and nftables' neighbour-discovery types
 # (`nd-router-solicit`) in the egress deny's rules; and TLC's
-# `ndJsonDeserialize` operator.
-extend-ignore-re = ["ThreatMetrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson"]
+# `ndJsonDeserialize` operator; and the Proving ground's French and German
+# phrases and the "café" its pages spell decomposed and percent-encoded.
+extend-ignore-re = ["ThreatMetrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "\\bcaf(\\\\u|%C3)", "für alle", "ses raisons"]

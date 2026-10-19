@@ -40,6 +40,7 @@ fn cleared_map_holds_only_the_listed_variables() {
     let env = TestEnv::create("env::tests::cleared_map", &variables).unwrap();
 
     let mut expected = vec![
+        "BREAKPAD_DUMP_LOCATION",
         "GOODFETCH_HOME",
         "HOME",
         "LANG",
@@ -63,6 +64,7 @@ fn every_folder_of_the_map_lies_inside_the_test_folder() {
     let env = test_env("env::tests::inside");
 
     let outside: Vec<_> = [
+        "BREAKPAD_DUMP_LOCATION",
         "GOODFETCH_HOME",
         "HOME",
         "USERPROFILE",
@@ -90,6 +92,27 @@ fn goodfetch_home_is_the_home_folder() {
 
     assert_eq!(home, env.folder().join("home"));
     assert_eq!(env.home(), home);
+}
+
+#[test]
+fn crash_dump_folder_lies_in_the_goodfetch_home_and_the_map_names_it() {
+    let env = test_env("env::tests::crash_dumps");
+
+    let crash_dumps = Path::new(&env.env()["BREAKPAD_DUMP_LOCATION"]);
+
+    assert_eq!(crash_dumps, env.folder().join("home").join("crash-dumps"));
+    assert_eq!(env.crash_dump_folder(), crash_dumps);
+    assert!(crash_dumps.is_dir());
+}
+
+#[test]
+fn crash_dump_folder_is_removed_when_the_value_drops() {
+    let env = test_env("env::tests::crash_dumps_removed");
+    let crash_dumps = env.crash_dump_folder().to_owned();
+
+    drop(env);
+
+    assert!(!crash_dumps.exists());
 }
 
 #[test]

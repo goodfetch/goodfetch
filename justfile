@@ -74,6 +74,14 @@ codegen:
     uv sync --frozen
     cargo run --quiet -p xtask -- codegen
 
+# Writes the Proving ground's task list of each seed the Journey catalog uses
+# to journeys/tasks/, from the commit's Proving ground, and removes the list of
+# a seed no Journey uses (ADR 0063). Commit what it writes. `--check` writes
+# nothing and fails on a list that differs: the Pre-merge suite's drift check.
+journeys-tasks *check:
+    {{ just_executable() }} _test-tools
+    cargo run --quiet -p xtask -- journeys tasks --proving-ground "$(jq -r .proving_ground target/test-tools.json)" {{ check }}
+
 # What the changed packages declare, then the Feature check's verdict (ADR
 # 0072): the Features each crate `xtask affected` selects declares, one
 # `<feature> <level> <test>` line each, and the check's findings over the
@@ -181,7 +189,7 @@ test suite *packages:
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 --randomly-seed="$GOODFETCH_ORDER_SEED" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
@@ -199,15 +207,31 @@ test suite *packages:
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
           # nextest runs no doctests; cargo-insta's own doctest pass would take
-          # nextest's profile flag, which `cargo test` refuses.
-          cargo test "${packages[@]}" --doc --profile {{ test_profile }}
+          # nextest's profile flag, which `cargo test` refuses. `cargo test
+          # --doc` also refuses a selection with no library target ("no
+          # library targets found"), such as a binary-only crate alone, so it
+          # gets only the selected packages that have one, and none skips it.
+          doc_packages=("${packages[@]}")
+          if [[ "${packages[0]}" == -p ]]; then
+            libraries=$(cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(any(.targets[].kind[]; IN("lib", "rlib", "dylib", "proc-macro"))) | .name')
+            doc_packages=()
+            for ((i = 1; i < ${#packages[@]}; i += 2)); do
+              if grep -qxF -- "${packages[i]}" <<< "$libraries"; then doc_packages+=(-p "${packages[i]}"); fi
+            done
+          fi
+          if [[ ${#doc_packages[@]} -gt 0 ]]; then
+            cargo test "${doc_packages[@]}" --doc --profile {{ test_profile }}
+          else
+            echo "Doctests: no selected package has a library target"
+          fi
         fi
         if $typescript; then
           pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
           pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
-          uv run pytest --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)
@@ -227,6 +251,15 @@ repeat count *selection:
     #!/usr/bin/env bash
     set -euo pipefail
     shift
+    # The tests run as `just test` runs them: in their suite (the Pre-merge
+    # suite's unless GOODFETCH_TEST_SUITE names another), with the test tool
+    # manifest, and in the order seeded from the tree under test.
+    export GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-pre-merge}"
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
+    export GOODFETCH_ORDER_SEED
+    echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
     nextest=() vitest=() playwright=() pytest=()
     arguments=$(cargo run --quiet -p xtask -- repeat --count "{{ count }}" "$@")
     while IFS=$'\t' read -r runner argument; do
@@ -247,11 +280,56 @@ repeat count *selection:
       pnpm exec vitest run "${vitest[@]}" || status=$?
     fi
     if [[ ${#playwright[@]} -gt 0 ]]; then
-      pnpm exec playwright test "${playwright[@]}" || status=$?
+      pnpm exec playwright test --shuffle="$GOODFETCH_ORDER_SEED" "${playwright[@]}" || status=$?
     fi
     if [[ ${#pytest[@]} -gt 0 ]]; then
-      uv run pytest "${pytest[@]}" || status=$?
+      uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" "${pytest[@]}" || status=$?
     fi
+    exit "$status"
+
+# The stress run before merge (ADR 0064): each test the change since `base`
+# (the merge base with `origin/main` by default) adds or changes runs 20
+# times, and each test it takes off the quarantine list 200 times, through
+# `just repeat`, in the order the tree under test seeds. `xtask stress select`
+# chooses them; the base's listings are those the cache-warming job saved,
+# else listed from a checkout of the base. Each count's JUnit files go to
+# target/junit/repeat-<count>/, which the results store's ingest reads as run
+# that many times. Nothing skips it and no count is lowered; it counts
+# against the Pre-merge budget.
+stress base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+    selection=$(cargo run --quiet -p xtask -- stress select --base "$base" \
+      --saved "$target/stress-listings" --cargo-profile {{ test_profile }})
+    echo "Stressed tests (<count>, <runner>, <test ID>):"
+    echo "$selection"
+    # The JUnit files an earlier step of the job wrote stay where they are.
+    mkdir -p target/junit
+    earlier=$(mktemp -d)
+    find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$earlier/" \;
+    status=0
+    for count in 20 200; do
+      tests=()
+      while IFS=$'\t' read -r runs runner test; do
+        if [[ "$runs" == "$count" ]]; then tests+=(--test "$runner=$test"); fi
+      done <<< "$selection"
+      echo "Stress run: $(( ${#tests[@]} / 2 )) test(s), $count times each"
+      [[ ${#tests[@]} -gt 0 ]] || continue
+      rm -f "$target"/nextest/*/junit.xml
+      {{ just_executable() }} repeat "$count" "${tests[@]}" || status=$?
+      folder="target/junit/repeat-$count"
+      mkdir -p "$folder"
+      find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;
+      for report in "$target"/nextest/*/junit.xml; do
+        [[ -f "$report" ]] || continue
+        mv "$report" "$folder/nextest-$(basename "$(dirname "$report")").xml"
+      done
+    done
+    find "$earlier" -name '*.xml' -exec mv {} target/junit/ \;
+    rmdir "$earlier"
     exit "$status"
 
 # Runs one suite's tests over what `xtask affected` selects (ADR 0061): the
@@ -299,6 +377,7 @@ pre-merge *all:
     "$just" lint
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
+    "$just" journeys-tasks --check
     "$just" _tlc "{{ all }}"
     "$just" proofs
     "$just" supply-chain
@@ -407,12 +486,16 @@ tlc-self-test:
 # dependencies, tests and benchmark targets with its profiles, run by nothing:
 # the Pre-merge job's own `just build ci` among them; the benchmark targets
 # twice, the second time into the target folder's perf-base/, where `xtask
-# perf build` builds the base.
+# perf build` builds the base. It also saves the four runners' listings of
+# the commit into the target folder's stress-listings/, where `just stress`
+# reads a change's base listings (ADR 0064).
 warm:
     pnpm exec tsc -p tsconfig.json
     cargo clippy --workspace --all-targets --all-features
     cargo build -p xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
+    cargo run --quiet -p xtask -- stress listings --cargo-profile ci-test \
+      --out "$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/stress-listings"
     {{ just_executable() }} build ci
     cargo bench --workspace --no-run
     CARGO_TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/perf-base" cargo bench --workspace --no-run

@@ -33,10 +33,13 @@ if ! git merge-base --is-ancestor "origin/$base" "$head"; then
   exit 1
 fi
 
-worktree=$(mktemp -d "${TMPDIR:-/tmp}/goodfetch-merge-$number.XXXXXX")
-remove_worktree() { git worktree remove --force "$worktree" >/dev/null 2>&1 || true; }
+# Locked, so a `git worktree prune` from another session cannot drop it while
+# the gate runs; beside the other worktrees, in the main checkout.
+root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
+worktree="$root/.claude/worktrees/merge-$number-$$"
+remove_worktree() { git worktree remove --force --force "$worktree" >/dev/null 2>&1 || true; }
 trap remove_worktree EXIT
-git worktree add --quiet --detach "$worktree" "$head"
+git worktree add --quiet --lock --detach "$worktree" "$head"
 
 echo "Running the local gate on #$number at $head"
 (

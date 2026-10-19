@@ -36,7 +36,6 @@ use crate::protection;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
-use crate::sync::Mutex;
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -50,7 +49,6 @@ pub(crate) struct Site {
     certificate_authority: String,
     observations: Arc<Observations>,
     logins: Logins,
-    time_step: Mutex<u64>,
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
@@ -81,7 +79,6 @@ impl Site {
             certificate_authority,
             observations,
             logins: Logins::default(),
-            time_step: Mutex::new(0),
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
@@ -225,7 +222,7 @@ impl Site {
                 catalog::HOST => self.catalog(host, request),
                 rendered::HOST => rendered::respond(self.seed, request),
                 login::HOST => login::respond(self.seed, &self.logins, request),
-                _ => schedule::respond(self.seed, *self.time_step.lock(), request),
+                _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
         }
         match (request.method, request.path) {
@@ -288,7 +285,7 @@ impl Site {
     /// Answers a request to the `agent` family: its pages at the current
     /// time step, and the Effects their script posts, recorded with it.
     fn agent(&self, host: &str, name: &str, request: &Request<'_>) -> Reply {
-        let step = *self.time_step.lock();
+        let step = self.observations.time_step();
         match (request.method, request.path) {
             (&Method::POST, agent::EFFECTS_PATH) => match agent::effect(request.body, step) {
                 Some(effect) => {
@@ -317,7 +314,7 @@ impl Site {
         if method != Method::POST || observation::host_name(host) != model::HOST {
             return None;
         }
-        let step = *self.time_step.lock();
+        let step = self.observations.time_step();
         let candidates: Vec<Candidate> = self
             .tasks()
             .into_iter()
@@ -390,12 +387,13 @@ impl Site {
         open
     }
 
-    /// Sets the time step scheduled content and drifting pages follow.
+    /// Sets the time step scheduled content and drifting pages follow, which
+    /// the connection record stamps each later entry with.
     fn set_time_step(&self, body: &Bytes) -> Reply {
         let Ok(time_step) = serde_json::from_slice::<TimeStep>(body) else {
             return Reply::error(StatusCode::BAD_REQUEST, "malformed_time_step");
         };
-        *self.time_step.lock() = time_step.step;
+        self.observations.set_time_step(time_step.step);
         Reply::json(StatusCode::OK, &time_step)
     }
 

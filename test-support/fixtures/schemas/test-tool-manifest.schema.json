@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The commit's executables, each present when its crate exists in the\nworkspace. Tests of a Product's executable crate use its\n`CARGO_BIN_EXE_` path instead.",
+  "properties": {
+    "collie": {
+      "description": "`goodfetch-collie`, Collie's executable.",
+      "type": "string"
+    },
+    "foxhound": {
+      "description": "`goodfetch-foxhound`, Foxhound's executable.",
+      "type": "string"
+    },
+    "proving_ground": {
+      "description": "The Proving ground's executable.",
+      "type": "string"
+    },
+    "scripted_engine": {
+      "description": "`goodfetch-scripted-engine`, the Scripted engine.",
+      "type": "string"
+    },
+    "test_env": {
+      "description": "`goodfetch-test-env`.",
+      "type": "string"
+    }
+  },
+  "title": "Tools",
+  "type": "object"
+}

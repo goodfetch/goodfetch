@@ -46,6 +46,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod test_tools;
 mod tlc;
 mod tree;
 mod wording;
@@ -191,6 +192,10 @@ enum Command {
         #[command(subcommand)]
         mode: size::Command,
     },
+    /// Builds the commit's executables that tests run with the tests' own
+    /// Cargo profile and writes the test tool manifest of their paths, which
+    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
+    TestTools(test_tools::Arguments),
     /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
     /// tools (ADR 0060).
     Tlc {
@@ -356,6 +361,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }

@@ -5,7 +5,9 @@
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
 //! the Journey files' schema on its own, `journeys/journey.schema.json`, for
-//! editors and the TypeScript and Python helpers (ADR 0063).
+//! editors and the TypeScript and Python helpers (ADR 0063). It also commits
+//! the JSON Schemas of `goodfetch-test-support`'s file types, which
+//! `goodfetch-test-env --print-schemas` prints (ADR 0062).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -28,6 +30,7 @@ mod names;
 mod naming;
 mod projection;
 mod python;
+mod test_support;
 mod typescript;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -245,7 +248,9 @@ struct Plan {
 
 impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
-        std::iter::once(PROTOCOL_GENERATED).chain(PACKAGES.iter().map(|package| package.folder))
+        [PROTOCOL_GENERATED, test_support::FOLDER]
+            .into_iter()
+            .chain(PACKAGES.iter().map(|package| package.folder))
     }
 
     /// Every file `xtask codegen` writes inside the folders it owns.
@@ -326,6 +331,16 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         deny::COLLIE.to_owned(),
         deny::render_collie(&collie_text, &crates).into_bytes(),
     );
+
+    for (name, schema) in test_support::schemas(cargo, root)? {
+        if name.contains(['/', '\\']) {
+            bail!("goodfetch-test-env printed a schema named {name}, which is no file name");
+        }
+        files.insert(
+            format!("{}/{name}", test_support::FOLDER),
+            json_text(&schema)?,
+        );
+    }
 
     let mut externals = Vec::new();
     for package in &PACKAGES {

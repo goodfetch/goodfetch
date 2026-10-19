@@ -206,6 +206,13 @@ impl Site {
         (self.respond(host, request), None)
     }
 
+    /// The whole response, as bytes, of a request to `path` on `host` (its
+    /// `Host` header) whose head hyper cannot write; `None` for any other
+    /// request.
+    pub(crate) fn raw_response(&self, host: &str, path: &str) -> Option<Vec<u8>> {
+        hostile::raw_response(self.seed, &observation::host_name(host), path)
+    }
+
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);

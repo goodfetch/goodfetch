@@ -9,6 +9,9 @@
 //! suggests.
 //! Covers: story:2-83
 
+use std::io::{Read as _, Write as _};
+use std::net::TcpStream;
+
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -237,4 +240,200 @@ fn a_tool_that_follows_a_chain_of_21_and_keeps_its_record_is_a_false_success() {
 
     assert_eq!(followed, 21);
     assert_eq!(answer["outcome"], "false_success", "{answer}");
+}
+
+/// The whole response to a `GET` of `url` over a new HTTP/1.1 connection,
+/// as its bytes arrive, read to the connection's end: what a client reads
+/// of a head no HTTP library parses.
+fn raw_get(proving_ground: &ProvingGround, url: &str) -> Vec<u8> {
+    let rest = url.strip_prefix("http://").expect("an http URL");
+    let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let mut stream =
+        TcpStream::connect(proving_ground.address()).expect("the Proving ground listens");
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    )
+    .expect("the request is sent");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("the response is read");
+    response
+}
+
+/// The head of a raw response, up to its blank line.
+fn head(response: &[u8]) -> &[u8] {
+    let end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .expect("the response has a whole head");
+    &response[..end + 2]
+}
+
+/// The body of a raw response, after its blank line, as text.
+fn body(response: &[u8]) -> String {
+    let start = head(response).len() + 2;
+    String::from_utf8(response[start..].to_vec()).expect("the body is UTF-8")
+}
+
+fn holds(bytes: &[u8], line: &[u8]) -> bool {
+    bytes.windows(line.len()).any(|window| window == line)
+}
+
+#[rstest]
+#[case::a_conflicting_content_length("headers/2", b"Content-Length: ".as_slice())]
+#[case::a_nul_in_a_value("headers/5", b"X-Note: one\0two\r\n".as_slice())]
+#[case::a_bare_cr_in_a_value("headers/6", b"X-Note: one\rSet-Cookie: injected=1\r\n".as_slice())]
+#[case::a_line_without_a_colon("headers/7", b"\r\nX-Note one two\r\n".as_slice())]
+fn a_malformed_head_is_sent_as_its_bytes_and_only_a_refusal_is_verified(
+    #[case] id: &str,
+    #[case] line: &[u8],
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
+    let kept = read_record(&body(&response));
+
+    let refused = proving_ground.judge(&submission(id, "failure", &[])).json();
+    let claimed = proving_ground
+        .judge(&submission(id, "success", &[kept]))
+        .json();
+
+    assert!(
+        holds(head(&response), line),
+        "{}",
+        String::from_utf8_lossy(head(&response))
+    );
+    assert_eq!(refused["outcome"], "verified", "{refused}");
+    assert_eq!(claimed["outcome"], "false_success", "{claimed}");
+}
+
+#[test]
+fn two_different_content_lengths_are_both_sent() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, "headers/2"));
+
+    let head = String::from_utf8_lossy(head(&response)).into_owned();
+    assert_eq!(head.matches("Content-Length: ").count(), 2, "{head}");
+}
+
+#[rstest]
+#[case::a_repeated_content_length("headers/4", b"Content-Length: ".as_slice())]
+#[case::a_folded_line("headers/8", b"X-Note: one\r\n two\r\n".as_slice())]
+fn a_head_the_browser_keeps_is_sent_as_its_bytes_and_its_record_is_verified(
+    #[case] id: &str,
+    #[case] line: &[u8],
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
+    let kept = read_record(&body(&response));
+
+    let answer = proving_ground
+        .judge(&submission(id, "success", &[kept]))
+        .json();
+    let refused = proving_ground.judge(&submission(id, "failure", &[])).json();
+
+    assert!(holds(head(&response), line));
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+    assert_eq!(refused["outcome"], "failed", "{refused}");
+}
+
+#[test]
+fn an_oversized_head_is_sent_and_only_a_refusal_is_verified() {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, "headers/1"));
+
+    let refused = proving_ground
+        .judge(&submission("headers/1", "failure", &[]))
+        .json();
+    let claimed = proving_ground
+        .judge(&submission(
+            "headers/1",
+            "success",
+            &[read_record(&body(&response))],
+        ))
+        .json();
+
+    assert!(head(&response).len() > 256 * 1024);
+    assert_eq!(refused["outcome"], "verified", "{refused}");
+    assert_eq!(claimed["outcome"], "false_success", "{claimed}");
+}
+
+#[test]
+fn a_redirect_with_two_locations_is_sent_with_both() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, "headers/3"));
+
+    let head = String::from_utf8_lossy(head(&response)).to_lowercase();
+    assert!(
+        head.contains("location: /two-locations/first\r\n"),
+        "{head}"
+    );
+    assert!(
+        head.contains("location: /two-locations/second\r\n"),
+        "{head}"
+    );
+}
+
+#[test]
+fn a_tool_that_sends_an_injected_cookie_back_as_set_is_verified() {
+    let proving_ground = ProvingGround::start(SEED);
+    let start = start_url(&proving_ground, "headers/9");
+    let first = proving_ground.get(&start);
+    let cookie = first.cookie("note").expect("the page sets its cookie");
+    let next = format!(
+        "{}{}",
+        origin(&start),
+        first.header("location").expect("a redirect")
+    );
+
+    let page = proving_ground.get_with_cookie(&next, Some(&cookie));
+    let answer = proving_ground
+        .judge(&submission(
+            "headers/9",
+            "success",
+            &[read_record(&page.body)],
+        ))
+        .json();
+
+    assert_eq!(cookie, "note=one%0D%0AX-Injected%3A%20yes");
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+}
+
+#[test]
+fn a_tool_that_decodes_an_injected_cookie_is_recorded_and_fails() {
+    let proving_ground = ProvingGround::start(SEED);
+    let start = start_url(&proving_ground, "headers/9");
+    let next = format!("{}/cookie-injection/next", origin(&start));
+
+    let page = proving_ground.get_with_cookie(&next, Some("note=one"));
+    let answer = proving_ground
+        .judge(&submission(
+            "headers/9",
+            "success",
+            &[read_record(&page.body)],
+        ))
+        .json();
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(
+        answer["findings"][0]["check"], "header_injection",
+        "{answer}"
+    );
+}
+
+#[test]
+fn a_location_holding_an_encoded_crlf_is_followed_with_its_encoding_untouched() {
+    let proving_ground = ProvingGround::start(SEED);
+    let start = start_url(&proving_ground, "headers/10");
+
+    let (page, followed) = follow(&proving_ground, &start);
+    let answer = proving_ground
+        .judge(&submission("headers/10", "success", &[read_record(&page)]))
+        .json();
+
+    assert_eq!(followed, 1);
+    assert_eq!(answer["outcome"], "verified", "{answer}");
 }

@@ -13,7 +13,7 @@ use goodfetch_protocol::formats::RUN_INDEX;
 use goodfetch_protocol::run::{Completeness, PointInTime, RunIndexRow, Verdict};
 use rusqlite::{Connection, OpenFlags};
 
-use crate::run_state::RunStateError;
+use crate::run_state::{RunStateError, check_format};
 
 /// How long a write waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -76,6 +76,14 @@ fn open(path: &Path) -> Result<Connection, RunStateError> {
             (RUN_INDEX.name, RUN_INDEX.version.to_string()),
         )
         .map_err(|error| failed(path, &error))?;
+    let found: String = connection
+        .query_row(
+            "SELECT version FROM format WHERE name = ?1",
+            [RUN_INDEX.name],
+            |row| row.get(0),
+        )
+        .map_err(|error| failed(path, &error))?;
+    check_format(&RUN_INDEX, &found)?;
     Ok(connection)
 }
 

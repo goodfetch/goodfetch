@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::ProtocolVersion;
-use goodfetch_protocol::formats::{Compatibility, RUN_STATE};
+use goodfetch_protocol::formats::{Compatibility, Format, RUN_STATE};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 use tokio::sync::{mpsc, oneshot};
 
@@ -83,8 +83,10 @@ pub enum RunStateError {
         found: u64,
     },
     /// The file is of a format version this engine cannot read (ADR 0066).
-    #[error("the run file is run-state {found}, and this engine reads up to {}", RUN_STATE.version)]
+    #[error("the file is {format} {found}, which this engine cannot read")]
     Format {
+        /// The format's name.
+        format: &'static str,
         /// The file's version.
         found: String,
         /// What this engine makes of it.
@@ -98,13 +100,13 @@ pub enum RunStateError {
 type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 /// A write: given the transaction, it runs its work and answers how to
 /// report it once the commit ends; given none, it reports the failure only.
-type Job = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> Completion + Send>;
+type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> Completion + Send>;
 
 /// The writer of one run file: a handle to its actor, which any task may
 /// clone and send writes to.
 #[derive(Clone, Debug)]
 pub struct RunState {
-    mailbox: mpsc::Sender<Job>,
+    mailbox: mpsc::Sender<QueuedWrite>,
     path: PathBuf,
 }
 
@@ -138,7 +140,7 @@ impl RunState {
         let actor_path = path.clone();
         let mut connection = connection;
         owner
-            .actor("run-state-writer", jobs, move |group: Vec<Job>| {
+            .actor("run-state-writer", jobs, move |group: Vec<QueuedWrite>| {
                 commit_group(&mut connection, &actor_path, epoch, group);
             })
             .map_err(|error| sqlite_error(&path, &error))?;
@@ -169,7 +171,7 @@ impl RunState {
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
         let (answer, answered) = oneshot::channel();
-        let job: Job = Box::new(move |transaction: Option<(&Connection, &Path)>| {
+        let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
             let done = match transaction {
                 Some((connection, path)) => {
                     run_in_savepoint(connection, work).map_err(|error| sqlite_error(path, &error))
@@ -265,21 +267,23 @@ fn open_file(
             |row| row.get(0),
         )
         .map_err(failed)?;
-    check_format(&found)?;
+    check_format(&RUN_STATE, &found)?;
     transaction.commit().map_err(failed)?;
     Ok(connection)
 }
 
-/// Refuses a file this engine cannot read, under ADR 0030's default rule.
-fn check_format(found: &str) -> Result<(), RunStateError> {
+/// Refuses a file of `format` at the version `found` that this engine cannot
+/// read, under the format's rule (ADR 0030).
+pub(crate) fn check_format(format: &Format, found: &str) -> Result<(), RunStateError> {
     let refused = |compatibility| RunStateError::Format {
+        format: format.name,
         found: found.to_owned(),
         compatibility,
     };
     let version: ProtocolVersion = found
         .parse()
         .map_err(|_| refused(Compatibility::NewerMajor))?;
-    match RUN_STATE.rule.compatibility(RUN_STATE.version, version) {
+    match format.rule.compatibility(format.version, version) {
         Compatibility::Compatible => Ok(()),
         other => Err(refused(other)),
     }
@@ -306,8 +310,8 @@ fn run_in_savepoint<T>(
 /// Commits `group` in one transaction under `epoch`, then answers each
 /// write: all of them with the failure when the transaction fails or the
 /// file holds another epoch.
-fn commit_group(connection: &mut Connection, path: &Path, epoch: u64, group: Vec<Job>) {
-    let (completions, committed) = match commit_jobs(connection, path, epoch, group) {
+fn commit_group(connection: &mut Connection, path: &Path, epoch: u64, group: Vec<QueuedWrite>) {
+    let (completions, committed) = match commit_writes(connection, path, epoch, group) {
         Ok(completions) => (completions, Ok(())),
         Err((completions, error)) => (completions, Err(error)),
     };
@@ -316,13 +320,13 @@ fn commit_group(connection: &mut Connection, path: &Path, epoch: u64, group: Vec
     }
 }
 
-fn commit_jobs(
+fn commit_writes(
     connection: &mut Connection,
     path: &Path,
     epoch: u64,
-    group: Vec<Job>,
+    group: Vec<QueuedWrite>,
 ) -> Result<Vec<Completion>, (Vec<Completion>, RunStateError)> {
-    let refuse = |group: Vec<Job>, error: RunStateError| {
+    let refuse = |group: Vec<QueuedWrite>, error: RunStateError| {
         let completions = group.into_iter().map(|job| job(None)).collect();
         (completions, error)
     };

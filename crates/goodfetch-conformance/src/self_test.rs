@@ -56,15 +56,14 @@ pub struct Record {
 }
 
 impl References {
-    /// Reads every task's reference result from the pages: a crawl from its
-    /// start page through each listing's next link, an extract of its one
-    /// page.
+    /// Reads the reference result of every `crawl` and `extract` task from
+    /// the pages: a crawl from its start page through each listing's next
+    /// link, an extract of its one page. A task of another kind gets none.
     ///
     /// # Errors
     ///
     /// When the Proving ground cannot serve the task list or a page, or a
-    /// page lacks what its family shows, or a task is of a kind this suite
-    /// does not read.
+    /// page lacks what its family shows.
     pub fn read(proving_ground: &ProvingGround) -> Result<Self, SelfTestError> {
         let reader = Reader::new();
         let mut records = BTreeMap::new();
@@ -72,7 +71,9 @@ impl References {
             let read = match task.kind.as_str() {
                 "crawl" => reader.crawl(proving_ground, &task.start_url)?,
                 "extract" => vec![reader.product(proving_ground, &task.start_url)?],
-                _ => return Err(SelfTestError::UnknownKind { task: task.id }),
+                // No case of the suite reads another kind yet, such as a
+                // `submit` task's Effects: its task gets no reference result.
+                _ => continue,
             };
             records.insert(task.id, read);
         }
@@ -162,12 +163,6 @@ pub enum SelfTestError {
         url: String,
         /// What it lacks.
         what: &'static str,
-    },
-    /// A task of a kind the suite does not read.
-    #[error("task `{task}` is of a kind the self-test does not read")]
-    UnknownKind {
-        /// The task.
-        task: TaskId,
     },
     /// The case log did not become a document.
     #[error(transparent)]

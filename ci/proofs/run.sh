@@ -184,6 +184,19 @@ else
   fail oxlint-console "findings: ${codes:-none}"
 fi
 
+# ADR 0073's `lingui/no-unlocalized-strings`, through oxlint's pinned JS
+# plugins: a Console component with hard-coded text fails, the same one with
+# its text in `<Trans>` passes, and a Console test file is not checked.
+codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json \
+  ci/proofs/oxlint/console/collie/src/unlocalized.tsx ci/proofs/oxlint/console/collie/src/localized.tsx \
+  ci/proofs/oxlint/console/collie/src/greeting.test.tsx 2>/dev/null |
+  jq -r '.diagnostics[] | .code + " " + .filename' | tally)
+if [[ "$codes" == "1 lingui(no-unlocalized-strings) ci/proofs/oxlint/console/collie/src/unlocalized.tsx" ]]; then
+  pass "oxlint refuses an unlocalized Console string and accepts a localized one"
+else
+  fail oxlint-lingui "findings: ${codes:-none}"
+fi
+
 codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/mocking.test.ts 2>/dev/null |
   jq -r '.diagnostics[].code' | grep -c 'no-restricted-vi-methods')
 if [[ "$codes" == 7 ]]; then

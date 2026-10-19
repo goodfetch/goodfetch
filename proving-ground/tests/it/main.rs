@@ -7,6 +7,7 @@
     reason = "the tests start the Proving ground's binary as a child process"
 )]
 
+mod agent;
 mod clients;
 mod observations;
 mod oracle;

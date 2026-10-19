@@ -1,18 +1,22 @@
 //! What the Proving ground answers to one request: a page family's page on
 //! that family's host names, and the Effect its form carries out, and on any other host name its own task list
 //! (`GET /tasks`), oracle (`POST /oracle`), certificate authority
-//! (`GET /certificate-authority`) and observations (`GET /observations`).
+//! (`GET /certificate-authority`), observations (`GET /observations`) and
+//! time step (`PUT /time-step`), which a task's harness sets and drifting
+//! pages follow.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use crate::agent;
 use crate::catalog;
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
+use crate::sync::Mutex;
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -25,6 +29,14 @@ pub(crate) struct Site {
     /// The seed's certificate authority, as PEM.
     certificate_authority: String,
     observations: Arc<Observations>,
+    time_step: Mutex<u64>,
+}
+
+/// The Proving ground's time step, as `PUT /time-step` sets it.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TimeStep {
+    step: u64,
 }
 
 /// A reply's status, media type and body.
@@ -72,6 +84,7 @@ impl Site {
             hosts: Self::hosts(seed),
             certificate_authority,
             observations,
+            time_step: Mutex::new(0),
         }
     }
 
@@ -79,9 +92,12 @@ impl Site {
     /// requests belong to, if any: the family's own, and each task's. Each
     /// has its own leaf certificate, and only these are observed.
     pub(crate) fn hosts(seed: u64) -> BTreeMap<String, Option<String>> {
-        let mut hosts = BTreeMap::from([(catalog::HOST.to_owned(), None)]);
+        let mut hosts = BTreeMap::from([
+            (catalog::HOST.to_owned(), None),
+            (agent::HOST.to_owned(), None),
+        ]);
         hosts.extend(
-            catalog::tasks(seed, 0)
+            Self::all_tasks(seed, 0)
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
@@ -90,12 +106,22 @@ impl Site {
 
     /// Every family's tasks, in the task list's order.
     fn tasks(&self) -> Vec<Task> {
-        catalog::tasks(self.seed, self.port)
+        Self::all_tasks(self.seed, self.port)
+    }
+
+    fn all_tasks(seed: u64, port: u16) -> Vec<Task> {
+        let mut tasks = catalog::tasks(seed, port);
+        tasks.extend(agent::tasks(seed, port));
+        tasks
     }
 
     /// Answers one request, given its `Host` header, path and body.
     pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
-        if self.hosts.contains_key(&observation::host_name(host)) {
+        let name = observation::host_name(host);
+        if self.hosts.contains_key(&name) && agent::serves(&name) {
+            return self.agent(method, host, &name, path, body);
+        }
+        if self.hosts.contains_key(&name) {
             return match (method, path) {
                 (&Method::POST, "/orders") => match catalog::order(body) {
                     Some((effect, page)) => {
@@ -117,6 +143,7 @@ impl Site {
                 &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
             (&Method::POST, "/oracle") => self.judge(body),
+            (&Method::PUT, "/time-step") => self.set_time_step(body),
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
@@ -129,6 +156,35 @@ impl Site {
             },
             _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
         }
+    }
+
+    /// Answers a request to the `agent` family: its pages at the current
+    /// time step, and the Effects their script posts, recorded with it.
+    fn agent(&self, method: &Method, host: &str, name: &str, path: &str, body: &Bytes) -> Reply {
+        let step = *self.time_step.lock();
+        match (method, path) {
+            (&Method::POST, agent::EFFECTS_PATH) => match agent::effect(body, step) {
+                Some(effect) => {
+                    self.observations.effect(host, effect);
+                    Reply::json(StatusCode::OK, &serde_json::json!({ "time_step": step }))
+                }
+                None => Reply::error(StatusCode::BAD_REQUEST, "malformed_effect"),
+            },
+            (&Method::GET, _) => agent::page(self.seed, name, step, path).map_or_else(
+                || Reply::error(StatusCode::NOT_FOUND, "not_found"),
+                Reply::html,
+            ),
+            _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
+        }
+    }
+
+    /// Sets the time step drifting pages follow.
+    fn set_time_step(&self, body: &Bytes) -> Reply {
+        let Ok(time_step) = serde_json::from_slice::<TimeStep>(body) else {
+            return Reply::error(StatusCode::BAD_REQUEST, "malformed_time_step");
+        };
+        *self.time_step.lock() = time_step.step;
+        Reply::json(StatusCode::OK, &time_step)
     }
 
     /// Judges a submission against its task's expected result.

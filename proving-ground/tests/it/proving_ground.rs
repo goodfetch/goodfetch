@@ -124,8 +124,35 @@ impl ProvingGround {
         answer.json()
     }
 
+    /// The task `id` of the task list.
+    pub(crate) fn task(&self, id: &str) -> Value {
+        self.tasks()["tasks"]
+            .as_array()
+            .expect("`tasks` is an array")
+            .iter()
+            .find(|task| task["id"] == id)
+            .unwrap_or_else(|| panic!("the task list has no {id}"))
+            .clone()
+    }
+
+    /// Sets the time step scheduled content follows, as a task's harness does.
+    pub(crate) fn set_time_step(&self, step: u64) -> Answer {
+        self.put_control("/time-step", &format!("{{\"step\": {step}}}"))
+    }
+
+    /// Puts a JSON body to a path on the Proving ground's own address.
+    pub(crate) fn put_control(&self, path: &str, body: &str) -> Answer {
+        let response = self
+            .agent
+            .put(format!("http://{}{path}", self.address))
+            .content_type("application/json")
+            .send(body)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// Fetches a path on the Proving ground's own address.
-    fn control(&self, path: &str) -> Answer {
+    pub(crate) fn control(&self, path: &str) -> Answer {
         let response = self
             .agent
             .get(format!("http://{}{path}", self.address))
@@ -144,6 +171,20 @@ impl ProvingGround {
             .header("host", host)
             .content_type("application/x-www-form-urlencoded")
             .send(form)
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
+    /// Posts JSON to a URL on one of the Proving ground's host names, as a
+    /// page's script does.
+    pub(crate) fn post_json(&self, url: &str, value: &Value) -> Answer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let response = self
+            .agent
+            .post(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .send_json(value)
             .expect("the Proving ground answers");
         Self::answer(response)
     }

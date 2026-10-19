@@ -27,6 +27,10 @@ pub(crate) struct Entry {
     /// The page the task starts on, with the port `serve` bound.
     pub(crate) start_url: String,
     pub(crate) description: &'static str,
+    /// How many time steps a task spans, from step 0: the steps its harness
+    /// sets, one after another, while the tool works on its pages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) time_steps: Option<u64>,
 }
 
 /// What a task asks a tool to do.
@@ -57,6 +61,21 @@ pub(crate) struct Expected {
 pub(crate) enum Effect {
     /// An order of one product, placed through its order form.
     Order { product: String },
+    /// A demo booked through the Agent page's form, at the time step the
+    /// Proving ground received it.
+    Booking {
+        time_step: u64,
+        name: String,
+        email: String,
+        plan: String,
+        /// Whether the form's consent box was ticked.
+        consent: bool,
+        /// Whether the submit came from a trusted (user-agent) event.
+        trusted: bool,
+    },
+    /// The Agent page's account deleted through its delete control, at the
+    /// time step the Proving ground received it.
+    DeleteAccount { time_step: u64, trusted: bool },
 }
 
 /// One expected Record: its fields by name, `id` among them, each as the page

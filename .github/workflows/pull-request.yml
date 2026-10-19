@@ -45,7 +45,9 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
-      # Before the deny: the quarantine-list check reads GitHub's issues.
+      # `just quick all` in its two parts, around the deny: `just lint` before
+      # it, since the quarantine-list check reads GitHub's issues, then
+      # `just test quick` under it.
       - name: Lint
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -59,6 +61,11 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      # The parts `just lint` and `just test` could not run here, as `just
+      # quick all` lists them.
+      - name: List the parts the job skipped
+        if: always()
+        run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
       - name: Summarize the failed tests
         if: failure()
         run: ci/junit-summary.sh

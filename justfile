@@ -222,20 +222,54 @@ test-affected suite *change:
     fi
     {{ just_executable() }} test {{ suite }} "${packages[@]}"
 
+# Each suite lists the parts it could not run on this host, with the reason,
+# even when a part fails: the list is printed when the suite stops.
+
 # The Quick suite: lints and in-process tests of what changed (`all`: the
 # whole workspace).
-quick *all: _skips-reset lint (_suite "quick" all) _skips-report
+quick *all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    rm -f target/skipped.txt
+    trap '"$just" _skips-report' EXIT
+    "$just" lint
+    "$just" _suite quick "{{ all }}"
 
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
-pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco commit-messages perf _visual-elsewhere _skips-report
+pre-merge *all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    rm -f target/skipped.txt
+    trap '"$just" _skips-report' EXIT
+    "$just" lint
+    "$just" _suite quick "{{ all }}"
+    "$just" _suite pre-merge "{{ all }}"
+    "$just" proofs
+    "$just" supply-chain
+    "$just" dco
+    "$just" commit-messages
+    "$just" perf
+    "$just" _visual-elsewhere
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
-release: _skips-reset lint (test "quick") (test "release") proofs _visual-elsewhere _skips-report
-    @echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
+release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    rm -f target/skipped.txt
+    trap '"$just" _skips-report' EXIT
+    "$just" lint
+    "$just" test quick
+    "$just" test release
+    "$just" proofs
+    "$just" _visual-elsewhere
+    echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
 # Dispatches the Release suite's workflow on the current branch and follows
 # it; the exit code is the run's verdict (ADRs 0061 and 0108). `cells` is
@@ -438,9 +472,6 @@ _suite suite all:
       "") {{ just_executable() }} test-affected {{ suite }} ;;
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
-
-_skips-reset:
-    @rm -f target/skipped.txt
 
 # Runner configs define the `visual` projects only inside the pinned image
 # (ci/visual/run.sh), so no host test command runs them.

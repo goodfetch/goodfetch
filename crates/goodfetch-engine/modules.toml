@@ -2,6 +2,7 @@
 [modules]
 composition = ["product"]
 engine = ["composition", "product", "rpc", "tasks", "transport"]
+executables = ["composition"]
 info = ["composition"]
 product = []
 rpc = ["composition", "product", "tasks", "transport"]

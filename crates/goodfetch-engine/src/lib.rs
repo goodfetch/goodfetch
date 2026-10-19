@@ -9,6 +9,7 @@
 
 mod composition;
 mod engine;
+pub mod executables;
 mod info;
 mod product;
 pub mod rpc;

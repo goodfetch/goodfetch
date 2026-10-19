@@ -29,4 +29,8 @@ for crate in "${crates[@]}"; do
 done
 [[ ${#packages[@]} -gt 0 ]] || exit 0
 
-cargo hack check --manifest-path "$manifest" --feature-powerset --no-dev-deps --locked "${packages[@]}"
+# No `--no-dev-deps`: it strips the dev-dependencies from the real manifests,
+# so the lockfile no longer matches and `--locked` refuses it. `cargo check`
+# builds no dev-dependency, and under resolver 3 their features do not unify
+# into the library's or the executable's build.
+cargo hack check --manifest-path "$manifest" --feature-powerset --locked "${packages[@]}"

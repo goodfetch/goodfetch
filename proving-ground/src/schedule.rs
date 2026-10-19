@@ -9,7 +9,7 @@ use hyper::Method;
 
 use crate::exchange::{Reply, Request};
 use crate::generator;
-use crate::task::{Entry, Expected, Kind, Record, Task};
+use crate::task::{Entry, Expected, Kind, Record, Task, origin};
 
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "schedule.test";
@@ -110,14 +110,14 @@ fn task_host(ordinal: u32) -> String {
 
 /// The family's tasks for `seed`, their start URLs on their own host names
 /// and `port`. Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     vec![Task {
         host: task_host(1),
         entry: Entry {
             id: format!("{FAMILY}/1"),
             family: FAMILY,
             kind: Kind::Watch,
-            start_url: format!("http://{}:{port}/board", task_host(1)),
+            start_url: format!("{}/board", origin(&task_host(1), port)),
             description: "Watch this page while the Proving ground's time step goes from 0 to \
                 the last of the task's time steps, one step after another, and return one \
                 Record per revision the page shows, with the fields `id` (the revision), \

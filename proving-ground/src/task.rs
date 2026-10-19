@@ -7,6 +7,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::digest;
 
+/// The origin a task's start URL begins with: `http://<host>:<port>` as
+/// `serve` lists it, or `http://<host>` when `tasks` lists it binding no port.
+pub(crate) fn origin(host: &str, port: Option<u16>) -> String {
+    match port {
+        Some(port) => format!("http://{host}:{port}"),
+        None => format!("http://{host}"),
+    }
+}
+
 /// One task of a family: what a tool is asked to do, and what the oracle
 /// expects back.
 pub(crate) struct Task {

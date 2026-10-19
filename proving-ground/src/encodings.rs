@@ -8,7 +8,7 @@
 use std::fmt::Write as _;
 
 use crate::generator;
-use crate::task::{Entry, Expected, Kind, Record, Task};
+use crate::task::{Entry, Expected, Kind, Record, Task, origin};
 use encoding_rs::{
     BIG5, EUC_KR, Encoding, GB18030, ISO_8859_2, ISO_8859_15, SHIFT_JIS, UTF_8, UTF_16LE,
     WINDOWS_1251, WINDOWS_1252,
@@ -490,8 +490,8 @@ fn task_host(ordinal: u32) -> String {
 
 /// The family's tasks for `seed`, on their own host names and `port`.
 /// Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let start_url = |ordinal| format!("http://{}:{port}/pages", task_host(ordinal));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let start_url = |ordinal| format!("{}/pages", origin(&task_host(ordinal), port));
     vec![
         Task {
             host: task_host(1),

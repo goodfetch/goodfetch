@@ -46,6 +46,10 @@ pub(crate) struct Crate {
     pub(crate) benches: BTreeSet<String>,
     /// Whether it builds an executable (a `bin` target).
     pub(crate) executable: bool,
+    /// The crates whose executables its tests run through the test tool
+    /// manifest, from `[package.metadata.goodfetch] runs`: a change to one
+    /// reaches it as a dependency's would.
+    pub(crate) runs: BTreeSet<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -179,6 +183,7 @@ fn crates(cargo: &OsStr, root: &Path) -> Result<Vec<Crate>> {
                     .targets
                     .iter()
                     .any(|target| target.kind.iter().any(|kind| kind == "bin")),
+                runs: package.runs().into_iter().collect(),
             })
         })
         .collect()

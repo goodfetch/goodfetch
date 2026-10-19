@@ -106,7 +106,7 @@ impl Site {
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
-            Self::tasks_of(seed, 0)
+            Self::every_task(seed, None)
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
@@ -120,12 +120,14 @@ impl Site {
         hosts
     }
 
-    /// Every family's tasks, in the task list's order.
+    /// Every family's tasks, as this `serve` lists them.
     fn tasks(&self) -> Vec<Task> {
-        Self::tasks_of(self.seed, self.port)
+        Self::every_task(self.seed, Some(self.port))
     }
 
-    fn tasks_of(seed: u64, port: u16) -> Vec<Task> {
+    /// Every family's tasks for `seed`, in the task list's order, their start
+    /// URLs on `port`, or on none when listed without serving.
+    pub(crate) fn every_task(seed: u64, port: Option<u16>) -> Vec<Task> {
         let mut tasks = catalog::tasks(seed, port);
         tasks.extend(rendered::tasks(seed, port));
         tasks.extend(login::tasks(seed, port));

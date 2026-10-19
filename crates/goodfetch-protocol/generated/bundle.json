@@ -48,6 +48,179 @@
       ],
       "type": "object"
     },
+    "CapabilityResult": {
+      "description": "One capability of a `conformance` document.",
+      "properties": {
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/CaseResult"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/Outcome"
+        }
+      },
+      "required": [
+        "name",
+        "outcome",
+        "cases"
+      ],
+      "type": "object"
+    },
+    "CaseCheck": {
+      "additionalProperties": false,
+      "description": "One check of a case.",
+      "properties": {
+        "name": {
+          "description": "What it checks.",
+          "type": "string"
+        },
+        "passed": {
+          "description": "Whether it held.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "passed"
+      ],
+      "type": "object"
+    },
+    "CaseEntry": {
+      "additionalProperties": false,
+      "description": "One time a case ran.",
+      "properties": {
+        "checks": {
+          "description": "Each check's result.",
+          "items": {
+            "$ref": "#/$defs/CaseCheck"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence",
+          "default": {},
+          "description": "What it saw."
+        },
+        "mode": {
+          "description": "The mode it ran in, such as `attached` or `daemon`, when the case\nruns in several.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "checks"
+      ],
+      "type": "object"
+    },
+    "CaseLogEntry": {
+      "additionalProperties": false,
+      "description": "One time a case ran.",
+      "properties": {
+        "capability": {
+          "description": "The capability the case belongs to.",
+          "type": "string"
+        },
+        "case": {
+          "description": "The case's ID in the declared case list.",
+          "type": "string"
+        },
+        "checks": {
+          "description": "Each check's result.",
+          "items": {
+            "$ref": "#/$defs/CaseCheck"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence",
+          "default": {},
+          "description": "What it saw: the oracle's answers, the scripted messages."
+        },
+        "mode": {
+          "description": "The mode it ran in, such as `attached` or `daemon`, when the case\nruns in several.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platform": {
+          "$ref": "#/$defs/Platform",
+          "description": "Where it ran."
+        },
+        "runtime": {
+          "description": "The runtime it ran on, such as `node-24` or `cpython-3.14`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case",
+        "capability",
+        "platform",
+        "runtime",
+        "checks"
+      ],
+      "type": "object"
+    },
+    "CaseOutcome": {
+      "description": "A case's outcome.",
+      "oneOf": [
+        {
+          "const": "passed",
+          "description": "Every entry has checks and every check held.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "A check failed, or an entry holds no check.",
+          "type": "string"
+        },
+        {
+          "const": "not_reached",
+          "description": "The case log holds no entry for it.",
+          "type": "string"
+        }
+      ]
+    },
+    "CaseResult": {
+      "description": "One case of a capability, with its derived outcome.",
+      "properties": {
+        "covers": {
+          "description": "The Features the case proves (ADR 0072).",
+          "items": {
+            "$ref": "#/$defs/FeatureId"
+          },
+          "type": "array"
+        },
+        "entries": {
+          "description": "One entry per time the case ran, such as once per mode; none when it\nwas not reached.",
+          "items": {
+            "$ref": "#/$defs/CaseEntry"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "The case's ID in its suite.",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/CaseOutcome"
+        }
+      },
+      "required": [
+        "id",
+        "covers",
+        "entries",
+        "outcome"
+      ],
+      "type": "object"
+    },
     "Check": {
       "additionalProperties": false,
       "description": "One check of a Journey's outcome.",
@@ -73,6 +246,56 @@
       ],
       "type": "object"
     },
+    "CheckOutcome": {
+      "description": "What happened to a check.",
+      "oneOf": [
+        {
+          "const": "passed",
+          "description": "It held.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "It did not hold.",
+          "type": "string"
+        },
+        {
+          "const": "not_reached",
+          "description": "An earlier failure stopped the variant before it.",
+          "type": "string"
+        }
+      ]
+    },
+    "CheckResult": {
+      "additionalProperties": false,
+      "description": "One check's outcome.",
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/CheckOutcome",
+          "description": "What happened."
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The task whose oracle answer the check reads, when it names one."
+        },
+        "text": {
+          "description": "The check's text in the Journey.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "outcome"
+      ],
+      "type": "object"
+    },
     "ClientPackages": {
       "additionalProperties": false,
       "description": "The Collie client packages, one per language (ADR 0095).",
@@ -94,6 +317,94 @@
         "npm",
         "pypi",
         "crates_io"
+      ],
+      "type": "object"
+    },
+    "ConformanceDocument": {
+      "description": "A `conformance` document: each declared capability's outcome, derived\nfrom its cases.",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/CapabilityResult"
+          },
+          "type": "array"
+        },
+        "online": {
+          "description": "Whether the Proving ground was the online copy, whose results report\nand never block a release.",
+          "type": "boolean"
+        },
+        "platform": {
+          "$ref": "#/$defs/Platform",
+          "description": "Where it ran."
+        },
+        "proving_ground": {
+          "$ref": "#/$defs/ProvingGroundCopy",
+          "description": "The Proving ground the cases ran against."
+        },
+        "runtime": {
+          "description": "The runtime the cases ran on, such as `rust`, `node-24` or\n`cpython-3.14`.",
+          "type": "string"
+        },
+        "suite": {
+          "$ref": "#/$defs/Suite",
+          "description": "The suite."
+        },
+        "target": {
+          "$ref": "#/$defs/Target",
+          "description": "What the suite ran against."
+        }
+      },
+      "required": [
+        "suite",
+        "target",
+        "platform",
+        "runtime",
+        "proving_ground",
+        "online",
+        "capabilities"
+      ],
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "description": "What a test saw, beside its checks.",
+      "properties": {
+        "messages": {
+          "description": "The scripted messages exchanged, for a Client conformance case (ADR\n0069).",
+          "items": true,
+          "type": "array"
+        },
+        "observations": {
+          "description": "What the Proving ground observed on the server side, as it reported\nit.",
+          "items": true,
+          "type": "array"
+        },
+        "oracle_answers": {
+          "description": "The oracle's answers.",
+          "items": {
+            "$ref": "#/$defs/OracleAnswer"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Executable": {
+      "additionalProperties": false,
+      "description": "The executable a Journey variant drove: its Product and the Product\nversion it reports (ADRs 0084 and 0090).",
+      "properties": {
+        "product": {
+          "$ref": "#/$defs/Product",
+          "description": "Its Product."
+        },
+        "version": {
+          "description": "Its Product version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product",
+        "version"
       ],
       "type": "object"
     },
@@ -227,10 +538,108 @@
       ],
       "type": "object"
     },
+    "JourneyDocument": {
+      "description": "A `journey` document: one Journey variant's outcome, derived from its\nsteps, checks and oracle answers.",
+      "properties": {
+        "checks": {
+          "description": "Each check of the Journey's outcome, in its order.",
+          "items": {
+            "$ref": "#/$defs/CheckResult"
+          },
+          "type": "array"
+        },
+        "executable": {
+          "$ref": "#/$defs/Executable",
+          "description": "The executable the variant drove."
+        },
+        "journey_id": {
+          "$ref": "#/$defs/JourneyId",
+          "description": "The Journey."
+        },
+        "outcome": {
+          "$ref": "#/$defs/JourneyOutcome"
+        },
+        "platform": {
+          "$ref": "#/$defs/Platform",
+          "description": "Where it ran."
+        },
+        "proving_ground": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvingGroundCopy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Proving ground it started, for a Journey whose goal touches a\npage."
+        },
+        "runtime": {
+          "description": "The runtime it ran on.",
+          "type": "string"
+        },
+        "steps": {
+          "description": "Each step of the Journey, in its order.",
+          "items": {
+            "$ref": "#/$defs/StepResult"
+          },
+          "type": "array"
+        },
+        "surface": {
+          "description": "The variant's surface, by its name in ADR 0063, or `foxhound-cli`\nfor a Collie Journey's `cli` variant run on Foxhound's executable\n(ADR 0094).",
+          "type": "string"
+        },
+        "surface_package": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SurfacePackage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The surface's package, for a surface that has one (an SDK, the\nConsole's build, an adapter)."
+        },
+        "tasks": {
+          "description": "Each Proving ground task the Journey names.",
+          "items": {
+            "$ref": "#/$defs/TaskResult"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "journey_id",
+        "surface",
+        "executable",
+        "platform",
+        "runtime",
+        "steps",
+        "checks",
+        "tasks",
+        "outcome"
+      ],
+      "type": "object"
+    },
     "JourneyId": {
       "description": "A Journey's ID: `J-` and three to nine digits (ADR 0063).",
       "pattern": "^J-[0-9]{3,9}$",
       "type": "string"
+    },
+    "JourneyOutcome": {
+      "description": "A Journey variant's outcome. A declared variant with no document is\n`unproved`, which the catalog report computes from the document's\nabsence (ADR 0063).",
+      "oneOf": [
+        {
+          "const": "proved",
+          "description": "Every automated step and check passed and every named task is\n`verified`.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Anything else.",
+          "type": "string"
+        }
+      ]
     },
     "Milestone": {
       "description": "A milestone of ADR 0058, `M1` to `M4`.",
@@ -257,6 +666,70 @@
         }
       ]
     },
+    "OracleAnswer": {
+      "additionalProperties": true,
+      "description": "An oracle's answer for one Proving ground task: the task, the outcome,\nand the rest of the Proving ground's answer as it came (what is missing,\nextra or wrong, the tool's status, the oracle's time).",
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/OracleOutcome",
+          "description": "The oracle's outcome."
+        },
+        "task": {
+          "$ref": "#/$defs/TaskId",
+          "description": "The task judged."
+        }
+      },
+      "required": [
+        "task",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "OracleOutcome": {
+      "description": "The outcome the Proving ground's oracle gives a submitted result, whatever\nstatus the tool reported (ADR 0025).",
+      "oneOf": [
+        {
+          "const": "verified",
+          "description": "Correct and complete.",
+          "type": "string"
+        },
+        {
+          "const": "incomplete",
+          "description": "Correct but missing Records, without claiming success.",
+          "type": "string"
+        },
+        {
+          "const": "false_success",
+          "description": "Claimed success with wrong or missing data.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Neither correct nor a claimed success.",
+          "type": "string"
+        }
+      ]
+    },
+    "Outcome": {
+      "description": "A capability's outcome (ADR 0033).",
+      "oneOf": [
+        {
+          "const": "proved",
+          "description": "Every declared case ran and passed.",
+          "type": "string"
+        },
+        {
+          "const": "unproved",
+          "description": "No case failed, but not every one ran, or none is declared.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "A case failed.",
+          "type": "string"
+        }
+      ]
+    },
     "PinnedTask": {
       "additionalProperties": false,
       "description": "A Proving ground task a Journey names.",
@@ -273,6 +746,25 @@
       "required": [
         "id",
         "digest"
+      ],
+      "type": "object"
+    },
+    "Platform": {
+      "additionalProperties": false,
+      "description": "The operating system and architecture a document's tests ran on.",
+      "properties": {
+        "arch": {
+          "description": "The architecture, as Rust's `std::env::consts::ARCH` names it\n(`x86_64`, `aarch64`).",
+          "type": "string"
+        },
+        "os": {
+          "description": "The operating system, as Rust's `std::env::consts::OS` names it\n(`linux`, `macos`, `windows`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "os",
+        "arch"
       ],
       "type": "object"
     },
@@ -371,6 +863,27 @@
       ],
       "type": "object"
     },
+    "ProvingGroundCopy": {
+      "additionalProperties": false,
+      "description": "The Proving ground a document's tests ran against: its version, which\npins its generator, and the seed it served (ADR 0063).",
+      "properties": {
+        "seed": {
+          "description": "The seed it served.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "description": "The workspace version and the commit it was built from.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "seed"
+      ],
+      "type": "object"
+    },
     "Release": {
       "additionalProperties": false,
       "description": "What one Product version shipped.",
@@ -433,6 +946,39 @@
         }
       },
       "type": "object"
+    },
+    "ResultDocument": {
+      "description": "One result document, of either kind.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ConformanceDocument",
+          "description": "What a conformance suite proved against a target.",
+          "properties": {
+            "kind": {
+              "const": "conformance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/JourneyDocument",
+          "description": "What a Journey variant proved on a surface.",
+          "properties": {
+            "kind": {
+              "const": "journey",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SampleCrawlParams": {
       "additionalProperties": false,
@@ -632,6 +1178,138 @@
       ],
       "type": "object"
     },
+    "StepOutcome": {
+      "description": "What happened to a step.",
+      "oneOf": [
+        {
+          "const": "passed",
+          "description": "It ran and held.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "It ran and did not hold.",
+          "type": "string"
+        },
+        {
+          "const": "not_reached",
+          "description": "An earlier failure stopped the variant before it.",
+          "type": "string"
+        },
+        {
+          "const": "manual",
+          "description": "It needs a person; the owner test covers it.",
+          "type": "string"
+        }
+      ]
+    },
+    "StepResult": {
+      "additionalProperties": false,
+      "description": "One step's outcome.",
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/StepOutcome",
+          "description": "What happened."
+        },
+        "text": {
+          "description": "The step's text in the Journey.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "Suite": {
+      "additionalProperties": false,
+      "description": "A conformance suite.",
+      "properties": {
+        "name": {
+          "description": "Its name, such as `self-test`.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The version of its case list.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "SurfacePackage": {
+      "additionalProperties": false,
+      "description": "The package of a Journey variant's surface.",
+      "properties": {
+        "name": {
+          "description": "Its name in its registry.",
+          "type": "string"
+        },
+        "version": {
+          "description": "Its version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "Target": {
+      "description": "What a suite ran against: an engine over the protocol, the Browser host,\na process Plugin, Goodfetch Cloud's engine or, for the self-test, the\nProving ground itself.",
+      "oneOf": [
+        {
+          "description": "The version it reports, for an engine its Product version.",
+          "properties": {
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The SHA-256 digest of its artifact, for a target with no version.",
+          "properties": {
+            "digest": {
+              "$ref": "#/$defs/Sha256"
+            }
+          },
+          "required": [
+            "digest"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "name": {
+          "description": "Its name.",
+          "type": "string"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Product"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For an engine, the Product its `hello` reply reports (ADR 0095)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "TargetArtifact": {
       "additionalProperties": false,
       "description": "A published file built for one target.",
@@ -670,9 +1348,47 @@
       "description": "A Proving ground task's ID, `<family>/<ordinal>` (ADR 0063).",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[1-9][0-9]*$",
       "type": "string"
+    },
+    "TaskResult": {
+      "additionalProperties": false,
+      "description": "One named Proving ground task: the oracle's answer and the server-side\nobservations.",
+      "properties": {
+        "answer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OracleAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The oracle's answer; none when the variant never submitted a result."
+        },
+        "id": {
+          "$ref": "#/$defs/TaskId",
+          "description": "The task."
+        },
+        "observations": {
+          "description": "What the Proving ground observed for the task.",
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "documents": {
+    "case_log_entry": {
+      "$ref": "#/$defs/CaseLogEntry"
+    },
+    "result_document": {
+      "$ref": "#/$defs/ResultDocument"
+    }
+  },
   "files": {
     "compat/releases.toml": {
       "$ref": "#/$defs/ReleasesFile"

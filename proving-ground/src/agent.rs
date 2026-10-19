@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 
 use crate::generator;
 use crate::model::Fault;
-use crate::task::{Effect, Entry, Expected, Kind, Record, Task};
+use crate::task::{Effect, Entry, Expected, Kind, Record, Task, origin};
 
 /// The host name the family is served on (ADR 0059's `resolve`).
 pub(crate) const HOST: &str = "agent.test";
@@ -265,8 +265,8 @@ document.body.dataset.ready = 'true';
 
 /// The family's tasks for `seed`, on their own host names and `port`.
 /// Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let start_url = |ordinal| format!("http://{}:{port}{START_PATH}", task_host(ordinal));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let start_url = |ordinal| format!("{}{START_PATH}", origin(&task_host(ordinal), port));
     let steps = 0..TIME_STEPS;
     let mut tasks = vec![
         Task {
@@ -317,14 +317,14 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
 }
 
 /// The fault tasks, after the drifting ones.
-fn fault_tasks(seed: u64, port: u16) -> impl Iterator<Item = Task> {
+fn fault_tasks(seed: u64, port: Option<u16>) -> impl Iterator<Item = Task> {
     FAULTS.into_iter().map(move |(ordinal, description)| Task {
         host: task_host(ordinal),
         entry: Entry {
             id: format!("{FAMILY}/{ordinal}"),
             family: FAMILY,
             kind: Kind::Extract,
-            start_url: format!("http://{}:{port}{START_PATH}", task_host(ordinal)),
+            start_url: format!("{}{START_PATH}", origin(&task_host(ordinal), port)),
             description,
             account: None,
             time_steps: None,

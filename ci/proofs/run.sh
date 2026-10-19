@@ -7,6 +7,8 @@
 #     refused `vi` method, ruff's TID251 on `unittest.mock`,
 #     `pytest.MonkeyPatch` and `_pytest.monkeypatch` (pytest-mock in uv.lock:
 #     `xtask mocking-lockfile`'s own tests);
+#   - ADR 0068's test-file bans: oxlint on each property that gives a test a
+#     browser or context of its own, sleeps or redefines a property;
 #   - snapshots never written in CI: a mismatched, a missing and an orphaned
 #     snapshot for insta and Vitest, a missing and a mismatched one for
 #     inline-snapshot (whose inline snapshots cannot be orphaned);
@@ -190,6 +192,16 @@ if [[ "$codes" == 7 ]]; then
   pass "oxlint refuses vi.mock, doMock, importMock, mockObject, spyOn, stubGlobal and stubEnv"
 else
   fail oxlint "$codes of the 7 refused vi methods reported"
+fi
+
+# ADR 0068's test-file bans: every browser and context comes from test
+# support's fixtures, no test sleeps, and none redefines a property.
+codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/contexts.spec.ts 2>/dev/null |
+  jq -r '.diagnostics[] | select(.code == "eslint(no-restricted-properties)") | .message | capture("^.(?<name>[A-Za-z.]+). is restricted").name' | tally | tr '\n' ' ')
+if [[ "$codes" == "1 Object.defineProperties 1 Object.defineProperty 1 Reflect.defineProperty 1 browser.newPage 1 connect 1 connectOverCDP 1 launch 1 launchPersistentContext 2 newContext 1 waitForTimeout " ]]; then
+  pass "oxlint refuses a test file's own browser or context, waitForTimeout and redefined properties, and allows context.newPage()"
+else
+  fail oxlint-contexts "findings: ${codes:-none}"
 fi
 
 codes=$(uv run ruff check --no-cache --output-format json ci/proofs/ruff/mocking.py 2>/dev/null | jq -r '.[].code' | tally)

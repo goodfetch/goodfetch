@@ -35,8 +35,8 @@ fn file(runner: Runner) -> &'static str {
 }
 
 /// The script that lists Vitest's tests with their tags, which `vitest list`
-/// leaves out.
-const VITEST_LISTING: &str = "test-support/typescript/src/vitest-listing.ts";
+/// leaves out; it runs from the workspace's folder.
+const VITEST_LISTING: &str = include_str!("vitest-listing.mjs");
 
 /// Writes the four listings of the workspace at `root` into `out`.
 pub(super) fn write(
@@ -53,7 +53,9 @@ pub(super) fn write(
     }
     let vitest = out.join(file(Runner::Vitest));
     run(
-        Command::new("node").arg(VITEST_LISTING).arg(&vitest),
+        Command::new("node")
+            .args(["--input-type=module", "--eval", VITEST_LISTING])
+            .arg(&vitest),
         root,
         "the Vitest listing",
         &[0],

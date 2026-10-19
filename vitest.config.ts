@@ -9,7 +9,7 @@
 // ci/visual/run.sh sets GOODFETCH_VISUAL_IMAGE. Reference screenshots are
 // named without the platform, and each one a test reads is recorded under
 // target/visual/read/ for the orphan check (`xtask screenshots orphans`).
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { playwright } from "@vitest/browser-playwright";
 import {
@@ -73,6 +73,14 @@ const orderSeedText = process.env["GOODFETCH_ORDER_SEED"];
 const orderSeed =
   orderSeedText === undefined ? undefined : Number(BigInt(orderSeedText) % 2n ** 53n);
 
+// The tags a Journey test carries (ADR 0063; TESTING.md, Journeys): its
+// Journey's ID, one per file of the catalog, and its surface, of those
+// Vitest runs. `strictTags` refuses any other tag.
+const journeyTags = readdirSync(join(import.meta.dirname, "journeys"))
+  .filter((name) => /^J-\d{3,9}\.toml$/.test(name))
+  .map((name) => ({ name: name.slice(0, -".toml".length) }));
+const surfaceTags = [{ name: "sdk-typescript" }];
+
 const config: ViteUserConfig = defineConfig({
   test: {
     retry: 0,
@@ -85,6 +93,8 @@ const config: ViteUserConfig = defineConfig({
     },
     detectAsyncLeaks: process.env["GOODFETCH_DETECT_ASYNC_LEAKS"] === "1",
     passWithNoTests: true,
+    tags: [...journeyTags, ...surfaceTags],
+    strictTags: true,
     // The Quick suite passes `--slowTestThreshold=1000`; Vitest sets it per run, not per project.
     slowTestThreshold: 30_000,
     reporters: ["default", "junit"],

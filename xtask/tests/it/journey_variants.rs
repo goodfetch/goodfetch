@@ -18,6 +18,12 @@ use crate::workspace::{Outcome, Workspace, finding};
 /// one test.
 fn catalog() -> Workspace {
     let workspace = Workspace::from_fixture("journeys");
+    add_schema(&workspace);
+    workspace
+}
+
+/// Writes the Journey schema `xtask codegen` commits into the workspace.
+fn add_schema(workspace: &Workspace) {
     let schema = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -26,7 +32,6 @@ fn catalog() -> Workspace {
         "journeys/journey.schema.json",
         &std::fs::read(schema).unwrap(),
     );
-    workspace
 }
 
 fn check(workspace: &Workspace) -> Outcome {
@@ -53,6 +58,40 @@ fn clean_set_of_tests_passes() {
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
     assert_eq!(untested(&outcome), Vec::<String>::new());
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// The four runners list a workspace that holds one test of each of four of
+/// J-001's variants, and the check reads each listing's variant.
+#[test]
+fn real_listings_carry_each_runners_variants() {
+    let workspace = Workspace::from_fixture("journey-listings");
+    workspace.link_installed_runners();
+    add_schema(&workspace);
+
+    let listed = workspace.xtask(&["journeys", "listings", "--out", "listings"]);
+    let outcome = check(&workspace);
+
+    assert_eq!(listed.code, 0, "{}", listed.stderr);
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(untested(&outcome), vec!["J-001@foxhound-cli".to_owned()]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// A Vitest test whose tag the configuration does not declare fails to
+/// collect, which fails the listing rather than leaving the test out.
+#[test]
+fn vitest_test_its_module_cannot_collect_fails_the_listings() {
+    let workspace = Workspace::from_fixture("journey-listings");
+    workspace.link_installed_runners();
+    workspace.edit(
+        "web/J-001.test.ts",
+        "[\"J-001\", \"sdk-typescript\"]",
+        "[\"J-009\", \"sdk-typescript\"]",
+    );
+
+    let listed = workspace.xtask(&["journeys", "listings", "--out", "listings"]);
+
+    assert_ne!(listed.code, 0, "{}", listed.stderr);
 }
 
 const NEXTEST: &str = "listings/nextest.json";

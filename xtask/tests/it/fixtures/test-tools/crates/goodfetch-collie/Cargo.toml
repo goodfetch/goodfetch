@@ -9,6 +9,9 @@ publish.workspace = true
 [features]
 executable = []
 
+[dev-dependencies]
+goodfetch-collie = { path = ".", features = ["executable"] }
+
 [[bin]]
 name = "goodfetch-collie"
 path = "src/main.rs"

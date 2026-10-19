@@ -59,7 +59,7 @@ struct Target {
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
     let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
     let mut binaries = Vec::new();
-    let mut features = Vec::new();
+    let mut features = std::collections::BTreeSet::new();
     for package in metadata::packages(cargo, root)? {
         for target in package.targets {
             if !target.kind.iter().any(|kind| kind == "bin")
@@ -68,13 +68,10 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                 continue;
             }
             // A Product's binary target requires its `executable` feature
-            // (ADR 0094).
-            features.extend(
-                target
-                    .required_features
-                    .iter()
-                    .map(|feature| format!("{}/{feature}", package.name)),
-            );
+            // (ADR 0094). Named alone, a feature applies to each selected
+            // package that has it; `<package>/<feature>` would name the
+            // package's dev-dependency on itself, which a build leaves off.
+            features.extend(target.required_features);
             binaries.push(target.name);
         }
     }
@@ -93,7 +90,10 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             .args(binaries.iter().flat_map(|binary| ["--bin", binary]))
             .args(
                 (!features.is_empty())
-                    .then(|| ["--features".to_owned(), features.join(",")])
+                    .then(|| {
+                        let names: Vec<String> = features.into_iter().collect();
+                        ["--features".to_owned(), names.join(",")]
+                    })
                     .into_iter()
                     .flatten(),
             )

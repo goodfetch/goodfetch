@@ -115,3 +115,88 @@ fn unknown_starting_point_is_an_error_never_a_pass() {
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 2);
 }
+
+/// Writes the committed exceptions file with one entry per `(commit, reason)`.
+fn write_exceptions(workspace: &Workspace, entries: &[(&str, &str)]) {
+    let text = entries
+        .iter()
+        .map(|(commit, reason)| {
+            format!("[[exception]]\ncommit = \"{commit}\"\nreason = \"{reason}\"\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    workspace.write("ci/commit-messages.toml", text.as_bytes());
+}
+
+const REASON: &str = "merged into other branches before the check ran";
+
+/// A commit the exceptions file lists by its full hash keeps its message, and
+/// only that commit: the next one is still judged.
+#[test]
+fn listed_commit_is_not_judged() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let listed = commit(&workspace, "wip: raw observations");
+    let head = commit(&workspace, "Add a page");
+    write_exceptions(&workspace, &[(&listed, REASON)]);
+
+    let outcome = commit_messages(&workspace, &base, &head, &base);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("unconventional-message", &head)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// An entry may outlive its commit's range: a later pull request's range does
+/// not hold it, and that is no error.
+#[test]
+fn entry_outside_the_range_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.commit_all();
+    let earlier = commit(&workspace, "wip: raw observations");
+    let base = earlier.clone();
+    let head = commit(&workspace, "feat: add a page");
+    write_exceptions(&workspace, &[(&earlier, REASON)]);
+
+    let outcome = commit_messages(&workspace, &base, &head, &base);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
+/// Each entry names one commit by its full hash and says why in one line;
+/// anything else is refused, never read as a pattern or a pass.
+#[rstest]
+#[case::short_hash("c3c56422", Some(REASON))]
+#[case::not_hexadecimal("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", Some(REASON))]
+#[case::upper_case("C3C564220000000000000000000000000000000A", Some(REASON))]
+#[case::no_reason("c3c5642200000000000000000000000000000000", None)]
+#[case::empty_reason("c3c5642200000000000000000000000000000000", Some(" "))]
+#[case::reason_of_two_lines(
+    "c3c5642200000000000000000000000000000000",
+    Some("merged early\\nand kept")
+)]
+fn invalid_entry_is_an_error(#[case] commit_value: &str, #[case] reason: Option<&str>) {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let head = commit(&workspace, "feat: add a page");
+    let reason_line = reason.map_or(String::new(), |reason| format!("reason = \"{reason}\"\n"));
+    workspace.write(
+        "ci/commit-messages.toml",
+        format!("[[exception]]\ncommit = \"{commit_value}\"\n{reason_line}").as_bytes(),
+    );
+
+    let outcome = commit_messages(&workspace, &base, &head, &base);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("invalid-exception", commit_value)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}

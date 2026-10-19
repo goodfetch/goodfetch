@@ -17,6 +17,7 @@ clap.workspace = true
 crc32fast.workspace = true
 data-encoding.workspace = true
 encoding_rs.workspace = true
+flate2.workspace = true
 form_urlencoded.workspace = true
 hmac.workspace = true
 http-body-util.workspace = true
@@ -37,10 +38,13 @@ tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "mac
 tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
 toml.workspace = true
+web-bot-auth.workspace = true
 
 [dev-dependencies]
 data-encoding.workspace = true
+ed25519-dalek = { workspace = true, features = ["std"] }
 goodfetch-test-support.workspace = true
+indexmap = { workspace = true, features = ["std"] }
 h2 = { workspace = true }
 hmac.workspace = true
 proptest.workspace = true

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import SampleEchoParams, SampleEchoResult
+from .models import EngineInfo, EngineInfoParams, SampleEchoParams, SampleEchoResult
 
 
 class AsyncCaller(Protocol):
@@ -41,6 +41,10 @@ class AsyncCollieOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
+    async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
+        """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
+        return EngineInfo.model_construct(**_fields(await self._caller.call("engine.info", params)))
+
     @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
     async def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
         """Repeats a text back to the caller.
@@ -58,6 +62,10 @@ class CollieOperations:
     def __init__(self, caller: Caller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    def engine_info(self, params: EngineInfoParams) -> EngineInfo:
+        """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
+        return EngineInfo.model_construct(**_fields(self._caller.call("engine.info", params)))
 
     @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
     def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:

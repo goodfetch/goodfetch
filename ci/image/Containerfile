@@ -73,6 +73,13 @@ RUN apt-get update \
  && cargo install --locked --root /usr/local gungraun-runner@0.20.0 \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
+# libclang and Clang's own headers, which sqlite-plugin's build script loads
+# through bindgen to build goodfetch-test-support's crash VFS (ADR 0060), so
+# every crate that tests or benchmarks with goodfetch-test-support builds.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libclang-dev \
+ && rm -rf /var/lib/apt/lists/*
+
 # TLC's Java (ADR 0060): the pinned TLA+ tools need Java 11 or later.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openjdk-21-jre-headless \

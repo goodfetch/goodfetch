@@ -58,6 +58,30 @@ class InternalError(GoodfetchError):
     """A bug in Goodfetch. Report it."""
 
 
+class CallCancelledError(UnavailableError):
+    """The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="call_cancelled", group="unavailable", retryable=False)
+
+
+class NotInProductError(UnavailableError):
+    """The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="not_in_product", group="unavailable", retryable=False)
+
+
+class ProtocolVersionUnsupportedError(UnavailableError):
+    """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
+
+
 class SampleRefusedError(RefusedError):
     """The sample operation refused the text."""
 
@@ -67,6 +91,9 @@ class SampleRefusedError(RefusedError):
 
 
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
+    "call_cancelled": CallCancelledError,
+    "not_in_product": NotInProductError,
+    "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "sample_refused": SampleRefusedError,
 }
 """The exception class of each Error code."""

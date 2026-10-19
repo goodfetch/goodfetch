@@ -84,6 +84,7 @@ pub const ENTRIES: Entries = Entries {
         description: "The sample crawl refused its pages.",
         group: ErrorGroup::Refused,
         retryable: true,
+        exit_code: None,
         arrived_in: ARRIVED_IN,
     }],
     plugin_kinds: &[PluginKind {

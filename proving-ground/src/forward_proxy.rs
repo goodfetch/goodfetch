@@ -23,7 +23,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use base64::Engine as _;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
@@ -266,8 +265,8 @@ async fn read_head(stream: &mut TcpStream) -> Option<Head> {
 /// The username and password of a `Proxy-Authorization: Basic` value.
 fn basic(value: &[u8]) -> Option<(String, String)> {
     let encoded = std::str::from_utf8(value).ok()?.strip_prefix("Basic ")?;
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(encoded.trim())
+    let decoded = data_encoding::BASE64
+        .decode(encoded.trim().as_bytes())
         .ok()?;
     let (username, password) = String::from_utf8(decoded)
         .ok()?

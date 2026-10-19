@@ -849,9 +849,11 @@ name = "goodfetch-proving-ground"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "base64",
  "clap",
+ "data-encoding",
+ "form_urlencoded",
  "h2",
+ "hmac",
  "http-body-util",
  "httparse",
  "hyper",
@@ -866,11 +868,13 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_json_canonicalizer",
+ "sha1",
  "sha2",
  "time",
  "tokio",
  "tokio-rustls",
  "tokio-util",
+ "toml",
  "ureq",
 ]
 
@@ -2194,6 +2198,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7523beb55eece201a2356bee0bbca0d1ab466c14c07703b2e0ee6d42cb0c2c"
 dependencies = [
  "serde_core",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest",
 ]
 
 [[package]]

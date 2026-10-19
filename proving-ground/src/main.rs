@@ -5,6 +5,7 @@
 //! name, the task list at `/tasks` and the oracle at `/oracle`, beside its
 //! network fixtures: forward proxies, a DNS fixture and a watched target.
 
+mod agent;
 mod authority;
 mod catalog;
 mod client_hello;
@@ -13,23 +14,36 @@ mod command;
 mod connection_record;
 mod digest;
 mod dns;
+mod exchange;
 mod forward_proxy;
 mod generator;
+mod handmade;
+mod login;
+mod model;
+mod network;
 mod network_fixture;
 mod observation;
 mod oracle;
 mod output;
+mod portal;
+mod rendered;
+mod replay;
+mod schedule;
 mod server;
 mod site;
 mod sync;
 mod tap;
 mod task;
+mod totp;
 mod version;
 
-use anyhow::{Context as _, Result};
+use std::net::{Ipv4Addr, SocketAddr};
+
+use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 
-use crate::command::{Command, Serve};
+use crate::command::{Command, NetworkProfile, Serve, Shaper};
+use crate::network::{Loss, Network, Profile};
 use crate::network_fixture::NetworkFixtures;
 use crate::server::Server;
 
@@ -43,22 +57,73 @@ fn main() -> Result<()> {
         .enable_all()
         .build()
         .context("building the Tokio runtime")?;
-    let Serve { seed, address, .. } = serve;
-    let server = runtime.block_on(Server::bind(address, seed))?;
-    let fixtures = runtime.block_on(NetworkFixtures::bind(
-        server.address().ip(),
+    let Serve {
         seed,
-        server.observations(),
-    ))?;
+        address,
+        network_profile,
+        loss,
+        shaper,
+        ..
+    } = serve;
+    runtime.block_on(run(seed, address, network_profile, loss, shaper))
+}
+
+/// Shapes and calibrates the network, binds the server behind it, serves
+/// until stopped, then undoes the shaping.
+async fn run(
+    seed: u64,
+    address: SocketAddr,
+    network_profile: NetworkProfile,
+    loss: Loss,
+    shaper: Shaper,
+) -> Result<()> {
+    let profile = match network_profile.round_trip() {
+        Some((name, round_trip)) => Some(Profile::new(name, round_trip, loss)),
+        None if loss.is_some() => bail!("a loss needs a shaped network profile, such as `rtt-0`"),
+        None => None,
+    };
+    let (network, server) = match (profile, shaper) {
+        (None, _) => (
+            Network::unshaped(),
+            Server::bind(address, None, seed).await?,
+        ),
+        (Some(profile), Shaper::Proxy) => {
+            let network = Network::proxy(profile, seed, address).await?;
+            let reached_on = network.proxy_address().map(|proxy| proxy.port());
+            let behind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+            (network, Server::bind(behind, reached_on, seed).await?)
+        }
+        (Some(profile), Shaper::Netem) => {
+            let server = Server::bind(address, None, seed).await?;
+            (
+                Network::netem(profile, server.address().port()).await?,
+                server,
+            )
+        }
+    };
+    let outcome = serve(server, &network, seed).await;
+    let stopped = network.stop().await;
+    outcome.and(stopped)
+}
+
+/// Binds the network fixtures beside the server, prints the output line,
+/// and serves until stopped.
+async fn serve(server: Server, network: &Network, seed: u64) -> Result<()> {
+    let upstream = server.address();
+    let reached = network.proxy_address().unwrap_or(upstream);
+    let fixtures = NetworkFixtures::bind(reached.ip(), seed, server.observations()).await?;
     let mut line = fixtures.report()?;
-    line.insert("address".to_owned(), server.address().to_string().into());
+    line.insert("address".to_owned(), reached.to_string().into());
     line.insert("version".to_owned(), version::VERSION.into());
     line.insert("seed".to_owned(), seed.into());
+    line.insert(
+        "network".to_owned(),
+        serde_json::to_value(network.report()).context("reporting the network profile")?,
+    );
     output::line(&line)?;
-    runtime.block_on(async {
-        tokio::select! {
-            outcome = server.run() => outcome,
-            () = fixtures.run() => Ok(()),
-        }
-    })
+    tokio::select! {
+        outcome = server.run() => outcome,
+        () = network.forward(upstream) => Ok(()),
+        () = fixtures.run() => Ok(()),
+    }
 }

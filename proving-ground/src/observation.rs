@@ -45,7 +45,7 @@ pub(crate) struct Observations {
     /// Each host name served, with the task it belongs to, if any.
     hosts: BTreeMap<String, Option<String>>,
     stopwatch: Stopwatch,
-    /// The time step the connection record stamps each entry with.
+    /// The Proving ground's time step, as `PUT /time-step` sets it.
     time_step: Mutex<u64>,
     state: Mutex<State>,
     record: ConnectionRecord,
@@ -198,16 +198,21 @@ impl Observations {
         self.served(authority).and_then(|(_, task)| task.clone())
     }
 
-    /// Sets the time step every later entry of the connection record is
-    /// stamped with.
+    /// Sets the Proving ground's time step, which scheduled content follows
+    /// and every later entry of the connection record is stamped with.
     pub(crate) fn set_time_step(&self, step: u64) {
         *self.time_step.lock() = step;
+    }
+
+    /// The Proving ground's time step.
+    pub(crate) fn time_step(&self) -> u64 {
+        *self.time_step.lock()
     }
 
     /// The time step and the time now.
     pub(crate) fn stamp(&self) -> Stamp {
         Stamp {
-            time_step: *self.time_step.lock(),
+            time_step: self.time_step(),
             at_microseconds: self.stopwatch.microseconds(),
         }
     }

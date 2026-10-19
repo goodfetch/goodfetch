@@ -21,6 +21,11 @@
 #   - macOS: the extra loopback addresses as `lo0` aliases, which needs sudo.
 #     The owner's machine's runner user has none: its aliases come from
 #     ci/runner/loopback-aliases.sh, which the owner installs once (#1562).
+#   - Linux also: `tc netem` on the loopback interface, which the Proving
+#     ground's netem tests set (iproute2's `tc`, with CAP_NET_ADMIN): the
+#     job's container gets the capability from ci/vm/start.sh; on a runner's
+#     own system, `tc` gets it as a file capability, so the tests, run as the
+#     runner's user, shape only their own network namespace's loopback.
 #   - Windows and Linux: 127.0.0.0/8 answers already; the check confirms it.
 #
 # It keeps to bash 3.2, which stock macOS runs on the owner's machine.
@@ -37,7 +42,7 @@ for ((i = 2; i <= EXTRA_LOOPBACK_COUNT + 1; i++)); do addresses+=("127.0.0.$i");
 RUNTIME=${RUNNER_TEMP:-/tmp}/goodfetch-os-services
 
 services=(--loopback "${addresses[@]}")
-[[ "$(uname -s)" == Linux ]] && services+=(--secret-service)
+[[ "$(uname -s)" == Linux ]] && services+=(--secret-service --netem)
 
 xtask_check() {
   (cd "$root" && cargo run --quiet --locked -p xtask -- os-services check "${services[@]}" "$@")
@@ -53,9 +58,16 @@ setup_linux() {
   command -v dbus-daemon >/dev/null || missing+=(dbus-daemon)
   command -v gnome-keyring-daemon >/dev/null || missing+=(gnome-keyring)
   command -v secret-tool >/dev/null || missing+=(libsecret-tools)
+  PATH="$PATH:/usr/sbin:/sbin" command -v tc >/dev/null || missing+=(iproute2)
+  if [[ "$(id -u)" -ne 0 ]]; then
+    PATH="$PATH:/usr/sbin:/sbin" command -v setcap >/dev/null || missing+=(libcap2-bin)
+  fi
   if [[ ${#missing[@]} -gt 0 ]]; then
     as_root apt-get update -qq
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+  fi
+  if [[ "$(id -u)" -ne 0 ]]; then
+    as_root setcap cap_net_admin+ep "$(PATH="$PATH:/usr/sbin:/sbin" command -v tc)"
   fi
 
   rm -rf "$RUNTIME"

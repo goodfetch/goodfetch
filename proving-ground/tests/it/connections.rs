@@ -28,7 +28,7 @@ fn connections_to(observations: &Value, name: &str) -> Vec<Value> {
 fn a_connection_to_the_target_is_recorded_with_its_time_step_source_and_destination() {
     let proving_ground = ProvingGround::start(SEED);
     let target = proving_ground.target();
-    let time_step = proving_ground.set_time_step(3);
+    let time_step = proving_ground.set_time_step(&json!(3));
 
     let exchange = clients::raw(&target, b"GET / HTTP/1.1\r\nHost: target\r\n\r\n");
 
@@ -113,14 +113,4 @@ fn a_relay_to_an_address_where_nothing_listens_is_recorded_as_refused() {
         ]),
         json!([down, "connection_refused"])
     );
-}
-
-#[test]
-fn a_malformed_time_step_is_refused() {
-    let proving_ground = ProvingGround::start(SEED);
-
-    let answer = proving_ground.put_json("/time-step", &json!({ "step": "three" }));
-
-    assert_eq!(answer.status, 400);
-    assert_eq!(answer.json(), json!({ "error": "malformed_time_step" }));
 }

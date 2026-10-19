@@ -1,5 +1,6 @@
 //! `serve`'s first output line: one JSON object with the bound address, the
-//! version and the seed, and the address of each network fixture with the
+//! version, the seed, the network profile with its calibration (the
+//! `network` tests), and the address of each network fixture with the
 //! proxies' credentials, so every test and Journey variant starts its own
 //! Proving ground on port 0 (ADRs 0062 and 0063).
 //! Covers: story:2-80
@@ -21,6 +22,7 @@ fn serve_on_port_zero_first_prints_its_address_version_and_seed() {
         [
             "address",
             "dns",
+            "network",
             "proxies",
             "proxy_credentials",
             "seed",

@@ -1,0 +1,20 @@
+# A frozen real page for the replay proxy (ADR 0062): the FDA's "FDA's
+# Concerns with Unapproved GLP-1 Drugs Used for Weight Loss", as captured in
+# the WCXB web content extraction benchmark's development set (file 0064), the
+# snapshot the lab's frozen-pages campaign replayed
+# (`rnd/lab/corpora/wcxb.manifest.json`). The page's text is a work of the
+# United States government; the snapshot is WCXB's, under CC-BY-4.0: Murrough
+# Foley, WCXB: A Multi-Type Web Content Extraction Benchmark, 2026,
+# doi:10.5281/zenodo.19316874.
+captured_by = "WCXB (https://github.com/Murrough-Foley/web-content-extraction-benchmark)"
+version = "c039d5ee9f5a3a984a0e167e63aacd04e76e78a9"
+date = "2026-10-19"
+url = "https://www.fda.gov/drugs/postmarket-drug-safety-information-patients-and-providers/fdas-concerns-unapproved-glp-1-drugs-used-weight-loss"
+license = "CC-BY-4.0"
+# The gzip file's SHA-256, as the lab's manifest records it.
+sha256_gzip = "7639581c22113f1b695ecf0fad326d9cac7db7d5532f271b116f231897ba2a11"
+command = """
+git clone https://github.com/Murrough-Foley/web-content-extraction-benchmark wcxb && \
+  git -C wcxb checkout c039d5ee9f5a3a984a0e167e63aacd04e76e78a9 && \
+  gunzip -c wcxb/dev/html/0064.html.gz > proving-ground/fixtures/archive/wcxb-0064.html
+"""

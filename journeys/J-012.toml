@@ -1,0 +1,52 @@
+#:schema ./journey.schema.json
+id = "J-012"
+title = "Move a Checkpoint to another Goodfetch home and finish the run there"
+goal = """
+A person stops a run partway, takes its Checkpoint to another Goodfetch home \
+and resumes the run there. The run MUST finish in the other home with every \
+product of the site's catalog and no Record twice, redoing only the work \
+since its Checkpoint, and it MUST check each Effect its journal holds instead \
+of repeating it, reporting as uncertain any it cannot check."""
+area = 3
+product = "foxhound"
+status = "active"
+covers = ["row:RT-10", "story:3-34"]
+
+[proving_ground]
+seed = 12
+tasks = [
+  { id = "catalog/1", digest = "6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b" },
+  { id = "catalog/3", digest = "cca0b2c41ca5ce9d4516c7ba2bc67660331b5cf0acc2c1bcf3c2387895e9598a" },
+]
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+
+[[steps]]
+text = "Start a run that orders the product of the catalog's order page once, then crawls the catalog"
+
+[[steps]]
+text = "Stop the run once the order is placed and part of the catalog is crawled"
+
+[[steps]]
+text = "Take the run's Checkpoint to a second Goodfetch home"
+
+[[steps]]
+text = "Resume the run from its Checkpoint in the second home and let it finish"
+
+[[expect]]
+text = "The resumed run checked the order its journal holds instead of placing it again"
+
+[[expect]]
+text = "The oracle verifies the order was placed once"
+task = "catalog/3"
+
+[[expect]]
+text = "No Record is in the run's Dataset twice"
+
+[[expect]]
+text = "The oracle verifies the run's Records"
+task = "catalog/1"

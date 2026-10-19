@@ -45,13 +45,25 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     encodings/1 encodings/2 languages/1 languages/2 files/1 files/2 files/3 \
     adversarial/1 adversarial/2 adversarial/3 adversarial/4 protection/1 protection/2 \
     access/1 access/2 access/3 access/4 access/5 \
+    live/1 live/2 canvas/1 canvas/2 print/1 print/2 print/3 \
+    responsive/1 responsive/2 responsive/3 keys/1 keys/2 keys/3 \
     statuses/1 traps/1 parameters/1 limits/1 limits/2 limits/3 scale/1 scale/2 \
+    links/1 links/2 links/3 pacing/1 facets/1 fields/1 sitemaps/1 sitemaps/2 \
     incidents/1 incidents/2 incidents/3 incidents/4 incidents/5 incidents/6 \
     access-policy/1 access-policy/2 access-policy/3 access-policy/4 access-policy/5 \
     access-policy/6 access-policy/7 access-policy/8 access-policy/9 \
     identity/1 identity/2 \
     content-coding/1 content-coding/2 content-coding/3 content-coding/4 content-coding/5 \
-    content-coding/6 content-coding/7";
+    content-coding/6 content-coding/7 \
+    redirects/1 redirects/2 redirects/3 redirects/4 redirects/5 redirects/6 redirects/7 \
+    redirects/8 redirects/9 redirects/10 redirects/11 redirects/12 redirects/13 redirects/14 \
+    redirects/15 redirects/16 redirects/17 redirects/18 redirects/19 \
+    headers/1 headers/2 headers/3 headers/4 headers/5 headers/6 headers/7 headers/8 headers/9 \
+    headers/10 \
+    downloads/1 downloads/2 downloads/3 downloads/4 downloads/5 downloads/6 downloads/7 \
+    downloads/8 downloads/9 downloads/10 downloads/11 downloads/12 downloads/13 downloads/14 \
+    downloads/15 downloads/16 downloads/17 downloads/18 \
+    canaries/1 canaries/2 canaries/3 canaries/4";
 
 /// Each task's kind, in the same order.
 const KINDS: &str = "crawl extract submit \
@@ -66,11 +78,19 @@ const KINDS: &str = "crawl extract submit \
     crawl crawl crawl extract crawl extract extract \
     extract submit extract extract crawl extract \
     extract extract extract extract crawl \
+    extract extract act act extract extract extract extract extract extract act act act \
+    crawl crawl crawl crawl crawl crawl crawl crawl \
     crawl crawl crawl crawl crawl crawl crawl crawl \
     crawl crawl crawl crawl crawl crawl \
     crawl crawl crawl crawl crawl crawl crawl crawl crawl \
     crawl crawl \
-    extract extract extract extract extract extract extract";
+    extract extract extract extract extract extract extract \
+    extract extract extract extract extract extract extract extract extract extract extract \
+    extract extract extract extract extract extract extract extract \
+    extract extract extract extract extract extract extract extract extract extract \
+    download download download download download download download download download download \
+    download download download download download download download download \
+    crawl crawl crawl crawl";
 
 #[test]
 fn the_task_list_names_the_tasks_of_every_family() {

@@ -1,0 +1,42 @@
+#:schema ./journey.schema.json
+id = "J-023"
+title = "Hold a person's Limit across a three-member Daemon group, with an Attached engine beside a Group member"
+goal = """
+A person with a Limit of their own runs scripts on a Daemon group of three \
+Group members and on an Attached engine beside one of them. The Attached \
+engine MUST take its slices through that Group member, the Usage of every \
+run together MUST never pass the person's Limit, and once it is reached new \
+runs MUST be refused with `limit_reached` on every Group member and on the \
+Attached engine, so that group-wide Limits hold for the person's scripts \
+too."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["story:3-115"]
+
+[proving_ground]
+seed = 23
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Form a Daemon group of three Daemons, each with its own Goodfetch home, with accounts, and give a person an account on it"
+
+[[steps]]
+text = "Set the person's monthly Limit below what extracting every product page of the catalog uses"
+
+[[steps]]
+text = "As that person, run scripts on each Group member and on an Attached engine beside one of them at once, each extracting the catalog's product pages one after another, until they stop"
+
+[[steps]]
+text = "As that person, start one more script on each Group member and on the Attached engine"
+
+[[expect]]
+text = "The Attached engine took its slices through the Group member beside it"
+
+[[expect]]
+text = "The Usage of every run together, on the Group members and the Attached engine, never passed the person's Limit"
+
+[[expect]]
+text = "Each new script was refused with `limit_reached`, naming the person scope and the month, on every Group member and on the Attached engine"

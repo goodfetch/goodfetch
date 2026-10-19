@@ -1,0 +1,12 @@
+{
+  "locales": ["en-US", "de-DE", "fr-FR", "tr-TR", "ar-EG", "hi-IN", "ja-JP"],
+  "time_zones": [
+    { "name": "UTC" },
+    { "name": "America/St_Johns" },
+    { "name": "Asia/Kathmandu" },
+    { "name": "Pacific/Chatham" },
+    { "name": "Australia/Lord_Howe" },
+    { "name": "Europe/Paris", "dst_gap": "2026-03-29", "dst_overlap": "2026-10-25" },
+    { "name": "America/New_York", "dst_gap": "2026-03-08", "dst_overlap": "2026-11-01" }
+  ]
+}

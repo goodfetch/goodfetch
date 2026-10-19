@@ -87,6 +87,8 @@ Decided in [Security testing](https://github.com/goodfetch/goodfetch/issues/288)
   - no comparison of page content spawning a process, checked under a seccomp filter that refuses `execve`;
   - decompression bombs, endless bodies, deep JSON nesting and oversized messages, each ending in its typed limit error.
 
+  > Note (agent decision, pending owner review), [#312](https://github.com/goodfetch/goodfetch/issues/312): the Proving ground's `headers` pages expect a response head with a NUL, a bare CR, a line without a colon, two different `Content-Length` values, two `Location` values or a header past 256 KiB to be refused, and a folded line or a `Content-Length` repeated with one value to be kept, as the browser keeps them (RFC 9110, section 5.5, lets a recipient reject the first kind). Its `downloads` pages count a name as safe when it is one file name on every OS: no separator, colon, control or Windows-forbidden character, not `.` or `..`, no trailing dot or space, no reserved device name, at most 255 bytes.
+
 ### Endpoints
 
 - **One endpoint table:** a rule per row, a listener per column. The listeners are the Console, the Daemon's socket and WebSocket, the HTTP listener, the ops listener, MCP over HTTP, the Live view, raw CDP, the Attached engine's private endpoint, an Exposed Daemon and the Daemon group's peer link.
@@ -117,6 +119,7 @@ Decided in [Security testing](https://github.com/goodfetch/goodfetch/issues/288)
   - Exports and Notifications;
   - JSON-RPC errors, error messages kept in run state, and model requests;
   - the Console's offline cache, `goodfetch doctor`'s bug-report file, and the SDKs' `repr`, `toString` and error messages.
+  > Note (agent decision, pending owner review), [#312](https://github.com/goodfetch/goodfetch/issues/312): the Proving ground's login flows plant a typed password, a TOTP seed, a Session cookie and an endpoint token, one task each, on a plant call from a loopback address only. Each value is drawn from the seed and the plant's number, from characters JSON and URL encoding leave unchanged, so the Proving ground searches each request it receives for it raw, in hex and in base64, and records each sighting by canary ID with whether it is where its flow sends it.
 - **Redaction property tests.** Generated secret values that are hard to redact go through each formatter and serializer. Failing cases are committed in `proptest-regressions/`.
 - **CI outputs.** The `gitleaks` binary, pinned by checksum, scans each job's logs, test reports, snapshots and artifacts before they upload, with the Secret canaries as a rule. A hit fails the job. This is a step of every CI job, not a suite test.
 - **Commits.** Commit scanning covers every committed file, Model recordings (ADR 0065) included. Once the repository is public, GitHub secret scanning and push protection are on, free there. Until then, the Pre-merge suite runs `gitleaks` over each pull request's commits; GitHub's paid Secret Protection on the private repository waits for the owner's approval as a paid test resource.

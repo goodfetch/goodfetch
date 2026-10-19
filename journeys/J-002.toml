@@ -1,0 +1,74 @@
+#:schema ./journey.schema.json
+id = "J-002"
+title = "Crawl a site over HTTP to Markdown and export its Dataset as JSON, CSV and Parquet"
+goal = """
+A person crawls a site over HTTP with no browser, turning each page into \
+Markdown, reads the crawl's Records as they arrive and exports its Dataset. \
+The crawl MUST return every product of the site's catalog, each Record with \
+its page's Markdown, the Records MUST arrive in order, each once, and the \
+Dataset MUST export as JSON, as CSV and as Parquet, each Export holding every \
+Record with every field."""
+area = 6
+product = "foxhound"
+status = "active"
+covers = [
+  "row:SA-01",
+  "row:CO-18",
+  "row:CO-25",
+  "row:CO-27",
+  "row:CO-29",
+  "story:1-1",
+  "story:1-2",
+  "story:1-3",
+]
+
+[proving_ground]
+seed = 2
+tasks = [
+  { id = "catalog/1", digest = "62bd5799c3f2bde6a505125cc1383568934ab4bbd803346c16c28bcb8aae7cd6" },
+]
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+mcp-stdio = "M2"
+mcp-http = "M2"
+
+[[steps]]
+text = "Install Foxhound into a fresh project from the commit's packages alone, with install scripts ignored: the surface's SDK package, or Foxhound's executable on the other surfaces"
+
+[[steps]]
+text = "Crawl the catalog over HTTP with no browser, from its first listing page, turning each page into Markdown"
+
+[[steps]]
+text = "Read the crawl's Records as they arrive"
+
+[[steps]]
+text = "Export the crawl's Dataset as JSON, as CSV and as Parquet"
+
+[[expect]]
+text = "The installed package runs, and reports the commit's Product version, the one Foxhound's executable and every SDK package report"
+
+[[expect]]
+text = "The install ran no install script and reached no registry beyond the commit's packages"
+
+[[expect]]
+text = "The installed package is the one platform package of its language for every runtime version Foxhound supports, such as one `py3-none` platform wheel for every supported CPython"
+
+[[expect]]
+text = "The oracle verifies the crawl's Records"
+task = "catalog/1"
+
+[[expect]]
+text = "The crawl fetched every page over HTTP and launched no browser"
+
+[[expect]]
+text = "Each Record holds its page's Markdown"
+
+[[expect]]
+text = "The Records read as they arrived are the Dataset's, in order from its first, each once"
+
+[[expect]]
+text = "The JSON, CSV and Parquet Exports each hold every Record of the Dataset, with every field"

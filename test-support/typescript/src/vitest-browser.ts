@@ -8,6 +8,9 @@ import { commands, userEvent } from "vitest/browser";
 import type { BrowserState } from "./browser-state.ts";
 
 export type { BrowserState } from "./browser-state.ts";
+export { clippedText } from "./clipped-text.ts";
+export { virtualScreenReader } from "./screen-reader.ts";
+export { TEXT_SPACING_STYLE, textSpacing } from "./text-spacing.ts";
 
 declare module "vitest/browser" {
   interface BrowserCommands {

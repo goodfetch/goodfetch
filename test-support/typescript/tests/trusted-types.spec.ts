@@ -4,10 +4,11 @@
 // that sets `require-trusted-types-for 'script'`; the first test shows the
 // page enforces it, so a proof cannot pass on a browser that ignores it.
 // The proofs run on test support's `test`, as served tests do, so a tool
-// that breaks the CSP also fails `failOnErrors`.
+// that breaks the CSP also fails `failOnErrors`, and each page they reach
+// also passes the `axe` fixture's audit.
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test as base } from "@playwright/test";
-import { test as served } from "@goodfetch/test-support/playwright";
+import { test as served, watchPageErrors } from "@goodfetch/test-support/playwright";
 import { cspPagesFixture, type CspPages } from "./csp-pages.ts";
 
 const unwatched = base.extend<object, { cspPages: CspPages }>({ cspPages: cspPagesFixture });
@@ -18,6 +19,20 @@ unwatched.describe("the production CSP", () => {
     await page.goto(cspPages.url("trusted-types"));
 
     await expect(page.getByText(/^refused: /)).toHaveText("refused: TypeError");
+  });
+});
+
+// The `axe` fixture fails a test whose page has a violation, so this proof
+// runs on Playwright's own `test` and watches the page's errors itself.
+unwatched.describe("under Trusted Types, unaudited", () => {
+  unwatched("axe's injected script finds a violation", async ({ context, page, cspPages }) => {
+    const watch = await watchPageErrors(context);
+    await page.goto(cspPages.url("inaccessible"));
+
+    const results = await new AxeBuilder({ page }).analyze();
+
+    expect(results.violations.map((violation) => violation.id)).toContain("image-alt");
+    await expect(watch.check()).resolves.toBeUndefined();
   });
 });
 
@@ -50,14 +65,6 @@ test.describe("under Trusted Types", () => {
 
     await expect(page.locator("#received")).toHaveText("echo:ping");
     expect(forwarded).toEqual(["ping"]);
-  });
-
-  test("axe's injected script finds a violation", async ({ page, cspPages }) => {
-    await page.goto(cspPages.url("inaccessible"));
-
-    const results = await new AxeBuilder({ page }).analyze();
-
-    expect(results.violations.map((violation) => violation.id)).toContain("image-alt");
   });
 
   test("axe's injected script passes an accessible page", async ({ page, cspPages }) => {

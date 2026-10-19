@@ -1,6 +1,8 @@
 //! Reference screenshots (ADR 0073): `screenshots fetch` applies only a run of
 //! the `update-screenshots` workflow made in the pinned image on the branch's
-//! head, and `screenshots orphans` refuses a reference no visual test read.
+//! head, `screenshots orphans` refuses a reference no visual test read, and
+//! `screenshots check` refuses a comparison tolerance set outside the shared
+//! visual config and a Reference screenshot over 512 KiB.
 
 use rstest::rstest;
 
@@ -181,4 +183,109 @@ fn run_on_a_commit_that_is_not_the_head_is_refused_and_applies_nothing() {
     );
     assert_eq!(outcome.code, 1);
     assert_eq!(workspace.read(VITEST_REFERENCE), None);
+}
+
+/// ADR 0073's limit for one Reference screenshot, 512 KiB.
+const REFERENCE_LIMIT: u64 = 524_288;
+
+#[rstest]
+#[case::max_diff_pixels("max-diff-pixels.spec.ts", "website/tests/docs.visual.spec.ts", 4)]
+#[case::max_diff_pixel_ratio(
+    "max-diff-pixel-ratio.spec.ts",
+    "website/tests/docs.visual.spec.ts",
+    4
+)]
+#[case::threshold_in_a_test("threshold.spec.ts", "website/tests/docs.visual.spec.ts", 4)]
+#[case::allowed_mismatched_pixels(
+    "allowed-mismatched-pixels.test.ts",
+    "console/src/button/button.visual.test.ts",
+    7
+)]
+#[case::allowed_mismatched_pixel_ratio(
+    "allowed-mismatched-pixel-ratio.test.ts",
+    "console/src/button/button.visual.test.ts",
+    7
+)]
+#[case::threshold_in_comparator_options(
+    "threshold-in-comparator-options.test.ts",
+    "console/src/button/button.visual.test.ts",
+    7
+)]
+#[case::threshold_in_the_runner_config("threshold-in-runner-config.ts", "playwright.config.ts", 6)]
+// Test support is not the shared config: only its one file is.
+#[case::in_test_support_beside_the_shared_config(
+    "max-diff-pixels.spec.ts",
+    "test-support/typescript/src/screenshot.ts",
+    4
+)]
+fn tolerance_outside_the_shared_config_fails(
+    #[case] fixture: &str,
+    #[case] path: &str,
+    #[case] line: u32,
+) {
+    let workspace = Workspace::from_fixture("screenshots");
+    workspace.add_fixture_file(&format!("screenshots-cases/{fixture}"), path);
+
+    let outcome = workspace.xtask(&["screenshots", "check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "tolerance-outside-shared-config",
+            &format!("{path}:{line}")
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn workspace_whose_tolerances_are_all_in_the_shared_config_passes() {
+    let workspace = Workspace::from_fixture("screenshots");
+    workspace.write_sized(VITEST_REFERENCE, 4096);
+
+    let outcome = workspace.xtask(&["screenshots", "check"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[rstest]
+// A fixture breaks rules on purpose, as this check's own do.
+#[case::in_a_fixtures_folder("console/tests/fixtures/loose.spec.ts")]
+#[case::in_frozen_research("rnd/lab/loose.spec.ts")]
+fn tolerance_where_no_suite_runs_passes(#[case] path: &str) {
+    let workspace = Workspace::from_fixture("screenshots");
+    workspace.add_fixture_file("screenshots-cases/max-diff-pixels.spec.ts", path);
+
+    let outcome = workspace.xtask(&["screenshots", "check"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[rstest]
+#[case::vitest(VITEST_REFERENCE)]
+#[case::playwright(PLAYWRIGHT_REFERENCE)]
+fn reference_screenshot_over_512_kib_fails(#[case] path: &str) {
+    let workspace = Workspace::from_fixture("screenshots");
+    workspace.write_sized(path, REFERENCE_LIMIT + 1);
+
+    let outcome = workspace.xtask(&["screenshots", "check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("oversized-reference-screenshot", path)]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn reference_screenshot_of_exactly_512_kib_passes() {
+    let workspace = Workspace::from_fixture("screenshots");
+    workspace.write_sized(PLAYWRIGHT_REFERENCE, REFERENCE_LIMIT);
+
+    let outcome = workspace.xtask(&["screenshots", "check"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
 }

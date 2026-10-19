@@ -1,0 +1,49 @@
+#:schema ./journey.schema.json
+id = "J-014"
+title = "Pause a Crawl, restart the Daemon and resume it"
+goal = """
+A person pauses a running Crawl, restarts the Daemon and resumes the Crawl by \
+its Run ID. The pause MUST checkpoint the Crawl and stop it as resumable, the \
+pause MUST survive the restart, and the resumed Crawl MUST be the same run, \
+returning every product of the site's catalog with no Record twice."""
+area = 3
+product = "foxhound"
+status = "active"
+covers = ["row:RT-11", "story:3-35"]
+
+[proving_ground]
+seed = 14
+tasks = [
+  { id = "catalog/1", digest = "39196962b9f7184a9be213229b9b15443c2fc4af9b84b5bb24d22b00b706ce17" },
+]
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+
+[[steps]]
+text = "Start a Crawl of the catalog on the Daemon"
+
+[[steps]]
+text = "Pause the Crawl once it has committed some Records"
+
+[[steps]]
+text = "Restart the Daemon"
+
+[[steps]]
+text = "Resume the Crawl by its Run ID and let it finish"
+
+[[expect]]
+text = "The pause stopped the Crawl as resumable, with its Checkpoint, and returned its Run report"
+
+[[expect]]
+text = "After the restart the Crawl was still paused, and resuming it reached the same run rather than a new one"
+
+[[expect]]
+text = "No Record is in the Crawl's Dataset twice, across the pause and the resume"
+
+[[expect]]
+text = "The oracle verifies the resumed Crawl's Records"
+task = "catalog/1"

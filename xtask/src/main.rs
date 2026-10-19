@@ -44,6 +44,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod stress;
 mod tree;
 mod wording;
 mod workflow;
@@ -176,6 +177,13 @@ enum Command {
     Size {
         #[command(subcommand)]
         mode: size::Command,
+    },
+    /// The stress run before merge and the order seed (ADR 0064): each new
+    /// or changed test runs 20 times, and a test taken off the quarantine
+    /// list 200 times.
+    Stress {
+        #[command(subcommand)]
+        command: stress::Command,
     },
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
@@ -334,6 +342,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::Stress { command } => stress::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

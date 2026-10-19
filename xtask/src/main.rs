@@ -12,6 +12,7 @@ mod acceptance;
 mod affected;
 mod all_green;
 mod allure;
+mod budgets;
 mod ceiling;
 mod check;
 mod codegen;
@@ -22,16 +23,22 @@ mod dco;
 mod dependency_direction;
 mod egress;
 mod environment;
+mod evict_caches;
+mod features;
 mod fixture_size;
 mod foxhound_side;
 mod github;
 mod issues;
+mod journeys;
+mod junit;
+mod junit_summary;
 mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
+mod os_services;
 mod output;
 mod package_dependencies;
 mod perf;
@@ -44,6 +51,8 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod test_tools;
+mod tlc;
 mod tree;
 mod wording;
 mod workflow;
@@ -71,6 +80,11 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// The budget check (ADR 0061): opens or updates one `needs-triage`
+    /// issue per suite or job whose median of its last 20 runs in its own
+    /// tier, read from the results store, is past its budget in TESTING.md;
+    /// never fails.
+    Budgets(budgets::Arguments),
     /// Regenerates every file generated from `goodfetch-protocol`'s types:
     /// the JSON Schema bundle and catalog file, each Product's projection,
     /// the names only Foxhound carries, the cargo-deny `wrappers` list and
@@ -115,8 +129,27 @@ enum Command {
         #[command(subcommand)]
         command: egress::Command,
     },
+    /// Once the repository's caches pass 9 GB, deletes the least recently
+    /// used ones that are not the pull-request tier's Linux caches until they
+    /// fit (ADR 0061).
+    EvictCaches(evict_caches::Arguments),
+    /// The Feature inventory's declarations and its Feature check (ADRs 0072
+    /// and 0075).
+    Features {
+        #[command(subcommand)]
+        command: features::Command,
+    },
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
+    /// The Journey catalog under `journeys/` (ADR 0063).
+    Journeys {
+        #[command(subcommand)]
+        command: journeys::Command,
+    },
+    /// Appends the failed tests of a job's JUnit files to its summary page,
+    /// each with its failure's first lines and its seeds; fails on a JUnit
+    /// file it cannot read (ADR 0061).
+    JunitSummary(junit_summary::Arguments),
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -131,6 +164,12 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
+    /// The real OS services the tests meet: the extra loopback addresses and
+    /// the Secret Service (ADR 0059).
+    OsServices {
+        #[command(subcommand)]
+        command: os_services::Command,
+    },
     /// Fails when an npm or PyPI package under `sdks/`, `adapters/` or
     /// `integrations/` depends on a package of the other Product, or on a
     /// Product's package when it is the Collie client package (ADR 0095).
@@ -176,6 +215,16 @@ enum Command {
     Size {
         #[command(subcommand)]
         mode: size::Command,
+    },
+    /// Builds the commit's executables that tests run with the tests' own
+    /// Cargo profile and writes the test tool manifest of their paths, which
+    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
+    TestTools(test_tools::Arguments),
+    /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
+    /// tools (ADR 0060).
+    Tlc {
+        #[command(subcommand)]
+        command: tlc::Command,
     },
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
@@ -309,6 +358,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
     match command {
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,
@@ -320,11 +370,16 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
         Command::Egress { command } => egress::run(command, environment),
+        Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
+        Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
+        Command::Journeys { command } => journeys::run(&command, environment),
+        Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Notices(arguments) => notices::run(&arguments, environment),
+        Command::OsServices { command } => os_services::run(command, environment),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
@@ -334,6 +389,8 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::TestTools(arguments) => test_tools::run(&arguments, environment),
+        Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

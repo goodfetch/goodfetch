@@ -1,23 +1,35 @@
 #!/usr/bin/env bash
-# Writes the failed tests of a failing job to its page (TESTING.md: a failing
-# job writes a summary of its failed tests), from every JUnit file under
-# target/junit/. Runs on the host after the job's VM has run the tests.
+# Writes the job's failed tests to its summary page (ADR 0061; TESTING.md,
+# Sharding, caching and reports): `xtask junit-summary` reads every JUnit
+# file in target/junit/ and lists each failed test with its failure's first
+# lines and its seeds, or says that none failed. Every test job runs it,
+# pass or fail, after ci/junit-context.sh has gathered the JUnit files:
+#   ci/junit-summary.sh       on the runner's own system, as the hosted jobs
+#                             and the owner's machine's host steps do;
+#   ci/junit-summary.sh vm    in the job's VM (ci/vm/exec.sh), where the
+#                             owner's machine builds the repository's code.
+# The step fails when a JUnit file is malformed; the page still shows the
+# rest.
 set -euo pipefail
 
-summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
-failed=""
-for report in target/junit/*.xml; do
-  [[ -f "$report" ]] || continue
-  names=$(xmllint --xpath '//testcase[failure or error]/@name' "$report" 2>/dev/null |
-    sed -E 's/ name="([^"]*)"/\1\n/g' || true)
-  [[ -n "$names" ]] && failed+="$(printf '%s\n' "$names" | sed "/^$/d; s|^|- \`$(basename "$report")\`: |")"$'\n'
-done
+where=${1:-host}
+written=target/junit-summary.md
+xtask=(cargo run --quiet --locked -p xtask -- junit-summary --summary "$written")
 
-{
-  echo "### Failed tests"
-  if [[ -n "$failed" ]]; then
-    printf '%s' "$failed"
-  else
-    echo "No test failed; a step outside the tests failed."
-  fi
-} >>"$summary"
+mkdir -p target
+rm -f "$written"
+status=0
+case "$where" in
+  host) "${xtask[@]}" || status=$? ;;
+  vm) ci/vm/exec.sh "${xtask[@]}" || status=$? ;;
+  *)
+    echo "usage: ci/junit-summary.sh [vm]" >&2
+    exit 2
+    ;;
+esac
+
+# The VM writes the summary into the workspace; the page's file is the host's.
+if [[ -f "$written" ]]; then
+  cat "$written" >>"${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+fi
+exit "$status"

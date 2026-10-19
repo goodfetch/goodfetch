@@ -1,0 +1,12 @@
+name: pull request
+on:
+  pull_request:
+permissions: {}
+jobs:
+  quick:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: "Test: Rust"
+        run: ci/release/cell.sh rust
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup

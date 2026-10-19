@@ -1,0 +1,30 @@
+# The owning area of each generated Feature (ADR 0072): every Feature of
+# `kind` whose ID, after `<kind>:`, starts with `prefix` belongs to the area
+# `number` of ADR 0037's table. The Feature check fails on a generated
+# Feature no entry owns, or two do. Schema: `areas.schema.json`.
+
+# The sample entries that carry `xtask codegen`'s pipeline (spec #130).
+[[area]]
+number = 1
+kind = "operation"
+prefix = "sample."
+
+[[area]]
+number = 1
+kind = "event"
+prefix = "sample."
+
+[[area]]
+number = 1
+kind = "error"
+prefix = "sample_"
+
+[[area]]
+number = 1
+kind = "setting"
+prefix = "sample."
+
+[[area]]
+number = 1
+kind = "setting"
+prefix = "crawl.sample_"

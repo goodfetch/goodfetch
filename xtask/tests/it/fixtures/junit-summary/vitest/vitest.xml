@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="2" failures="1" errors="0" time="0.007212541">
+    <testsuite name="page.test.ts" timestamp="2026-10-19T10:43:00.724Z" hostname="runner" tests="2" failures="1" errors="0" skipped="0" time="0.007212541">
+        <testcase classname="page.test.ts" name="page &gt; title is read" time="0.005776167">
+            <system-err>
+goodfetch-test-seed=23
+
+            </system-err>
+            <failure message="expected 2 to be 3 // Object.is equality" type="AssertionError">
+AssertionError: expected 2 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 2
+
+ ❯ page.test.ts:6:19
+            </failure>
+        </testcase>
+        <testcase classname="page.test.ts" name="page &gt; steady" time="0.000216417">
+        </testcase>
+    </testsuite>
+</testsuites>

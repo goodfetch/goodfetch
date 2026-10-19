@@ -17,7 +17,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use super::RepoPath;
-use crate::{metadata, package_dependencies};
+use crate::{metadata, package_dependencies, tlc};
 
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
@@ -25,6 +25,15 @@ pub(crate) struct Workspace {
     /// Every visual test file, where Playwright's and Vitest's `visual`
     /// projects look for them.
     pub(crate) visual_tests: Vec<RepoPath>,
+    pub(crate) models: Vec<Model>,
+}
+
+/// A TLA+ model (ADR 0060).
+pub(crate) struct Model {
+    pub(crate) name: String,
+    pub(crate) folder: RepoPath,
+    /// The files and folders of the modules it traces.
+    pub(crate) traces: Vec<RepoPath>,
 }
 
 /// A member of the Cargo workspace.
@@ -70,6 +79,14 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
         crates: crates(cargo, root)?,
         packages,
         visual_tests,
+        models: tlc::models(root)?
+            .into_iter()
+            .map(|model| Model {
+                name: model.name,
+                folder: RepoPath::new(model.folder),
+                traces: model.traces.into_iter().map(RepoPath::new).collect(),
+            })
+            .collect(),
     })
 }
 

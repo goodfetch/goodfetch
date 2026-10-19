@@ -112,6 +112,8 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 | Milestone gate | the owner test of ADR 0058 | any generated Feature, or any declared Feature due at the milestone, is untested (neither tested nor excepted) on `main`'s latest Release run |
 | Release gate | `xtask release` | any Feature present in the release is untested (neither tested nor excepted) |
 
+> Agent decision, pending owner review (#338): until `features/rows.toml` gives the matrix rows their milestones, the Feature check does not fail on a row without one, and the inventory lists such a row with no milestone. No ticket has set the rows' milestones yet, so the rule would fail every pull request; it is switched on in the change that fills `rows.toml`.
+
 - **Before the merge queue exists**, the Release suite runs on manual dispatch (ADR 0061), and the two gates read the latest such run on `main`.
   > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, "the latest such run" is `main`'s latest commit whose cells have all run, across its dispatches; a commit some of whose cells have not run yet is not read.
 - **The release pull request lists every exception**, with its evidence kind.
@@ -183,3 +185,5 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 - **Changes the specs of areas 1 to 3** through the delta pass: each gains its `features/stories/<area number>.toml` from its user stories; area 1 builds the checks and jobs; area 2's conformance suites and Client conformance cases carry `covers`; area 3's structured log records each RPC request's method and Error code and each event's type as fields. ADR 0037's area table lists this ADR in the rows of areas 1 and 2.
 - **The glossary** gains *Feature* and *Feature inventory*.
 - **The "Test infrastructure" spec builds:** the inventory types and their schemas, `xtask features` (scanner, check, exercise audit, report), the generators of each kind (the static read of the Console's routes included), the Vitest tag configuration (mapping IDs one to one if Vitest's tag names refuse `:` or `.`, which is unverified), the pytest and Playwright listings, the command helper's record, the coverage job, the mutation jobs, and the report page. It watches StrykerJS #6210.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the coverage and in-diff mutation jobs start only while the month's count is below 550 minutes, so a run that starts just below can pass 550 by up to its timeout; they leave ADR 0064's expected 450 minutes to its own runs, rather than never taking them.

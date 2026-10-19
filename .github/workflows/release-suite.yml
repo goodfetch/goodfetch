@@ -164,6 +164,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ci/release/perf.sh pull-request
+      # TLC on every TLA+ model (ADR 0060), on one cell: its outcome does
+      # not depend on the target. The runner's own Java runs it.
+      - name: Fetch the pinned TLA+ tools
+        if: matrix.cell == 'linux-x64-gnu'
+        run: just tlc-fetch
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -174,19 +181,25 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      - name: "Test: TLC on every model"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just tlc --all
+      - name: "Test: the sample's broken variant fails TLC"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just tlc-self-test
       - name: Measure the base, then the commit, against the Performance budget
         if: endsWith(matrix.cell, '-gnu')
         run: ci/egress/under-deny.sh ci/release/perf.sh run
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -256,6 +269,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ci/release/perf.sh pull-request
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -272,13 +287,13 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -330,6 +345,8 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         run: ci/release/cell.sh size
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -343,13 +360,13 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -402,6 +419,8 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         run: ci/release/cell.sh size
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -415,13 +434,13 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -475,6 +494,8 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         run: ci/release/cell.sh size
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -488,13 +509,13 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -533,6 +554,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM with the pinned Playwright image
         run: ci/vm/start.sh read-only ci playwright
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Install the visual projects' packages
         run: ci/vm/visual.sh install
       - name: Deny outbound traffic
@@ -546,13 +569,13 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -572,3 +595,32 @@ jobs:
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
+
+  # Cache priority within GitHub's 10 GB (ADR 0061): once the repository's
+  # caches pass 9 GB, the least recently used ones that are not the
+  # pull-request tier's Linux caches are deleted until they fit. While the
+  # repository is private, Release runs on `main` save the caches hosted
+  # jobs restore, and the cache-warming job's token holds no write scope on
+  # the owner's machine (ADR 0135), so the eviction runs here, after the
+  # cells have saved theirs.
+  caches:
+    name: caches
+    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual]
+    if: "!cancelled() && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # Deleting a cache needs `actions: write`.
+      actions: write
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Evict caches past 9 GB
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: cargo run --quiet --locked -p xtask -- evict-caches --repository "$GITHUB_REPOSITORY"

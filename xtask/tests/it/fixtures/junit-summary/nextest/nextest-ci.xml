@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="2" skipped="0" failures="1" errors="0" uuid="2a8e8b66-fdab-4951-b917-d836f2560e5a" timestamp="2026-10-19T12:42:39.632+02:00" time="0.029">
+    <testsuite name="sample" tests="2" skipped="0" errors="0" failures="1">
+        <testcase name="tests::title_is_read" classname="sample" timestamp="2026-10-19T12:42:39.633+02:00" time="0.026">
+            <failure message="thread &apos;tests::title_is_read&apos; (37781387) panicked at src/lib.rs:9:9" type="test failure with exit code 101">thread &apos;tests::title_is_read&apos; (37781387) panicked at src/lib.rs:9:9:
+assertion `left == right` failed: the title
+  left: 2
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+test tests::title_is_read ... FAILED
+
+failures:
+
+failures:
+    tests::title_is_read
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err>goodfetch-test-seed=17
+
+thread &apos;tests::title_is_read&apos; (37781387) panicked at src/lib.rs:9:9:
+assertion `left == right` failed: the title
+  left: 2
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="tests::steady" classname="sample" timestamp="2026-10-19T12:42:39.633+02:00" time="0.026"/>
+    </testsuite>
+</testsuites>

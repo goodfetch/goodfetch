@@ -1,0 +1,50 @@
+#:schema ./journey.schema.json
+id = "J-005"
+title = "Resume a Crawl after the Daemon is killed, with no Record delivered twice"
+goal = """
+A person runs a Crawl on the Daemon, the Daemon is killed partway through, \
+and the person resumes the Crawl once the Daemon is started again. The kill \
+MUST stop only the Daemon's runs, each resumable from its own state, and the \
+resumed Crawl MUST return every product of the site's catalog with no Record \
+delivered twice."""
+area = 3
+product = "foxhound"
+status = "active"
+covers = ["row:RT-10", "row:RT-11", "row:durability-resume", "story:3-23"]
+
+[proving_ground]
+seed = 5
+tasks = [
+  { id = "catalog/1", digest = "6305a1fda113c1e955ac6a6a9a3df4f2687962aa88f2bec0b1beaf48403649c7" },
+]
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+
+[[steps]]
+text = "Start the Daemon"
+
+[[steps]]
+text = "Start a Crawl of the catalog on the Daemon, reading its Records as they arrive"
+
+[[steps]]
+text = "Kill the Daemon (`kill -9`) once the Crawl has committed some Records"
+
+[[steps]]
+text = "Start the Daemon again and resume the Crawl by its Run ID"
+
+[[steps]]
+text = "Read the Crawl's Records until it finishes"
+
+[[expect]]
+text = "The kill lost none of the Records the Crawl committed before it: the Crawl resumed from its own state"
+
+[[expect]]
+text = "No Record was delivered twice, across the kill and the resume"
+
+[[expect]]
+text = "The oracle verifies the resumed Crawl's Records"
+task = "catalog/1"

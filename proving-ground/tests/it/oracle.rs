@@ -86,6 +86,11 @@ fn a_correct_result_is_verified(#[case] index: usize) {
         .as_object_mut()
         .and_then(|answer| answer.remove("oracle_time_microseconds"));
     assert!(oracle_time.is_some_and(|time| time.is_u64()), "{answer}");
+    let quality = answer
+        .as_object_mut()
+        .and_then(|answer| answer.remove("quality"))
+        .expect("the answer scores the result");
+    assert_eq!(quality["correct"], quality["expected"], "{quality}");
     assert_eq!(
         answer,
         json!({
@@ -351,4 +356,29 @@ fn an_order_placed_on_another_tasks_host_is_not_the_order_tasks() {
         .json();
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
+}
+
+#[test]
+fn the_oracle_scores_each_field_against_the_ground_truth() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, mut records) = correct_result(&proving_ground, 0);
+    records.pop();
+    records[0]["price"] = json!("0.01");
+
+    let answer = proving_ground
+        .judge(&submission(&task, "success", &records))
+        .json();
+
+    assert_eq!(
+        answer["quality"],
+        json!({
+            "fields": {
+                "id": { "expected": 100, "correct": 99 },
+                "name": { "expected": 100, "correct": 99 },
+                "price": { "expected": 100, "correct": 98 },
+            },
+            "expected": 300,
+            "correct": 296,
+        })
+    );
 }

@@ -69,7 +69,37 @@ pub(crate) struct Answer {
     /// Effects it carried out beyond the expected ones: another, or one
     /// again.
     extra_effects: Vec<Effect>,
+    quality: Quality,
     oracle_time_microseconds: u64,
+}
+
+/// Extraction quality (pain 14), scored field by field against the ground
+/// truth: of each field's expected values, one per expected Record, how
+/// many the result holds. A missing Record's fields are missing values, and
+/// an extra Record scores nothing.
+#[derive(Default, Serialize)]
+struct Quality {
+    fields: BTreeMap<&'static str, Score>,
+    expected: u64,
+    correct: u64,
+}
+
+#[derive(Default, Serialize)]
+struct Score {
+    expected: u64,
+    correct: u64,
+}
+
+impl Quality {
+    fn count(&mut self, field: &'static str, correct: bool) {
+        let score = self.fields.entry(field).or_default();
+        score.expected += 1;
+        self.expected += 1;
+        if correct {
+            score.correct += 1;
+            self.correct += 1;
+        }
+    }
 }
 
 /// A field of a Record whose submitted value is not the expected one.
@@ -135,6 +165,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
     let mut seen = BTreeSet::new();
     let mut extra = Vec::new();
     let mut wrong = Vec::new();
+    let mut quality = Quality::default();
     for record in submission.records {
         let matched = record
             .get("id")
@@ -145,9 +176,12 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
             extra.push(record);
             continue;
         };
+        quality.count("id", true);
         for (field, value) in expected.iter().filter(|(field, _)| **field != "id") {
             let submitted = record.get(*field);
-            if !same_value(value, submitted) {
+            let correct = same_value(value, submitted);
+            quality.count(field, correct);
+            if !correct {
                 wrong.push(Wrong {
                     id: (*id).to_owned(),
                     field,
@@ -165,6 +199,11 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         .filter(|id| !seen.contains(*id))
         .map(|id| (*id).to_owned())
         .collect();
+    for record in missing.iter().map(|id| by_id[id.as_str()]) {
+        for field in record.keys() {
+            quality.count(field, false);
+        }
+    }
     let mut missing_effects = expected.effects.clone();
     let mut extra_effects = Vec::new();
     for effect in effects {
@@ -206,6 +245,7 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
         wrong,
         missing_effects,
         extra_effects,
+        quality,
         oracle_time_microseconds: stopwatch.microseconds(),
     }
 }

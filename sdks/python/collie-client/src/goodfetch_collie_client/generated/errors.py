@@ -66,6 +66,30 @@ class CallCancelledError(UnavailableError):
         super().__init__(message, code="call_cancelled", group="unavailable", retryable=False)
 
 
+class ExecutableBlockedBySmartAppControlError(RefusedError):
+    """Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="executable_blocked_by_smart_app_control", group="refused", retryable=False)
+
+
+class NameLookupFailedError(UnavailableError):
+    """The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="name_lookup_failed", group="unavailable", retryable=True)
+
+
+class NameNotResolvedError(UnavailableError):
+    """The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="name_not_resolved", group="unavailable", retryable=False)
+
+
 class NotInProductError(UnavailableError):
     """The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine."""
 
@@ -92,6 +116,9 @@ class SampleRefusedError(RefusedError):
 
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "call_cancelled": CallCancelledError,
+    "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
+    "name_lookup_failed": NameLookupFailedError,
+    "name_not_resolved": NameNotResolvedError,
     "not_in_product": NotInProductError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "sample_refused": SampleRefusedError,

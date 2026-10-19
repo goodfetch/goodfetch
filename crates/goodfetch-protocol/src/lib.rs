@@ -12,9 +12,11 @@
 pub mod case_log;
 pub mod catalog;
 pub mod connection;
+pub mod dns;
 pub mod emit;
 pub mod engine;
 pub mod entries;
+pub mod executables;
 pub mod formats;
 pub mod foxhound;
 pub mod foxhound_names;

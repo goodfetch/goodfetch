@@ -13,6 +13,8 @@ export type TestSupportErrorCode =
   | "start_failed"
   /** The description `goodfetch-test-env` printed fails its committed schema. */
   | "description_invalid"
+  /** A test took `provingGround` without setting `provingGroundSeed`. */
+  | "proving_ground_unseeded"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */

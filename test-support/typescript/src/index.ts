@@ -10,6 +10,12 @@ export {
 } from "./process-record.ts";
 export { productEnv, type Product } from "./product-env.ts";
 export {
+  provingGroundOf,
+  type ProvingGroundDescription,
+  type ProvingGroundFixtures,
+  type ProxyCredentials,
+} from "./proving-ground.ts";
+export {
   startTestEnv,
   toolPath,
   type Program,

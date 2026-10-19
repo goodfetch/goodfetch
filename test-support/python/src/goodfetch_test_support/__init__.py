@@ -10,12 +10,22 @@ from goodfetch_test_support.environment import (
     TestEnv,
     TestEnvError,
 )
+from goodfetch_test_support.proving_ground import (
+    ProvingGround,
+    ProvingGroundFixtures,
+    ProvingGroundUnseeded,
+    ProxyCredentials,
+)
 from goodfetch_test_support.schemas import SchemaError
 from goodfetch_test_support.tools import Tool, Tools, ToolsError
 
 __all__ = [
     "ProcessesAlive",
     "Product",
+    "ProvingGround",
+    "ProvingGroundFixtures",
+    "ProvingGroundUnseeded",
+    "ProxyCredentials",
     "SchemaError",
     "TestEnv",
     "TestEnvError",

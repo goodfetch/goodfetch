@@ -90,6 +90,16 @@ impl Site {
         }
     }
 
+    /// Every host name the site serves, in order.
+    pub(crate) fn host_names(&self) -> impl Iterator<Item = &str> {
+        self.hosts.keys().map(String::as_str)
+    }
+
+    /// The seed's certificate authority, as PEM.
+    pub(crate) fn certificate_authority(&self) -> &str {
+        &self.certificate_authority
+    }
+
     /// Every host name a page family is served on, each with the task its
     /// requests belong to, if any: the family's own, and each task's. Each
     /// has its own leaf certificate, and only these are observed.

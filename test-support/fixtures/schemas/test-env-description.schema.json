@@ -1,5 +1,106 @@
 {
   "$defs": {
+    "ProvingGroundDescription": {
+      "additionalProperties": false,
+      "description": "A started Proving ground, as a test and `goodfetch-test-env`'s\ndescription see it.",
+      "properties": {
+        "address": {
+          "description": "The address `serve` bound and answers on, such as `127.0.0.1:51234`.",
+          "type": "string"
+        },
+        "ca": {
+          "description": "The file of the certificate authority its TLS leaves chain to, as\nPEM, in the test's folder.",
+          "type": "string"
+        },
+        "fixtures": {
+          "$ref": "#/$defs/ProvingGroundFixtures",
+          "description": "The addresses of its network fixtures."
+        },
+        "resolve": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Every host name it serves, mapped to the IP of its address, as the\n`resolve` setting takes them.",
+          "type": "object"
+        },
+        "seed": {
+          "description": "The seed every page and expected result comes from.",
+          "format": "uint64",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "description": "The Proving ground's version, `<workspace version>+<commit>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "address",
+        "version",
+        "seed",
+        "resolve",
+        "ca",
+        "fixtures"
+      ],
+      "type": "object"
+    },
+    "ProvingGroundFixtures": {
+      "additionalProperties": false,
+      "description": "The network fixtures `serve` starts beside its pages.",
+      "properties": {
+        "connections": {
+          "description": "The URL of the connection record, which lists every connection\naccepted and every relay a proxy made.",
+          "type": "string"
+        },
+        "dns": {
+          "description": "The DNS fixture's UDP address.",
+          "type": "string"
+        },
+        "proxies": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Each forward proxy's address, by name: `open`, `refusing_tunnels`,\n`down` (nothing listens), and one per proxy kind behind Basic\nauthentication.",
+          "type": "object"
+        },
+        "proxy_credentials": {
+          "$ref": "#/$defs/ProxyCredentials",
+          "description": "The credentials the authenticated proxies accept."
+        },
+        "target": {
+          "description": "The watched target's address, which answers `200 reached`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proxies",
+        "proxy_credentials",
+        "dns",
+        "target",
+        "connections"
+      ],
+      "type": "object"
+    },
+    "ProxyCredentials": {
+      "additionalProperties": false,
+      "description": "A forward proxy's Basic credentials, derived from the seed.",
+      "properties": {
+        "password": {
+          "description": "The password.",
+          "type": "string"
+        },
+        "username": {
+          "description": "The username.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ],
+      "type": "object"
+    },
     "Tools": {
       "additionalProperties": false,
       "description": "The commit's executables, each present when its crate exists in the\nworkspace. Tests of a Product's executable crate use its\n`CARGO_BIN_EXE_` path instead.",
@@ -46,6 +147,10 @@
     "home": {
       "description": "`<folder>/home`, the `GOODFETCH_HOME` of everything the test starts.",
       "type": "string"
+    },
+    "proving_ground": {
+      "$ref": "#/$defs/ProvingGroundDescription",
+      "description": "The Proving ground `--proving-ground <seed>` started, present only\nwhen asked for."
     },
     "seed": {
       "description": "The test's seed, at most 2^53 - 1 so every language reads it exactly.",

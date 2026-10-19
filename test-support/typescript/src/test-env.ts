@@ -10,6 +10,7 @@ import { Ajv2020, type SchemaObject, type ValidateFunction } from "ajv/dist/2020
 import { fullFormats } from "ajv-formats/dist/formats.js";
 import { TestSupportError } from "./errors.ts";
 import type { ProcessRecord, RecordedProcess } from "./process-record.ts";
+import type { ProvingGroundDescription } from "./proving-ground.ts";
 
 /** The commit's executables, each present when its crate exists in the workspace. */
 export interface Tools {
@@ -39,6 +40,8 @@ export interface TestEnvDescription {
   readonly start_time: string;
   /** The commit's executables, from the test tool manifest. */
   readonly tools: Tools;
+  /** The Proving ground started on the seed the test asked for, if any. */
+  readonly proving_ground?: ProvingGroundDescription | undefined;
 }
 
 /** A program and its arguments. */
@@ -57,6 +60,8 @@ export interface TestEnvStart {
   readonly toolManifest: string | undefined;
   /** What runs in place of the manifest's `goodfetch-test-env`, when given. */
   readonly program?: Program | undefined;
+  /** The seed of a Proving ground to start beside the setup, when given. */
+  readonly provingGroundSeed?: number | undefined;
 }
 
 /** A started setup. */
@@ -104,9 +109,13 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
     ...process.env,
     [TOOLS_VARIABLE]: start.toolManifest,
   };
+  const provingGround =
+    start.provingGroundSeed === undefined
+      ? []
+      : ["--proving-ground", String(start.provingGroundSeed)];
   const started = start.processes.spawn(
     program.command,
-    [...program.args, "--test-name", start.testName],
+    [...program.args, "--test-name", start.testName, ...provingGround],
     {
       env,
     },

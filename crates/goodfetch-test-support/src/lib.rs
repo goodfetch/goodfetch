@@ -1,6 +1,8 @@
 //! Goodfetch's shared Rust test helpers (ADR 0062): `TestEnv` (the per-test
 //! folder, Goodfetch home, cleared environment, printed seed and start
 //! time), the processes a test starts and the addresses they report, the
+//! Proving ground started from a seed with its `resolve` mapping,
+//! certificate authority and network fixtures, the
 //! test tool manifest, the paused runtime, proptest's configuration, the
 //! test `tracing` subscriber, the Observation log with its fencing and
 //! Limits checkers, seeded kills of real processes and the crash VFS under
@@ -24,6 +26,7 @@ mod invariants;
 mod kill;
 mod observation;
 mod process;
+mod proving_ground;
 mod resolver;
 mod runtime;
 mod special_purpose;
@@ -52,6 +55,10 @@ pub use observation::{
 pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,
     reported_address, reported_address_within,
+};
+pub use proving_ground::{
+    PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription, ProvingGroundError,
+    ProvingGroundFixtures, ProxyCredentials,
 };
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};

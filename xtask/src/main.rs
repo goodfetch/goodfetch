@@ -34,6 +34,7 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
+mod os_services;
 mod output;
 mod package_dependencies;
 mod perf;
@@ -46,6 +47,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod test_tools;
 mod tlc;
 mod tree;
 mod wording;
@@ -145,6 +147,12 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
+    /// The real OS services the tests meet: the extra loopback addresses and
+    /// the Secret Service (ADR 0059).
+    OsServices {
+        #[command(subcommand)]
+        command: os_services::Command,
+    },
     /// Fails when an npm or PyPI package under `sdks/`, `adapters/` or
     /// `integrations/` depends on a package of the other Product, or on a
     /// Product's package when it is the Collie client package (ADR 0095).
@@ -191,6 +199,10 @@ enum Command {
         #[command(subcommand)]
         mode: size::Command,
     },
+    /// Builds the commit's executables that tests run with the tests' own
+    /// Cargo profile and writes the test tool manifest of their paths, which
+    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
+    TestTools(test_tools::Arguments),
     /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
     /// tools (ADR 0060).
     Tlc {
@@ -347,6 +359,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Notices(arguments) => notices::run(&arguments, environment),
+        Command::OsServices { command } => os_services::run(command, environment),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
@@ -356,6 +369,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }

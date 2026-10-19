@@ -4,7 +4,8 @@
 # the Rust toolchain of rust-toolchain.toml and the target, just, cargo-nextest,
 # cargo-insta and uv at the versions the CI image pins (ci/tool-versions.sh
 # checks they agree), pnpm, the runtimes,
-# then `just fetch`. A job calls it right after actions/checkout.
+# then `just fetch`. A job calls it right after actions/checkout. Linux jobs
+# link with mold and Windows jobs build on a Dev Drive (spec #325).
 #
 # Runtimes (ADR 0069; TESTING.md, SDK and CLI tests):
 #   one   the newest Node LTS line and CPython, as the Pre-merge suite runs;
@@ -36,6 +37,38 @@ inputs:
 runs:
   using: composite
   steps:
+    # Windows builds on a Dev Drive (ReFS), which Cargo's many small files
+    # write much faster to: the workspace's `target` folder is a junction to
+    # it, so every path under `target/` stays as it is. Local builds are
+    # untouched.
+    - name: Create a Dev Drive for the build
+      if: runner.os == 'Windows'
+      uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+      with:
+        drive-size: 40GB
+    - name: Build into the Dev Drive
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $folder = New-Item -ItemType Directory -Force -Path (Join-Path $env:DEV_DRIVE 'target')
+        New-Item -ItemType Junction -Path target -Target $folder.FullName | Out-Null
+        Write-Output "target is a junction to $($folder.FullName) on the Dev Drive."
+
+    # Linux test builds link with mold (ci/host/mold.sh); local builds keep
+    # the default linker.
+    - name: Install mold
+      if: runner.os == 'Linux'
+      uses: rui314/setup-mold@10ca16bf91dc22e05ebdc935cad9c75ea248f621 # v1, of 2026-09-12
+      with:
+        mold-version: 2.42.1
+        make-default: false
+    - name: Link with mold
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: ci/host/mold.sh
+
     - name: Install the Rust toolchain and target
       shell: bash
       env:

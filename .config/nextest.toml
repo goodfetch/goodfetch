@@ -44,5 +44,5 @@ path = "junit.xml"
 fixture-builds = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^perf_build::/))"
+filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^perf_build::/) | test(/^test_tools::/))"
 test-group = "fixture-builds"

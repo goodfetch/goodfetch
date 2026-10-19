@@ -20,7 +20,7 @@ use crate::environment::Environment;
 use crate::output;
 
 pub(crate) use canary::{Record, Refusals, attempt, report, verdict};
-pub(crate) use declarations::check;
+pub(crate) use declarations::{DENY, check};
 pub(crate) use endpoints::Endpoint;
 use endpoints::{Endpoints, JobKey};
 

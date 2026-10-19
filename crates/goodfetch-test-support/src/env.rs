@@ -1,0 +1,280 @@
+//! `TestEnv`, each test's one entry point (ADRs 0059 and 0062): its own
+//! folder, Goodfetch home and cleared environment map, its printed seed, the
+//! fixed start time, unique names, and the commands and processes it starts.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "test support creates folders and starts processes outside any async worker (ADR 0062)"
+)]
+
+use std::cell::Cell;
+use std::collections::BTreeMap;
+use std::ffi::OsStr;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::{Duration, SystemTime};
+
+use crate::process::{Process, ProcessTracker, ProcessesAlive};
+use crate::variables::{SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test};
+
+/// Every test's start time, 2026-01-05T09:00:00Z: a Monday outside any DST
+/// change in the shared time zones. A test that needs another passes its own.
+pub const START_TIME: &str = "2026-01-05T09:00:00Z";
+
+/// [`START_TIME`] in seconds since the Unix epoch.
+const START_SECONDS: u64 = 1_767_603_600;
+
+/// How long a folder name keeps the test's name.
+const NAME_LENGTH: usize = 64;
+
+/// One test's isolated setup. Its folder is removed when it drops, unless
+/// the test failed: then it is kept and listed on stderr. Dropping it also
+/// fails the test if a process it started is still alive.
+pub struct TestEnv {
+    folder: tempfile::TempDir,
+    home: PathBuf,
+    env: BTreeMap<String, String>,
+    seed: u64,
+    suite: Suite,
+    names: Cell<u64>,
+    processes: ProcessTracker,
+}
+
+impl TestEnv {
+    /// The running test's setup, from its thread's name and the process's
+    /// variables.
+    ///
+    /// # Panics
+    ///
+    /// If its folder cannot be made or a variable cannot be read.
+    pub fn new() -> Self {
+        Self::create(&current_test(), &Variables::from_process())
+            .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+    }
+
+    /// The setup of the test with this full name, from these variables.
+    /// Prints `goodfetch-test-seed=<n>` to stderr once the seed is known,
+    /// before anything else, so a test killed on a timeout still shows it.
+    pub fn create(test: &str, variables: &Variables) -> Result<Self, TestEnvError> {
+        let seed = variables.seed(test)?;
+        #[expect(
+            clippy::print_stderr,
+            reason = "the seed is printed when the test starts (ADR 0060)"
+        )]
+        {
+            eprintln!("goodfetch-test-seed={seed}");
+        }
+        let suite = variables.suite()?;
+        let folder = tempfile::Builder::new()
+            .prefix(&format!("{} é ", folder_name(test)))
+            .tempdir()?;
+        let root = folder.path();
+        let home = root.join("home");
+        let user = root.join("user");
+        let folders = [
+            ("GOODFETCH_HOME", home.clone()),
+            ("HOME", user.clone()),
+            ("USERPROFILE", user.clone()),
+            ("XDG_CONFIG_HOME", user.join(".config")),
+            ("XDG_DATA_HOME", user.join(".local").join("share")),
+            ("XDG_CACHE_HOME", user.join(".cache")),
+            ("XDG_STATE_HOME", user.join(".local").join("state")),
+            ("XDG_RUNTIME_DIR", root.join("runtime")),
+        ];
+        let mut env = BTreeMap::new();
+        for (name, path) in folders {
+            std::fs::create_dir_all(&path)?;
+            let value = path
+                .to_str()
+                .ok_or_else(|| TestEnvError::NotUnicode(path.clone()))?;
+            env.insert(name.to_owned(), value.to_owned());
+        }
+        restrict_to_owner(&root.join("runtime"))?;
+        env.insert("TZ".to_owned(), "UTC".to_owned());
+        env.insert("LANG".to_owned(), "C.UTF-8".to_owned());
+        if cfg!(windows) {
+            for name in WINDOWS_VARIABLES {
+                if let Some(value) = variables.get(name) {
+                    env.insert(name.to_owned(), value.to_owned());
+                }
+            }
+        }
+        Ok(Self {
+            folder,
+            home,
+            env,
+            seed,
+            suite,
+            names: Cell::new(0),
+            processes: ProcessTracker::default(),
+        })
+    }
+
+    /// The same setup with `LANG` for this locale tag (`tr-TR` becomes
+    /// `tr_TR.UTF-8`).
+    #[must_use]
+    pub fn with_locale(mut self, tag: &str) -> Self {
+        self.env.insert(
+            "LANG".to_owned(),
+            format!("{}.UTF-8", tag.replace('-', "_")),
+        );
+        self
+    }
+
+    /// The same setup with `TZ` for this time zone.
+    #[must_use]
+    pub fn with_time_zone(mut self, zone: &str) -> Self {
+        self.env.insert("TZ".to_owned(), zone.to_owned());
+        self
+    }
+
+    /// The test's own folder.
+    pub fn folder(&self) -> &Path {
+        self.folder.path()
+    }
+
+    /// `<folder>/home`, the `GOODFETCH_HOME` of everything the test starts.
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
+    /// The cleared environment of every child the test starts.
+    pub fn env(&self) -> &BTreeMap<String, String> {
+        &self.env
+    }
+
+    /// The test's seed (ADR 0060).
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// The running suite.
+    pub fn suite(&self) -> Suite {
+        self.suite
+    }
+
+    /// [`START_TIME`], the same for every test.
+    pub fn start_time(&self) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(START_SECONDS)
+    }
+
+    /// `<prefix>-<seed>-<counter>`, for keychain services and service-manager
+    /// units shared by the whole user.
+    pub fn unique_name(&self, prefix: &str) -> String {
+        let counter = self.names.get() + 1;
+        self.names.set(counter);
+        format!("{prefix}-{}-{counter}", self.seed)
+    }
+
+    /// A command with the environment cleared and the map applied, run in
+    /// the test's folder, for [`TestEnv::spawn`].
+    pub fn process_command(&self, program: impl AsRef<OsStr>) -> std::process::Command {
+        let mut command = std::process::Command::new(program);
+        command
+            .env_clear()
+            .envs(&self.env)
+            .current_dir(self.folder());
+        command
+    }
+
+    /// Starts a command with its standard input and output piped and records
+    /// its process, which must have exited when the test's teardown runs.
+    pub fn spawn(&self, command: &mut std::process::Command) -> io::Result<Process> {
+        let program = Path::new(command.get_program())
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        let child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        Ok(self.processes.record(program, child))
+    }
+}
+
+impl Default for TestEnv {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        let alive = self.processes.stop_alive();
+        let panicking = std::thread::panicking();
+        if !panicking && alive.is_empty() {
+            return;
+        }
+        self.folder.disable_cleanup(true);
+        #[expect(
+            clippy::print_stderr,
+            reason = "a failed test lists its kept folder in its output (ADR 0062)"
+        )]
+        {
+            eprintln!("goodfetch-test-folder-kept={}", self.folder().display());
+        }
+        if !panicking {
+            let alive = ProcessesAlive { programs: alive };
+            #[expect(
+                clippy::print_stderr,
+                reason = "the failure's reason, since a typed panic payload prints none (ADR 0069)"
+            )]
+            {
+                eprintln!("{alive}");
+            }
+            std::panic::panic_any(alive);
+        }
+    }
+}
+
+/// An `assert_cmd` command with the environment cleared and the test's map
+/// applied, run in the test's folder.
+pub fn command(env: &TestEnv, program: impl AsRef<OsStr>) -> assert_cmd::Command {
+    assert_cmd::Command::from_std(env.process_command(program))
+}
+
+/// The test's name as a folder name every OS accepts.
+fn folder_name(test: &str) -> String {
+    test.replace("::", "-")
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || "-_.".contains(character) {
+                character
+            } else {
+                '-'
+            }
+        })
+        .take(NAME_LENGTH)
+        .collect()
+}
+
+#[cfg(unix)]
+fn restrict_to_owner(folder: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_folder: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+/// Why a test's setup cannot start.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum TestEnvError {
+    /// `GOODFETCH_TEST_SEED` cannot be read.
+    #[error(transparent)]
+    Seed(#[from] SeedError),
+    /// `GOODFETCH_TEST_SUITE` names no suite.
+    #[error(transparent)]
+    Suite(#[from] SuiteError),
+    /// The folder cannot be made.
+    #[error("the test's folder cannot be made: {0}")]
+    Folder(#[from] io::Error),
+    /// A path of the folder is not Unicode, so no environment map holds it.
+    #[error("the test's folder {} is not Unicode", .0.display())]
+    NotUnicode(PathBuf),
+}
+
+#[cfg(test)]
+mod tests;

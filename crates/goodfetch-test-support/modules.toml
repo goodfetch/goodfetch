@@ -1,2 +1,9 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
+description = ["env", "tools"]
+env = ["process", "variables"]
+process = []
+runtime = ["variables"]
+tools = ["variables"]
+trace = []
+variables = []

@@ -3,7 +3,9 @@
 //! `false_success` or `failed` with what was missing, extra or wrong, the task
 //! it judged and its own time. Effects are judged from the Proving ground's
 //! own record of what it carried out, never from the tool's report: an
-//! Effect carried out twice is an extra one. The tool's status is recorded, never what
+//! Effect carried out twice is an extra one. So are a Crawl's findings (a page
+//! fetched twice, a trap followed, a honeypot hit, a `Retry-After` ignored):
+//! a task with one is never verified. The tool's status is recorded, never what
 //! makes a result verified: a correct `needs-review` result is verified
 //! (ADR 0013), and only a result the tool calls a success can be a false
 //! success. A downloaded file is judged by its name and exact bytes. Where the
@@ -27,7 +29,7 @@ use crate::clock::Stopwatch;
 use crate::digest;
 use crate::observation::Seen;
 use crate::robots;
-use crate::task::{Effect, Expected, ExpectedError, Record};
+use crate::task::{self, Effect, Expected, ExpectedError, Record};
 
 /// A tool's result for one task, as submitted to `POST /oracle`.
 #[derive(Deserialize)]
@@ -207,11 +209,11 @@ pub(crate) struct Answer {
     /// requires.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     signature_faults: Vec<SignatureFault>,
-    quality: Quality,
     /// What the Proving ground's own record refutes beside the Records,
-    /// Effects and files.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    findings: Vec<Finding>,
+    /// Effects and files: what it saw the tool do wrong on the task's host,
+    /// and the checks of what it observed that failed.
+    findings: Vec<Refutation>,
+    quality: Quality,
     /// The Access dimensions the submission named.
     #[serde(skip_serializing_if = "Option::is_none")]
     access: Option<AccessDimensions>,
@@ -241,6 +243,19 @@ enum Fault {
     Refused,
     /// Signed, where no request may be.
     Signed,
+}
+
+/// A finding of the oracle's answer: a Crawl's misstep the family that
+/// served the request recorded (named by its `kind`), or a check of what
+/// the Proving ground observed that failed (named by its `check`).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub(crate) enum Refutation {
+    /// A Crawl's misstep: a page fetched twice, a trap followed, a honeypot
+    /// hit, a `Retry-After` ignored, a request past the in-flight cap.
+    Crawl(task::Finding),
+    /// A check of the Proving ground's own record that failed.
+    Check(Finding),
 }
 
 /// Something the Proving ground's own record refutes: a fingerprint that
@@ -277,7 +292,8 @@ impl Answer {
                 Outcome::Failed
             };
         }
-        self.findings.extend(findings);
+        self.findings
+            .extend(findings.into_iter().map(Refutation::Check));
         self
     }
 }
@@ -399,16 +415,17 @@ struct Files {
 }
 
 /// Judges `submission` against `expected`, and the Effects carried out for
-/// its task, `effects`, against the expected ones. A task whose expected
-/// result is a refusal is verified only when nothing was carried out and the
-/// tool reported a failure (the one named, if any), and the task's
-/// `requests`, as observed, are judged against its forbidden paths and
-/// signatures.
+/// its task, `effects`, against the expected ones; any of the task's
+/// `findings` refutes it. A task whose expected result is a refusal is
+/// verified only when nothing was carried out and the tool reported a
+/// failure (the one named, if any), and the task's `requests`, as observed,
+/// are judged against its forbidden paths and signatures.
 pub(crate) fn judge(
     expected: &Expected,
     submission: Submission,
     effects: &[Effect],
     requests: &[Seen],
+    findings: Vec<task::Finding>,
 ) -> Answer {
     let stopwatch = Stopwatch::start();
     let records = judge_records(expected, submission.records);
@@ -449,12 +466,14 @@ pub(crate) fn judge(
     let correct = records.missing.is_empty()
         && effects.missing.is_empty()
         && files.missing.is_empty()
+        && findings.is_empty()
         && nothing_wrong(&records, &effects, &files)
         && as_fetched;
     // A refusal's expected Records are those only outwaiting its incident
     // gives: their absence is no fault, their whole presence is late.
     let refused_cleanly = effects.missing.is_empty()
         && files.missing.is_empty()
+        && findings.is_empty()
         && nothing_wrong(&records, &effects, &files)
         && as_fetched
         && wrong_error.is_none();
@@ -473,7 +492,8 @@ pub(crate) fn judge(
         Outcome::Verified
     } else if submission.status == ToolStatus::Success {
         Outcome::FalseSuccess
-    } else if nothing_wrong(&records, &effects, &files)
+    } else if findings.is_empty()
+        && nothing_wrong(&records, &effects, &files)
         && as_fetched
         && (records.any_correct || effects.any_expected || files.any_correct)
     {
@@ -497,8 +517,8 @@ pub(crate) fn judge(
         wrong_error,
         forbidden_requests,
         signature_faults,
+        findings: findings.into_iter().map(Refutation::Crawl).collect(),
         quality: records.quality,
-        findings: Vec::new(),
         access: submission.access,
         oracle_time_microseconds: stopwatch.microseconds(),
     }

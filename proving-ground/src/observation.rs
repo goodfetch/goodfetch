@@ -4,7 +4,13 @@
 //! `ClientHello` and HTTP/2 settings, pseudo-header order, status and
 //! timing), the bytes each
 //! request and each host received and sent, the Effects the site
-//! carried out, and what its pages' own scripts reported. The oracle and the suites read them, never a tool's report.
+//! carried out, what its pages' own scripts reported, and the findings of
+//! the Crawl families (a page fetched twice, a trap followed, a honeypot
+//! hit, a `Retry-After` ignored). The oracle and the suites read them,
+//! never a tool's report. The connection record beside them lists every
+//! connection the Proving ground's listeners accepted and every relay its
+//! forward proxies carried out, each entry with the time step it came at,
+//! which `PUT /time-step` sets.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -19,7 +25,8 @@
 //! Only the host names the Proving ground serves are observed; its own
 //! address (the task list, the oracle, this record) is not. At most
 //! [`REQUEST_LIMIT`] requests are kept in detail; later ones are counted in
-//! `unrecorded_requests` and in their host's bytes.
+//! `unrecorded_requests` and in their host's bytes, and at most
+//! [`FINDING_LIMIT`] findings, later ones counted in `unrecorded_findings`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
@@ -29,34 +36,40 @@ use serde::{Deserialize, Serialize};
 
 use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
+use crate::connection_record::{self, ConnectionRecord, Stamp};
 use crate::sync::Mutex;
-use crate::task::Effect;
+use crate::task::{Effect, Finding};
 
 /// The most requests kept in detail (STYLE.md: every buffer is bounded).
 const REQUEST_LIMIT: usize = 100_000;
+
+/// The most findings kept (STYLE.md: every buffer is bounded).
+const FINDING_LIMIT: usize = 10_000;
 
 /// The observations of one `serve`.
 pub(crate) struct Observations {
     /// Each host name served, with the task it belongs to, if any.
     hosts: BTreeMap<String, Option<String>>,
     stopwatch: Stopwatch,
+    /// The Proving ground's time step, as `PUT /time-step` sets it.
+    time_step: Mutex<u64>,
     state: Mutex<State>,
+    record: ConnectionRecord,
 }
 
 #[derive(Default)]
 struct State {
-    connections: u64,
     requests: Vec<Request>,
     unrecorded_requests: u64,
     hosts: BTreeMap<Arc<str>, ByteCount>,
     effects: Vec<EffectRecord>,
-    /// Each connection whose host is served, as it was accepted.
-    accepted: Vec<Accepted>,
     /// The latest request each host received, by its sequence.
     latest_of_host: HashMap<Arc<str>, usize>,
     /// The latest request of each host, method and target.
     latest_of_target: HashMap<(Arc<str>, String, String), usize>,
     reports: Vec<ReportRecord>,
+    findings: Vec<FindingRecord>,
+    unrecorded_findings: u64,
 }
 
 /// Bytes received from and sent to a client.
@@ -179,25 +192,6 @@ pub(crate) enum End {
         last_stream: u32,
         error_code: &'static str,
     },
-}
-
-/// A connection the Proving ground accepted for a host it serves.
-#[derive(Serialize)]
-struct Accepted {
-    connection: u64,
-    host: Arc<str>,
-    /// The client's address family; `null` when it was not read.
-    family: Option<Family>,
-    #[serde(rename = "accepted_microseconds")]
-    at_microseconds: u64,
-}
-
-/// An address family.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum Family {
-    Ipv4,
-    Ipv6,
 }
 
 /// What the Proving ground found when it checked a request's Web Bot Auth
@@ -369,6 +363,14 @@ struct ReportRecord {
     report: Report,
 }
 
+/// A finding of a Crawl family, with the task of the host it came on.
+#[derive(Serialize)]
+struct FindingRecord {
+    task: Option<String>,
+    #[serde(flatten)]
+    finding: Finding,
+}
+
 /// A recorded request's place in the record.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RequestId(usize);
@@ -377,12 +379,15 @@ pub(crate) struct RequestId(usize);
 #[derive(Serialize)]
 struct Document<'a> {
     requests: &'a [Request],
-    connections: &'a [Accepted],
     unrecorded_requests: u64,
     effects: &'a [EffectRecord],
     reports: &'a [ReportRecord],
+    findings: &'a [FindingRecord],
+    unrecorded_findings: u64,
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
+    #[serde(flatten)]
+    record: &'a connection_record::Document<'a>,
 }
 
 impl Observations {
@@ -391,44 +396,65 @@ impl Observations {
         Self {
             hosts,
             stopwatch: Stopwatch::start(),
+            time_step: Mutex::new(0),
             state: Mutex::default(),
+            record: ConnectionRecord::default(),
         }
+    }
+
+    /// The host names observed, each with its task, if any.
+    pub(crate) fn hosts(&self) -> &BTreeMap<String, Option<String>> {
+        &self.hosts
+    }
+
+    /// The task of the host `authority` names, if the Proving ground serves
+    /// it for one.
+    pub(crate) fn task_of(&self, authority: &str) -> Option<String> {
+        self.served(authority).and_then(|(_, task)| task.clone())
+    }
+
+    /// Sets the Proving ground's time step, which scheduled content follows
+    /// and every later entry of the connection record is stamped with.
+    pub(crate) fn set_time_step(&self, step: u64) {
+        *self.time_step.lock() = step;
+    }
+
+    /// The Proving ground's time step.
+    pub(crate) fn time_step(&self) -> u64 {
+        *self.time_step.lock()
+    }
+
+    /// The time step and the time now.
+    pub(crate) fn stamp(&self) -> Stamp {
+        Stamp {
+            time_step: self.time_step(),
+            at_microseconds: self.stopwatch.microseconds(),
+        }
+    }
+
+    /// The connection record.
+    pub(crate) fn connection_record(&self) -> &ConnectionRecord {
+        &self.record
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock()
     }
 
-    /// Starts observing a new connection whose client's address is not
-    /// known.
-    #[cfg(test)]
-    pub(crate) fn connection(self: &Arc<Self>) -> Arc<Connection> {
-        self.connection_with(None)
-    }
-
-    /// Starts observing a new connection from `peer`.
-    pub(crate) fn connection_from(self: &Arc<Self>, peer: SocketAddr) -> Arc<Connection> {
-        self.connection_with(Some(if peer.ip().to_canonical().is_ipv4() {
-            Family::Ipv4
-        } else {
-            Family::Ipv6
-        }))
-    }
-
-    fn connection_with(self: &Arc<Self>, family: Option<Family>) -> Arc<Connection> {
-        let id = {
-            let mut state = self.state();
-            state.connections += 1;
-            state.connections - 1
-        };
+    /// Starts observing a new connection the site's listener accepted from
+    /// `source` on `destination`, which the connection record lists.
+    pub(crate) fn connection(
+        self: &Arc<Self>,
+        source: SocketAddr,
+        destination: SocketAddr,
+    ) -> Arc<Connection> {
+        let id = self
+            .record
+            .accepted(self.stamp(), "site", source, destination);
         Arc::new(Connection {
             id,
             observations: Arc::clone(self),
-            state: Mutex::new(ConnectionState {
-                family,
-                accepted_microseconds: self.stopwatch.microseconds(),
-                ..ConnectionState::default()
-            }),
+            state: Mutex::new(ConnectionState::default()),
         })
     }
 
@@ -490,8 +516,29 @@ impl Observations {
             .collect()
     }
 
-    /// The record as JSON: the requests, the Effects, the reports, and the bytes per task
-    /// and per host.
+    /// Records a finding of a Crawl family on a request to `authority`.
+    pub(crate) fn finding(&self, authority: &str, finding: Finding) {
+        let task = self.served(authority).and_then(|(_, task)| task.clone());
+        let mut state = self.state();
+        if state.findings.len() >= FINDING_LIMIT {
+            state.unrecorded_findings += 1;
+        } else {
+            state.findings.push(FindingRecord { task, finding });
+        }
+    }
+
+    /// The findings recorded for `task`, in order.
+    pub(crate) fn findings_of(&self, task: &str) -> Vec<Finding> {
+        self.state()
+            .findings
+            .iter()
+            .filter(|record| record.task.as_deref() == Some(task))
+            .map(|record| record.finding.clone())
+            .collect()
+    }
+
+    /// The record as JSON: the requests, the Effects, the reports, the
+    /// findings, the bytes per task and per host, and the connection record.
     pub(crate) fn document(&self) -> Vec<u8> {
         let state = self.state();
         let mut tasks = BTreeMap::new();
@@ -503,16 +550,20 @@ impl Observations {
                     .add(*bytes);
             }
         }
-        serde_json::to_vec(&Document {
-            requests: &state.requests,
-            connections: &state.accepted,
-            unrecorded_requests: state.unrecorded_requests,
-            effects: &state.effects,
-            reports: &state.reports,
-            tasks,
-            hosts: &state.hosts,
+        self.record.with_document(|record| {
+            serde_json::to_vec(&Document {
+                requests: &state.requests,
+                unrecorded_requests: state.unrecorded_requests,
+                effects: &state.effects,
+                reports: &state.reports,
+                findings: &state.findings,
+                unrecorded_findings: state.unrecorded_findings,
+                tasks,
+                hosts: &state.hosts,
+                record,
+            })
+            .expect("invariant: the observations serialize")
         })
-        .expect("invariant: the observations serialize")
     }
 
     /// What the Proving ground saw of each request to `task`'s host, in
@@ -559,8 +610,6 @@ struct ConnectionState {
     /// Bytes counted before the host was known.
     pending: ByteCount,
     tls: Option<Arc<ClientHello>>,
-    family: Option<Family>,
-    accepted_microseconds: u64,
     /// The latest request read on each HTTP/2 stream, or on the connection
     /// for HTTP/1.1 (stream 0).
     latest: BTreeMap<u32, RequestId>,
@@ -603,12 +652,6 @@ impl Connection {
             Some((host, _)) => {
                 let host: Arc<str> = Arc::from(host);
                 self.observations.count(&host, pending);
-                self.observations.state().accepted.push(Accepted {
-                    connection: self.id,
-                    host: Arc::clone(&host),
-                    family: state.family,
-                    at_microseconds: state.accepted_microseconds,
-                });
                 Host::Served(host)
             }
             None => Host::Unserved,

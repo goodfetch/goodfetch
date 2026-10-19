@@ -211,6 +211,25 @@ impl From<Reported> for Effect {
     }
 }
 
+/// A crawl's misstep the Proving ground saw on a task's host, as it
+/// records it (ADR 0025's Crawl cases): the oracle refutes a result whose
+/// task has one, whatever its Records.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum Finding {
+    /// A page fetched again, at the same URL or another of its URLs.
+    Duplicate { page: String, target: String },
+    /// A request to a crawler trap beyond what its task allows.
+    Trap { target: String },
+    /// A request for a link hidden from people.
+    Honeypot { target: String },
+    /// A request sent before the `Retry-After` of a `429` had passed.
+    RetryAfterIgnored { target: String },
+    /// A request sent while the site already had its cap of requests in
+    /// flight.
+    OverInFlightCap { target: String },
+}
+
 /// One expected Record: its fields by name, `id` among them, each as the page
 /// shows it.
 pub(crate) type Record = BTreeMap<&'static str, String>;

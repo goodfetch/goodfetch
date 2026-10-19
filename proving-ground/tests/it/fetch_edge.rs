@@ -438,11 +438,17 @@ fn the_ipv6_path_drops_connections_while_ipv4_answers() {
         .as_array()
         .expect("connections")
         .iter()
-        .find(|connection| connection["connection"] == request["connection"])
+        .find(|connection| connection["id"] == request["connection"])
         .cloned()
         .expect("the connection is recorded");
-    assert_eq!(connection["family"], "ipv4");
-    assert!(connection["accepted_microseconds"].is_u64());
+    // An IPv4 client, accepted at a recorded time.
+    assert!(
+        connection["source"]
+            .as_str()
+            .is_some_and(|source| source.starts_with("127.0.0.1:")),
+        "{connection}"
+    );
+    assert!(connection["at_microseconds"].is_u64(), "{connection}");
     if ipv6_loopback() {
         let port: u16 = proving_ground.port().parse().unwrap();
         #[expect(

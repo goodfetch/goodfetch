@@ -23,6 +23,13 @@ pub(crate) struct Answer {
     pub(crate) body: String,
 }
 
+/// A response's status, `Content-Type` and body as bytes.
+pub(crate) struct RawAnswer {
+    pub(crate) status: u16,
+    pub(crate) content_type: Option<String>,
+    pub(crate) body: Vec<u8>,
+}
+
 impl Answer {
     pub(crate) fn json(&self) -> Value {
         serde_json::from_str(&self.body).expect("the body is JSON")
@@ -97,6 +104,34 @@ impl ProvingGround {
             .call()
             .expect("the Proving ground answers");
         Self::answer(response)
+    }
+
+    /// Fetches a URL on one of the Proving ground's host names as `get`
+    /// does, keeping the body's bytes as sent and its `Content-Type`, if
+    /// any.
+    pub(crate) fn get_raw(&self, url: &str) -> RawAnswer {
+        let rest = url.strip_prefix("http://").expect("an http URL");
+        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        let mut response = self
+            .agent
+            .get(format!("http://{}{path}", self.address))
+            .header("host", host)
+            .call()
+            .expect("the Proving ground answers");
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .map(|value| value.to_str().expect("an ASCII media type").to_owned());
+        RawAnswer {
+            status: response.status().as_u16(),
+            content_type,
+            body: response
+                .body_mut()
+                .with_config()
+                .limit(64 * 1024 * 1024)
+                .read_to_vec()
+                .expect("the body is readable"),
+        }
     }
 
     /// The task list, from the Proving ground's own address.

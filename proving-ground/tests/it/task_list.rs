@@ -26,15 +26,15 @@ fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
 
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
     assert_eq!(
-        each(&tasks, "id"),
+        each(&tasks, "id")[..3],
         [json!("catalog/1"), json!("catalog/2"), json!("catalog/3")]
     );
     assert_eq!(
-        each(&tasks, "family"),
+        each(&tasks, "family")[..3],
         [json!("catalog"), json!("catalog"), json!("catalog")]
     );
     assert_eq!(
-        each(&tasks, "kind"),
+        each(&tasks, "kind")[..3],
         [json!("crawl"), json!("extract"), json!("submit")]
     );
     assert_eq!(

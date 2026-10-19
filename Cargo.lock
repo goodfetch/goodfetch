@@ -794,6 +794,8 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "crc32fast",
+ "encoding_rs",
  "h2",
  "http-body-util",
  "hyper",

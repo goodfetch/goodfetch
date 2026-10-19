@@ -158,6 +158,14 @@ fn a_success_with_a_wrong_price_is_a_false_success_naming_the_price() {
     let (task, mut records) = correct_result(&proving_ground, 1);
     let shown = records[0]["price"].take();
     records[0]["price"] = json!("0.01");
+    // Every price is at least 1.00, so its first digit is never the 0 of
+    // 0.01.
+    let first_digit = shown.as_str().unwrap().chars().next().unwrap();
+    let difference = json!({
+        "at": 0,
+        "expected": format!("U+{:04X}", u32::from(first_digit)),
+        "submitted": "U+0030",
+    });
 
     let answer = proving_ground
         .judge(&submission(&task, "success", &records))
@@ -168,7 +176,13 @@ fn a_success_with_a_wrong_price_is_a_false_success_naming_the_price() {
     assert_eq!(answer["missing"], json!([]));
     assert_eq!(
         answer["wrong"],
-        json!([{ "id": records[0]["id"], "field": "price", "expected": shown, "submitted": "0.01" }])
+        json!([{
+            "id": records[0]["id"],
+            "field": "price",
+            "expected": shown,
+            "submitted": "0.01",
+            "difference": difference,
+        }])
     );
 }
 

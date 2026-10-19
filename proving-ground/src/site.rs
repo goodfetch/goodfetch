@@ -11,6 +11,7 @@ use hyper::{Method, StatusCode};
 use serde::Serialize;
 
 use crate::catalog;
+use crate::encodings;
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
 use crate::task::{Task, TaskList};
@@ -79,9 +80,12 @@ impl Site {
     /// requests belong to, if any: the family's own, and each task's. Each
     /// has its own leaf certificate, and only these are observed.
     pub(crate) fn hosts(seed: u64) -> BTreeMap<String, Option<String>> {
-        let mut hosts = BTreeMap::from([(catalog::HOST.to_owned(), None)]);
+        let mut hosts = BTreeMap::from([
+            (catalog::HOST.to_owned(), None),
+            (encodings::HOST.to_owned(), None),
+        ]);
         hosts.extend(
-            catalog::tasks(seed, 0)
+            Self::tasks_of(seed, 0)
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
@@ -90,12 +94,42 @@ impl Site {
 
     /// Every family's tasks, in the task list's order.
     fn tasks(&self) -> Vec<Task> {
-        catalog::tasks(self.seed, self.port)
+        Self::tasks_of(self.seed, self.port)
+    }
+
+    /// Every family's tasks for `seed` on `port`, in the task list's order.
+    fn tasks_of(seed: u64, port: u16) -> Vec<Task> {
+        let mut tasks = catalog::tasks(seed, port);
+        tasks.extend(encodings::tasks(seed, port));
+        tasks
+    }
+
+    /// The reply of an Extraction family (#165) to a request on `name`, one
+    /// of its host names; `None` when `name` is another family's.
+    fn extraction(&self, name: &str, method: &Method, path: &str) -> Option<Reply> {
+        let of = |family: &str| name == family || name.ends_with(&format!(".{family}"));
+        let page = if of(encodings::HOST) {
+            encodings::page(self.seed, path)
+        } else {
+            return None;
+        };
+        Some(match (method, page) {
+            (&Method::GET, Some((content_type, body))) => Reply {
+                status: StatusCode::OK,
+                content_type,
+                body: body.into(),
+            },
+            _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
+        })
     }
 
     /// Answers one request, given its `Host` header, path and body.
     pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
-        if self.hosts.contains_key(&observation::host_name(host)) {
+        let name = observation::host_name(host);
+        if self.hosts.contains_key(&name) {
+            if let Some(reply) = self.extraction(&name, method, path) {
+                return reply;
+            }
             return match (method, path) {
                 (&Method::POST, "/orders") => match catalog::order(body) {
                     Some((effect, page)) => {

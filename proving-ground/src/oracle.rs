@@ -80,6 +80,47 @@ struct Wrong {
     expected: String,
     /// `null` when the field is absent.
     submitted: Value,
+    /// The first character that differs, when the submitted value is text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    difference: Option<Difference>,
+}
+
+/// The first character at which a submitted text differs from the expected
+/// one, both held in UTF-8 in the normalization form served (ADR 0073), so
+/// a text read in another encoding or normalized names the character that
+/// changed.
+#[derive(Serialize)]
+struct Difference {
+    /// The character's index in the expected text, counted in Unicode
+    /// scalar values.
+    at: usize,
+    /// The expected character there as `U+XXXX`; `null` past the expected
+    /// text's end.
+    expected: Option<String>,
+    /// The submitted character there; `null` past the submitted text's end.
+    submitted: Option<String>,
+}
+
+impl Difference {
+    /// Where `submitted` first differs from `expected`.
+    fn between(expected: &str, submitted: &str) -> Self {
+        let mut expected = expected.chars();
+        let mut submitted = submitted.chars();
+        let mut at = 0;
+        loop {
+            match (expected.next(), submitted.next()) {
+                (Some(left), Some(right)) if left == right => at += 1,
+                (left, right) => {
+                    let name = |character: char| format!("U+{:04X}", u32::from(character));
+                    return Self {
+                        at,
+                        expected: left.map(name),
+                        submitted: right.map(name),
+                    };
+                }
+            }
+        }
+    }
 }
 
 /// Judges `submission` against `expected`, and the Effects carried out for
@@ -112,6 +153,9 @@ pub(crate) fn judge(expected: &Expected, submission: Submission, effects: &[Effe
                     field,
                     expected: value.clone(),
                     submitted: submitted.cloned().unwrap_or(Value::Null),
+                    difference: submitted
+                        .and_then(Value::as_str)
+                        .map(|text| Difference::between(value, text)),
                 });
             }
         }

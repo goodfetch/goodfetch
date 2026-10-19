@@ -8,10 +8,12 @@
 )]
 
 mod clients;
+mod encodings;
 mod observations;
 mod oracle;
 mod pages;
 mod proving_ground;
+mod reading;
 mod serve;
 mod task_list;
 mod transport;

@@ -8,6 +8,7 @@
 )]
 
 mod clients;
+mod crawl_pages;
 mod crawler;
 mod extra_loopback;
 mod limits;

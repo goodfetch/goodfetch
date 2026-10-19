@@ -247,10 +247,11 @@ fn test_of_a_surface_its_journey_does_not_list_fails() {
     VITEST_SDK
 )]
 #[case::playwright_no_surface(PLAYWRIGHT, "[\"J-001\", \"console\"]", "[\"J-001\"]", CONSOLE)]
+/// `journey("J-003")` lists no keyword.
 #[case::pytest_positional_id(
     PYTEST,
     "[{ \"id\": \"J-003\", \"surface\": \"sdk-python\" }]",
-    "[\"J-003\"]",
+    "[{}]",
     PYTEST_SDK
 )]
 fn journey_test_carrying_no_single_variant_fails(

@@ -199,8 +199,24 @@ test suite *packages:
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
           # nextest runs no doctests; cargo-insta's own doctest pass would take
-          # nextest's profile flag, which `cargo test` refuses.
-          cargo test "${packages[@]}" --doc --profile {{ test_profile }}
+          # nextest's profile flag, which `cargo test` refuses. `cargo test
+          # --doc` also refuses a selection with no library target ("no
+          # library targets found"), such as a binary-only crate alone, so it
+          # gets only the selected packages that have one, and none skips it.
+          doc_packages=("${packages[@]}")
+          if [[ "${packages[0]}" == -p ]]; then
+            libraries=$(cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(any(.targets[].kind[]; IN("lib", "rlib", "dylib", "proc-macro"))) | .name')
+            doc_packages=()
+            for ((i = 1; i < ${#packages[@]}; i += 2)); do
+              if grep -qxF -- "${packages[i]}" <<< "$libraries"; then doc_packages+=(-p "${packages[i]}"); fi
+            done
+          fi
+          if [[ ${#doc_packages[@]} -gt 0 ]]; then
+            cargo test "${doc_packages[@]}" --doc --profile {{ test_profile }}
+          else
+            echo "Doctests: no selected package has a library target"
+          fi
         fi
         if $typescript; then
           pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}

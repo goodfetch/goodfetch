@@ -1,15 +1,18 @@
 //! The engine's benchmark scenarios (ADR 0071), shared by its Callgrind and
 //! DHAT targets: framing and decoding a fixed batch of lines, and
 //! dispatching `hello` then a fixed number of `engine.info` calls over the
-//! in-memory network on the tests' paused current-thread runtime. Inputs are
-//! literals; no network, no sleep, no work whose amount depends on timing.
+//! in-memory network on the tests' paused current-thread runtime, and
+//! writing a fixed number of rows through a run file's writer, queued
+//! together so they commit in one group, with SQLite's full sync, in a
+//! temporary folder (ADR 0071's run-state writes). Inputs are literals; no
+//! network, no sleep, no work whose amount depends on timing.
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::rpc::framing::{Frame, Framer, MAX_MESSAGE_BYTES, decode};
-use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::tasks::BlockingPolicy;
+use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
@@ -93,4 +96,87 @@ pub(crate) fn dispatch(calls: &[u8]) -> usize {
         served.expect("invariant: the engine got its Connection");
         replies
     })
+}
+
+/// A table the run-state benchmark writes.
+const ROWS: RunStateTables = RunStateTables {
+    name: "bench",
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS rows (value INTEGER NOT NULL, data TEXT NOT NULL) STRICT",
+    ],
+};
+
+/// Opens a run file in a temporary folder, writes `count` rows through its
+/// writer, queued together so they commit in one group, and returns how
+/// many it acknowledged.
+pub(crate) fn run_state_writes(count: usize) -> usize {
+    let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(
+            folder.path().join("run.sqlite"),
+            &RunStateOptions::default(),
+            vec![ROWS],
+            1,
+            &owner,
+        )
+        .await
+        .expect("invariant: a temporary folder takes a run file");
+        let writes = (0..count).map(|value| {
+            let state = state.clone();
+            async move {
+                state
+                    .write(move |connection| {
+                        connection.execute(
+                            "INSERT INTO rows (value, data) VALUES (?1, ?2)",
+                            (
+                                i64::try_from(value).unwrap_or(i64::MAX),
+                                "a Record of a few dozen bytes, as a crawl stages",
+                            ),
+                        )
+                    })
+                    .await
+                    .is_ok()
+            }
+        });
+        let acknowledged = join_all(writes)
+            .await
+            .into_iter()
+            .filter(|acknowledged| *acknowledged)
+            .count();
+        drop(state);
+        owner.wait().await;
+        acknowledged
+    })
+}
+
+/// Polls every future of `futures` on this task until each answered, so
+/// the writes queue together.
+async fn join_all<F: Future>(futures: impl Iterator<Item = F>) -> Vec<F::Output> {
+    let mut pending: Vec<_> = futures.map(|future| Some(Box::pin(future))).collect();
+    let mut answers: Vec<Option<F::Output>> = pending.iter().map(|_| None).collect();
+    std::future::poll_fn(|context| {
+        let mut waiting = false;
+        for (slot, answer) in pending.iter_mut().zip(answers.iter_mut()) {
+            if let Some(future) = slot {
+                match future.as_mut().poll(context) {
+                    std::task::Poll::Ready(output) => {
+                        *answer = Some(output);
+                        *slot = None;
+                    }
+                    std::task::Poll::Pending => waiting = true,
+                }
+            }
+        }
+        if waiting {
+            std::task::Poll::Pending
+        } else {
+            std::task::Poll::Ready(())
+        }
+    })
+    .await;
+    answers
+        .into_iter()
+        .map(|answer| answer.expect("invariant: every future answered"))
+        .collect()
 }

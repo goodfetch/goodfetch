@@ -388,3 +388,45 @@ fn the_peak_reader_returns_a_known_allocations_order_of_magnitude(
         "{peak} bytes, outside {at_least}..{under}"
     );
 }
+
+/// `cat` answers `hello` with `hello` itself, which no engine sends.
+#[cfg(unix)]
+#[test]
+fn the_idle_attached_engine_scenario_fails_on_a_child_that_does_not_accept_hello() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = workspace.xtask(&[
+        "rss",
+        "probe",
+        "--scenario",
+        "idle-attached-engine",
+        "--needs",
+        "collie",
+        "--",
+        "cat",
+    ]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "");
+}
+
+#[test]
+fn measure_refuses_a_manifest_without_an_executable_the_scenario_runs_on() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "target/test-tools.json",
+        b"{\"collie\": \"/nonexistent/goodfetch-collie\"}\n",
+    );
+
+    let outcome = workspace.xtask(&[
+        "rss",
+        "measure",
+        "--tools",
+        "target/test-tools.json",
+        "--out",
+        "target/rss/peaks.jsonl",
+    ]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert_eq!(workspace.read("target/rss/peaks.jsonl"), None);
+}

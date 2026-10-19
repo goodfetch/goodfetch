@@ -45,33 +45,38 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
         serde_json::from_slice(&text).with_context(|| format!("parsing {}", tools.display()))?;
     let platform = Platform::current()?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
+    // Every executable a scenario runs on is measured, or none is.
+    let mut measured = Vec::new();
+    for &scenario in scenarios {
+        for &product in scenario.products() {
+            let Some(executable) = tools.executable(product) else {
+                bail!(
+                    "the test tool manifest names no executable of {}, which {} runs on",
+                    product.name(),
+                    scenario.name()
+                );
+            };
+            measured.push((scenario, product, executable));
+        }
+    }
     for run in 1..=runs {
-        for &scenario in scenarios {
-            for &product in scenario.products() {
-                let Some(executable) = tools.executable(product) else {
-                    bail!(
-                        "the test tool manifest names no executable of {}, which {} runs on",
-                        product.name(),
-                        scenario.name()
-                    );
-                };
-                let bytes = run_probe(&probe, scenario, product, executable)?;
-                output::line(&format!(
-                    "{} {} {}, run {run} of {runs}: {bytes} bytes",
-                    product.as_str(),
-                    scenario.name(),
-                    platform.name()
-                ));
-                peaks::append(
-                    out,
-                    &Peak {
-                        product,
-                        platform,
-                        scenario,
-                        bytes,
-                    },
-                )?;
-            }
+        for &(scenario, product, executable) in &measured {
+            let bytes = run_probe(&probe, scenario, product, executable)?;
+            output::line(&format!(
+                "{} {} {}, run {run} of {runs}: {bytes} bytes",
+                product.as_str(),
+                scenario.name(),
+                platform.name()
+            ));
+            peaks::append(
+                out,
+                &Peak {
+                    product,
+                    platform,
+                    scenario,
+                    bytes,
+                },
+            )?;
         }
     }
     Ok(())

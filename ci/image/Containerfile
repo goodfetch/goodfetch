@@ -12,6 +12,8 @@ ARG UV_VERSION=0.9.28
 ARG UV_SHA256=66ad1822dd9cf96694b95c24f25bc05cff417a65351464da01682a91796d1f2b
 ARG ACTIONLINT_VERSION=1.7.12
 ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+ARG MOLD_VERSION=2.42.1
+ARG MOLD_SHA256=6ff270c9bf07d2bec5c98aa324eb7c4daf6a1a4d815c05ff1708049616047855
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -35,6 +37,21 @@ RUN curl -fsSLo /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/rele
  && tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint \
  && rm /tmp/actionlint.tar.gz
 
+# Test builds link with mold, as the hosted Linux jobs do through the
+# host-tools action; local builds keep the default linker. Rust's own
+# default on this target is rust-lld, which `-fuse-ld=mold` replaces.
+RUN curl -fsSLo /tmp/mold.tar.gz "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
+ && echo "${MOLD_SHA256}  /tmp/mold.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/mold.tar.gz -C /usr/local --strip-components=1 \
+ && rm /tmp/mold.tar.gz
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-Clink-arg=-fuse-ld=mold
+
+# The Secret Service the keychain tests meet (ci/os-services.sh starts it):
+# a D-Bus session bus, gnome-keyring and libsecret's secret-tool.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools \
+ && rm -rf /var/lib/apt/lists/*
+
 # rust-toolchain.toml's components, the MSRV's toolchain (the workspace's
 # `rust-version`, ADR 0030; raise both together), and the Cargo tools at
 # pinned versions.
@@ -53,6 +70,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && cargo install --locked --root /usr/local gungraun-runner@0.20.0 \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
+# TLC's Java (ADR 0060): the pinned TLA+ tools need Java 11 or later.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openjdk-21-jre-headless \
+ && rm -rf /var/lib/apt/lists/*
 
 ENV CI=true
 WORKDIR /work

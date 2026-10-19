@@ -1,0 +1,236 @@
+//! The oracle: it judges a submitted result for a task against the expected
+//! result the seed gives, whatever status the tool reported, and names what
+//! is missing, extra or wrong, the task it judged and its own time.
+//!
+//! The known-correct results come from reading the pages the way any tool
+//! would: a crawl from the task's start page, an extract of its one page.
+
+use regex::Regex;
+use rstest::rstest;
+use serde_json::{Value, json};
+
+use crate::proving_ground::ProvingGround;
+
+const SEED: u64 = 158;
+
+/// The Record a product page shows.
+fn read_product(proving_ground: &ProvingGround, url: &str) -> Value {
+    let page = proving_ground.get(url).body;
+    let field = |pattern: &str| {
+        Regex::new(pattern)
+            .expect("a valid pattern")
+            .captures(&page)
+            .expect(pattern)[1]
+            .to_owned()
+    };
+    json!({
+        "id": field(r#"<article class="product" data-id="([^"]+)""#),
+        "name": field(r#"<h1 class="name">([^<]+)</h1>"#),
+        "price": field(r#"data-price="([^"]+)""#),
+    })
+}
+
+/// The Records of every product page reached from the listing pages, from
+/// the start page through each Next link.
+fn crawl(proving_ground: &ProvingGround, start_url: &str) -> Vec<Value> {
+    let (origin, _) = start_url
+        .split_once("/catalog/")
+        .expect("a listing page's URL");
+    let product = Regex::new(r#"href="(/products/[^"]+)""#).expect("a valid pattern");
+    let next = Regex::new(r#"rel="next" href="([^"]+)""#).expect("a valid pattern");
+    let mut records = Vec::new();
+    let mut listing = Some(start_url.to_owned());
+    while let Some(url) = listing {
+        let page = proving_ground.get(&url).body;
+        records.extend(
+            product
+                .captures_iter(&page)
+                .map(|link| read_product(proving_ground, &format!("{origin}{}", &link[1]))),
+        );
+        listing = next
+            .captures(&page)
+            .map(|link| format!("{origin}{}", &link[1]));
+    }
+    records
+}
+
+/// A known-correct result for the task at `index` in the task list: its ID
+/// and Records.
+fn correct_result(proving_ground: &ProvingGround, index: usize) -> (String, Vec<Value>) {
+    let task = proving_ground.tasks()["tasks"][index].clone();
+    let start_url = task["start_url"].as_str().expect("a start URL");
+    let records = match task["kind"].as_str().expect("a kind") {
+        "crawl" => crawl(proving_ground, start_url),
+        _ => vec![read_product(proving_ground, start_url)],
+    };
+    (task["id"].as_str().expect("an ID").to_owned(), records)
+}
+
+fn submission(task: &str, status: &str, records: &[Value]) -> Value {
+    json!({ "task": task, "status": status, "records": records })
+}
+
+/// Covers: story:2-31, story:2-32
+#[rstest]
+#[case::crawl(0)]
+#[case::extract(1)]
+fn a_correct_result_is_verified(#[case] index: usize) {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, records) = correct_result(&proving_ground, index);
+
+    let answer = proving_ground.judge(&submission(&task, "success", &records));
+
+    assert_eq!(answer.status, 200, "{}", answer.body);
+    let mut answer = answer.json();
+    let oracle_time = answer
+        .as_object_mut()
+        .and_then(|answer| answer.remove("oracle_time_microseconds"));
+    assert!(oracle_time.is_some_and(|time| time.is_u64()), "{answer}");
+    assert_eq!(
+        answer,
+        json!({
+            "task": task,
+            "outcome": "verified",
+            "tool_status": "success",
+            "missing": [],
+            "extra": [],
+            "wrong": [],
+        })
+    );
+}
+
+/// Covers: story:2-3, story:2-5
+#[rstest]
+#[case::needs_review("needs-review")]
+#[case::failure("failure")]
+fn a_correct_result_is_verified_whatever_the_tools_status(#[case] status: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, records) = correct_result(&proving_ground, 0);
+
+    let answer = proving_ground
+        .judge(&submission(&task, status, &records))
+        .json();
+
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+    assert_eq!(answer["tool_status"], status, "{answer}");
+}
+
+/// Covers: story:2-32
+#[test]
+fn a_result_missing_one_record_is_incomplete() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, mut records) = correct_result(&proving_ground, 0);
+    let dropped = records.pop().unwrap();
+
+    let answer = proving_ground
+        .judge(&submission(&task, "failure", &records))
+        .json();
+
+    assert_eq!(answer["task"], task.as_str());
+    assert_eq!(answer["outcome"], "incomplete", "{answer}");
+    assert_eq!(answer["missing"], json!([dropped["id"]]));
+    assert_eq!(answer["extra"], json!([]));
+    assert_eq!(answer["wrong"], json!([]));
+}
+
+/// Covers: story:2-4, story:2-32
+#[test]
+fn a_success_missing_one_record_is_a_false_success() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, mut records) = correct_result(&proving_ground, 0);
+    let dropped = records.remove(3);
+
+    let answer = proving_ground
+        .judge(&submission(&task, "success", &records))
+        .json();
+
+    assert_eq!(answer["task"], task.as_str());
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(answer["missing"], json!([dropped["id"]]));
+}
+
+/// Covers: story:2-4, story:2-32
+#[test]
+fn a_success_with_a_wrong_price_is_a_false_success_naming_the_price() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, mut records) = correct_result(&proving_ground, 1);
+    let shown = records[0]["price"].take();
+    records[0]["price"] = json!("0.01");
+
+    let answer = proving_ground
+        .judge(&submission(&task, "success", &records))
+        .json();
+
+    assert_eq!(answer["task"], task.as_str());
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(answer["missing"], json!([]));
+    assert_eq!(
+        answer["wrong"],
+        json!([{ "id": records[0]["id"], "field": "price", "expected": shown, "submitted": "0.01" }])
+    );
+}
+
+/// Covers: story:2-32
+#[test]
+fn a_failure_with_an_extra_record_is_failed_naming_the_record() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, mut records) = correct_result(&proving_ground, 1);
+    let extra = json!({ "id": "P-9999", "name": "Unlisted", "price": "1.00" });
+    records.push(extra.clone());
+
+    let answer = proving_ground
+        .judge(&submission(&task, "failure", &records))
+        .json();
+
+    assert_eq!(answer["outcome"], "failed", "{answer}");
+    assert_eq!(answer["extra"], json!([extra]));
+}
+
+/// Covers: story:2-32
+#[test]
+fn a_record_submitted_twice_is_extra() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, mut records) = correct_result(&proving_ground, 1);
+    records.push(records[0].clone());
+
+    let answer = proving_ground
+        .judge(&submission(&task, "success", &records))
+        .json();
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(answer["extra"], json!([records[0]]));
+}
+
+#[test]
+fn a_price_submitted_as_a_number_is_the_price_the_page_shows() {
+    let proving_ground = ProvingGround::start(SEED);
+    let (task, mut records) = correct_result(&proving_ground, 1);
+    let shown: f64 = records[0]["price"].as_str().unwrap().parse().unwrap();
+    records[0]["price"] = json!(shown);
+
+    let answer = proving_ground
+        .judge(&submission(&task, "success", &records))
+        .json();
+
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+}
+
+#[test]
+fn an_unknown_task_is_refused() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = proving_ground.judge(&submission("catalog/999", "success", &[]));
+
+    assert_eq!(answer.status, 404);
+    assert_eq!(answer.json()["error"], "unknown_task");
+}
+
+#[test]
+fn a_malformed_submission_is_refused() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = proving_ground.judge(&json!({ "task": "catalog/1", "status": "done" }));
+
+    assert_eq!(answer.status, 400);
+    assert_eq!(answer.json()["error"], "malformed_submission");
+}

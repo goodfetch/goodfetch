@@ -22,16 +22,19 @@ mod dco;
 mod dependency_direction;
 mod egress;
 mod environment;
+mod features;
 mod fixture_size;
 mod foxhound_side;
 mod github;
 mod issues;
+mod journeys;
 mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
+mod os_services;
 mod output;
 mod package_dependencies;
 mod perf;
@@ -45,6 +48,8 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod test_tools;
+mod tlc;
 mod tree;
 mod wording;
 mod workflow;
@@ -116,8 +121,19 @@ enum Command {
         #[command(subcommand)]
         command: egress::Command,
     },
+    /// The Feature inventory's declarations and its Feature check (ADRs 0072
+    /// and 0075).
+    Features {
+        #[command(subcommand)]
+        command: features::Command,
+    },
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
+    /// The Journey catalog under `journeys/` (ADR 0063).
+    Journeys {
+        #[command(subcommand)]
+        command: journeys::Command,
+    },
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -132,6 +148,12 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
+    /// The real OS services the tests meet: the extra loopback addresses and
+    /// the Secret Service (ADR 0059).
+    OsServices {
+        #[command(subcommand)]
+        command: os_services::Command,
+    },
     /// Fails when an npm or PyPI package under `sdks/`, `adapters/` or
     /// `integrations/` depends on a package of the other Product, or on a
     /// Product's package when it is the Collie client package (ADR 0095).
@@ -184,6 +206,16 @@ enum Command {
     Stress {
         #[command(subcommand)]
         command: stress::Command,
+    },
+    /// Builds the commit's executables that tests run with the tests' own
+    /// Cargo profile and writes the test tool manifest of their paths, which
+    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
+    TestTools(test_tools::Arguments),
+    /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
+    /// tools (ADR 0060).
+    Tlc {
+        #[command(subcommand)]
+        command: tlc::Command,
     },
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
@@ -328,11 +360,14 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
         Command::Egress { command } => egress::run(command, environment),
+        Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
+        Command::Journeys { command } => journeys::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Notices(arguments) => notices::run(&arguments, environment),
+        Command::OsServices { command } => os_services::run(command, environment),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
@@ -343,6 +378,8 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::Stress { command } => stress::run(command, environment),
+        Command::TestTools(arguments) => test_tools::run(&arguments, environment),
+        Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

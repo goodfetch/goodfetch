@@ -240,9 +240,19 @@ impl Workspace {
     /// the tests that build one run one at a time (`.config/nextest.toml`,
     /// the `fixture-builds` group).
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
+        self.xtask_with_env(args, &[])
+    }
+
+    /// Runs `xtask <args>` as `xtask` does, with these variables added.
+    pub(crate) fn xtask_with_env(
+        &self,
+        args: &[&str],
+        variables: &[(&str, &std::ffi::OsStr)],
+    ) -> Outcome {
         let output = self
             .command(env!("CARGO_BIN_EXE_xtask"))
             .args(args)
+            .envs(variables.iter().copied())
             .env(
                 "CARGO_TARGET_DIR",
                 Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target"),

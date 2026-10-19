@@ -3,7 +3,11 @@
 //! through schemars, and writes from them every generated file: each
 //! Product's projection, the names only Foxhound carries, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
-//! copy of the license allowlist, and each SDK package's `generated/` layer.
+//! copy of the license allowlist, each SDK package's `generated/` layer, and
+//! the Journey files' schema on its own, `journeys/journey.schema.json`, for
+//! editors and the TypeScript and Python helpers (ADR 0063). It also commits
+//! the JSON Schemas of `goodfetch-test-support`'s file types, which
+//! `goodfetch-test-env --print-schemas` prints (ADR 0062).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -26,6 +30,7 @@ mod names;
 mod naming;
 mod projection;
 mod python;
+mod test_support;
 mod typescript;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,11 +39,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::check::Finding;
 use crate::environment::Environment;
+use crate::features;
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::emit::JOURNEY_FILES;
 use layer::Layer;
 
 /// Where `goodfetch-protocol`'s committed outputs live.
@@ -46,6 +53,10 @@ const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";
 
 /// The digests of each outside generator's input and output, written with them.
 const DIGESTS: &str = "crates/goodfetch-protocol/generated/digests.json";
+
+/// The schema of every Journey file, written on its own from the bundle's
+/// `files` (ADR 0063).
+const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
 
 /// The cargo-deny configuration that holds the `wrappers` list and the
 /// licenses.
@@ -237,7 +248,9 @@ struct Plan {
 
 impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
-        std::iter::once(PROTOCOL_GENERATED).chain(PACKAGES.iter().map(|package| package.folder))
+        [PROTOCOL_GENERATED, test_support::FOLDER]
+            .into_iter()
+            .chain(PACKAGES.iter().map(|package| package.folder))
     }
 
     /// Every file `xtask codegen` writes inside the folders it owns.
@@ -279,9 +292,27 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
+    let foxhound_names = names::table(&catalog);
     files.insert(
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
-        names::render(&catalog).into_bytes(),
+        names::render(&foxhound_names).into_bytes(),
+    );
+    let sources = features::Sources {
+        root,
+        catalog: &catalog,
+        bundle: &bundle,
+        foxhound_names: &foxhound_names,
+    };
+    files.insert(
+        features::INVENTORY.to_owned(),
+        features::inventory_text(&sources)?,
+    );
+    for (path, schema) in features::schemas() {
+        files.insert(path.to_owned(), json_text(&schema)?);
+    }
+    files.insert(
+        JOURNEY_SCHEMA.to_owned(),
+        json_text(&standalone(&bundle, JOURNEY_FILES)?)?,
     );
 
     let deny_path = root.join(DENY);
@@ -300,6 +331,16 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         deny::COLLIE.to_owned(),
         deny::render_collie(&collie_text, &crates).into_bytes(),
     );
+
+    for (name, schema) in test_support::schemas(cargo, root)? {
+        if name.contains(['/', '\\']) {
+            bail!("goodfetch-test-env printed a schema named {name}, which is no file name");
+        }
+        files.insert(
+            format!("{}/{name}", test_support::FOLDER),
+            json_text(&schema)?,
+        );
+    }
 
     let mut externals = Vec::new();
     for package in &PACKAGES {
@@ -324,6 +365,37 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         });
     }
     Ok(Plan { files, externals })
+}
+
+/// The schema the bundle's `files` gives `key`, on its own: the bundle's
+/// draft, with the types it reaches under its own `$defs`.
+fn standalone(bundle: &Value, key: &str) -> Result<Value> {
+    let root = bundle
+        .get("files")
+        .and_then(|files| files.get(key))
+        .and_then(Value::as_object)
+        .with_context(|| format!("the bundle's `files` maps no `{key}`"))?;
+    let definitions = bundle
+        .get("$defs")
+        .and_then(Value::as_object)
+        .context("the bundle has no `$defs`")?;
+    let reached = projection::reached(&Value::Object(root.clone()), definitions)?;
+    let mut schema = Map::new();
+    if let Some(draft) = bundle.get("$schema") {
+        schema.insert("$schema".to_owned(), draft.clone());
+    }
+    schema.extend(root.clone());
+    schema.insert(
+        "$defs".to_owned(),
+        Value::Object(
+            definitions
+                .iter()
+                .filter(|(name, _)| reached.contains(name.as_str()))
+                .map(|(name, definition)| (name.clone(), definition.clone()))
+                .collect(),
+        ),
+    );
+    Ok(Value::Object(schema))
 }
 
 /// JSON as every generated file writes it: pretty, with a final newline.

@@ -59,6 +59,7 @@ fn fixture() -> Workspace {
         crates: crates(),
         packages: packages(),
         visual_tests: vec![RepoPath::new("console/src/screens/run.visual.test.tsx")],
+        models: Vec::new(),
     }
 }
 
@@ -347,6 +348,7 @@ fn shared_crate_change_selects_both_products_tests() {
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
+    models=
     "#);
 }
 
@@ -364,6 +366,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-frontier/frontier
+    models=
     "#);
 }
 
@@ -381,5 +384,6 @@ fn workspace_input_change_selects_everything() {
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
+    models=
     "#);
 }

@@ -29,6 +29,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: "Test: pnpm lab ci"
         run: ci/vm/exec.sh bash -c "cd rnd/lab && pnpm install --frozen-lockfile && pnpm lab ci"
       # Every CI job uploads its JUnit files, pass or fail (TESTING.md,

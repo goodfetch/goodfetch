@@ -125,6 +125,8 @@ jobs:
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
         with:
           target: x86_64-unknown-linux-gnu
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -176,6 +178,8 @@ jobs:
           target: ${{ matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
           # The macOS x64 cell runs under Rosetta 2 (ADR 0108).
           architecture: ${{ matrix.arch == 'x64' && 'x64' || 'native' }}
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary

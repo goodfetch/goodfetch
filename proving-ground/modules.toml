@@ -1,0 +1,13 @@
+# Which of the Proving ground's top-level modules may import which (ADR 0126).
+[modules]
+catalog = ["generator", "task"]
+clock = []
+command = ["version"]
+digest = []
+generator = []
+oracle = ["clock", "task"]
+output = []
+server = ["site"]
+site = ["catalog", "oracle", "task", "version"]
+task = ["digest"]
+version = []

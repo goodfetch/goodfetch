@@ -40,6 +40,15 @@ fi
   exit 2
 }
 
+# The session bus of the Secret Service, once `ci/os-services.sh setup` has
+# started it in the container: every later step's tests reach it.
+if [[ -f /tmp/goodfetch-os-services/env ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source /tmp/goodfetch-os-services/env
+  set +a
+fi
+
 "$@"
 status=$?
 

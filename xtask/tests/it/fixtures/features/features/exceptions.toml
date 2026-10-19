@@ -1,0 +1,5 @@
+[[exception]]
+feature = "error:sample_refused"
+evidence = "none"
+reason = "No test in this fixture reaches it."
+link = "https://example.invalid/sample"

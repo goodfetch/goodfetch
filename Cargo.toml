@@ -1,20 +1,20 @@
 # The virtual root manifest of Goodfetch's one Cargo workspace (STYLE.md, ADR 0087).
 #
 # Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound
-# links) and `crates/foxhound/sinks/` (the sink processes), plus `xtask/`.
+# links) and `crates/foxhound/sinks/` (the sink processes), plus
+# `proving-ground/` (the Proving ground's crate, ADR 0032) and `xtask/`.
 # Every crate's folder is named after the crate, `goodfetch-*`, so the globs
 # never match the grouping folders `crates/foxhound` and
 # `crates/foxhound/sinks`, which hold no manifest. (Cargo's `exclude` cannot
 # drop them: it excludes every path under an excluded folder, members of a
-# glob included.) `proving-ground/` joins `members` in the pull request that
-# adds its crate (area 2): a member path without a manifest makes
-# `cargo metadata` fail.
+# glob included.)
 [workspace]
 resolver = "3"
 members = [
   "crates/goodfetch-*",
   "crates/foxhound/goodfetch-*",
   "crates/foxhound/sinks/goodfetch-*",
+  "proving-ground",
   "xtask",
 ]
 
@@ -31,14 +31,25 @@ publish = false
 # crate turns on what it uses (STYLE.md, Dependencies).
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+# Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
+assert_cmd = { version = "2.2.2", default-features = false }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+# The Proving ground's page server (area 2): hyper's HTTP/1.1 server on Tokio.
+http-body-util = { version = "0.1.5", default-features = false }
+hyper = { version = "1.12.0", default-features = false }
+hyper-util = { version = "0.1.21", default-features = false }
 insta = { version = "1.49.0", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
+# `xtask journeys check` validates each Journey file against its committed
+# JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the
+# test-env description against its committed schema; no remote or file
+# references are resolved.
+jsonschema = { version = "0.59.0", default-features = false }
 # Property tests of parsers and stateful rules (TESTING.md); `std` reads
 # regex strategies.
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
@@ -51,12 +62,18 @@ schemars = { version = "1.2.3", default-features = false, features = ["std", "de
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+# RFC 8785, which a Proving ground task's digest serializes in (ADR 0063).
+serde_json_canonicalizer = { version = "0.3.2", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
 tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
+tokio = { version = "1.53.3", default-features = false }
+tokio-util = { version = "0.7.20", default-features = false }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 
 # STYLE.md, Lints, formatting and toolchain; `unsafe`; Async and concurrency.

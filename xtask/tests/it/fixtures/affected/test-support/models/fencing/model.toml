@@ -1,0 +1,2 @@
+spec = "Fencing.tla"
+traces = ["crates/goodfetch-engine/src/lease.rs", "crates/foxhound/goodfetch-frontier/src/claim/"]

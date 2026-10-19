@@ -327,7 +327,7 @@ fn runs_test(words: &[String], index: usize) -> bool {
             ("playwright" | "cargo" | "insta" | "miri", Some("test"))
                 | (
                     "just",
-                    Some("test" | "quick" | "pre-merge" | "release" | "repeat" | "miri")
+                    Some("test" | "quick" | "pre-merge" | "release" | "repeat" | "stress" | "miri")
                 )
         )
 }

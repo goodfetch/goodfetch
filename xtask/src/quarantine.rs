@@ -11,7 +11,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-mod listing;
+pub(crate) mod listing;
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
@@ -44,11 +44,11 @@ pub(crate) enum Runner {
 }
 
 impl Runner {
+    pub(crate) const ALL: [Self; 4] = [Self::Nextest, Self::Vitest, Self::Playwright, Self::Pytest];
+
     /// The runner of `name`, as the list writes it.
     pub(crate) fn from_name(name: &str) -> Option<Self> {
-        [Self::Nextest, Self::Vitest, Self::Playwright, Self::Pytest]
-            .into_iter()
-            .find(|runner| runner.name() == name)
+        Self::ALL.into_iter().find(|runner| runner.name() == name)
     }
 
     pub(crate) fn name(self) -> &'static str {
@@ -152,13 +152,13 @@ pub(crate) fn read(root: &Path) -> Result<Vec<Entry>> {
     let path = root.join(LIST);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let file: ListFile =
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    file.tests
-        .into_iter()
-        .map(Entry::try_from)
-        .collect::<Result<_>>()
-        .with_context(|| format!("reading {}", path.display()))
+    parse(&text).with_context(|| format!("reading {}", path.display()))
+}
+
+/// The entries of a list's text, such as a commit's `quarantine.toml`.
+pub(crate) fn parse(text: &str) -> Result<Vec<Entry>> {
+    let file: ListFile = toml::from_str(text).context("parsing the quarantine list")?;
+    file.tests.into_iter().map(Entry::try_from).collect()
 }
 
 /// Where the check reads issues and lists tests.

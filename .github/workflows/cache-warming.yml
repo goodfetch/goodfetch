@@ -3,7 +3,8 @@
 # targets with the tier's profiles, without running them, and saves the build
 # cache, the pnpm store, uv's cache, the CI image and the pinned Playwright
 # image (ADR 0073) into the cache folder on the owner's
-# machine. It is the only job that mounts that folder writable; pull-request
+# machine. The build cache holds each commit's four test listings too, which
+# the stress run of a pull request whose base it is reads (ADR 0064). It is the only job that mounts that folder writable; pull-request
 # VMs read it. One run at a time: a newer waiting run replaces an older one.
 name: cache warming
 

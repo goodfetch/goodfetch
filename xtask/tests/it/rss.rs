@@ -333,3 +333,58 @@ fn propose_refuses_fewer_than_twenty_runs() {
     );
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
 }
+
+/// A child that holds `bytes` of memory, touched, before it exits: `dd`
+/// reads one block of that size from `/dev/zero`.
+#[cfg(unix)]
+fn allocating(bytes: u64) -> Vec<String> {
+    ["dd", "if=/dev/zero", "of=/dev/null", "count=1"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain([format!("bs={bytes}")])
+        .collect()
+}
+
+/// A child that holds `bytes` of memory, touched, before it exits: a
+/// PowerShell byte array written once per page.
+#[cfg(windows)]
+fn allocating(bytes: u64) -> Vec<String> {
+    vec![
+        "powershell".to_owned(),
+        "-NoProfile".to_owned(),
+        "-Command".to_owned(),
+        format!(
+            "$b = New-Object byte[] {bytes}; for ($i = 0; $i -lt $b.Length; $i += 4096) {{ $b[$i] = 1 }}"
+        ),
+    ]
+}
+
+/// Seam B: the peak reader, through the probe that runs one child.
+#[rstest]
+#[case::a_quarter_gibibyte(256 * MIB, 256 * MIB, 1024 * MIB)]
+#[case::one_kibibyte(1024, 0, 256 * MIB)]
+fn the_peak_reader_returns_a_known_allocations_order_of_magnitude(
+    #[case] allocated: u64,
+    #[case] at_least: u64,
+    #[case] under: u64,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let command = allocating(allocated);
+    let mut arguments = vec!["rss", "probe", "--"];
+    arguments.extend(command.iter().map(String::as_str));
+
+    let outcome = workspace.xtask(&arguments);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let peak: u64 = outcome
+        .stdout
+        .trim()
+        .strip_prefix("peak-bytes=")
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        (at_least..under).contains(&peak),
+        "{peak} bytes, outside {at_least}..{under}"
+    );
+}

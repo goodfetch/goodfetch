@@ -11,11 +11,13 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+mod endpoints;
 mod observation_log;
 mod probe;
 mod reported;
 mod seed;
 mod seeded_kill;
+mod ssrf_table;
 mod strict_stdout;
 mod teardown;
 mod test_env;

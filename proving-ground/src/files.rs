@@ -11,7 +11,7 @@ use hyper::StatusCode;
 use sha2::{Digest as _, Sha256};
 
 use crate::generator;
-use crate::task::{Entry, Expected, Kind, Record, Task};
+use crate::task::{Entry, Expected, Kind, Record, Task, origin};
 
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "files.test";
@@ -278,14 +278,14 @@ fn task_host(ordinal: u32) -> String {
 
 /// The family's tasks for `seed`, on their own host names and `port`.
 /// Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let task = |ordinal: u32, kind, path: &str, description, records| Task {
         host: task_host(ordinal),
         entry: Entry {
             id: format!("{FAMILY}/{ordinal}"),
             family: FAMILY,
             kind,
-            start_url: format!("http://{}:{port}{path}", task_host(ordinal)),
+            start_url: format!("{}{path}", origin(&task_host(ordinal), port)),
             description,
             account: None,
             time_steps: None,

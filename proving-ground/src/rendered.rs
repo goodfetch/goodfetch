@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::exchange::{Reply, Request};
 use crate::generator;
-use crate::task::{Entry, Expected, Kind, Record, Task};
+use crate::task::{Entry, Expected, Kind, Record, Task, origin};
 
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "rendered.test";
@@ -259,8 +259,8 @@ fn task_host(ordinal: u32) -> String {
 
 /// The family's tasks for `seed`, their start URLs on their own host names
 /// and `port`. Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let origin = |ordinal| format!("http://{}:{port}", task_host(ordinal));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let origin = |ordinal| origin(&task_host(ordinal), port);
     let extracted = 1 + generator::below(seed, &[FAMILY_PLACE, 0, EXTRACT_PLACE], ITEMS);
     vec![
         Task {

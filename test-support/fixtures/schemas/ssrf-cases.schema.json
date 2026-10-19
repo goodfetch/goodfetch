@@ -1,0 +1,396 @@
+{
+  "$defs": {
+    "Answer": {
+      "anyOf": [
+        {
+          "const": "public"
+        },
+        {
+          "format": "ipv4",
+          "type": "string"
+        },
+        {
+          "format": "ipv6",
+          "type": "string"
+        }
+      ],
+      "description": "An address, or `public` for the layer's public stand-in."
+    },
+    "CaseLookup": {
+      "additionalProperties": false,
+      "description": "A case's scripted DNS answer to one lookup.",
+      "properties": {
+        "answers": {
+          "description": "The addresses it resolves to.",
+          "items": {
+            "$ref": "#/$defs/Answer"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "The name looked up.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "answers"
+      ],
+      "type": "object"
+    },
+    "EgressRule": {
+      "description": "The rule an `egress_refused` names.",
+      "oneOf": [
+        {
+          "const": "private_address",
+          "description": "An address that is not globally reachable.",
+          "type": "string"
+        },
+        {
+          "const": "scheme",
+          "description": "A scheme other than HTTP and HTTPS.",
+          "type": "string"
+        }
+      ]
+    },
+    "Family": {
+      "description": "The families of SSRF cases (ADR 0067).",
+      "oneOf": [
+        {
+          "const": "encoding",
+          "description": "Spellings of an address a URL parser accepts: integers, octal and\nhexadecimal parts, short forms, percent-encoding, full-width digits.",
+          "type": "string"
+        },
+        {
+          "const": "ipv6_form",
+          "description": "IPv6 forms that embed or stand for a private address: IPv4-mapped,\nNAT64, 6to4, Teredo, zone IDs.",
+          "type": "string"
+        },
+        {
+          "const": "special_purpose_block",
+          "description": "One block of IANA's special-purpose registries that is not globally\nreachable.",
+          "type": "string"
+        },
+        {
+          "const": "mixed_answers",
+          "description": "A name whose answers mix public and private addresses.",
+          "type": "string"
+        },
+        {
+          "const": "redirect",
+          "description": "A redirect of each status and kind, and to schemes other than HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "rebinding",
+          "description": "A name whose answer changes between lookups.",
+          "type": "string"
+        },
+        {
+          "const": "upstream_proxy",
+          "description": "A request through the run's upstream proxy, which would resolve the\nname itself.",
+          "type": "string"
+        },
+        {
+          "const": "plugin_traffic",
+          "description": "A Plugin's own request.",
+          "type": "string"
+        },
+        {
+          "const": "lent_page_client",
+          "description": "A Lent page's client trying a browser context with its own proxy, or\nan extension (ADR 0089).",
+          "type": "string"
+        }
+      ]
+    },
+    "Redirect": {
+      "description": "The redirect a case's public stand-in answers with.",
+      "oneOf": [
+        {
+          "description": "A 3xx status with a `Location` header.",
+          "properties": {
+            "kind": {
+              "const": "status",
+              "type": "string"
+            },
+            "location": {
+              "description": "The `Location` header.",
+              "type": "string"
+            },
+            "status": {
+              "description": "The status.",
+              "format": "uint16",
+              "maximum": 399,
+              "minimum": 300,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "location"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A `Refresh` header.",
+          "properties": {
+            "kind": {
+              "const": "refresh_header",
+              "type": "string"
+            },
+            "location": {
+              "description": "The URL it names.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "location"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A `<meta http-equiv=\"refresh\">` element.",
+          "properties": {
+            "kind": {
+              "const": "meta_refresh",
+              "type": "string"
+            },
+            "location": {
+              "description": "The URL it names.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "location"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A script that assigns `location`.",
+          "properties": {
+            "kind": {
+              "const": "script",
+              "type": "string"
+            },
+            "location": {
+              "description": "The URL it assigns.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "location"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Refusal": {
+      "description": "The typed refusal a case expects, by its Error code.",
+      "oneOf": [
+        {
+          "description": "`egress_refused`, with the rule that refused.",
+          "properties": {
+            "code": {
+              "const": "egress_refused",
+              "type": "string"
+            },
+            "rule": {
+              "$ref": "#/$defs/EgressRule",
+              "description": "The rule."
+            }
+          },
+          "required": [
+            "code",
+            "rule"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`cdp_command_refused`: a Lent page's endpoint refused the command\n(ADR 0089).",
+          "properties": {
+            "code": {
+              "const": "cdp_command_refused",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Route": {
+      "description": "The way a case's request leaves the run.",
+      "oneOf": [
+        {
+          "description": "The run's own request.",
+          "properties": {
+            "via": {
+              "const": "direct",
+              "type": "string"
+            }
+          },
+          "required": [
+            "via"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Through the run's upstream proxy.",
+          "properties": {
+            "via": {
+              "const": "upstream_proxy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "via"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Plugin's request.",
+          "properties": {
+            "via": {
+              "const": "plugin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "via"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A browser context a Lent page's client creates with its own proxy.",
+          "properties": {
+            "proxy_server": {
+              "description": "The context's proxy server.",
+              "type": "string"
+            },
+            "via": {
+              "const": "browser_context",
+              "type": "string"
+            }
+          },
+          "required": [
+            "via",
+            "proxy_server"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An extension a Lent page's client loads, which requests the URL.",
+          "properties": {
+            "via": {
+              "const": "extension",
+              "type": "string"
+            }
+          },
+          "required": [
+            "via"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SsrfCase": {
+      "additionalProperties": false,
+      "description": "One SSRF case: what a run asks for and the refusal it must meet, with no\nconnection reaching its target.",
+      "properties": {
+        "block": {
+          "description": "The block of IANA's special-purpose registries the target lies in,\nin CIDR notation as the registry writes it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "family": {
+          "$ref": "#/$defs/Family",
+          "description": "The family the case belongs to."
+        },
+        "fetches": {
+          "default": 1,
+          "description": "How many times the run requests `url`; a rebinding case needs two.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "lookups": {
+          "description": "The DNS answers the case's names get, in the order they are asked\nfor.",
+          "items": {
+            "$ref": "#/$defs/CaseLookup"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "The case's name, unique in the table, in snake case.",
+          "type": "string"
+        },
+        "redirect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Redirect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The redirect the public stand-in answers `url` with."
+        },
+        "refusal": {
+          "$ref": "#/$defs/Refusal",
+          "description": "The typed refusal every layer gives."
+        },
+        "route": {
+          "$ref": "#/$defs/Route",
+          "default": {
+            "via": "direct"
+          },
+          "description": "The way the request leaves the run."
+        },
+        "target": {
+          "description": "The address no connection may reach, when the case has one.",
+          "format": "ip",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "The URL the run requests.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "family",
+        "url",
+        "refusal"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The SSRF case table: every case, in the committed file's order.",
+  "properties": {
+    "cases": {
+      "description": "The cases.",
+      "items": {
+        "$ref": "#/$defs/SsrfCase"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "cases"
+  ],
+  "title": "SsrfTable",
+  "type": "object"
+}

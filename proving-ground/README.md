@@ -19,6 +19,14 @@ The first output line is one JSON object: `address` (the bound address, port 0 r
 
 Before the output line, a shaped profile is calibrated as the lab calibrates it: 50 one-byte round trips to an echo through the shaper, each paired with a direct one to another echo. `network` records it: `profile`, and for a shaped one `round_trip_microseconds`, `loss_percent`, `shaper`, `calibration` (`round_trip_microseconds` declared, `samples`, `shaped_median_microseconds`, `shaped_p95_microseconds`, `direct_median_microseconds`, `added_median_microseconds`, the median of each pair's shaped minus direct round trip, and `within_tolerance`) and `time_metrics`. The added median is within tolerance when it is off the declared round trip by at most the larger of 10% and 2 ms; outside, `time_metrics` is `unavailable`: the run keeps its correctness results and loses its time metrics. The calibration is a measurement recorded with the run, never asserted by a test (ADR 0064).
 
+## `tasks`
+
+```sh
+cargo run -p goodfetch-proving-ground -- tasks --seed 158
+```
+
+Prints the task list `GET /tasks` serves for the seed (below) as one JSON line and exits, binding nothing: each `start_url` has no port, and every digest is the one `serve` lists on any port. `xtask journeys tasks` commits it for each seed the Journey catalog uses (ADR 0063).
+
 ## HTTP/1.1, HTTP/2 and TLS
 
 The one address serves plain text and TLS: a connection whose first byte starts a TLS handshake gets TLS, any other plain text. Either way it speaks HTTP/2 when its first bytes are HTTP/2's preface (ALPN offers `h2` and `http/1.1`) and HTTP/1.1 otherwise.

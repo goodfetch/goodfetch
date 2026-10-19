@@ -134,6 +134,8 @@ fn print_schemas_starts_nothing() {
     assert_eq!(
         schemas.keys().collect::<Vec<_>>(),
         [
+            "endpoint-table.schema.json",
+            "ssrf-cases.schema.json",
             "test-env-description.schema.json",
             "test-tool-manifest.schema.json"
         ]

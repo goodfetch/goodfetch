@@ -7,7 +7,7 @@
 use std::fmt::Write as _;
 
 use crate::generator;
-use crate::task::{Effect, Entry, Expected, Kind, Record, Task};
+use crate::task::{self, Effect, Entry, Expected, Kind, Record, Task};
 
 /// The host name the family is served on, which tests map to loopback with
 /// the `resolve` setting (ADR 0059).
@@ -180,10 +180,11 @@ fn task_host(ordinal: u32) -> String {
 }
 
 /// The family's tasks for `seed`, their start URLs on their own host names
-/// and `port`. Ordinals are append-only: a new task takes the next one, and
+/// and `port`, or on no port when `tasks` lists them without serving.
+/// Ordinals are append-only: a new task takes the next one, and
 /// a removed one is never reused (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let origin = |ordinal| format!("http://{}:{port}", task_host(ordinal));
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
+    let origin = |ordinal| task::origin(&task_host(ordinal), port);
     let extracted = 1 + generator::below(seed, &[FAMILY_PLACE, 0, EXTRACT_PLACE], PRODUCTS);
     let ordered = 1 + generator::below(seed, &[FAMILY_PLACE, 0, ORDER_PLACE], PRODUCTS);
     vec![

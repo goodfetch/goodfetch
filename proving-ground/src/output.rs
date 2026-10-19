@@ -1,5 +1,6 @@
 //! The Proving ground's output writer, the only code that writes its stdout
-//! (STYLE.md): `serve`'s one JSON line, which test support reads (ADR 0063).
+//! (STYLE.md): `serve`'s one JSON line, which test support reads, and the task
+//! list `tasks` prints (ADR 0063).
 
 use std::io::Write as _;
 

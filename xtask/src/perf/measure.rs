@@ -10,7 +10,9 @@
 //! - **run**, under the deny: runs each base target with
 //!   `--save-baseline=base`, then each head target with `--baseline=base`,
 //!   twenty more runs of each head target holding a benchmark the base lacks
-//!   (its admission), and size-limit on the base and the head when the head
+//!   (its admission), as many processes at once as the host has cores,
+//!   since counts under Callgrind and DHAT do not depend on what else runs,
+//!   and size-limit on the base and the head when the head
 //!   has a `.size-limit.json`. It writes every report into the output folder
 //!   and a copy into `target/junit/perf/`, which the job uploads with its
 //!   JUnit files, and leaves the comparison to `compare`.
@@ -22,11 +24,12 @@
     reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::ffi::OsStr;
 use std::fs::File;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -214,7 +217,8 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
 }
 
 /// Runs each head target that holds a benchmark the base lacks 20 more
-/// times, one report a run, and returns their folder, or `None` when no
+/// times, one report and one gungraun folder a run of a target, several
+/// runs at once, and returns the reports' folder, or `None` when no
 /// benchmark is new.
 fn admit(cargo: &OsStr, root: &Path, plan: &Plan, head_report: &Path) -> Result<Option<PathBuf>> {
     let new_targets: BTreeSet<String> = gungraun::read(&[head_report])?
@@ -232,22 +236,63 @@ fn admit(cargo: &OsStr, root: &Path, plan: &Plan, head_report: &Path) -> Result<
     }
     let folder = out(root).join("admission");
     std::fs::create_dir_all(&folder).context("creating the admission folder")?;
-    let gungraun_home = std::path::absolute(out(root).join("admission-gungraun"))
+    let gungraun_homes = std::path::absolute(out(root).join("admission-gungraun"))
         .context("resolving gungraun's admission folder")?;
+    let workers = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
+    let mut runs = Runs::default();
     for run in 1..=budget::ADMISSION_RUNS {
-        let report = folder.join(format!("run-{run:02}.jsonl"));
-        File::create(&report).context("creating an admission report")?;
-        for target in &new_targets {
-            measure(
+        for (index, target) in new_targets.iter().enumerate() {
+            if runs.running.len() >= workers {
+                runs.wait_oldest()?;
+            }
+            let name = format!("run-{run:02}-{index}");
+            let report = folder.join(format!("{name}.jsonl"));
+            File::create(&report).context("creating an admission report")?;
+            let what = format!("admission run {run} of {target}");
+            let child = spawn_measured(
                 cargo_bench(cargo, root, &plan.target_directory, target)
-                    .env("GUNGRAUN_HOME", &gungraun_home)
+                    .env("GUNGRAUN_HOME", gungraun_homes.join(&name))
                     .arg("--"),
                 &report,
-                &format!("admission run {run} of {target}"),
+                &what,
             )?;
+            runs.running.push_back((child, what));
         }
     }
+    while !runs.running.is_empty() {
+        runs.wait_oldest()?;
+    }
     Ok(Some(folder))
+}
+
+/// The admission runs still running, oldest first. Dropped before they all
+/// finished (a run failed), it stops the others.
+#[derive(Default)]
+struct Runs {
+    running: VecDeque<(Child, String)>,
+}
+
+impl Runs {
+    fn wait_oldest(&mut self) -> Result<()> {
+        let Some((mut child, what)) = self.running.pop_front() else {
+            return Ok(());
+        };
+        let status = child.wait().with_context(|| format!("{what}: waiting"))?;
+        if !status.success() {
+            bail!("{what} failed with {status}");
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Runs {
+    fn drop(&mut self) {
+        for (child, _) in &mut self.running {
+            // A run that already ended has nothing to stop.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 /// Runs size-limit in `folder` (the head's workspace or the base's tree),
@@ -356,11 +401,28 @@ fn cargo_bench(cargo: &OsStr, folder: &Path, target_directory: &Path, target: &s
 /// Runs `command` with gungraun's JSON output, appending its stdout to
 /// `report`.
 fn measure(command: &mut Command, report: &Path, what: &str) -> Result<()> {
+    gungraun_output(command, report)?.status_checked(what)
+}
+
+/// Starts `command` with gungraun's JSON output, appending its stdout to
+/// `report`.
+fn spawn_measured(command: &mut Command, report: &Path, what: &str) -> Result<Child> {
+    gungraun_output(command, report)?
+        .spawn()
+        .with_context(|| format!("{what}: starting"))
+}
+
+/// `command` set up to write gungraun's JSON summaries to the end of
+/// `report`.
+fn gungraun_output<'command>(
+    command: &'command mut Command,
+    report: &Path,
+) -> Result<&'command mut Command> {
     let file = std::fs::OpenOptions::new()
         .append(true)
         .open(report)
         .with_context(|| format!("opening {}", report.display()))?;
-    command
+    Ok(command
         .env("GUNGRAUN_OUTPUT_FORMAT", "json")
         .env("GUNGRAUN_NOSUMMARY", "true")
         // A container's default seccomp profile refuses the personality
@@ -368,8 +430,7 @@ fn measure(command: &mut Command, report: &Path, what: &str) -> Result<()> {
         // is sensitive to; no gated figure uses it, and admission catches
         // any spread.
         .env("GUNGRAUN_ALLOW_ASLR", "yes")
-        .stdout(file)
-        .status_checked(what)
+        .stdout(file))
 }
 
 trait StatusChecked {

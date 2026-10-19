@@ -1,0 +1,15 @@
+{
+  "fields": [
+    {
+      "name": "bidi",
+      "text": "שלום ‏world‎ مرحبا ⁧עברית⁩ end"
+    },
+    { "name": "nfc", "text": "café" },
+    { "name": "nfd", "text": "café" },
+    { "name": "zwj_emoji", "text": "👩‍👩‍👧" },
+    { "name": "astral", "text": "𝄞" },
+    { "name": "zero_width_joiner", "text": "a‍b" },
+    { "name": "bom", "text": "﻿leads with a byte order mark" },
+    { "name": "tab_and_newline", "text": "one\ttwo\nthree" }
+  ]
+}

@@ -153,9 +153,12 @@ fn print_schemas_starts_nothing() {
         schemas.keys().collect::<Vec<_>>(),
         [
             "endpoint-table.schema.json",
+            "locales.schema.json",
+            "snapshot-filters.schema.json",
             "ssrf-cases.schema.json",
             "test-env-description.schema.json",
-            "test-tool-manifest.schema.json"
+            "test-tool-manifest.schema.json",
+            "unicode-record.schema.json"
         ]
     );
     let stderr = String::from_utf8(output.stderr).unwrap();

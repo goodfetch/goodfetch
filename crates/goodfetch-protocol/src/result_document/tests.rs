@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use rstest::rstest;
@@ -6,12 +7,16 @@ use serde_json::{Map, json};
 
 use super::{
     CapabilityFacts, CaseCheck, CaseEntry, CaseFacts, CaseOutcome, CheckOutcome, CheckResult,
-    ConformanceDocument, ConformanceHeader, Evidence, Executable, JourneyDocument, JourneyFacts,
-    JourneyOutcome, OracleAnswer, OracleOutcome, Outcome, Platform, ProvingGroundCopy, ReadError,
-    ResultDocument, StepOutcome, StepResult, Suite, Target, TargetIdentity, TaskResult, read,
+    ConformanceDocument, ConformanceHeader, Difference, Evidence, Executable, JourneyDocument,
+    JourneyFacts, JourneyOutcome, JourneyPart, LoadedDocument, OracleAnswer, OracleOutcome,
+    Outcome, Platform, ProvingGroundCopy, ReadError, ResultDocument, StepOutcome, StepResult,
+    Suite, Target, TargetIdentity, TaskResult, read, read_journey_document,
 };
 use crate::catalog::Product;
-use crate::journey::{JourneyId, TaskId};
+use crate::journey::{
+    Check, Journey, JourneyId, Milestone, PinnedTask, ProvingGround, Status, Step, TaskId,
+};
+use crate::releases::Sha256;
 
 /// One hand-written Journey outcome vector of
 /// `test-support/fixtures/outcome-vectors/journey/`.
@@ -36,6 +41,43 @@ struct ConformanceVector {
     cases: Vec<VectorCase>,
     case_outcomes: Vec<CaseOutcome>,
     outcome: Outcome,
+}
+
+/// One hand-written vector of
+/// `test-support/fixtures/outcome-vectors/journey-comparison/`: a Journey, a
+/// document stored for it, and what reading the document gives.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComparisonVector {
+    #[expect(dead_code, reason = "the vector's own explanation, read by people")]
+    description: String,
+    journey: VectorJourney,
+    document: VectorDocument,
+    read: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VectorJourney {
+    steps: Vec<Step>,
+    expect: Vec<Check>,
+    tasks: Vec<TaskId>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VectorDocument {
+    steps: Vec<StepResult>,
+    checks: Vec<CheckResult>,
+    tasks: Vec<VectorTask>,
+    outcome: JourneyOutcome,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VectorTask {
+    id: TaskId,
+    answer: Option<OracleOutcome>,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +157,86 @@ fn journey_facts(
                 }
             })
             .collect(),
+    }
+}
+
+fn step(text: &str, manual: Option<&str>) -> Step {
+    Step {
+        text: text.to_owned(),
+        on: None,
+        manual: manual.map(str::to_owned),
+    }
+}
+
+fn check(text: &str, task_id: Option<&str>) -> Check {
+    Check {
+        text: text.to_owned(),
+        task: task_id.map(task),
+    }
+}
+
+/// J-002, the Journey `journey_facts` documents, with these steps, checks and
+/// named tasks; a Proving ground table only when it names a task.
+fn journey(steps: Vec<Step>, expect: Vec<Check>, tasks: Vec<TaskId>) -> Journey {
+    let digest = Sha256::try_from("0".repeat(64)).unwrap();
+    Journey {
+        id: JourneyId::try_from("J-002".to_owned()).unwrap(),
+        title: "Crawl the catalog".to_owned(),
+        goal: "A person crawls the catalog. Its Records MUST be the catalog's products.".to_owned(),
+        area: 3,
+        product: Product::Foxhound,
+        status: Status::Active,
+        replaced_by: Vec::new(),
+        reason: None,
+        covers: Vec::new(),
+        proving_ground: (!tasks.is_empty()).then(|| ProvingGround {
+            seed: 2,
+            tasks: tasks
+                .into_iter()
+                .map(|id| PinnedTask {
+                    id,
+                    digest: digest.clone(),
+                })
+                .collect(),
+        }),
+        surfaces: BTreeMap::from([("cli".to_owned(), Milestone::M1)]),
+        steps,
+        expect,
+    }
+}
+
+/// The document these facts give, stored with this outcome.
+fn stored(facts: JourneyFacts, outcome: JourneyOutcome) -> Vec<u8> {
+    let mut stored =
+        serde_json::to_value(ResultDocument::Journey(JourneyDocument::new(facts))).unwrap();
+    stored["outcome"] = json!(outcome);
+    serde_json::to_vec(&stored).unwrap()
+}
+
+/// Reads a stored `journey` document and compares it with the Journey.
+fn read_compared(bytes: &[u8], journey: &Journey) -> Result<JourneyDocument, ReadError> {
+    match read(bytes)? {
+        LoadedDocument::Journey(document) => read_journey_document(document, journey),
+        LoadedDocument::Conformance(document) => {
+            panic!("a journey document was read as {document:?}")
+        }
+    }
+}
+
+/// What a reading gives, as the comparison vectors write it.
+fn reading(result: &Result<JourneyDocument, ReadError>) -> String {
+    match result {
+        Ok(_) => "accepted".to_owned(),
+        Err(ReadError::JourneyOutcome { .. }) => "journey_outcome".to_owned(),
+        Err(ReadError::ManualStep { .. }) => "manual_step".to_owned(),
+        Err(ReadError::NotTheJourneys {
+            part, difference, ..
+        }) => match difference {
+            Difference::Missing => format!("missing_{}", part.as_str()),
+            Difference::Extra => format!("extra_{}", part.as_str()),
+            Difference::OutOfOrder => format!("{}_out_of_order", part.as_str()),
+        },
+        Err(other) => panic!("no comparison vector gives {other:?}"),
     }
 }
 
@@ -214,15 +336,116 @@ fn the_conformance_constructor_gives_each_vectors_outcomes(
 
 #[test]
 fn the_reader_gives_back_the_document_written() {
-    let written = ResultDocument::Journey(JourneyDocument::new(journey_facts(
+    let written = JourneyDocument::new(journey_facts(
         &[StepOutcome::Passed],
         &[CheckOutcome::Passed],
         &[Some(OracleOutcome::Verified)],
-    )));
+    ));
+    let journey = journey(
+        vec![step("step 0", None)],
+        vec![check("check 0", None)],
+        vec![task("catalog/1")],
+    );
 
-    let read = read(&serde_json::to_vec(&written).unwrap()).unwrap();
+    let read = read_compared(
+        &serde_json::to_vec(&ResultDocument::Journey(written.clone())).unwrap(),
+        &journey,
+    )
+    .unwrap();
 
     assert_eq!(read, written);
+}
+
+#[rstest]
+fn the_reader_compares_each_vectors_document_with_its_journey(
+    #[files("../../test-support/fixtures/outcome-vectors/journey-comparison/*.json")] path: PathBuf,
+) {
+    let vector: ComparisonVector = read_vector(&path);
+    let journey = journey(
+        vector.journey.steps,
+        vector.journey.expect,
+        vector.journey.tasks,
+    );
+    let facts = JourneyFacts {
+        steps: vector.document.steps,
+        checks: vector.document.checks,
+        tasks: vector
+            .document
+            .tasks
+            .into_iter()
+            .map(|stored| TaskResult {
+                answer: stored
+                    .answer
+                    .map(|outcome| answer(stored.id.as_str(), outcome)),
+                id: stored.id,
+                observations: Vec::new(),
+            })
+            .collect(),
+        ..journey_facts(&[], &[], &[])
+    };
+
+    let read = read_compared(&stored(facts, vector.document.outcome), &journey);
+
+    assert_eq!(reading(&read), vector.read);
+}
+
+#[test]
+fn the_reader_names_the_failed_step_a_document_leaves_out() {
+    let journey = journey(
+        vec![
+            step("Start a crawl", None),
+            step("Wait for the crawl to end", None),
+            step("Export the Records", None),
+        ],
+        Vec::new(),
+        Vec::new(),
+    );
+    let facts = JourneyFacts {
+        steps: vec![
+            StepResult {
+                text: "Start a crawl".to_owned(),
+                outcome: StepOutcome::Passed,
+            },
+            StepResult {
+                text: "Export the Records".to_owned(),
+                outcome: StepOutcome::Passed,
+            },
+        ],
+        ..journey_facts(&[], &[], &[])
+    };
+
+    let refused = read_compared(&stored(facts, JourneyOutcome::Proved), &journey);
+
+    assert!(
+        matches!(
+            &refused,
+            Err(ReadError::NotTheJourneys {
+                part: JourneyPart::Step,
+                difference: Difference::Missing,
+                number: 2,
+                text,
+            }) if text == "Wait for the crawl to end"
+        ),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn the_reader_refuses_a_document_compared_with_another_journey() {
+    let mut other = journey(Vec::new(), Vec::new(), Vec::new());
+    other.id = JourneyId::try_from("J-003".to_owned()).unwrap();
+    let facts = journey_facts(&[], &[], &[]);
+
+    let refused = read_compared(&stored(facts, JourneyOutcome::Proved), &other);
+
+    assert!(
+        matches!(
+            &refused,
+            Err(ReadError::OtherJourney { document, journey })
+                if document.as_str() == "J-002" && journey.as_str() == "J-003"
+        ),
+        "{refused:?}"
+    );
 }
 
 #[test]

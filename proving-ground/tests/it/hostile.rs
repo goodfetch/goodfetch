@@ -437,3 +437,106 @@ fn a_location_holding_an_encoded_crlf_is_followed_with_its_encoding_untouched() 
     assert_eq!(followed, 1);
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
+
+/// A result that returns the task's download, saved under `name`.
+fn saved_as(proving_ground: &ProvingGround, id: &str, name: &str) -> Value {
+    let file = proving_ground.get_raw(&start_url(proving_ground, id));
+    assert_eq!(file.status, 200);
+    json!({
+        "task": id,
+        "status": "success",
+        "files": [{ "name": name, "hex": data_encoding::HEXLOWER.encode(&file.body) }],
+    })
+}
+
+#[rstest]
+#[case::a_parent_path(
+    "downloads/2",
+    "attachment; filename=\"../../../../tmp/goodfetch-traversal.csv\""
+)]
+#[case::a_windows_drive(
+    "downloads/5",
+    "attachment; filename=\"C:\\\\Windows\\\\goodfetch-drive.csv\""
+)]
+#[case::an_encoded_parent_path(
+    "downloads/13",
+    "attachment; filename*=UTF-8''..%2F..%2Fgoodfetch-encoded.csv"
+)]
+fn a_download_suggests_its_hostile_name(#[case] id: &str, #[case] disposition: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let page = proving_ground.get(&start_url(&proving_ground, id));
+
+    assert_eq!(page.header("content-disposition"), Some(disposition));
+}
+
+#[rstest]
+#[case::a_parent_path("downloads/2", "goodfetch-traversal.csv")]
+#[case::a_windows_drive("downloads/5", "goodfetch-drive.csv")]
+#[case::a_reserved_name("downloads/8", "CON_.csv")]
+#[case::a_trailing_dot("downloads/10", "report.csv")]
+#[case::an_alternate_data_stream("downloads/12", "report.csv_hidden")]
+#[case::a_control_character("downloads/15", "report_.csv")]
+#[case::an_overlong_name("downloads/18", "aaaa.csv")]
+fn a_hostile_name_kept_as_one_safe_name_is_verified(#[case] id: &str, #[case] name: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = proving_ground
+        .judge(&saved_as(&proving_ground, id, name))
+        .json();
+
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+}
+
+#[rstest]
+#[case::a_parent_path("downloads/2", "../../../../tmp/goodfetch-traversal.csv")]
+#[case::a_kept_backslash_path("downloads/4", "..\\..\\goodfetch-traversal.csv")]
+#[case::a_unc_path("downloads/7", "\\\\server\\share\\goodfetch-unc.csv")]
+#[case::a_reserved_name("downloads/8", "CON.csv")]
+#[case::a_numbered_device("downloads/9", "LPT1")]
+#[case::a_trailing_space("downloads/11", "report.csv ")]
+#[case::an_alternate_data_stream("downloads/12", "report.csv:hidden")]
+#[case::a_decoded_parent_path("downloads/13", "../../goodfetch-encoded.csv")]
+#[case::a_control_character("downloads/15", "report\u{7}\n.csv")]
+fn a_tool_that_saves_under_the_hostile_name_is_judged_a_failure(
+    #[case] id: &str,
+    #[case] name: &str,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = proving_ground
+        .judge(&saved_as(&proving_ground, id, name))
+        .json();
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(answer["unsafe_files"], json!([name]), "{answer}");
+}
+
+#[test]
+fn a_name_too_long_for_a_file_system_is_refused_as_saved() {
+    let proving_ground = ProvingGround::start(SEED);
+    let name = format!("{}.csv", "a".repeat(296));
+
+    let answer = proving_ground
+        .judge(&saved_as(&proving_ground, "downloads/18", &name))
+        .json();
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+}
+
+#[rstest]
+#[case::a_plain_name("downloads/1", "export.csv")]
+#[case::a_latin_1_name("downloads/16", "r\u{e9}sum\u{e9}.csv")]
+fn a_harmless_name_is_kept_exactly(#[case] id: &str, #[case] name: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let kept = proving_ground
+        .judge(&saved_as(&proving_ground, id, name))
+        .json();
+    let renamed = proving_ground
+        .judge(&saved_as(&proving_ground, id, "download.csv"))
+        .json();
+
+    assert_eq!(kept["outcome"], "verified", "{kept}");
+    assert_ne!(renamed["outcome"], "verified", "{renamed}");
+}

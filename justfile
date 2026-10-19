@@ -58,6 +58,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- codegen --check
     cargo run --quiet -p xtask -- compat check
     cargo run --quiet -p xtask -- wording
+    cargo run --quiet -p xtask -- journeys check
     cargo run --quiet -p xtask -- containment
     ci/repository-files.sh
     ci/tool-versions.sh

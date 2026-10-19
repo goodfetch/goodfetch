@@ -437,7 +437,7 @@ Each suite runs everything the suite before it runs.
 
 | Suite | What it adds | Command | Runs in CI |
 |---|---|---|---|
-| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check`, `xtask wording` (ADR 0097) and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
+| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check`, `xtask wording` (ADR 0097), `xtask journeys check` (ADR 0063) and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
 | Pre-merge | The `tests/it` of every touched crate and its dependants; conformance on the local Proving ground; touched Sinks against their containers (every Sink until the merge queue exists, ADR 0032); touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
 | Release | Everything, for every package, on the full matrix of ADR 0024; deployment-target smoke runs; tests that need released binaries | `just release` (this host's cell), `just release-ci` (the whole matrix on CI) | Merge queue, nightly, every release |
 

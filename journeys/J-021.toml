@@ -1,0 +1,46 @@
+#:schema ./journey.schema.json
+id = "J-021"
+title = "Feed a keep-alive run new work until its input closes"
+goal = """
+A person starts a keep-alive Crawl with nothing to do, then feeds it work as \
+it arrives and closes its input. The run MUST stay running while it waits \
+for work, MUST take each new piece of work as it arrives, and MUST end only \
+once its input is closed and every piece of work is done, so that a run can \
+serve work as it arrives."""
+area = 3
+product = "foxhound"
+status = "active"
+covers = ["row:RT-12", "story:3-128"]
+
+[proving_ground]
+seed = 21
+tasks = [
+  { id = "catalog/1", digest = "fb36d548786db68d7e5919a49a78579c7803c81a20f4c850687f0f698d3c47c8" },
+]
+
+[surfaces]
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+
+[[steps]]
+text = "Start a keep-alive Crawl of the catalog with no seed"
+
+[[steps]]
+text = "Wait while the Crawl has nothing to do"
+
+[[steps]]
+text = "Add the catalog's first listing page to the Crawl as new work"
+
+[[steps]]
+text = "Close the Crawl's input once its work is added, and wait for it to end"
+
+[[expect]]
+text = "While it had nothing to do, the Crawl stayed `running` and did not end"
+
+[[expect]]
+text = "The Crawl took the added work as it arrived, and ended only after its input was closed and its work was done"
+
+[[expect]]
+text = "The oracle verifies the Crawl's Records"
+task = "catalog/1"

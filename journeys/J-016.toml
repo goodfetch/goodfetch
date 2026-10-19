@@ -1,0 +1,44 @@
+#:schema ./journey.schema.json
+id = "J-016"
+title = "Be told once each at 50 %, 80 % and 100 % of a Limit"
+goal = """
+A person sets an install Limit and a Notification channel, then runs work on \
+two engines until the Limit is reached. A Notification MUST reach the person \
+once each at 50 %, 80 % and 100 % of the Limit, whichever engine's run \
+crossed it, and a "Needs you" item MUST appear at 100 %, so that the person \
+hears about the Limit before it stops their work."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["story:3-73"]
+
+[proving_ground]
+seed = 16
+
+[surfaces]
+cli = "M4"
+console = "M4"
+
+[[steps]]
+text = "Set a monthly install Limit below what extracting every product page of the catalog uses, and a Notification channel the person reads"
+on = "cli"
+
+[[steps]]
+text = "Start a run on the Daemon and a run on an Attached engine at once, each extracting the catalog's product pages one after another, until both stop"
+on = "cli"
+
+[[steps]]
+text = "Read the Notifications the channel received"
+
+[[steps]]
+text = "Look at \"Needs you\" in the Console"
+on = "console"
+
+[[expect]]
+text = "The channel received exactly one Notification at each of 50 %, 80 % and 100 % of the install Limit, in that order, though runs on both engines crossed them"
+
+[[expect]]
+text = "The 50 % and 80 % Notifications arrived while both runs were still going on"
+
+[[expect]]
+text = "\"Needs you\" holds one item for the install Limit reached at 100 %"

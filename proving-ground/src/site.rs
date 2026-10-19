@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::access;
 use crate::adversarial;
 use crate::agent;
+use crate::browser_pages;
 use crate::catalog;
 use crate::crawl::{self, Families};
 use crate::encodings;
@@ -36,6 +37,7 @@ use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
 use crate::protection;
+use crate::push::Push;
 use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
@@ -134,6 +136,7 @@ impl Site {
         hosts.extend(adversarial::hosts());
         hosts.extend(protection::hosts());
         hosts.extend(access::hosts());
+        hosts.extend(browser_pages::hosts());
         hosts.extend(crawl::hosts(seed));
         hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
         hosts.extend(hostile::hosts());
@@ -164,6 +167,7 @@ impl Site {
         tasks.extend(adversarial::tasks(seed, port));
         tasks.extend(protection::tasks(seed, port));
         tasks.extend(access::tasks(seed, port));
+        tasks.extend(browser_pages::tasks(seed, port));
         tasks.extend(crawl::tasks(seed, port));
         tasks.extend(raw_site::tasks(seed, port));
         tasks.extend(hostile::tasks(seed, port));
@@ -221,7 +225,15 @@ impl Site {
                 return page.into_reply();
             }
         }
-        (self.respond(host, request), None)
+        let held = browser_pages::hold(&name, request.path).map(crawl::Held::after);
+        (self.respond(host, request), held)
+    }
+
+    /// The connection a request asks the server to hold open, given its
+    /// `Host` header: one of the `live` family's WebSocket and server-sent
+    /// events stream.
+    pub(crate) fn push(host: &str, method: &Method, path: &str) -> Option<Push> {
+        browser_pages::push(&observation::host_name(host), method, path)
     }
 
     /// The whole response, as bytes, of a request to `path` on `host` (its
@@ -244,6 +256,12 @@ impl Site {
         if raw_site::serves(&name) {
             // The raw server answers these over TLS alone.
             return Reply::error(StatusCode::MISDIRECTED_REQUEST, "tls_required");
+        }
+        if let Some((reply, recorded)) = browser_pages::respond(self.seed, &name, request) {
+            if let Some(recorded) = recorded {
+                self.observations.record(host, recorded);
+            }
+            return reply;
         }
         if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
             .or_else(|| protection::respond(self.seed, &name, request))
@@ -541,6 +559,7 @@ impl Site {
                 let expected = now.as_ref().unwrap_or(&task.expected);
                 let answer = oracle::judge(expected, submission, &effects, &requests, findings)
                     .refuted_by(self.reported(&task.entry.id));
+                let answer = answer.refuted_by(browser_pages::findings(&task.entry.id, &requests));
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);
                     return Reply::json(StatusCode::OK, &answer);

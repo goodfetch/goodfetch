@@ -43,6 +43,7 @@ web-bot-auth.workspace = true
 [dev-dependencies]
 data-encoding.workspace = true
 ed25519-dalek = { workspace = true, features = ["std"] }
+goodfetch-test-support.workspace = true
 indexmap = { workspace = true, features = ["std"] }
 h2 = { workspace = true }
 hmac.workspace = true

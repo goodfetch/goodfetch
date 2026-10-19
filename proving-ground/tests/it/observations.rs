@@ -52,6 +52,7 @@ fn a_request_is_recorded_with_its_headers_in_the_order_sent() {
             "task": null,
             "host": "catalog.test",
             "protocol": "http/1.1",
+            "kind": "request",
             "method": "GET",
             "target": "/catalog/1",
             "pseudo_header_order": null,

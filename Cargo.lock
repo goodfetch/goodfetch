@@ -990,6 +990,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "form_urlencoded",
+ "goodfetch-test-support",
  "h2",
  "hmac",
  "http-body-util",

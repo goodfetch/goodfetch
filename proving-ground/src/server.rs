@@ -22,7 +22,10 @@ use std::task::{Context, Poll};
 use anyhow::{Context as _, Result};
 use http_body_util::{BodyExt as _, Either, Full, Limited};
 use hyper::body::{Bytes, Frame, Incoming};
-use hyper::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, HOST, HeaderValue};
+use hyper::header::{
+    AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, COOKIE, HOST, HeaderValue,
+    SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE,
+};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::TokioIo;
@@ -40,6 +43,7 @@ use crate::clock;
 use crate::exchange::{self, Reply};
 use crate::model::{self, Ending};
 use crate::observation::{self, Observations};
+use crate::push::{self, EventStream, Push};
 use crate::raw;
 use crate::raw_site::{self, RawSite};
 use crate::site::Site;
@@ -423,6 +427,9 @@ async fn answer(
     if request.method() == Method::CONNECT {
         return tunnels.open(site, request);
     }
+    if let Some(push) = pushed(&request) {
+        return tunnels.hold_open(push, request);
+    }
     let (parts, body) = request.into_parts();
     let header = |name| {
         parts
@@ -544,6 +551,73 @@ impl Tunnels {
     }
 }
 
+/// The connection `request` asks the server to hold open, if the site
+/// holds one open for it.
+fn pushed(request: &Request<Incoming>) -> Option<Push> {
+    let host = request
+        .headers()
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| {
+            request
+                .uri()
+                .authority()
+                .map(hyper::http::uri::Authority::as_str)
+        })?;
+    Site::push(host, request.method(), request.uri().path())
+}
+
+impl Tunnels {
+    /// Answers a request for a connection the site holds open: a
+    /// server-sent events stream, or a WebSocket's `101`, then the socket
+    /// on the server's tracker until it closes or the server stops. A
+    /// WebSocket request without its handshake headers is answered `400`.
+    fn hold_open(&self, push: Push, mut request: Request<Incoming>) -> Response<Body> {
+        let mut response = Response::new(Either::Left(Full::new(Bytes::new())));
+        match push {
+            Push::Events => {
+                *response.body_mut() = Either::Right(Either::Right(EventStream::new()));
+                let headers = response.headers_mut();
+                headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+                headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            }
+            Push::Socket => {
+                let header = |name| {
+                    request
+                        .headers()
+                        .get(name)
+                        .and_then(|value| value.to_str().ok())
+                };
+                let upgrade =
+                    header(UPGRADE).is_some_and(|value| value.eq_ignore_ascii_case("websocket"));
+                let Some(key) = header(SEC_WEBSOCKET_KEY).filter(|_| upgrade) else {
+                    *response.status_mut() = StatusCode::BAD_REQUEST;
+                    return response;
+                };
+                let accept = HeaderValue::try_from(push::accept(key))
+                    .expect("invariant: an accept value is base64");
+                let upgraded = hyper::upgrade::on(&mut request);
+                let stop = self.stop.clone();
+                self.tracker.spawn(async move {
+                    let Ok(upgraded) = upgraded.await else {
+                        return;
+                    };
+                    tokio::select! {
+                        () = push::socket(TokioIo::new(upgraded)) => {}
+                        () = stop.cancelled() => {}
+                    }
+                });
+                *response.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
+                let headers = response.headers_mut();
+                headers.insert(UPGRADE, HeaderValue::from_static("websocket"));
+                headers.insert(CONNECTION, HeaderValue::from_static("Upgrade"));
+                headers.insert(SEC_WEBSOCKET_ACCEPT, accept);
+            }
+        }
+        response
+    }
+}
+
 /// Carries a tunnel's bytes to and from a new connection to `address`
 /// until either side closes; a failed one concerns only its client.
 async fn tunnel(request: Request<Incoming>, address: SocketAddr) {
@@ -556,8 +630,9 @@ async fn tunnel(request: Request<Incoming>, address: SocketAddr) {
     let _ = tokio::io::copy_bidirectional(&mut TokioIo::new(upgraded), &mut inner).await;
 }
 
-/// The response body: whole, or cut before its end.
-type Body = Either<Full<Bytes>, Cut>;
+/// The response body: whole, cut before its end, or a server-sent events
+/// stream that never ends.
+type Body = Either<Full<Bytes>, Either<Cut, EventStream>>;
 
 /// Writes the Fake model's answer: whole, cut before its end, or never.
 async fn model_response(answer: model::Answer) -> Response<Body> {
@@ -567,7 +642,7 @@ async fn model_response(answer: model::Answer) -> Response<Body> {
         match never {}
     }
     let body = if answer.ending == Ending::Cut {
-        Either::Right(Cut::new(answer.body))
+        Either::Right(Either::Left(Cut::new(answer.body)))
     } else {
         Either::Left(Full::new(answer.body))
     };

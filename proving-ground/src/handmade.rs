@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 use crate::digest;
 use crate::exchange::{Reply, Request};
-use crate::task::{Effect, Entry, Expected, File, Kind, Reported, Task};
+use crate::task::{Effect, Entry, Expected, File, Kind, Reported, Task, origin};
 
 /// One hand-made family: its name, its host name, the host name of its
 /// cross-origin frames, if it has any, and its data file.
@@ -117,7 +117,7 @@ pub(crate) fn hosts() -> Vec<(String, String)> {
 }
 
 /// The hand-made families' tasks, their start URLs with `port`.
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let mut tasks = Vec::new();
     for family in &FAMILIES {
         for (ordinal, task) in ordinals(family) {
@@ -127,7 +127,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                     id: format!("{}/{ordinal}", family.name),
                     family: family.name,
                     kind: task.kind,
-                    start_url: format!("http://{host}:{port}/"),
+                    start_url: format!("{}/", origin(&host, port)),
                     description: &task.description,
                     account: None,
                     time_steps: None,

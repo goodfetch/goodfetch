@@ -10,7 +10,7 @@
 use std::fmt::Write as _;
 
 use crate::generator;
-use crate::task::{Entry, Expected, Kind, Record, Task};
+use crate::task::{Entry, Expected, Kind, Record, Task, origin};
 
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "languages.test";
@@ -329,7 +329,7 @@ fn task_host() -> String {
 
 /// The family's tasks for `seed`, on their own host names and `port`.
 /// Ordinals are append-only (ADR 0063).
-pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
+pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let record = |page: &Shown| {
         Record::from([
             ("id", page.id.to_owned()),
@@ -344,7 +344,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 id: format!("{FAMILY}/1"),
                 family: FAMILY,
                 kind: Kind::Crawl,
-                start_url: format!("http://{}:{port}/pages", task_host()),
+                start_url: format!("{}/pages", origin(&task_host(), port)),
                 description: "Crawl every page the index links, each link as written (its path \
                     and query in Unicode), and return one Record per page with the fields `id` \
                     (the link's `data-id`), `title` and `text`, each text exactly as the page \
@@ -361,7 +361,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
                 id: format!("{FAMILY}/2"),
                 family: FAMILY,
                 kind: Kind::Extract,
-                start_url: format!("http://{IDN_HOST}:{port}/"),
+                start_url: format!("{}/", origin(IDN_HOST, port)),
                 description: "Extract the page on the IDN host name `bücher.languages.test` as \
                     one Record with the fields `id` (`idn`), `title` and `text`.",
                 account: None,

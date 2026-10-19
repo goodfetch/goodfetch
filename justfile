@@ -74,6 +74,14 @@ codegen:
     uv sync --frozen
     cargo run --quiet -p xtask -- codegen
 
+# Writes the Proving ground's task list of each seed the Journey catalog uses
+# to journeys/tasks/, from the commit's Proving ground, and removes the list of
+# a seed no Journey uses (ADR 0063). Commit what it writes. `--check` writes
+# nothing and fails on a list that differs: the Pre-merge suite's drift check.
+journeys-tasks *check:
+    {{ just_executable() }} _test-tools
+    cargo run --quiet -p xtask -- journeys tasks --proving-ground "$(jq -r .proving_ground target/test-tools.json)" {{ check }}
+
 # What the changed packages declare, then the Feature check's verdict (ADR
 # 0072): the Features each crate `xtask affected` selects declares, one
 # `<feature> <level> <test>` line each, and the check's findings over the
@@ -369,6 +377,7 @@ pre-merge *all:
     "$just" lint
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
+    "$just" journeys-tasks --check
     "$just" _tlc "{{ all }}"
     "$just" proofs
     "$just" supply-chain

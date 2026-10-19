@@ -37,6 +37,8 @@ assert_cmd = { version = "2.2.2", default-features = false }
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# Only ever a dev-dependency (`xtask dependency-direction`).
+goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }

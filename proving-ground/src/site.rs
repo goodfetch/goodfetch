@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::access;
 use crate::adversarial;
 use crate::agent;
+use crate::browser_pages;
 use crate::catalog;
 use crate::crawl::{self, Families};
 use crate::encodings;
@@ -34,6 +35,7 @@ use crate::observation::{self, Observations};
 use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
 use crate::protection;
+use crate::push::Push;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
@@ -119,6 +121,7 @@ impl Site {
         hosts.extend(adversarial::hosts());
         hosts.extend(protection::hosts());
         hosts.extend(access::hosts());
+        hosts.extend(browser_pages::hosts());
         hosts.extend(crawl::hosts(seed));
         hosts
     }
@@ -146,6 +149,7 @@ impl Site {
         tasks.extend(adversarial::tasks(seed, port));
         tasks.extend(protection::tasks(seed, port));
         tasks.extend(access::tasks(seed, port));
+        tasks.extend(browser_pages::tasks(seed, port));
         tasks.extend(crawl::tasks(seed, port));
         tasks
     }
@@ -200,12 +204,26 @@ impl Site {
                 return page.into_reply();
             }
         }
-        (self.respond(host, request), None)
+        let held = browser_pages::hold(&name, request.path).map(crawl::Held::after);
+        (self.respond(host, request), held)
+    }
+
+    /// The connection a request asks the server to hold open, given its
+    /// `Host` header: one of the `live` family's WebSocket and server-sent
+    /// events stream.
+    pub(crate) fn push(host: &str, method: &Method, path: &str) -> Option<Push> {
+        browser_pages::push(&observation::host_name(host), method, path)
     }
 
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
+        if let Some((reply, recorded)) = browser_pages::respond(self.seed, &name, request) {
+            if let Some(recorded) = recorded {
+                self.observations.record(host, recorded);
+            }
+            return reply;
+        }
         if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
             .or_else(|| protection::respond(self.seed, &name, request))
             .or_else(|| access::respond(self.seed, &name, request))
@@ -445,6 +463,10 @@ impl Site {
                 let expected = now.as_ref().unwrap_or(&task.expected);
                 let answer = oracle::judge(expected, submission, &effects, findings)
                     .refuted_by(self.reported(&task.entry.id));
+                let answer = answer.refuted_by(browser_pages::findings(
+                    &task.entry.id,
+                    &self.observations.requests_of(&task.entry.id),
+                ));
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);
                     return Reply::json(StatusCode::OK, &answer);

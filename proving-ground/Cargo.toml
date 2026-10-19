@@ -40,6 +40,7 @@ toml.workspace = true
 
 [dev-dependencies]
 data-encoding.workspace = true
+goodfetch-test-support.workspace = true
 h2 = { workspace = true }
 hmac.workspace = true
 proptest.workspace = true

@@ -130,6 +130,9 @@ struct Request {
     task: Option<String>,
     host: String,
     protocol: Protocol,
+    /// What the request opens: a WebSocket, a server-sent events stream,
+    /// or an ordinary request.
+    kind: RequestKind,
     method: String,
     target: String,
     pseudo_header_order: Option<Vec<String>>,
@@ -141,6 +144,37 @@ struct Request {
     status: Option<u16>,
     timing: Timing,
     bytes: ByteCount,
+}
+
+/// What a request opens, as its headers ask: a WebSocket (`Upgrade:
+/// websocket`), a server-sent events stream (`Accept: text/event-stream`),
+/// or an ordinary request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RequestKind {
+    Websocket,
+    EventStream,
+    Request,
+}
+
+impl RequestKind {
+    fn of(headers: &[(String, String)]) -> Self {
+        let has = |name: &str, value: &str| {
+            headers.iter().any(|(header, field)| {
+                header.eq_ignore_ascii_case(name)
+                    && field
+                        .split(',')
+                        .any(|part| part.trim().eq_ignore_ascii_case(value))
+            })
+        };
+        if has("upgrade", "websocket") {
+            Self::Websocket
+        } else if has("accept", "text/event-stream") {
+            Self::EventStream
+        } else {
+            Self::Request
+        }
+    }
 }
 
 /// One request as a check of its client reads it.
@@ -612,6 +646,7 @@ impl Connection {
             task: task.clone(),
             host: host.to_owned(),
             protocol: head.protocol,
+            kind: RequestKind::of(&head.headers),
             cookies: cookies(&head.headers),
             message_signature: message_signature(&head.headers),
             method: head.method,

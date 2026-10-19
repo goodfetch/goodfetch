@@ -869,6 +869,7 @@ dependencies = [
  "data-encoding",
  "encoding_rs",
  "form_urlencoded",
+ "goodfetch-test-support",
  "h2",
  "hmac",
  "http-body-util",

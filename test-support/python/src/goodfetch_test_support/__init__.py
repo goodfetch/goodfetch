@@ -17,6 +17,7 @@ from goodfetch_test_support.proving_ground import (
     ProvingGroundUnseeded,
     ProxyCredentials,
 )
+from goodfetch_test_support.result_document import write_journey_document
 from goodfetch_test_support.schemas import SchemaError
 from goodfetch_test_support.snapshot import redact
 from goodfetch_test_support.tools import Tool, Tools, ToolsError
@@ -46,4 +47,5 @@ __all__ = [
     "redact",
     "time_zones",
     "unicode_record",
+    "write_journey_document",
 ]

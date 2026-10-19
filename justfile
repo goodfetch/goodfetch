@@ -800,8 +800,8 @@ rosetta-trial:
     ci/vm/rosetta-trial.sh
 
 # Builds the commit's executables that tests run (each Product's, the Proving
-# ground's, goodfetch-test-env and goodfetch-scripted-engine, those the
-# workspace has) with the tests' Cargo profile, and writes the test tool
+# ground's, goodfetch-test-env, goodfetch-scripted-engine and
+# goodfetch-conformance, those the workspace has) with the tests' Cargo profile, and writes the test tool
 # manifest of their paths to target/test-tools.json.
 _test-tools:
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json"

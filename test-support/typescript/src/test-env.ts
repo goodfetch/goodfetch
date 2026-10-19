@@ -24,6 +24,8 @@ export interface Tools {
   readonly test_env?: string | undefined;
   /** `goodfetch-scripted-engine`, the Scripted engine. */
   readonly scripted_engine?: string | undefined;
+  /** `goodfetch-conformance`, whose `read` loads a result document through `goodfetch-protocol`'s reader. */
+  readonly conformance?: string | undefined;
 }
 
 /** One test's setup, as `goodfetch-test-env` describes it. */

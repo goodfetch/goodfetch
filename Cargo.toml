@@ -34,6 +34,8 @@ anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# Only ever a dev-dependency (ADR 0062).
+goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }

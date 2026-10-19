@@ -1,0 +1,4 @@
+# Which of goodfetch-conformance's top-level modules may import which (ADR 0126).
+[modules]
+case_list = []
+writer = ["case_list"]

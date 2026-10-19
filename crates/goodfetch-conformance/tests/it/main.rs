@@ -1,0 +1,51 @@
+//! goodfetch-conformance's integration tests (Seam 3 of the Proving ground
+//! and conformance spec, Pre-merge): the writer that turns a case log into a
+//! result document, the result document of each kind against its schema,
+//! and the self-test suite against a running Proving ground.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "these tests start processes and read files outside any async worker"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
+)]
+
+mod case_log;
+mod journey_document;
+
+use std::path::Path;
+
+use goodfetch_protocol::result_document::{Platform, ResultDocument};
+use serde_json::{Value, json};
+
+/// The committed JSON Schema bundle, which `xtask codegen` writes.
+const BUNDLE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../goodfetch-protocol/generated/bundle.json"
+);
+
+/// The schema violations of a document, as the bundle's result document
+/// schema reports them; none when it matches.
+fn schema_violations(document: &ResultDocument) -> Vec<String> {
+    let bundle: Value = serde_json::from_slice(&std::fs::read(Path::new(BUNDLE)).unwrap()).unwrap();
+    let schema = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": bundle["documents"]["result_document"]["$ref"],
+        "$defs": bundle["$defs"],
+    });
+    let instance = serde_json::to_value(document).unwrap();
+    jsonschema::validator_for(&schema)
+        .unwrap()
+        .iter_errors(&instance)
+        .map(|error| format!("{}: {error}", error.instance_path()))
+        .collect()
+}
+
+/// The platform the tests say they ran on.
+fn platform() -> Platform {
+    Platform {
+        os: "linux".to_owned(),
+        arch: "x86_64".to_owned(),
+    }
+}

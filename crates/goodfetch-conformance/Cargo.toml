@@ -1,0 +1,28 @@
+[package]
+name = "goodfetch-conformance"
+description = "The conformance harness (ADR 0032): runs a suite against a target and a running Proving ground and writes one result document, and turns a case log into one (ADR 0069)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Only goodfetch-protocol among Goodfetch's crates: the harness tests through
+# the interface, never engine internals (STYLE.md, crate reason 2).
+[dependencies]
+goodfetch-protocol.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+jsonschema.workspace = true
+rstest.workspace = true
+
+[lints]
+workspace = true

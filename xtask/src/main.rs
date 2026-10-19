@@ -51,6 +51,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod stress;
 mod test_tools;
 mod tlc;
 mod tree;
@@ -215,6 +216,13 @@ enum Command {
     Size {
         #[command(subcommand)]
         mode: size::Command,
+    },
+    /// The stress run before merge and the order seed (ADR 0064): each new
+    /// or changed test runs 20 times, and a test taken off the quarantine
+    /// list 200 times.
+    Stress {
+        #[command(subcommand)]
+        command: stress::Command,
     },
     /// Builds the commit's executables that tests run with the tests' own
     /// Cargo profile and writes the test tool manifest of their paths, which
@@ -389,6 +397,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::Stress { command } => stress::run(command, environment),
         Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),

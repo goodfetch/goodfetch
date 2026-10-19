@@ -197,6 +197,11 @@ fn workspace_whose_runners_never_retry_passes() {
     ".github/workflows/pull-request.yml",
     "unnamed-test-step"
 )]
+#[case::stress_step_without_a_test_name(
+    "workflows/stress-step-without-a-test-name.yml",
+    ".github/workflows/pull-request.yml",
+    "unnamed-test-step"
+)]
 fn refused_retry_fails(#[case] case: &str, #[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("no-retry");
     workspace.add_fixture_file(&format!("no-retry-cases/{case}"), path);

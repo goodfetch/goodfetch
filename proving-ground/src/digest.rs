@@ -153,6 +153,10 @@ mod tests {
         "Start at http://catalog.test:8080.",
         "Start at http://catalog.test."
     )]
+    #[case::before_an_address_in_prose(
+        "See http://catalog.test:8080 or ask me@catalog.test",
+        "See http://catalog.test or ask me@catalog.test"
+    )]
     fn the_digest_ignores_a_urls_port(#[case] with_port: &str, #[case] without: &str) {
         let digests = (
             of(&entry(with_port), &expected("12.34")),
@@ -166,6 +170,8 @@ mod tests {
     #[case::not_a_url("catalog.test:8080", "catalog.test")]
     #[case::another_scheme("ftp://catalog.test:21/", "ftp://catalog.test/")]
     #[case::another_path("http://catalog.test/catalog/1", "http://catalog.test/catalog/2")]
+    #[case::an_empty_port("http://catalog.test:/catalog/1", "http://catalog.test/catalog/1")]
+    #[case::digits_then_letters("http://catalog.test:8080x/", "http://catalog.testx/")]
     fn the_digest_keeps_everything_but_a_urls_port(#[case] one: &str, #[case] other: &str) {
         let digests = (
             of(&entry(one), &expected("12.34")),

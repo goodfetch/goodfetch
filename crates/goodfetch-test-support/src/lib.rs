@@ -17,6 +17,7 @@ mod observation;
 mod process;
 mod resolver;
 mod runtime;
+mod special_purpose;
 mod ssrf;
 mod tools;
 mod trace;
@@ -35,6 +36,9 @@ pub use process::{
 };
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use special_purpose::{
+    Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
+};
 pub use ssrf::{
     Answer, CaseLookup, EgressRule, Family, LetThrough, Miss, Outcome, Redirect, Refusal, Route,
     SsrfCase, SsrfTable, SsrfTableError, run_cases,

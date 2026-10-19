@@ -46,9 +46,7 @@ struct Product {
 
 /// The product numbered `number` (from 1) for `seed`.
 fn product(seed: u64, number: u64) -> Product {
-    let draw = |value, bound| {
-        generator::below(seed, &[FAMILY_PLACE, number, value], bound)
-    };
+    let draw = |value, bound| generator::below(seed, &[FAMILY_PLACE, number, value], bound);
     let adjective = ADJECTIVES[index(draw(ADJECTIVE_PLACE, ADJECTIVES.len() as u64))];
     let noun = NOUNS[index(draw(NOUN_PLACE, NOUNS.len() as u64))];
     let cents = 100 + draw(PRICE_PLACE, 99_900);
@@ -104,12 +102,20 @@ fn listing_page(seed: u64, page: u64) -> String {
     }
     html.push_str("</ul>\n<nav class=\"pagination\">");
     if page > 1 {
-        write!(html, "<a rel=\"prev\" href=\"/catalog/{}\">Previous</a>", page - 1)
-            .expect("invariant: writing to a String succeeds");
+        write!(
+            html,
+            "<a rel=\"prev\" href=\"/catalog/{}\">Previous</a>",
+            page - 1
+        )
+        .expect("invariant: writing to a String succeeds");
     }
     if page < LISTING_PAGES {
-        write!(html, "<a rel=\"next\" href=\"/catalog/{}\">Next</a>", page + 1)
-            .expect("invariant: writing to a String succeeds");
+        write!(
+            html,
+            "<a rel=\"next\" href=\"/catalog/{}\">Next</a>",
+            page + 1
+        )
+        .expect("invariant: writing to a String succeeds");
     }
     html.push_str("</nav>\n</main>\n</body>\n</html>\n");
     html

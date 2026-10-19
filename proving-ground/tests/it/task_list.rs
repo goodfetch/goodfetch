@@ -24,10 +24,7 @@ fn the_task_list_names_the_catalog_familys_crawl_and_extract_tasks() {
 
     let tasks = proving_ground.tasks();
 
-    assert_eq!(
-        tasks["proving_ground"]["seed"], 158,
-        "{tasks}"
-    );
+    assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
     assert_eq!(each(&tasks, "id"), [json!("catalog/1"), json!("catalog/2")]);
     assert_eq!(each(&tasks, "family"), [json!("catalog"), json!("catalog")]);
     assert_eq!(each(&tasks, "kind"), [json!("crawl"), json!("extract")]);
@@ -75,7 +72,10 @@ fn the_same_seed_on_two_ports_lists_the_same_digests() {
     let first = ProvingGround::start(158);
     let second = ProvingGround::start(158);
 
-    let digests = (each(&first.tasks(), "digest"), each(&second.tasks(), "digest"));
+    let digests = (
+        each(&first.tasks(), "digest"),
+        each(&second.tasks(), "digest"),
+    );
 
     assert_ne!(first.port(), second.port());
     assert_eq!(digests.0, digests.1);

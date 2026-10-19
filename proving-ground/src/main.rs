@@ -5,9 +5,11 @@
 //! name, the task list at `/tasks` and the oracle at `/oracle`.
 
 mod catalog;
+mod clock;
 mod command;
 mod digest;
 mod generator;
+mod oracle;
 mod output;
 mod server;
 mod site;
@@ -22,13 +24,15 @@ use crate::server::Server;
 
 fn main() -> Result<()> {
     let Command::Serve(serve) = Command::parse();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "`main` builds the Proving ground's one runtime (ADR 0060)"
+    )]
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("building the Tokio runtime")?;
-    let Serve {
-        seed, address, ..
-    } = serve;
+    let Serve { seed, address, .. } = serve;
     let server = runtime.block_on(Server::bind(address, seed))?;
     output::line(&serde_json::json!({
         "address": server.address().to_string(),

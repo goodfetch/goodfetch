@@ -95,7 +95,10 @@ mod tests {
     #[case::name_and_port("http://catalog.test:8080/catalog/1", "http://catalog.test/catalog/1")]
     #[case::https("https://catalog.test:8443/", "https://catalog.test/")]
     #[case::ipv6("http://[::1]:51234/tasks?x=1", "http://[::1]/tasks?x=1")]
-    #[case::credentials("http://user:secret@catalog.test:80/", "http://user:secret@catalog.test/")]
+    #[case::credentials(
+        "http://user:secret@catalog.test:80/",
+        "http://user:secret@catalog.test/"
+    )]
     fn the_digest_ignores_a_urls_port(#[case] with_port: &str, #[case] without: &str) {
         let digests = (
             of(&entry(with_port), &expected("12.34")),

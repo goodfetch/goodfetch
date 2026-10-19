@@ -7,6 +7,7 @@ use hyper::{Method, StatusCode};
 use serde::Serialize;
 
 use crate::catalog;
+use crate::oracle::{self, Submission};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -59,7 +60,7 @@ impl Site {
     }
 
     /// Answers one request, given its `Host` header, path and body.
-    pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, _body: &Bytes) -> Reply {
+    pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
         let name = host.rsplit_once(':').map_or(host, |(name, _)| name);
         if name.eq_ignore_ascii_case(catalog::HOST) {
             return match (method, catalog::page(self.seed, path)) {
@@ -72,7 +73,20 @@ impl Site {
                 StatusCode::OK,
                 &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
+            (&Method::POST, "/oracle") => self.judge(body),
             _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
+        }
+    }
+
+    /// Judges a submission against its task's expected result.
+    fn judge(&self, body: &Bytes) -> Reply {
+        let Ok(submission) = serde_json::from_slice::<Submission>(body) else {
+            return Reply::error(StatusCode::BAD_REQUEST, "malformed_submission");
+        };
+        let tasks = self.tasks();
+        match tasks.iter().find(|task| task.entry.id == submission.task) {
+            Some(task) => Reply::json(StatusCode::OK, &oracle::judge(&task.expected, submission)),
+            None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),
         }
     }
 }

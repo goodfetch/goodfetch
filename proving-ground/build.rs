@@ -5,7 +5,6 @@
     clippy::disallowed_methods,
     reason = "a build script is synchronous and reads its own environment and git"
 )]
-#![expect(clippy::print_stdout, reason = "a build script speaks to Cargo on stdout")]
 
 use std::path::Path;
 use std::process::Command;

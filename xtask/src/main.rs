@@ -32,6 +32,7 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
+mod os_services;
 mod output;
 mod package_dependencies;
 mod perf;
@@ -131,6 +132,12 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
+    /// The real OS services the tests meet: the extra loopback addresses and
+    /// the Secret Service (ADR 0059).
+    OsServices {
+        #[command(subcommand)]
+        command: os_services::Command,
+    },
     /// Fails when an npm or PyPI package under `sdks/`, `adapters/` or
     /// `integrations/` depends on a package of the other Product, or on a
     /// Product's package when it is the Collie client package (ADR 0095).
@@ -325,6 +332,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Notices(arguments) => notices::run(&arguments, environment),
+        Command::OsServices { command } => os_services::run(command, environment),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),

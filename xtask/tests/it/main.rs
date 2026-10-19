@@ -34,6 +34,7 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
+mod os_services;
 mod package_dependencies;
 mod perf;
 mod perf_build;

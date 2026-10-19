@@ -3,7 +3,8 @@
 # pre-job and post-job scripts (ADRs 0108 and 0135): `just runner-install
 # <folder>`, run by the owner, as the owner, on the runner's machine, from a
 # checkout whose allowlist the owner has reviewed. The folder ends up owned by
-# the owner and only readable by the runner user, so no job can change it.
+# the owner, readable by every user and writable only by the owner, so no job
+# can change it.
 set -euo pipefail
 
 folder=${1:?usage: ci/runner/install.sh <folder>}

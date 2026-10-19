@@ -183,6 +183,40 @@ fn daily_ingest_lists_the_finished_attempts_the_store_lacks() {
     assert_eq!(outcome.stdout, "50 2\n52 1\n");
 }
 
+/// A missed daily ingest, or a run queued for a day while the runner was
+/// offline, loses nothing: with no `--since`, the runs are listed from the
+/// day before the first of the store's newest month.
+#[test]
+fn daily_ingest_lists_from_the_stores_newest_month() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[
+            Attempt::new(50, "2026-09-20T09:00:00Z"),
+            Attempt::new(51, "2026-10-17T10:00:00Z"),
+        ],
+    );
+    let github = GitHub::serving(&[(
+        "/repos/goodfetch/goodfetch/actions/runs?status=completed&created=%3E%3D2026-09-30&per_page=100&page=1",
+        r#"{ "total_count": 2, "workflow_runs": [
+          { "id": 51, "run_attempt": 1 },
+          { "id": 53, "run_attempt": 1 }
+        ] }"#,
+    )]);
+
+    let outcome = workspace.xtask(&[
+        "results",
+        "pending",
+        "--store",
+        STORE,
+        "--api-url",
+        github.url(),
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "53 1\n");
+}
+
 /// A Release cell runs Vitest on each Node.js line and pytest on each
 /// Python version, one JUnit file each (`vitest-node24.xml`): the file's runtime
 /// joins the artifact's, so each is a configuration of its own; nextest's

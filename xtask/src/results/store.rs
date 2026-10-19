@@ -194,6 +194,23 @@ pub(crate) fn stored(root: &Path) -> Result<BTreeSet<(u64, u32)>> {
         .collect())
 }
 
+/// The first day of the newest month that holds an attempt, from the store's
+/// `runs/<year>/<month>/` folders; none in an empty store.
+pub(crate) fn newest_month(root: &Path) -> Result<Option<jiff::civil::Date>> {
+    let mut files = Vec::new();
+    collect(&root.join("runs"), &mut files)?;
+    Ok(files
+        .iter()
+        .filter_map(|file| {
+            let month = file.parent()?;
+            let year = month.parent()?;
+            let month: i8 = month.file_name()?.to_str()?.parse().ok()?;
+            let year: i16 = year.file_name()?.to_str()?.parse().ok()?;
+            jiff::civil::Date::new(year, month, 1).ok()
+        })
+        .max())
+}
+
 /// The attempts that started in the month of `date`, or in the month before.
 pub(crate) fn read_month_and_previous(
     root: &Path,

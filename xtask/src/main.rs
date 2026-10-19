@@ -237,15 +237,16 @@ enum ResultsCommand {
         #[arg(long)]
         store: PathBuf,
     },
-    /// Prints `<run> <attempt>` for every attempt of the runs that finished
-    /// since `--since` and that the store lacks, for the daily ingest (ADR 0135).
+    /// Prints `<run> <attempt>` for every attempt of the finished runs the
+    /// store lacks, for the daily ingest (ADR 0135).
     Pending {
         /// A checkout of the results store.
         #[arg(long)]
         store: PathBuf,
-        /// The first day, UTC, `YYYY-MM-DD`.
+        /// The first day, UTC, `YYYY-MM-DD`; by default the day before the
+        /// first of the store's newest month.
         #[arg(long)]
-        since: jiff::civil::Date,
+        since: Option<jiff::civil::Date>,
         #[command(flatten)]
         github: github::Arguments,
     },

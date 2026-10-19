@@ -331,15 +331,16 @@ perf base="":
     ci/perf.sh {{ base }}
 
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
-# dependencies, tests and benchmark targets with its profiles, run by nothing;
-# the benchmark targets twice, the second time into the target folder's
-# perf-base/, where `xtask perf build` builds the base.
+# dependencies, tests and benchmark targets with its profiles, run by nothing:
+# the Pre-merge job's own `just build ci` among them; the benchmark targets
+# twice, the second time into the target folder's perf-base/, where `xtask
+# perf build` builds the base.
 warm:
     pnpm exec tsc -p tsconfig.json
     cargo clippy --workspace --all-targets --all-features
     cargo build -p xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
-    cargo build --workspace --profile ci
+    {{ just_executable() }} build ci
     cargo bench --workspace --no-run
     CARGO_TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/perf-base" cargo bench --workspace --no-run
     ci/msrv.sh

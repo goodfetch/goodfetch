@@ -99,19 +99,30 @@ struct ApiRun {
     run_attempt: u32,
 }
 
-/// Every attempt of the runs that finished since `since` (a day, UTC) that
-/// the store at `store` lacks, for the daily ingest (ADR 0135): the runs no
+/// Every attempt of the runs created since `since` (a day, UTC) that the
+/// store at `store` lacks, for the daily ingest (ADR 0135): the runs no
 /// per-run ingest follows, such as the pull-request tier's, and any a
-/// per-run ingest missed.
+/// per-run ingest missed. With no `since`, it lists from the day before the
+/// first of the store's newest month, so a missed ingest or a run queued for
+/// a day loses nothing; an empty store lists every finished run.
 pub(crate) fn pending(
     api: &Api<'_>,
     repository: &str,
     store: &Path,
-    since: jiff::civil::Date,
+    since: Option<jiff::civil::Date>,
 ) -> Result<Vec<(u64, u32)>> {
     let stored = store::stored(store)?;
+    let since = match since {
+        Some(since) => Some(since),
+        None => store::newest_month(store)?
+            .map(jiff::civil::Date::yesterday)
+            .transpose()?,
+    };
+    let created = since
+        .map(|since| format!("&created=%3E%3D{since}"))
+        .unwrap_or_default();
     let runs: Vec<ApiRun> = api.get_all(
-        &format!("/repos/{repository}/actions/runs?status=completed&created=%3E%3D{since}"),
+        &format!("/repos/{repository}/actions/runs?status=completed{created}"),
         List::In("workflow_runs"),
     )?;
     let pending: BTreeSet<(u64, u32)> = runs

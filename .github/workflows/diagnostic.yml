@@ -136,6 +136,9 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh 20
@@ -184,6 +187,9 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: failure()
+        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh 20

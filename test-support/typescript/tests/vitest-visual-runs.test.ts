@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -81,6 +82,17 @@ function project(): string {
   const folder = mkdtempSync(join(ROOT, "target", "vitest-visual-runs-"));
   onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "vitest.config.ts"), join(folder, "vitest.config.ts"));
+  // The config reads the Feature inventory and the Journey catalog beside
+  // itself, for its tags (ADRs 0063 and 0072).
+  mkdirSync(join(folder, "features"));
+  copyFileSync(
+    join(ROOT, "features", "inventory.json"),
+    join(folder, "features", "inventory.json"),
+  );
+  mkdirSync(join(folder, "journeys"));
+  for (const name of readdirSync(join(ROOT, "journeys")).filter((n) => /^J-\d+\.toml$/.test(n))) {
+    copyFileSync(join(ROOT, "journeys", name), join(folder, "journeys", name));
+  }
   return folder;
 }
 

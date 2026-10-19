@@ -84,6 +84,12 @@ function project(): string {
   const folder = mkdtempSync(join(ROOT, "target", "visual-runs-"));
   onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(folder, "playwright.config.ts"));
+  // The config reads the Feature inventory beside itself (ADR 0072).
+  mkdirSync(join(folder, "features"));
+  copyFileSync(
+    join(ROOT, "features", "inventory.json"),
+    join(folder, "features", "inventory.json"),
+  );
   writeFileSync(join(folder, "page.visual.spec.ts"), SPEC);
   return folder;
 }

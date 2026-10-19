@@ -34,6 +34,7 @@ use crate::observation::{self, Observations};
 use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
 use crate::protection;
+use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
@@ -130,6 +131,7 @@ impl Site {
         hosts.extend(protection::hosts());
         hosts.extend(access::hosts());
         hosts.extend(crawl::hosts(seed));
+        hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
         hosts
     }
 
@@ -157,6 +159,7 @@ impl Site {
         tasks.extend(protection::tasks(seed, port));
         tasks.extend(access::tasks(seed, port));
         tasks.extend(crawl::tasks(seed, port));
+        tasks.extend(raw_site::tasks(seed, port));
         tasks
     }
 
@@ -216,6 +219,10 @@ impl Site {
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
+        if raw_site::serves(&name) {
+            // The raw server answers these over TLS alone.
+            return Reply::error(StatusCode::MISDIRECTED_REQUEST, "tls_required");
+        }
         if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
             .or_else(|| protection::respond(self.seed, &name, request))
             .or_else(|| access::respond(self.seed, &name, request))
@@ -448,12 +455,13 @@ impl Site {
                 let effects = self.observations.effects_of(&task.entry.id);
                 let findings = self.observations.findings_of(&task.entry.id);
                 let submitted = submission.record_ids();
+                let requests = self.observations.requests_of(&task.entry.id);
                 let now = self
                     .portal
                     .expected_now(&task.entry.id)
                     .or_else(|| access::expected_now(&task.entry.id, &self.observations));
                 let expected = now.as_ref().unwrap_or(&task.expected);
-                let answer = oracle::judge(expected, submission, &effects, findings)
+                let answer = oracle::judge(expected, submission, &effects, &requests, findings)
                     .refuted_by(self.reported(&task.entry.id));
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);

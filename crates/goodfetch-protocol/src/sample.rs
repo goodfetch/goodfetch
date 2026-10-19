@@ -91,6 +91,7 @@ pub const ENTRIES: Entries = Entries {
         description: "The sample operation refused the text.",
         group: ErrorGroup::Refused,
         retryable: false,
+        exit_code: None,
         arrived_in: ARRIVED_IN,
     }],
     plugin_kinds: &[PluginKind {

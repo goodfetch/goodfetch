@@ -1,0 +1,15 @@
+# Which of goodfetch-engine's top-level modules may import which (ADR 0126).
+[modules]
+composition = ["product"]
+engine = ["composition", "product", "rpc", "tasks", "transport"]
+info = ["composition"]
+product = []
+rpc = ["composition", "product", "tasks", "transport"]
+tasks = []
+transport = []
+
+# Which of `rpc`'s own modules may import which.
+[submodules.rpc]
+connection = ["framing", "handshake"]
+framing = []
+handshake = []

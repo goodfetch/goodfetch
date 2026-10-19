@@ -57,6 +57,8 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
   - pytest: `@pytest.mark.journey("J-002")`, registered, with `strict_markers` on.
   - Playwright Test: the tag `@J-002`.
 
+  > Agent decision, pending owner review (#346, 2026-10-19): a test also carries its surface, since one Journey file holds several variants (`cli` and `foxhound-cli` in one executable crate) and `xtask journeys select` must print one exact filter per runner. nextest names the test after the surface (`journeys::j002::cli`); Vitest and Playwright add the surface's tag (`sdk-typescript`, `@console`); pytest writes `@pytest.mark.journey(id="J-002", surface="sdk-python")`, keywords because pytest's `-m` matches only keyword arguments. `TESTING.md`, Journeys, has the rule.
+
 ### Seeded data and isolation
 
 - **Each Journey that uses Proving ground pages has its own seed**, written in its file when it is created. The first catalog uses the Journey's number. A Journey that touches no page (J-001, J-009) has no seed. `GOODFETCH_TEST_SEED` (ADR 0059) overrides only the `Entropy` seed of in-process tests, never a Journey's seed, which is part of its data.

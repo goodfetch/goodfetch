@@ -56,18 +56,31 @@ pub struct Record {
 }
 
 impl References {
-    /// Reads the reference result of every `crawl` and `extract` task from
-    /// the pages: a crawl from its start page through each listing's next
-    /// link, an extract of its one page. A task of another kind gets none.
+    /// Reads the reference result of every `crawl` and `extract` task a case
+    /// of the suite names from the pages: a crawl from its start page through
+    /// each listing's next link, an extract of its one page. A task of
+    /// another kind, or that no case names, gets none, since the reader
+    /// knows only the pages of the cases' family.
     ///
     /// # Errors
     ///
     /// When the Proving ground cannot serve the task list or a page, or a
     /// page lacks what its family shows.
     pub fn read(proving_ground: &ProvingGround) -> Result<Self, SelfTestError> {
+        let cases: SelfTestCases =
+            toml::from_str(CASES).expect("invariant: the embedded case list is valid");
+        let named: Vec<&TaskId> = cases
+            .capabilities
+            .iter()
+            .flat_map(|capability| &capability.cases)
+            .map(|case| &case.task)
+            .collect();
         let reader = Reader::new();
         let mut records = BTreeMap::new();
         for task in proving_ground.task_list()?.tasks {
+            if !named.contains(&&task.id) {
+                continue;
+            }
             let read = match task.kind.as_str() {
                 "crawl" => reader.crawl(proving_ground, &task.start_url)?,
                 "extract" => vec![reader.product(proving_ground, &task.start_url)?],

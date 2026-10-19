@@ -1,7 +1,9 @@
 use rstest::rstest;
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 
-use super::{Crash, CrashKind, CrashVfs, IoFault, Landed, after_crash};
+use super::{
+    AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, IoFault, Landed, after_crash,
+};
 use crate::env::TestEnv;
 
 const DATABASE: &str = "run.sqlite";
@@ -37,6 +39,21 @@ fn a_database_opened_by_the_vfs_name_reads_back_what_it_committed() {
         .unwrap();
 
     assert_eq!(values(&open(&vfs)), ["first"]);
+}
+
+#[test]
+fn a_reader_sees_what_another_connection_commits_to_a_wal_database() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("crash-vfs"), env.seed()).unwrap();
+    let writer = wal_database(&vfs);
+    let reader = open(&vfs);
+    let reading = reader.unchecked_transaction().unwrap();
+    assert_eq!(values(&reading), Vec::<String>::new());
+
+    insert(&writer, &["committed while a reader reads"]);
+
+    reading.commit().unwrap();
+    assert_eq!(values(&reader), ["committed while a reader reads"]);
 }
 
 /// A WAL database whose table is synced, then written with no sync.
@@ -127,6 +144,61 @@ fn another_seed_can_give_another_power_cut() {
     let (first, second) = (power_cut(&env, TORN_WAL_SEED), power_cut(&env, 4));
 
     assert_ne!(first, second);
+}
+
+/// A seed whose power cut lands part of a journal-less database's writes
+/// (found by trying seeds; a seed that drops them all leaves an empty, whole
+/// database).
+const DAMAGING_SEED: u64 = 3;
+
+#[test]
+fn after_crash_fails_a_database_written_without_a_journal_through_a_power_cut() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("crash-vfs"), DAMAGING_SEED).unwrap();
+    let crashed = open(&vfs);
+    crashed
+        .execute_batch(
+            "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;
+             CREATE TABLE item (value TEXT); CREATE INDEX item_value ON item (value);
+             WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM counter WHERE n < 2000)
+             INSERT INTO item SELECT printf('value %d', n) FROM counter;",
+        )
+        .unwrap();
+    vfs.crash(CrashKind::PowerCut);
+
+    let checked = after_crash(&vfs, DATABASE);
+
+    assert!(
+        matches!(checked, Err(AfterCrashError::Damaged { .. })),
+        "{checked:?}"
+    );
+}
+
+#[test]
+fn after_crash_fails_when_the_database_is_missing() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("crash-vfs"), env.seed()).unwrap();
+
+    let checked = after_crash(&vfs, DATABASE);
+
+    assert!(
+        matches!(checked, Err(AfterCrashError::Open(_))),
+        "{checked:?}"
+    );
+}
+
+#[test]
+fn a_second_crash_vfs_under_one_name_is_refused() {
+    let env = TestEnv::new();
+    let name = env.unique_name("crash-vfs");
+    let _first = CrashVfs::register(&name, env.seed()).unwrap();
+
+    let second = CrashVfs::register(&name, env.seed());
+
+    assert!(
+        matches!(second, Err(CrashVfsError::NameTaken { .. })),
+        "{second:?}"
+    );
 }
 
 fn error_code(error: &rusqlite::Error) -> Option<ErrorCode> {

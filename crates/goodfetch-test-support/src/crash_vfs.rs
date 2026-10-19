@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use chacha20::ChaCha20Rng;
 use chacha20::rand_core::{Rng as _, SeedableRng as _};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, ErrorCode, OpenFlags};
 use sqlite_plugin::flags::{AccessFlags, CreateMode, LockLevel, OpenMode, OpenOpts, ShmLockMode};
 use sqlite_plugin::vars;
 use sqlite_plugin::vfs::{RegisterOpts, Vfs, VfsHandle, VfsResult, register_static};
@@ -174,17 +174,19 @@ pub enum Landed {
 ///
 /// # Errors
 ///
-/// [`AfterCrashError::Open`] if the database cannot be opened (a missing
-/// file included), [`AfterCrashError::Check`] if the check cannot run, and
-/// [`AfterCrashError::Integrity`] with SQLite's findings if the database is
-/// damaged.
+/// [`AfterCrashError::Damaged`] with SQLite's findings if the database is
+/// damaged: the check reports a problem, or SQLite refuses to read the file
+/// as a database (`SQLITE_CORRUPT`, `SQLITE_NOTADB`).
+/// [`AfterCrashError::Open`] if it cannot be opened for another reason (a
+/// missing file included), and [`AfterCrashError::Check`] if the check
+/// cannot run for another reason.
 pub fn after_crash(vfs: &CrashVfs, path: &str) -> Result<Connection, AfterCrashError> {
     let connection = Connection::open_with_flags_and_vfs(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         vfs.name(),
     )
-    .map_err(AfterCrashError::Open)?;
+    .map_err(|error| damaged(error).unwrap_or_else(AfterCrashError::Open))?;
     let findings = connection
         .prepare("PRAGMA integrity_check")
         .and_then(|mut statement| {
@@ -192,29 +194,42 @@ pub fn after_crash(vfs: &CrashVfs, path: &str) -> Result<Connection, AfterCrashE
                 .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()
         })
-        .map_err(AfterCrashError::Check)?;
+        .map_err(|error| damaged(error).unwrap_or_else(AfterCrashError::Check))?;
     if findings != ["ok"] {
-        return Err(AfterCrashError::Integrity { findings });
+        return Err(AfterCrashError::Damaged { findings });
     }
     Ok(connection)
+}
+
+/// The damage `error` reports, or the error itself when it reports none.
+fn damaged(error: rusqlite::Error) -> Result<AfterCrashError, rusqlite::Error> {
+    match error.sqlite_error_code() {
+        Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase) => {
+            Ok(AfterCrashError::Damaged {
+                findings: vec![error.to_string()],
+            })
+        }
+        _ => Err(error),
+    }
 }
 
 /// Why a database failed [`after_crash`].
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AfterCrashError {
+    /// The database is damaged.
+    #[error("the database is damaged after the crash: {findings:?}")]
+    Damaged {
+        /// SQLite's findings: the lines `PRAGMA integrity_check` returned,
+        /// or the error SQLite refused the file with.
+        findings: Vec<String>,
+    },
     /// The database could not be opened.
     #[error("the database could not be opened after the crash")]
     Open(#[source] rusqlite::Error),
     /// `PRAGMA integrity_check` could not run.
     #[error("the integrity check could not run after the crash")]
     Check(#[source] rusqlite::Error),
-    /// `PRAGMA integrity_check` found damage.
-    #[error("the database is damaged after the crash: {findings:?}")]
-    Integrity {
-        /// SQLite's findings, one per line it returned.
-        findings: Vec<String>,
-    },
 }
 
 /// Why a crash VFS could not be registered.

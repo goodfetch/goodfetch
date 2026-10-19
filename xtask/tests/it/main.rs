@@ -27,6 +27,7 @@ mod egress;
 mod egress_canary;
 mod egress_hosts;
 mod egress_rules;
+mod features;
 mod fixture_size;
 mod ingest;
 mod minute_ceiling;

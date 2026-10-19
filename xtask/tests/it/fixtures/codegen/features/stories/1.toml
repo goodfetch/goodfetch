@@ -1,0 +1,14 @@
+[[story]]
+id = 1
+title = "As a user, I want to reach a goal, so that I am done."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a contributor, I want a check, so that a mistake fails."
+milestone = "M2 Next"
+journey = false
+not_journey = "actor"
+status = "active"

@@ -22,6 +22,7 @@ mod dco;
 mod dependency_direction;
 mod egress;
 mod environment;
+mod features;
 mod fixture_size;
 mod foxhound_side;
 mod github;
@@ -114,6 +115,12 @@ enum Command {
     Egress {
         #[command(subcommand)]
         command: egress::Command,
+    },
+    /// The Feature inventory's declarations and its Feature check (ADRs 0072
+    /// and 0075).
+    Features {
+        #[command(subcommand)]
+        command: features::Command,
     },
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
@@ -320,6 +327,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
         Command::Egress { command } => egress::run(command, environment),
+        Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),

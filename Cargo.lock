@@ -1663,6 +1663,7 @@ dependencies = [
  "quick-xml",
  "quote",
  "rstest",
+ "schemars",
  "serde",
  "serde-saphyr",
  "serde_json",

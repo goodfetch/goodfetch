@@ -328,6 +328,8 @@ fn the_refused_hello_script_gives_the_client_protocol_version_unsupported_and_cl
         (&reply["error"]["data"]["code"], after),
         (&json!("protocol_version_unsupported"), None)
     );
+    let (status, stderr) = client.close();
+    assert!(status.success(), "{stderr}");
 }
 
 #[test]

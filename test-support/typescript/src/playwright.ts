@@ -11,21 +11,41 @@
 //   `console` error, threw, broke the CSP or had a same-origin request fail.
 // - `coversKnownFeatures`, on in every test: fails it when a `covers`
 //   annotation names a Feature the inventory does not list (ADR 0072).
+// - `axe`, on in every test: once the test has passed, audits each of its
+//   open pages for WCAG 2.2 AA and best practices (ADR 0073), with the
+//   repository's exception file, before `failOnErrors` judges the pages, so
+//   axe breaking the CSP fails the test too. `expectAccessible(page)` audits
+//   a state on the way.
 //
 // A failed test's trace is kept beside the JUnit files, by the repository's
 // `playwright.config.ts`.
 import {
   test as base,
+  type Page,
   type PlaywrightTestArgs,
   type PlaywrightTestOptions,
   type PlaywrightWorkerArgs,
   type PlaywrightWorkerOptions,
   type TestType,
 } from "@playwright/test";
+import { auditAccessibility } from "./accessibility.ts";
+import { readAxeExceptions } from "./axe-exceptions.ts";
 import { refuseBypassCSP } from "./bypass-csp.ts";
 import { refuseUnknownCovers } from "./features.ts";
 import { watchPageErrors, type PageErrorWatch } from "./page-errors.ts";
 
+export {
+  AXE_TAGS,
+  auditAccessibility,
+  expectAccessible,
+  type AuditOptions,
+} from "./accessibility.ts";
+export {
+  AXE_EXCEPTIONS_FILE,
+  parseAxeExceptions,
+  readAxeExceptions,
+  type AxeException,
+} from "./axe-exceptions.ts";
 export { refuseBypassCSP, type CspOptions } from "./bypass-csp.ts";
 export {
   watchPageErrors,
@@ -44,6 +64,8 @@ export interface ServedFixtures {
    * inventory's IDs as `metadata.features`.
    */
   coversKnownFeatures: void;
+  /** axe's audit of each open page, at the end of a test that passed; the test fails on a violation. */
+  axe: void;
 }
 
 /** Playwright's `test` with test support's fixtures. */
@@ -82,6 +104,35 @@ export const test: TestType<
     },
     { auto: true },
   ],
+  axe: [
+    // Taking `failOnErrors` sets it up first, so it judges the pages after the audit.
+    async ({ context, failOnErrors }, use, testInfo) => {
+      await use();
+      if (testInfo.status !== "passed") {
+        return;
+      }
+      const exceptions = await readAxeExceptions();
+      for (const page of context.pages()) {
+        if (page.url() !== "about:blank") {
+          await resumeInstalledClock(page);
+          await auditAccessibility(page, { exceptions, testInfo });
+        }
+      }
+      void failOnErrors;
+    },
+    { auto: true },
+  ],
 });
+
+/**
+ * Lets time flow again on a page whose test installed `page.clock`, which
+ * may have paused it: axe waits on the page's timers. A page without
+ * Playwright's clock is left as it is.
+ */
+async function resumeInstalledClock(page: Page): Promise<void> {
+  if (await page.evaluate(() => "__pwClock" in globalThis)) {
+    await page.clock.resume();
+  }
+}
 
 export { expect } from "@playwright/test";

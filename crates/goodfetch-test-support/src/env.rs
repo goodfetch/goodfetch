@@ -1,6 +1,7 @@
 //! `TestEnv`, each test's one entry point (ADRs 0059 and 0062): its own
 //! folder, Goodfetch home and cleared environment map, its printed seed, the
-//! fixed start time, unique names, and the commands and processes it starts.
+//! fixed start time, unique names, the commands and processes it starts, and
+//! the crash-dump folder of the browsers they launch.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support creates folders and starts processes outside any async worker (ADR 0062)"
@@ -14,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, SystemTime};
 
+use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
 use crate::variables::{SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test};
 
@@ -29,10 +31,12 @@ const NAME_LENGTH: usize = 64;
 
 /// One test's isolated setup. Its folder is removed when it drops, unless
 /// the test failed: then it is kept and listed on stderr. Dropping it also
-/// fails the test if a process it started is still alive.
+/// fails the test if a process it started is still alive, or if its
+/// crash-dump folder holds a file.
 pub struct TestEnv {
     folder: tempfile::TempDir,
     home: PathBuf,
+    crash_dumps: PathBuf,
     env: BTreeMap<String, String>,
     seed: u64,
     suite: Suite,
@@ -70,9 +74,11 @@ impl TestEnv {
             .tempdir()?;
         let root = folder.path();
         let home = root.join("home");
+        let crash_dumps = home.join(crash_dumps::FOLDER);
         let user = root.join("user");
         let folders = [
             ("GOODFETCH_HOME", home.clone()),
+            (CRASH_DUMP_VARIABLE, crash_dumps.clone()),
             ("HOME", user.clone()),
             ("USERPROFILE", user.clone()),
             ("XDG_CONFIG_HOME", user.join(".config")),
@@ -102,6 +108,7 @@ impl TestEnv {
         Ok(Self {
             folder,
             home,
+            crash_dumps,
             env,
             seed,
             suite,
@@ -136,6 +143,13 @@ impl TestEnv {
     /// `<folder>/home`, the `GOODFETCH_HOME` of everything the test starts.
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// `<home>/crash-dumps`, which the map names in
+    /// [`CRASH_DUMP_VARIABLE`] for every browser the test launches; a file
+    /// in it at teardown fails the test.
+    pub fn crash_dump_folder(&self) -> &Path {
+        &self.crash_dumps
     }
 
     /// The cleared environment of every child the test starts.
@@ -199,30 +213,47 @@ impl Default for TestEnv {
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
+        // Children first, so a browser that crashes while it is stopped has
+        // finished writing its dump.
         let alive = self.processes.stop_alive();
         let panicking = std::thread::panicking();
-        if !panicking && alive.is_empty() {
+        let dumps = match crash_dumps::find(&self.crash_dumps) {
+            Ok(dumps) => dumps,
+            Err(_) if panicking => Vec::new(),
+            Err(error) => {
+                self.folder.disable_cleanup(true);
+                panic!(
+                    "the test's crash-dump folder {} cannot be listed: {error}",
+                    self.crash_dumps.display()
+                );
+            }
+        };
+        if !panicking && alive.is_empty() && dumps.is_empty() {
             return;
         }
         self.folder.disable_cleanup(true);
+        let alive = ProcessesAlive { programs: alive };
+        let dumps = CrashDumps { dumps };
         #[expect(
             clippy::print_stderr,
-            reason = "a failed test lists its kept folder in its output (ADR 0062)"
+            reason = "a failed test lists its kept folder and the failure's reasons, since a typed panic payload prints none (ADRs 0062 and 0069)"
         )]
         {
             eprintln!("goodfetch-test-folder-kept={}", self.folder().display());
-        }
-        if !panicking {
-            let alive = ProcessesAlive { programs: alive };
-            #[expect(
-                clippy::print_stderr,
-                reason = "the failure's reason, since a typed panic payload prints none (ADR 0069)"
-            )]
-            {
+            if !alive.programs.is_empty() {
                 eprintln!("{alive}");
             }
-            std::panic::panic_any(alive);
+            if !dumps.dumps.is_empty() {
+                eprintln!("{dumps}");
+            }
         }
+        if panicking {
+            return;
+        }
+        if alive.programs.is_empty() {
+            std::panic::panic_any(dumps);
+        }
+        std::panic::panic_any(alive);
     }
 }
 

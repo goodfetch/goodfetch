@@ -4,7 +4,7 @@
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 
-use goodfetch_test_support::{Process, TOOLS_VARIABLE, TestEnv, command};
+use goodfetch_test_support::{CRASH_DUMP_VARIABLE, Process, TOOLS_VARIABLE, TestEnv, command};
 use serde_json::Value;
 
 use crate::{TEST_ENV, manifest};
@@ -73,6 +73,24 @@ fn closing_stdin_removes_the_folder_and_leaves_no_process() {
 
     assert!(status.success());
     assert!(!Path::new(&folder).exists(), "{folder}");
+}
+
+#[test]
+fn a_dump_in_the_crash_dump_folder_fails_the_teardown_closing_stdin_runs() {
+    let env = TestEnv::new();
+    let process = start(&env, &[]);
+    let description: Value = serde_json::from_str(&first_line(&process)).unwrap();
+    let crash_dumps = Path::new(description["env"][CRASH_DUMP_VARIABLE].as_str().unwrap());
+    std::fs::write(crash_dumps.join("renderer.dmp"), "dump").unwrap();
+
+    let status = process.close_stdin_and_wait().unwrap();
+
+    let folder = Path::new(description["folder"].as_str().unwrap());
+    let kept = folder.is_dir();
+    if kept {
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+    assert_eq!((status.success(), kept), (false, true));
 }
 
 #[test]

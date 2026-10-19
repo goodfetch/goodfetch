@@ -14,6 +14,7 @@
 //! values only: it depends on no Goodfetch crate and is only ever a
 //! dev-dependency.
 
+mod crash_dumps;
 mod crash_vfs;
 mod description;
 mod endpoints;
@@ -32,6 +33,7 @@ mod tools;
 mod trace;
 mod variables;
 
+pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
 };

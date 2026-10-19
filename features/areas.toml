@@ -28,3 +28,30 @@ prefix = "sample."
 number = 1
 kind = "setting"
 prefix = "crawl.sample_"
+
+# Area 3, the engine runtime (spec #213): the engine's own operations, the
+# Connection's Error codes and the formats it registers.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "engine."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "protocol_version_unsupported"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "not_in_product"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "call_cancelled"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "protocol"

@@ -19,6 +19,22 @@ fn the_bundle_holds_the_schema_of_the_releases_file() {
 }
 
 #[test]
+fn the_bundle_registers_the_protocol_with_its_rule_and_message_schema() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["formats"],
+        json!([{
+            "name": "protocol",
+            "version": "0.1",
+            "storage": "transcript",
+            "rule": "default",
+            "schema": { "$ref": "#/$defs/Message" },
+        }])
+    );
+}
+
+#[test]
 fn every_event_an_operation_names_is_in_the_catalog() {
     let catalog = emit().catalog;
 

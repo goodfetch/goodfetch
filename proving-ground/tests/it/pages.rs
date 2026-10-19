@@ -75,7 +75,7 @@ fn a_page_the_family_does_not_have_is_not_found(#[case] path: &str) {
 #[rstest]
 #[case::the_crawl_tasks_host("1.catalog.test")]
 #[case::the_extract_tasks_host("2.catalog.test")]
-fn a_tasks_host_serves_its_familys_pages(#[case] host: &str) {
+fn a_tasks_host_serves_the_pages_of_its_family(#[case] host: &str) {
     let proving_ground = ProvingGround::start(158);
 
     let answer = proving_ground.get(&format!("http://{host}/catalog/3"));

@@ -102,15 +102,22 @@ fn board(notice: &Notice) -> String {
     )
 }
 
-/// The family's tasks for `seed`, their start URLs on `port`. Ordinals are
-/// append-only (ADR 0063).
+/// The host name of the family's task `ordinal`, on which the task's pages
+/// are served: `1.schedule.test` for `schedule/1`.
+fn task_host(ordinal: u32) -> String {
+    format!("{ordinal}.{HOST}")
+}
+
+/// The family's tasks for `seed`, their start URLs on their own host names
+/// and `port`. Ordinals are append-only (ADR 0063).
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
     vec![Task {
+        host: task_host(1),
         entry: Entry {
             id: format!("{FAMILY}/1"),
             family: FAMILY,
             kind: Kind::Watch,
-            start_url: format!("http://{HOST}:{port}/board"),
+            start_url: format!("http://{}:{port}/board", task_host(1)),
             description: "Watch this page while the Proving ground's time step goes from 0 to \
                 the last of the task's time steps, one step after another, and return one \
                 Record per revision the page shows, with the fields `id` (the revision), \
@@ -122,6 +129,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
             records: (0..=revision_at(WATCHED_STEPS - 1))
                 .map(|revision| record(seed, revision))
                 .collect(),
+            effects: Vec::new(),
         },
     }]
 }

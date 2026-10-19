@@ -1,7 +1,9 @@
 //! The Proving ground's clock, the one place it reads time (ADR 0059): the
-//! oracle's own time, which the benchmark keeps apart from a task's time, and
-//! the system time a TOTP code is checked at. Neither ever changes a page or
-//! an expected result, and neither is asserted by a test (ADR 0064).
+//! oracle's own time, which the benchmark keeps apart from a task's time,
+//! the time of each request it observes, the date its leaf certificates
+//! start from, and the system time a TOTP code is checked at. None ever
+//! changes a page or an expected result, and none is asserted by a test
+//! (ADR 0064).
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -23,13 +25,18 @@ impl Stopwatch {
     }
 }
 
-/// Whole seconds since the Unix epoch by the system's clock, 0 before it.
-pub(crate) fn unix_seconds() -> u64 {
+/// The wall clock's time now, which dates the leaf certificates.
+pub(crate) fn wall_now() -> SystemTime {
     #[expect(
         clippy::disallowed_methods,
         reason = "the clock module is the Proving ground's one reader of time (ADR 0059)"
     )]
-    let now = SystemTime::now();
-    now.duration_since(UNIX_EPOCH)
+    SystemTime::now()
+}
+
+/// Whole seconds since the Unix epoch by the system's clock, 0 before it.
+pub(crate) fn unix_seconds() -> u64 {
+    wall_now()
+        .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs())
 }

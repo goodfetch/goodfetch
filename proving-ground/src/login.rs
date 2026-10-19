@@ -368,22 +368,30 @@ fn listed(account: &Account) -> task::Account {
     }
 }
 
-/// The family's tasks for `seed`, their start URLs on `port`. Ordinals are
-/// append-only (ADR 0063).
+/// The host name of the family's task `ordinal`, on which the task's pages
+/// are served: `1.login.test` for `login/1`.
+fn task_host(ordinal: u32) -> String {
+    format!("{ordinal}.{HOST}")
+}
+
+/// The family's tasks for `seed`, their start URLs on their own host names
+/// and `port`. Ordinals are append-only (ADR 0063).
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let start_url = format!("http://{HOST}:{port}/login");
+    let start_url = |ordinal| format!("http://{}:{port}/login", task_host(ordinal));
     let orders = |number| Expected {
         records: (1..=ORDERS)
             .map(|order| record(seed, number, order))
             .collect(),
+        effects: Vec::new(),
     };
     vec![
         Task {
+            host: task_host(1),
             entry: Entry {
                 id: format!("{FAMILY}/1"),
                 family: FAMILY,
                 kind: Kind::Crawl,
-                start_url: start_url.clone(),
+                start_url: start_url(1),
                 description: "Log in as the task's account with its password, then with the \
                     TOTP code of its secret (RFC 6238), and return one Record per order the \
                     account page lists, read from its order page, with the fields `id`, `item` \
@@ -394,11 +402,12 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
             expected: orders(MFA_ACCOUNT),
         },
         Task {
+            host: task_host(2),
             entry: Entry {
                 id: format!("{FAMILY}/2"),
                 family: FAMILY,
                 kind: Kind::Crawl,
-                start_url,
+                start_url: start_url(2),
                 description: "Log in as the task's account with its password, and return one \
                     Record per order the account page lists, read from its order page, with \
                     the fields `id`, `item` and `total`. The login expires after three pages: \

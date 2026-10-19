@@ -1,0 +1,529 @@
+//! The stress run before merge (ADR 0064; TESTING.md, Before merge), and the
+//! order seed every suite runs its tests in.
+//! - **select**: each runner's tests at the head that are new (absent from
+//!   the base's listing, so a renamed test too) or changed (their file
+//!   changed, plus what Vitest's `--changed` and Playwright's
+//!   `--only-changed` reach) run 20 times; a test the change takes off the
+//!   quarantine list runs 200 times. A test still on the list runs never, as
+//!   in every suite. The base's listings are read from those the
+//!   cache-warming job saved for its commit, else listed from a checkout of
+//!   the base in the same job.
+//! - **listings**: saves the head's four listings for later changes' bases.
+//! - **seed**: the first 8 bytes of the tree under test, read as an unsigned
+//!   integer. `ci/order-seed.sh` gives the same value where no Cargo runs.
+//!
+//! A count is never lowered and nothing skips the run.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
+)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+use std::process::{Command as Process, ExitCode};
+
+use anyhow::{Context as _, Result, bail};
+
+use crate::environment::Environment;
+use crate::metadata::{self, Package};
+use crate::output;
+use crate::quarantine::listing::{self, Listed, Location};
+use crate::quarantine::{self, Runner, TestId};
+
+/// How many times a new or changed test runs (ADR 0064).
+const CHANGED_RUNS: u32 = 20;
+
+/// How many times a test taken off the quarantine list runs (ADR 0064).
+const UNQUARANTINED_RUNS: u32 = 200;
+
+/// The file a runner's saved listing is written to, in its commit's folder.
+fn saved_file(runner: Runner) -> &'static str {
+    match runner {
+        Runner::Nextest => "nextest.json",
+        Runner::Vitest => "vitest.json",
+        Runner::Playwright => "playwright.json",
+        Runner::Pytest => "pytest.txt",
+    }
+}
+
+/// A test to run, and how many times.
+struct Selected {
+    count: u32,
+    runner: Runner,
+    test: TestId,
+}
+
+/// Where the runners run, and how nextest builds.
+struct Runners<'a> {
+    cargo: &'a OsStr,
+    cargo_profile: Option<&'a str>,
+}
+
+impl Runners<'_> {
+    fn output(&self, runner: Runner, root: &Path, changed_since: Option<&str>) -> Result<Vec<u8>> {
+        listing::output(
+            runner,
+            root,
+            self.cargo,
+            self.cargo_profile,
+            None,
+            changed_since,
+        )
+    }
+
+    /// A checkout's listing. nextest builds it into its own target folder:
+    /// beside the head's, a crate of the same name and relative path would
+    /// share its artifacts, and Cargo would take one build for the other.
+    fn checkout_output(
+        &self,
+        runner: Runner,
+        checkout: &Path,
+        target_directory: &Path,
+    ) -> Result<Vec<u8>> {
+        listing::output(
+            runner,
+            checkout,
+            self.cargo,
+            self.cargo_profile,
+            Some(target_directory),
+            None,
+        )
+    }
+}
+
+/// The base's target folder, within the head's, as `xtask perf` keeps its own.
+const BASE_TARGET: &str = "stress-base";
+
+/// The tests the change from `base` to the workspace at `root` stresses.
+fn select(
+    root: &Path,
+    runners: &Runners<'_>,
+    base: &str,
+    saved: Option<&Path>,
+) -> Result<Vec<Selected>> {
+    let base = commit(root, base)?;
+    let changed: BTreeSet<String> = git(
+        root,
+        &["diff", "--name-only", "--no-renames", "-z"],
+        &[&base, "--"],
+    )?
+    .split('\0')
+    .filter(|path| !path.is_empty())
+    .map(str::to_owned)
+    .collect();
+    let quarantined = |entries: Vec<quarantine::Entry>| -> BTreeSet<(Runner, TestId)> {
+        entries
+            .into_iter()
+            .map(|entry| (entry.runner, entry.test))
+            .collect()
+    };
+    let head_list = if root.join(quarantine::LIST).is_file() {
+        quarantined(quarantine::read(root)?)
+    } else {
+        BTreeSet::new()
+    };
+    let base_list = quarantined(base_quarantine(root, &base)?);
+    let base_listings = base_listings(root, runners, &base, saved)?;
+    let packages = metadata::packages(runners.cargo, root)?;
+    let root = canonical(root)?;
+
+    let mut selection = Vec::new();
+    for runner in Runner::ALL {
+        let head = listing::parse(runner, &root, &runners.output(runner, &root, None)?)?;
+        let reached: BTreeSet<TestId> = match runner {
+            Runner::Vitest | Runner::Playwright => {
+                listing::parse(runner, &root, &runners.output(runner, &root, Some(&base))?)?
+                    .into_iter()
+                    .map(|listed| listed.test)
+                    .collect()
+            }
+            Runner::Nextest | Runner::Pytest => BTreeSet::new(),
+        };
+        let listed_at_base = &base_listings[&runner];
+        for Listed { test, location } in head {
+            if head_list.contains(&(runner, test.clone())) {
+                continue;
+            }
+            let count = if base_list.contains(&(runner, test.clone())) {
+                UNQUARANTINED_RUNS
+            } else if !listed_at_base.contains(&test)
+                || reached.contains(&test)
+                || file(&root, &packages, &location, &test)
+                    .is_some_and(|file| changed.contains(&file))
+            {
+                CHANGED_RUNS
+            } else {
+                continue;
+            };
+            selection.push(Selected {
+                count,
+                runner,
+                test,
+            });
+        }
+    }
+    Ok(selection)
+}
+
+/// The base commit's quarantine list; none when it has no list.
+fn base_quarantine(root: &Path, base: &str) -> Result<Vec<quarantine::Entry>> {
+    let object = format!("{base}:{}", quarantine::LIST);
+    let exists = Process::new("git")
+        .args(["cat-file", "-e", "--end-of-options", &object])
+        .current_dir(root)
+        .output()
+        .context("running git")?
+        .status
+        .success();
+    if !exists {
+        return Ok(Vec::new());
+    }
+    quarantine::parse(&git(root, &["show", "--end-of-options"], &[&object])?)
+        .with_context(|| format!("reading {object}"))
+}
+
+/// Each runner's tests at `base`: from the listings saved for it when they
+/// exist, else listed from a checkout of it.
+fn base_listings(
+    root: &Path,
+    runners: &Runners<'_>,
+    base: &str,
+    saved: Option<&Path>,
+) -> Result<BTreeMap<Runner, BTreeSet<TestId>>> {
+    let mut listings = BTreeMap::new();
+    let mut missing = Vec::new();
+    for runner in Runner::ALL {
+        let file = saved.map(|folder| folder.join(base).join(saved_file(runner)));
+        match file {
+            Some(file) if file.is_file() => {
+                let output =
+                    std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?;
+                output::error(&format!(
+                    "{}: the base's listing is the one saved in {}",
+                    runner.name(),
+                    file.display()
+                ));
+                listings.insert(runner, ids(runner, root, &output)?);
+            }
+            _ => missing.push(runner),
+        }
+    }
+    if !missing.is_empty() {
+        let target_directory = metadata::target_directory(runners.cargo, root)?.join(BASE_TARGET);
+        let checkout = Checkout::new(root, base)?;
+        let listed = missing
+            .iter()
+            .map(|&runner| {
+                output::error(&format!(
+                    "{}: no listing is saved for the base, so it is listed from a checkout of {base}",
+                    runner.name()
+                ));
+                let output = runners.checkout_output(runner, checkout.path(), &target_directory)?;
+                Ok((runner, ids(runner, checkout.path(), &output)?))
+            })
+            .collect::<Result<Vec<_>>>();
+        checkout.remove()?;
+        listings.extend(listed?);
+    }
+    Ok(listings)
+}
+
+fn ids(runner: Runner, root: &Path, output: &[u8]) -> Result<BTreeSet<TestId>> {
+    Ok(listing::parse(runner, root, output)?
+        .into_iter()
+        .map(|listed| listed.test)
+        .collect())
+}
+
+/// A test's file, `/`-separated from the workspace's canonical folder.
+fn file(root: &Path, packages: &[Package], location: &Location, test: &TestId) -> Option<String> {
+    match location {
+        Location::File(file) => file.clone(),
+        Location::Target {
+            package,
+            kind,
+            name,
+        } => {
+            let source = target_source(packages, package, kind, name)?;
+            let modules: Vec<&str> = test.nextest_name().split("::").collect();
+            let file = module_file(&source, &modules[..modules.len().saturating_sub(1)]);
+            let file = std::fs::canonicalize(file).ok()?;
+            let relative = file.strip_prefix(root).ok()?;
+            Some(
+                relative
+                    .components()
+                    .map(|component| component.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/"),
+            )
+        }
+    }
+}
+
+/// The root source file of a package's target, as nextest names the target:
+/// its kind and its name, with `-` read as `_`.
+fn target_source(packages: &[Package], package: &str, kind: &str, name: &str) -> Option<PathBuf> {
+    const LIBRARIES: [&str; 6] = ["lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"];
+    let normal = |name: &str| name.replace('-', "_");
+    packages
+        .iter()
+        .find(|candidate| candidate.name == package)?
+        .targets
+        .iter()
+        .find(|target| {
+            normal(&target.name) == normal(name)
+                && target.kind.iter().any(|target_kind| {
+                    target_kind == kind
+                        || (kind == "lib" && LIBRARIES.contains(&target_kind.as_str()))
+                })
+        })
+        .map(|target| target.src_path.clone())
+}
+
+/// The file that defines the module path `modules` in the crate whose root
+/// is `root_file`: each module in `<name>.rs` or `<name>/mod.rs` beside its
+/// parent's folder, the deepest that exists; a module with no file of its own
+/// is inline in its parent's.
+fn module_file(root_file: &Path, modules: &[&str]) -> PathBuf {
+    let mut file = root_file.to_path_buf();
+    let Some(mut folder) = root_file.parent().map(Path::to_path_buf) else {
+        return file;
+    };
+    for module in modules {
+        let flat = folder.join(format!("{module}.rs"));
+        let nested = folder.join(module).join("mod.rs");
+        if flat.is_file() {
+            file = flat;
+        } else if nested.is_file() {
+            file = nested;
+        } else {
+            break;
+        }
+        folder = folder.join(module);
+    }
+    file
+}
+
+/// A checkout of a commit in a temporary folder, with the workspace's
+/// installed packages linked in, so its runners list its tests.
+struct Checkout<'a> {
+    root: &'a Path,
+    _folder: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl<'a> Checkout<'a> {
+    fn new(root: &'a Path, commit: &str) -> Result<Self> {
+        let folder = tempfile::tempdir().context("creating a folder for the base's checkout")?;
+        let path = folder.path().join("base");
+        git(
+            root,
+            &["worktree", "add", "--detach", "--quiet", "--end-of-options"],
+            &[&path.to_string_lossy(), commit],
+        )?;
+        let checkout = Self {
+            root,
+            _folder: folder,
+            path,
+        };
+        // A link resolves a relative original from its own folder.
+        let installed_root = canonical(root)?;
+        for installed in installed_folders(root)? {
+            let target = checkout.path.join(&installed);
+            if target.parent().is_some_and(Path::is_dir) && !target.exists() {
+                link(&installed_root.join(&installed), &target)?;
+            }
+        }
+        Ok(checkout)
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn remove(self) -> Result<()> {
+        git(
+            self.root,
+            &["worktree", "remove", "--force", "--end-of-options"],
+            &[&self.path.to_string_lossy()],
+        )?;
+        Ok(())
+    }
+}
+
+/// The workspace's installed packages: its `.venv` and each `node_modules`
+/// folder, as paths from its folder; never inside one of them, version
+/// control, the build output or the frozen `rnd/` archive.
+fn installed_folders(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    if root.join(".venv").is_dir() {
+        found.push(PathBuf::from(".venv"));
+    }
+    let mut folders = vec![PathBuf::new()];
+    while let Some(folder) = folders.pop() {
+        let path = root.join(&folder);
+        for entry in
+            std::fs::read_dir(&path).with_context(|| format!("reading {}", path.display()))?
+        {
+            let entry = entry.with_context(|| format!("reading {}", path.display()))?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let relative = folder.join(&*name);
+            if name == "node_modules" {
+                found.push(relative);
+            } else if entry.file_type()?.is_dir()
+                && !name.starts_with('.')
+                && !(folder.as_os_str().is_empty() && (name == "target" || name == "rnd"))
+            {
+                folders.push(relative);
+            }
+        }
+    }
+    Ok(found)
+}
+
+#[cfg(unix)]
+fn link(original: &Path, link: &Path) -> Result<()> {
+    std::os::unix::fs::symlink(original, link)
+        .with_context(|| format!("linking {} to {}", link.display(), original.display()))
+}
+
+#[cfg(windows)]
+fn link(original: &Path, link: &Path) -> Result<()> {
+    std::os::windows::fs::symlink_dir(original, link)
+        .with_context(|| format!("linking {} to {}", link.display(), original.display()))
+}
+
+/// Writes the four listings of the workspace at `root` into
+/// `<folder>/<HEAD's commit>/`, for later changes whose base it is.
+fn save(root: &Path, runners: &Runners<'_>, folder: &Path) -> Result<PathBuf> {
+    let commit = commit(root, "HEAD")?;
+    let out = folder.join(&commit);
+    std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
+    for runner in Runner::ALL {
+        let output = runners.output(runner, root, None)?;
+        let file = out.join(saved_file(runner));
+        std::fs::write(&file, output).with_context(|| format!("writing {}", file.display()))?;
+    }
+    Ok(out)
+}
+
+/// The order seed of `tree`, a tree or anything that names one (a commit).
+fn seed(root: &Path, tree: &str) -> Result<u64> {
+    let hash = git(
+        root,
+        &["rev-parse", "--verify", "--end-of-options"],
+        &[&format!("{tree}^{{tree}}")],
+    )?;
+    let prefix = hash
+        .trim()
+        .get(..16)
+        .with_context(|| format!("`{}` is no tree hash", hash.trim()))?;
+    u64::from_str_radix(prefix, 16).with_context(|| format!("`{prefix}` is not hexadecimal"))
+}
+
+/// The commit `revision` names, in full.
+fn commit(root: &Path, revision: &str) -> Result<String> {
+    Ok(git(
+        root,
+        &["rev-parse", "--verify", "--end-of-options"],
+        &[&format!("{revision}^{{commit}}")],
+    )?
+    .trim()
+    .to_owned())
+}
+
+fn canonical(path: &Path) -> Result<PathBuf> {
+    std::fs::canonicalize(path).with_context(|| format!("resolving {}", path.display()))
+}
+
+/// Runs git with `args` then `operands` in `root`, and returns its output.
+fn git(root: &Path, args: &[&str], operands: &[&str]) -> Result<String> {
+    let output = Process::new("git")
+        .args(args)
+        .args(operands)
+        .current_dir(root)
+        .output()
+        .context("running git")?;
+    if !output.status.success() {
+        bail!(
+            "git {} {} failed: {}",
+            args.join(" "),
+            operands.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    String::from_utf8(output.stdout).context("reading git's output")
+}
+
+/// `xtask stress`'s commands.
+#[derive(clap::Subcommand)]
+pub(crate) enum Command {
+    /// Prints the tests a change stresses, as `<count>\t<runner>\t<test ID>`
+    /// lines: each new or changed test 20 times, each test the change takes
+    /// off the quarantine list 200 times.
+    Select {
+        /// The change's base commit.
+        #[arg(long)]
+        base: String,
+        /// The folder of the listings the cache-warming job saved, one
+        /// folder per commit; a base with none is listed from a checkout.
+        #[arg(long)]
+        saved: Option<PathBuf>,
+        /// The Cargo profile nextest builds its listings with.
+        #[arg(long)]
+        cargo_profile: Option<String>,
+    },
+    /// Saves each runner's listing of the workspace into `<out>/<HEAD's
+    /// commit>/`, for the changes whose base it is.
+    Listings {
+        #[arg(long)]
+        out: PathBuf,
+        /// The Cargo profile nextest builds its listing with.
+        #[arg(long)]
+        cargo_profile: Option<String>,
+    },
+    /// Prints the order seed of a tree: the first 8 bytes of its hash, read
+    /// as an unsigned integer.
+    Seed {
+        /// The tree, or a commit of it.
+        #[arg(long, default_value = "HEAD")]
+        tree: String,
+    },
+}
+
+pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let root = environment.root.as_path();
+    match command {
+        Command::Select {
+            base,
+            saved,
+            cargo_profile,
+        } => {
+            let runners = Runners {
+                cargo: &environment.cargo,
+                cargo_profile: cargo_profile.as_deref(),
+            };
+            let saved = saved.map(|folder| environment.path(&folder));
+            for selected in select(root, &runners, &base, saved.as_deref())? {
+                output::line(&format!(
+                    "{}\t{}\t{}",
+                    selected.count,
+                    selected.runner.name(),
+                    selected.test
+                ));
+            }
+        }
+        Command::Listings { out, cargo_profile } => {
+            let runners = Runners {
+                cargo: &environment.cargo,
+                cargo_profile: cargo_profile.as_deref(),
+            };
+            let written = save(root, &runners, &environment.path(&out))?;
+            output::line(&format!("wrote {}", written.display()));
+        }
+        Command::Seed { tree } => output::line(&seed(root, &tree)?.to_string()),
+    }
+    Ok(ExitCode::SUCCESS)
+}

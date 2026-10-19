@@ -4,13 +4,16 @@
 //! address, prints one JSON line, and serves each page family on its own host
 //! name, the task list at `/tasks` and the oracle at `/oracle`.
 
+mod authority;
 mod catalog;
+mod client_hello;
 mod clock;
 mod command;
 mod digest;
 mod exchange;
 mod generator;
 mod login;
+mod observation;
 mod oracle;
 mod output;
 mod rendered;
@@ -18,6 +21,7 @@ mod schedule;
 mod server;
 mod site;
 mod sync;
+mod tap;
 mod task;
 mod totp;
 mod version;

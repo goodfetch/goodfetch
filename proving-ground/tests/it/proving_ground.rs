@@ -166,6 +166,29 @@ impl ProvingGround {
         answer.json()
     }
 
+    /// The certificate authority the Proving ground made from its seed, as
+    /// PEM.
+    pub(crate) fn certificate_authority(&self) -> String {
+        self.control("/certificate-authority").body
+    }
+
+    /// Every request the Proving ground recorded, with its sums.
+    pub(crate) fn observations(&self) -> Value {
+        let answer = self.control("/observations");
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        answer.json()
+    }
+
+    /// Fetches a path on the Proving ground's own address.
+    fn control(&self, path: &str) -> Answer {
+        let response = self
+            .agent
+            .get(format!("http://{}{path}", self.address))
+            .call()
+            .expect("the Proving ground answers");
+        Self::answer(response)
+    }
+
     /// The task `id` of the task list.
     pub(crate) fn task(&self, id: &str) -> Value {
         let tasks = self.tasks();

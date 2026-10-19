@@ -64,9 +64,14 @@ const visual: TestProjectInlineConfiguration = {
   },
 };
 
-// The constrained test-health run (ADR 0064; ci/test-health/constrained.sh)
-// takes a fresh order seed and detects leaked asynchronous resources.
-const orderSeed = process.env["GOODFETCH_ORDER_SEED"];
+// The order seed (ci/order-seed.sh) is the tree under test's first 8 bytes;
+// the constrained test-health run (ADR 0064; ci/test-health/constrained.sh)
+// takes a fresh one and detects leaked asynchronous resources. Vitest's
+// shuffle adds 1 to its seed per test, which a number past 2^53 cannot hold,
+// so every test would draw alike: it takes the seed's low 53 bits.
+const orderSeedText = process.env["GOODFETCH_ORDER_SEED"];
+const orderSeed =
+  orderSeedText === undefined ? undefined : Number(BigInt(orderSeedText) % 2n ** 53n);
 
 const config: ViteUserConfig = defineConfig({
   test: {
@@ -76,7 +81,7 @@ const config: ViteUserConfig = defineConfig({
     unstubGlobals: true,
     sequence: {
       shuffle: { tests: true },
-      ...(orderSeed === undefined ? {} : { seed: Number(orderSeed) }),
+      ...(orderSeed === undefined ? {} : { seed: orderSeed }),
     },
     detectAsyncLeaks: process.env["GOODFETCH_DETECT_ASYNC_LEAKS"] === "1",
     passWithNoTests: true,

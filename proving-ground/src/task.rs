@@ -10,6 +10,9 @@ use crate::digest;
 /// One task of a family: what a tool is asked to do, and what the oracle
 /// expects back.
 pub(crate) struct Task {
+    /// The host name the task's pages are served on, its own, so every
+    /// request the Proving ground observes names its task.
+    pub(crate) host: String,
     pub(crate) entry: Entry,
     pub(crate) expected: Expected,
 }
@@ -54,15 +57,29 @@ pub(crate) enum Kind {
     Crawl,
     /// Read Records from the start page alone.
     Extract,
+    /// Carry out an Effect once, through the start page's form.
+    Submit,
     /// Revisit the start page at each time step and return a Record per
     /// change seen.
     Watch,
 }
 
-/// A task's expected result, derived from the seed data only.
+/// A task's expected result, derived from the seed data only: the Records
+/// a tool returns, and the Effects the Proving ground records it carried
+/// out.
 #[derive(Serialize)]
 pub(crate) struct Expected {
     pub(crate) records: Vec<Record>,
+    pub(crate) effects: Vec<Effect>,
+}
+
+/// An Effect a task asks a tool to carry out (ADR 0010), as the site
+/// records it when it carries one out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum Effect {
+    /// An order of one product, placed through its order form.
+    Order { product: String },
 }
 
 /// One expected Record: its fields by name, `id` among them, each as the page

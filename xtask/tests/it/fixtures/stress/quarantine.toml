@@ -1,0 +1,23 @@
+[[test]]
+runner = "nextest"
+id = "stressed steady::tests::flaky"
+issue = 1601
+date = 2026-10-18
+
+[[test]]
+runner = "vitest"
+id = "steady > flaky"
+issue = 1601
+date = 2026-10-18
+
+[[test]]
+runner = "playwright"
+id = "e2e/steady.spec.ts › steady › flaky"
+issue = 1601
+date = 2026-10-18
+
+[[test]]
+runner = "pytest"
+id = "tests/test_steady.py::test_flaky"
+issue = 1601
+date = 2026-10-18

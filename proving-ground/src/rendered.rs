@@ -251,18 +251,25 @@ fn details_page(description: &str) -> String {
     )
 }
 
-/// The family's tasks for `seed`, their start URLs on `port`. Ordinals are
-/// append-only (ADR 0063).
+/// The host name of the family's task `ordinal`, on which the task's pages
+/// are served: `1.rendered.test` for `rendered/1`.
+fn task_host(ordinal: u32) -> String {
+    format!("{ordinal}.{HOST}")
+}
+
+/// The family's tasks for `seed`, their start URLs on their own host names
+/// and `port`. Ordinals are append-only (ADR 0063).
 pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
-    let origin = format!("http://{HOST}:{port}");
+    let origin = |ordinal| format!("http://{}:{port}", task_host(ordinal));
     let extracted = 1 + generator::below(seed, &[FAMILY_PLACE, 0, EXTRACT_PLACE], ITEMS);
     vec![
         Task {
+            host: task_host(1),
             entry: Entry {
                 id: format!("{FAMILY}/1"),
                 family: FAMILY,
                 kind: Kind::Crawl,
-                start_url: format!("{origin}/feed"),
+                start_url: format!("{}/feed", origin(1)),
                 description: "Crawl the feed, scrolling it to its end as its script loads more \
                     items, and return one Record per item, read from its item page once the \
                     page's scripts have run, with the fields `id`, `name` (in the page's shadow \
@@ -272,14 +279,16 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
             },
             expected: Expected {
                 records: (1..=ITEMS).map(|number| record(seed, number)).collect(),
+                effects: Vec::new(),
             },
         },
         Task {
+            host: task_host(2),
             entry: Entry {
                 id: format!("{FAMILY}/2"),
                 family: FAMILY,
                 kind: Kind::Extract,
-                start_url: format!("{origin}/items/{}", item_id(extracted)),
+                start_url: format!("{}/items/{}", origin(2), item_id(extracted)),
                 description: "Extract the item this page shows once its scripts have run, as one \
                     Record with the fields `id`, `name` (in the page's shadow root), `price` and \
                     `description` (in the page's frame).",
@@ -288,6 +297,7 @@ pub(crate) fn tasks(seed: u64, port: u16) -> Vec<Task> {
             },
             expected: Expected {
                 records: vec![record(seed, extracted)],
+                effects: Vec::new(),
             },
         },
     ]

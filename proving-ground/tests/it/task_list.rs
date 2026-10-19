@@ -30,6 +30,7 @@ fn the_task_list_names_the_tasks_of_every_family() {
         [
             json!("catalog/1"),
             json!("catalog/2"),
+            json!("catalog/3"),
             json!("rendered/1"),
             json!("rendered/2"),
             json!("login/1"),
@@ -40,6 +41,7 @@ fn the_task_list_names_the_tasks_of_every_family() {
     assert_eq!(
         each(&tasks, "family"),
         [
+            json!("catalog"),
             json!("catalog"),
             json!("catalog"),
             json!("rendered"),
@@ -54,6 +56,7 @@ fn the_task_list_names_the_tasks_of_every_family() {
         [
             json!("crawl"),
             json!("extract"),
+            json!("submit"),
             json!("crawl"),
             json!("extract"),
             json!("crawl"),
@@ -63,10 +66,10 @@ fn the_task_list_names_the_tasks_of_every_family() {
     );
     assert_eq!(
         tasks["tasks"][0]["start_url"],
-        format!("http://catalog.test:{}/catalog/1", proving_ground.port())
+        format!("http://1.catalog.test:{}/catalog/1", proving_ground.port())
     );
     let product_page = Regex::new(&format!(
-        r"^http://catalog\.test:{}/products/P-[0-9]{{4}}$",
+        r"^http://2\.catalog\.test:{}/products/P-[0-9]{{4}}$",
         proving_ground.port()
     ))
     .unwrap();

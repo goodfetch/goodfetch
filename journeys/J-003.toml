@@ -14,7 +14,7 @@ covers = ["row:SA-05", "row:CO-15", "row:CO-20", "row:CO-21", "row:SA-09"]
 [proving_ground]
 seed = 3
 tasks = [
-  { id = "rendered/1", digest = "ec38118a21e4e88492d986bfcb8251929b615fd1af6f09af01e23dcc7dd055ed" },
+  { id = "rendered/1", digest = "51aecbfacc615bfa1ad2d83f5e49cb929097e2c374f3683ec6d32a28e866f152" },
 ]
 
 [surfaces]

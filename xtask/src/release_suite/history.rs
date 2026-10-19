@@ -10,14 +10,11 @@ use serde::Deserialize;
 
 use super::cells::Rate;
 use super::time::{Month, Timestamp};
-use crate::github::Api;
+use crate::github::{Api, List};
 use crate::workflow;
 
 /// The Release suite's workflow file.
 pub(crate) const WORKFLOW: &str = "release-suite.yml";
-
-/// GitHub's largest page.
-const PAGE_SIZE: usize = 100;
 
 #[derive(Deserialize)]
 struct RunJson {
@@ -25,12 +22,6 @@ struct RunJson {
     created_at: String,
     head_branch: Option<String>,
     head_sha: String,
-}
-
-#[derive(Deserialize)]
-struct RunsPage {
-    total_count: usize,
-    workflow_runs: Vec<RunJson>,
 }
 
 #[derive(Deserialize)]
@@ -52,15 +43,11 @@ struct StepJson {
     conclusion: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct JobsPage {
-    total_count: usize,
-    jobs: Vec<JobJson>,
-}
-
 /// A run of the Release workflow.
 pub(crate) struct Run {
     pub(crate) id: u64,
+    /// When it was created.
+    pub(crate) created_at: jiff::Timestamp,
     pub(crate) month: Month,
     pub(crate) branch: String,
     pub(crate) head_sha: String,
@@ -72,6 +59,10 @@ impl TryFrom<RunJson> for Run {
     fn try_from(run: RunJson) -> Result<Self> {
         Ok(Self {
             id: run.id,
+            created_at: run
+                .created_at
+                .parse()
+                .with_context(|| format!("reading run {}'s creation time", run.id))?,
             month: Month::of(&run.created_at)?,
             branch: run.head_branch.unwrap_or_default(),
             head_sha: run.head_sha,
@@ -190,47 +181,35 @@ impl<'a> History<'a> {
     /// The workflow's runs, newest first, filtered by `filter` (a
     /// `key=value` query pair) when there is one.
     pub(crate) fn runs(&self, filter: Option<&str>) -> Result<Vec<Run>> {
-        let filter = filter.map(|pair| format!("{pair}&")).unwrap_or_default();
-        let mut runs = Vec::new();
-        for page in 1.. {
-            let page: RunsPage = self
-                .api
-                .get(&format!(
-                    "/repos/{}/actions/workflows/{WORKFLOW}/runs?{filter}per_page={PAGE_SIZE}&page={page}",
-                    self.repository,
-                ))
-                .context("listing the Release workflow's runs")?;
-            let last = page.workflow_runs.len() < PAGE_SIZE;
-            for run in page.workflow_runs {
-                runs.push(Run::try_from(run)?);
-            }
-            if last || runs.len() >= page.total_count {
-                break;
-            }
-        }
-        Ok(runs)
+        let path = format!(
+            "/repos/{}/actions/workflows/{WORKFLOW}/runs{}",
+            self.repository,
+            filter.map(|pair| format!("?{pair}")).unwrap_or_default()
+        );
+        self.api
+            .get_all::<RunJson>(&path, List::In("workflow_runs"))
+            .context("listing the Release workflow's runs")?
+            .into_iter()
+            .map(Run::try_from)
+            .collect()
     }
 
     /// Every job of every attempt of a run.
     pub(crate) fn jobs(&mut self, run: u64) -> Result<&[Job]> {
         if !self.jobs.contains_key(&run) {
-            let mut jobs = Vec::new();
-            for page in 1.. {
-                let page: JobsPage = self
-                    .api
-                    .get(&format!(
-                        "/repos/{}/actions/runs/{run}/jobs?filter=all&per_page={PAGE_SIZE}&page={page}",
+            let jobs = self
+                .api
+                .get_all::<JobJson>(
+                    &format!(
+                        "/repos/{}/actions/runs/{run}/jobs?filter=all",
                         self.repository
-                    ))
-                    .with_context(|| format!("reading the jobs of run {run}"))?;
-                let last = page.jobs.len() < PAGE_SIZE;
-                for job in page.jobs {
-                    jobs.push(Job::try_from(job)?);
-                }
-                if last || jobs.len() >= page.total_count {
-                    break;
-                }
-            }
+                    ),
+                    List::In("jobs"),
+                )
+                .with_context(|| format!("reading the jobs of run {run}"))?
+                .into_iter()
+                .map(Job::try_from)
+                .collect::<Result<Vec<_>>>()?;
             self.jobs.insert(run, jobs);
         }
         Ok(self.jobs.get(&run).map_or(&[], Vec::as_slice))

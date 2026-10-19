@@ -26,14 +26,11 @@ use serde::Deserialize;
 use crate::affected;
 use crate::check::Finding;
 use crate::environment::Environment;
-use crate::github::{self, Api};
+use crate::github::{self, Api, List};
 use crate::workflow;
 
 /// The change-detection job, whose `jobs` output is the selection.
 const AFFECTED_JOB: &str = "affected";
-
-/// GitHub's largest page of jobs.
-const PAGE_SIZE: usize = 100;
 
 struct Run<'a> {
     api: Api<'a>,
@@ -49,12 +46,6 @@ struct Need {
     result: String,
     #[serde(default)]
     outputs: BTreeMap<String, String>,
-}
-
-#[derive(Deserialize)]
-struct JobsPage {
-    total_count: usize,
-    jobs: Vec<Job>,
 }
 
 #[derive(Deserialize)]
@@ -132,22 +123,15 @@ fn not_selected(needs: &BTreeMap<String, Need>) -> Result<BTreeSet<&str>> {
 }
 
 fn attempt_jobs(run: &Run<'_>, attempt: u32) -> Result<Vec<Job>> {
-    let api = run.api;
-    let mut jobs = Vec::new();
-    for page in 1.. {
-        let page: JobsPage = api
-            .get(&format!(
-                "/repos/{}/actions/runs/{}/attempts/{attempt}/jobs?per_page={PAGE_SIZE}&page={page}",
+    run.api
+        .get_all(
+            &format!(
+                "/repos/{}/actions/runs/{}/attempts/{attempt}/jobs",
                 run.repository, run.id,
-            ))
-            .with_context(|| format!("reading the jobs of attempt {attempt}"))?;
-        let last = page.jobs.len() < PAGE_SIZE;
-        jobs.extend(page.jobs);
-        if last || jobs.len() >= page.total_count {
-            break;
-        }
-    }
-    Ok(jobs)
+            ),
+            List::In("jobs"),
+        )
+        .with_context(|| format!("reading the jobs of attempt {attempt}"))
 }
 
 /// `xtask all-green`'s arguments.

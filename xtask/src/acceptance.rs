@@ -14,7 +14,7 @@
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::github::Api;
+use crate::github::{Api, List};
 
 pub(crate) struct PullRequest<'a> {
     pub(crate) api: Api<'a>,
@@ -47,8 +47,6 @@ const WRITERS: [&str; 3] = ["OWNER", "MEMBER", "COLLABORATOR"];
 /// Git's shortest abbreviation of an object name.
 const SHORTEST_SHA: usize = 7;
 const FULL_SHA: usize = 40;
-/// GitHub's largest page of comments.
-const PAGE_SIZE: usize = 100;
 
 #[derive(Deserialize)]
 struct PullRequestBody {
@@ -74,22 +72,16 @@ impl PullRequest<'_> {
             .api
             .get(&format!("/repos/{}/pulls/{}", self.repository, self.number))
             .with_context(|| format!("reading pull request #{}", self.number))?;
-        let mut accepted_on_head = false;
-        for page in 1.. {
-            let comments: Vec<Comment> = self
-                .api
-                .get(&format!(
-                    "/repos/{}/issues/{}/comments?per_page={PAGE_SIZE}&page={page}",
-                    self.repository, self.number
-                ))
-                .with_context(|| format!("reading the comments of #{}", self.number))?;
-            accepted_on_head |= comments
-                .iter()
-                .any(|comment| accepts(comment, rule, &pull_request.head.sha));
-            if comments.len() < PAGE_SIZE {
-                break;
-            }
-        }
+        let comments: Vec<Comment> = self
+            .api
+            .get_all(
+                &format!("/repos/{}/issues/{}/comments", self.repository, self.number),
+                List::Array,
+            )
+            .with_context(|| format!("reading the comments of #{}", self.number))?;
+        let accepted_on_head = comments
+            .iter()
+            .any(|comment| accepts(comment, rule, &pull_request.head.sha));
         Ok(Acceptance {
             section: section(
                 pull_request.body.as_deref().unwrap_or_default(),

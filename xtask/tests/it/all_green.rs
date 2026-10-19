@@ -153,6 +153,40 @@ fn rerun_after_a_failed_test_step_fails() {
     assert_eq!(outcome.code, 1);
 }
 
+/// GitHub lists at most 100 jobs a page; a failed test step on the second
+/// page counts as one on the first.
+#[test]
+fn failed_test_step_on_a_later_page_of_jobs_fails() {
+    let workspace = Workspace::from_fixture("empty");
+    let passed = r#"{ "name": "cell", "conclusion": "success", "steps": [] }"#;
+    let first_page = format!(
+        r#"{{ "total_count": 101, "jobs": [{}] }}"#,
+        vec![passed; 100].join(", ")
+    );
+    let second_page = r#"{ "total_count": 101, "jobs": [
+      { "name": "last-cell", "conclusion": "failure",
+        "steps": [ { "name": "Test: Rust", "conclusion": "failure" } ] }
+    ] }"#;
+    let github = GitHub::serving(&[
+        (ATTEMPT_1_JOBS, &first_page),
+        (
+            "/repos/goodfetch/goodfetch/actions/runs/42/attempts/1/jobs?per_page=100&page=2",
+            second_page,
+        ),
+    ]);
+
+    let outcome = all_green(&workspace, PASSED_NEEDS, "2", github.url());
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "failed-test-step-in-earlier-attempt",
+            "attempt-1/last-cell"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 #[test]
 fn rerun_after_a_failure_outside_test_steps_passes() {
     let workspace = Workspace::from_fixture("empty");

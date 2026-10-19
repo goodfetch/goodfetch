@@ -18,8 +18,11 @@ const TOPIC: &str = "refs/heads/topic";
 const HEAD: &str = "1111111111111111111111111111111111111111";
 const OLDER: &str = "2222222222222222222222222222222222222222";
 const ISSUES: &str = "/repos/goodfetch/goodfetch/issues";
-const OPEN_TRIAGE_ISSUES: &str =
-    "/repos/goodfetch/goodfetch/issues?labels=needs-triage&state=open&per_page=100";
+const TRIAGE_ISSUES: &str =
+    "/repos/goodfetch/goodfetch/issues?labels=needs-triage&state=all&per_page=100&page=1";
+const MILESTONES: &str = "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1";
+/// The marker line of the ceiling's `needs-triage` issue.
+const CEILING_MARKER: &str = "<!-- goodfetch-results: needs-triage release-ceiling -->";
 
 /// A job of a run, as GitHub's jobs API lists it with `filter=all`.
 struct Job {
@@ -416,7 +419,14 @@ fn months_first_run_on_main_over_the_ceiling_on_its_own_starts_and_opens_an_issu
     let github = serve(
         "main",
         vec![last_month],
-        &[(OPEN_TRIAGE_ISSUES, "[]"), (ISSUES, r#"{"number": 9}"#)],
+        &[
+            (TRIAGE_ISSUES, "[]"),
+            (
+                MILESTONES,
+                r#"[{"number": 1, "open_issues": 3, "due_on": null}]"#,
+            ),
+            (ISSUES, r#"{"number": 9}"#),
+        ],
     );
 
     let outcome = plan(&workspace, &github, MAIN, &["--cells", "windows-x64"]);
@@ -432,19 +442,28 @@ fn months_first_run_on_main_over_the_ceiling_on_its_own_starts_and_opens_an_issu
         vec![("POST", ISSUES)]
     );
     assert_eq!(json(&writes[0].body)["labels"], json(r#"["needs-triage"]"#));
+    assert_eq!(
+        json(&writes[0].body)["body"]
+            .as_str()
+            .unwrap()
+            .lines()
+            .next(),
+        Some(CEILING_MARKER)
+    );
 }
 
 #[test]
-fn run_over_the_ceiling_on_its_own_comments_on_the_open_issue() {
+fn run_over_the_ceiling_on_its_own_updates_the_open_issue() {
     let workspace = Workspace::from_fixture("empty");
     let last_month = over_the_ceiling(3, "2026-09-20T00:00:00Z", "2026-09-20");
-    let open =
-        r#"[{"number": 12, "title": "A Release run's estimate passes the 600-minute ceiling"}]"#;
-    let comments = "/repos/goodfetch/goodfetch/issues/12/comments";
+    let open = format!(
+        r#"[{{"number": 12, "state": "open", "closed_at": null, "body": "{CEILING_MARKER}\nAn older run."}}]"#
+    );
+    let issue = "/repos/goodfetch/goodfetch/issues/12";
     let github = serve(
         "main",
         vec![last_month],
-        &[(OPEN_TRIAGE_ISSUES, open), (comments, r#"{"id": 1}"#)],
+        &[(TRIAGE_ISSUES, &open), (issue, r#"{"number": 12}"#)],
     );
 
     let outcome = plan(&workspace, &github, MAIN, &["--cells", "windows-x64"]);
@@ -454,9 +473,9 @@ fn run_over_the_ceiling_on_its_own_comments_on_the_open_issue() {
     assert_eq!(
         writes
             .iter()
-            .map(|request| request.path.as_str())
+            .map(|request| (request.method.as_str(), request.path.as_str()))
             .collect::<Vec<_>>(),
-        vec![comments]
+        vec![("PATCH", issue)]
     );
 }
 

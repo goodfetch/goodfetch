@@ -21,10 +21,7 @@ use serde::{Deserialize, Serialize};
 use super::artifact::{self, Arch, Os};
 use super::junit::{self, Ending, TestCase};
 use super::store::{self, Attempt, JobRun, KeptFile, Outcome, RunAttempt, TestRun};
-use crate::github::Api;
-
-/// GitHub's largest page.
-const PAGE: usize = 100;
+use crate::github::{Api, List};
 
 /// The file each JUnit artifact holds beside its JUnit files.
 const CONTEXT: &str = "context.json";
@@ -57,22 +54,12 @@ struct HeadCommit {
 }
 
 #[derive(Deserialize)]
-struct ApiJobs {
-    jobs: Vec<ApiJob>,
-}
-
-#[derive(Deserialize)]
 struct ApiJob {
     name: String,
     labels: Vec<String>,
     conclusion: Option<String>,
     started_at: Option<Timestamp>,
     completed_at: Option<Timestamp>,
-}
-
-#[derive(Deserialize)]
-struct ApiArtifacts {
-    artifacts: Vec<ApiArtifact>,
 }
 
 #[derive(Deserialize)]
@@ -107,11 +94,6 @@ pub(crate) fn ingest(source: &Source<'_>, store: &Path) -> Result<PathBuf> {
 }
 
 #[derive(Deserialize)]
-struct ApiRuns {
-    workflow_runs: Vec<ApiRun>,
-}
-
-#[derive(Deserialize)]
 struct ApiRun {
     id: u64,
     run_attempt: u32,
@@ -128,23 +110,15 @@ pub(crate) fn pending(
     since: jiff::civil::Date,
 ) -> Result<Vec<(u64, u32)>> {
     let stored = store::stored(store)?;
-    let mut pending = BTreeSet::new();
-    for page in 1.. {
-        let listed: ApiRuns = api.get(&format!(
-            "/repos/{repository}/actions/runs?status=completed&created=%3E%3D{since}&per_page={PAGE}&page={page}"
-        ))?;
-        let full = listed.workflow_runs.len() == PAGE;
-        for run in listed.workflow_runs {
-            for attempt in 1..=run.run_attempt {
-                if !stored.contains(&(run.id, attempt)) {
-                    pending.insert((run.id, attempt));
-                }
-            }
-        }
-        if !full {
-            break;
-        }
-    }
+    let runs: Vec<ApiRun> = api.get_all(
+        &format!("/repos/{repository}/actions/runs?status=completed&created=%3E%3D{since}"),
+        List::In("workflow_runs"),
+    )?;
+    let pending: BTreeSet<(u64, u32)> = runs
+        .iter()
+        .flat_map(|run| (1..=run.run_attempt).map(|attempt| (run.id, attempt)))
+        .filter(|attempt| !stored.contains(attempt))
+        .collect();
     Ok(pending.into_iter().collect())
 }
 
@@ -207,38 +181,23 @@ fn read(source: &Source<'_>) -> Result<(Attempt, Vec<KeptFile>)> {
         tree: api_attempt.head_commit.tree_id,
         started_at: api_attempt.run_started_at,
     };
-    let mut jobs = Vec::new();
-    for page in 1.. {
-        let listed: ApiJobs = source
-            .api
-            .get(&format!("{attempt_path}/jobs?per_page={PAGE}&page={page}"))?;
-        let full = listed.jobs.len() == PAGE;
-        jobs.extend(listed.jobs.into_iter().map(job_run));
-        if !full {
-            break;
-        }
-    }
-    let mut names = Vec::new();
-    for page in 1.. {
-        let listed: ApiArtifacts = source
-            .api
-            .get(&format!("{base}/artifacts?per_page={PAGE}&page={page}"))?;
-        let full = listed.artifacts.len() == PAGE;
-        names.extend(
-            listed
-                .artifacts
-                .into_iter()
-                .filter(|artifact| {
-                    artifact::is_junit(&artifact.name)
-                        && !artifact.expired
-                        && artifact.created_at >= run.started_at
-                })
-                .map(|artifact| artifact.name),
-        );
-        if !full {
-            break;
-        }
-    }
+    let jobs: Vec<JobRun> = source
+        .api
+        .get_all::<ApiJob>(&format!("{attempt_path}/jobs"), List::In("jobs"))?
+        .into_iter()
+        .map(job_run)
+        .collect();
+    let mut names: Vec<String> = source
+        .api
+        .get_all::<ApiArtifact>(&format!("{base}/artifacts"), List::In("artifacts"))?
+        .into_iter()
+        .filter(|artifact| {
+            artifact::is_junit(&artifact.name)
+                && !artifact.expired
+                && artifact.created_at >= run.started_at
+        })
+        .map(|artifact| artifact.name)
+        .collect();
     names.sort();
     let mut test_runs = Vec::new();
     let mut kept = Vec::new();

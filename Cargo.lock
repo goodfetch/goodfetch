@@ -849,9 +849,11 @@ name = "goodfetch-proving-ground"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64",
  "clap",
  "h2",
  "http-body-util",
+ "httparse",
  "hyper",
  "hyper-util",
  "loona-hpack",

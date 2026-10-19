@@ -48,6 +48,10 @@ flate2 = { version = "1.1.9", default-features = false, features = ["rust_backen
 # keeps the fields in the order they were sent (h2 keeps its decoder private
 # and hands out a map). h2 is the tests' HTTP/2 client.
 h2 = { version = "0.4.19", default-features = false }
+# The Proving ground's forward proxy (spec #152) reads each request head with
+# httparse, which hyper already brings, and its Basic credentials with base64.
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
+httparse = { version = "1.10.1", default-features = false, features = ["std"] }
 http-body-util = { version = "0.1.5", default-features = false }
 hyper = { version = "1.12.0", default-features = false }
 hyper-util = { version = "0.1.21", default-features = false }

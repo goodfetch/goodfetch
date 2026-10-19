@@ -1,17 +1,20 @@
 //! Plain clients that reach the Proving ground the way any tool would, each
 //! connecting to the reported address with the page's host name in its SNI
 //! and `Host` (the `resolve` setting's mapping, ADR 0059): a raw HTTP/1.1
-//! client whose bytes the test writes itself, the same over TLS, and an
-//! HTTP/2 client over TLS. TLS clients trust only the certificate authority
-//! they are given, and verify every certificate.
+//! client whose bytes the test writes itself, the same over TLS, an HTTP/2
+//! client over TLS, a client that tunnels TLS through a forward proxy's
+//! `CONNECT`, and a stub resolver's DNS query over UDP. TLS clients trust
+//! only the certificate authority they are given, and verify every
+//! certificate.
 #![expect(
     clippy::disallowed_types,
     reason = "the test clients open their own sockets to the Proving ground"
 )]
 
 use std::io::{Read as _, Write as _};
-use std::net::TcpStream;
+use std::net::{IpAddr, TcpStream, UdpSocket};
 use std::sync::Arc;
+use std::time::Duration;
 
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, ServerName};
@@ -36,22 +39,41 @@ pub(crate) fn trusting(authority: &str, alpn: &[&str]) -> Arc<ClientConfig> {
     Arc::new(config)
 }
 
-/// What a raw exchange saw: the response's bytes, and how many bytes the
-/// client wrote and read on the wire (TLS included).
+/// What a raw exchange saw: the response's bytes, how many bytes the
+/// client wrote and read on the wire (TLS included), and the client's own
+/// address, the connection's source.
 pub(crate) struct Exchange {
     pub(crate) response: Vec<u8>,
     pub(crate) written: u64,
     pub(crate) read: u64,
+    pub(crate) source: String,
+}
+
+/// The status code of a response's head.
+fn status_of(response: &[u8]) -> u16 {
+    let line = String::from_utf8_lossy(response);
+    line.split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .expect("a status line")
 }
 
 impl Exchange {
     /// The response's status code.
     pub(crate) fn status(&self) -> u16 {
-        let line = String::from_utf8_lossy(&self.response);
-        line.split(' ')
-            .nth(1)
-            .and_then(|code| code.parse().ok())
-            .expect("a status line")
+        status_of(&self.response)
+    }
+
+    /// The value of the response's header `name`, if it has one.
+    pub(crate) fn header(&self, name: &str) -> Option<String> {
+        let response = String::from_utf8_lossy(&self.response);
+        let head = response.split("\r\n\r\n").next().unwrap_or_default();
+        head.split("\r\n").skip(1).find_map(|line| {
+            let (field, value) = line.split_once(':')?;
+            field
+                .eq_ignore_ascii_case(name)
+                .then(|| value.trim().to_owned())
+        })
     }
 
     /// The response's body, after its head.
@@ -100,6 +122,23 @@ fn connect(address: &str) -> Counted {
     }
 }
 
+impl Counted {
+    /// The client's own address.
+    fn source(&self) -> String {
+        self.stream
+            .local_addr()
+            .expect("a connected stream has an address")
+            .to_string()
+    }
+}
+
+/// Whether a connection to `address` is refused, as one to a port where
+/// nothing listens is.
+pub(crate) fn connection_refused(address: &str) -> bool {
+    TcpStream::connect(address)
+        .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
+}
+
 /// Writes `request` as it is on a new plain connection and reads the
 /// response until the server closes it (send `Connection: close`).
 pub(crate) fn raw(address: &str, request: &[u8]) -> Exchange {
@@ -113,6 +152,7 @@ pub(crate) fn raw(address: &str, request: &[u8]) -> Exchange {
         response,
         written: stream.written,
         read: stream.read,
+        source: stream.source(),
     }
 }
 
@@ -137,6 +177,7 @@ pub(crate) fn raw_tls(
             response,
             written: stream.sock.written,
             read: stream.sock.read,
+            source: stream.sock.source(),
         }),
         Err(error) => Err(*error
             .into_inner()
@@ -228,4 +269,146 @@ pub(crate) fn http2(
             result = &mut connection => panic!("the connection ended early: {result:?}"),
         }
     })
+}
+
+/// What a forward proxy answered to `CONNECT`: its status, and when it
+/// opened the tunnel, the exchange the client then had through it over TLS.
+pub(crate) struct Tunnel {
+    pub(crate) status: u16,
+    pub(crate) exchange: Option<Exchange>,
+}
+
+/// Asks the proxy at `proxy` for a tunnel to `authority` (with
+/// `authorization` as its `Proxy-Authorization`, if any), then writes
+/// `request` over TLS to `host` through it and reads the response until the
+/// server closes it.
+pub(crate) fn tunnel_tls(
+    proxy: &str,
+    authority: &str,
+    authorization: Option<&str>,
+    host: &str,
+    config: Arc<ClientConfig>,
+    request: &[u8],
+) -> Tunnel {
+    let mut stream = connect(proxy);
+    let mut head = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
+    if let Some(authorization) = authorization {
+        head.push_str("Proxy-Authorization: ");
+        head.push_str(authorization);
+        head.push_str("\r\n");
+    }
+    head.push_str("\r\n");
+    stream
+        .write_all(head.as_bytes())
+        .expect("the request is written");
+    let mut answer = Vec::new();
+    let mut byte = [0; 1];
+    while !answer.ends_with(b"\r\n\r\n") {
+        if stream.read(&mut byte).expect("the answer is read") == 0 {
+            break;
+        }
+        answer.push(byte[0]);
+    }
+    let status = status_of(&answer);
+    if status != 200 {
+        return Tunnel {
+            status,
+            exchange: None,
+        };
+    }
+    let name = ServerName::try_from(host.to_owned()).expect("a server name");
+    let connection = ClientConnection::new(config, name).expect("a TLS client");
+    let mut tls = StreamOwned::new(connection, stream);
+    tls.write_all(request).expect("the request is written");
+    let mut response = Vec::new();
+    tls.read_to_end(&mut response)
+        .expect("the response is read");
+    Tunnel {
+        status,
+        exchange: Some(Exchange {
+            response,
+            written: tls.sock.written,
+            read: tls.sock.read,
+            source: tls.sock.source(),
+        }),
+    }
+}
+
+/// A DNS record type a test asks for.
+#[derive(Clone, Copy)]
+pub(crate) enum RecordType {
+    A = 1,
+    Aaaa = 28,
+}
+
+/// What a DNS server answered: its response code and each answer's TTL and
+/// address, in order.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct DnsAnswer {
+    pub(crate) rcode: u8,
+    pub(crate) answers: Vec<(u32, IpAddr)>,
+}
+
+/// Asks the DNS server at `server` for `name`'s records of one type, over
+/// UDP, as a stub resolver does (RFC 1035).
+pub(crate) fn dns_query(server: &str, name: &str, record_type: RecordType) -> DnsAnswer {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("a UDP socket");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("a read timeout");
+    // Header: ID 0x1234, recursion desired, one question.
+    let mut query = vec![0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
+    for label in name.split('.') {
+        query.push(u8::try_from(label.len()).expect("a short label"));
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&(record_type as u16).to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    socket.send_to(&query, server).expect("the query is sent");
+    let mut buffer = [0; 1500];
+    let (length, _) = socket.recv_from(&mut buffer).expect("an answer");
+    let message = &buffer[..length];
+    assert_eq!(
+        &message[..2],
+        &[0x12, 0x34],
+        "the answer carries the query's ID"
+    );
+    let count = usize::from(u16::from_be_bytes([message[6], message[7]]));
+    // The question is echoed as sent: skip it.
+    let mut at = query.len();
+    let mut answers = Vec::new();
+    for _ in 0..count {
+        at = skip_name(message, at);
+        let ttl = u32::from_be_bytes([
+            message[at + 4],
+            message[at + 5],
+            message[at + 6],
+            message[at + 7],
+        ]);
+        let length = usize::from(u16::from_be_bytes([message[at + 8], message[at + 9]]));
+        let data = &message[at + 10..at + 10 + length];
+        let address = match length {
+            4 => IpAddr::from(<[u8; 4]>::try_from(data).expect("four bytes")),
+            16 => IpAddr::from(<[u8; 16]>::try_from(data).expect("sixteen bytes")),
+            other => panic!("an address answer of {other} bytes"),
+        };
+        answers.push((ttl, address));
+        at += 10 + length;
+    }
+    DnsAnswer {
+        rcode: message[3] & 0x0f,
+        answers,
+    }
+}
+
+/// The offset just past the name at `at`, a compression pointer included.
+fn skip_name(message: &[u8], mut at: usize) -> usize {
+    loop {
+        match message[at] {
+            0 => return at + 1,
+            length if length & 0xc0 == 0xc0 => return at + 2,
+            length => at += 1 + usize::from(length),
+        }
+    }
 }

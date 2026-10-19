@@ -1,5 +1,6 @@
 //! `serve`'s first output line: one JSON object with the bound address, the
-//! version and the seed, so every test and Journey variant starts its own
+//! version and the seed, and the address of each network fixture with the
+//! proxies' credentials, so every test and Journey variant starts its own
 //! Proving ground on port 0 (ADRs 0062 and 0063).
 //! Covers: story:2-80
 
@@ -17,7 +18,15 @@ fn serve_on_port_zero_first_prints_its_address_version_and_seed() {
     let object = line.as_object().expect("the line is one JSON object");
     assert_eq!(
         object.keys().collect::<Vec<_>>(),
-        ["address", "seed", "version"]
+        [
+            "address",
+            "dns",
+            "proxies",
+            "proxy_credentials",
+            "seed",
+            "target",
+            "version"
+        ]
     );
     assert!(
         Regex::new(r"^127\.0\.0\.1:[1-9][0-9]*$")
@@ -41,4 +50,51 @@ fn serve_answers_on_the_address_it_reported() {
     let tasks = proving_ground.tasks();
 
     assert_eq!(tasks["proving_ground"]["seed"], 1);
+}
+
+/// Covers: story:2-82
+#[test]
+fn serve_first_prints_the_address_of_each_network_fixture() {
+    let proving_ground = ProvingGround::start(311);
+
+    let line: Value = serde_json::from_str(proving_ground.line()).expect("the line is JSON");
+
+    let address = Regex::new(r"^127\.0\.0\.1:[1-9][0-9]*$").unwrap();
+    let proxies = line["proxies"].as_object().expect("the proxies by name");
+    assert_eq!(
+        proxies.keys().collect::<Vec<_>>(),
+        [
+            "datacenter",
+            "down",
+            "isp",
+            "mobile",
+            "open",
+            "refusing_tunnels",
+            "residential"
+        ]
+    );
+    assert!(
+        proxies
+            .values()
+            .chain([&line["dns"], &line["target"]])
+            .all(|fixture| fixture.as_str().is_some_and(|text| address.is_match(text))),
+        "{line}"
+    );
+}
+
+/// Covers: story:2-82
+#[test]
+fn the_proxy_credentials_are_derived_from_the_seed() {
+    let first = ProvingGround::start(311);
+    let again = ProvingGround::start(311);
+    let other = ProvingGround::start(312);
+
+    let credentials = [&first, &again, &other].map(|proving_ground| {
+        let line: Value = serde_json::from_str(proving_ground.line()).expect("the line is JSON");
+        line["proxy_credentials"].clone()
+    });
+
+    assert_eq!(credentials[0], credentials[1]);
+    assert_ne!(credentials[0], credentials[2]);
+    assert!(credentials[0]["username"].is_string() && credentials[0]["password"].is_string());
 }

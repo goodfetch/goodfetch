@@ -74,6 +74,12 @@ impl Server {
         })
     }
 
+    /// What the server observes, which the network fixtures record into
+    /// too.
+    pub(crate) fn observations(&self) -> Arc<Observations> {
+        Arc::clone(&self.observations)
+    }
+
     /// The bound address.
     pub(crate) fn address(&self) -> SocketAddr {
         self.listener
@@ -100,7 +106,7 @@ impl Server {
                     break;
                 }
                 accepted = self.listener.accept() => {
-                    let Ok((stream, _)) = accepted else {
+                    let Ok((stream, source)) = accepted else {
                         // A connection that failed before it was accepted
                         // concerns only its client.
                         continue;
@@ -114,7 +120,7 @@ impl Server {
                     let stop = stop.clone();
                     tracker.spawn(async move {
                         tokio::select! {
-                            () = connection.serve(stream) => {}
+                            () = connection.serve(stream, source) => {}
                             () = stop.cancelled() => {}
                         }
                     });
@@ -139,7 +145,10 @@ struct Connection {
 impl Connection {
     /// Serves one connection to its end; a failed one concerns only its
     /// client.
-    async fn serve(self, stream: TcpStream) {
+    async fn serve(self, stream: TcpStream, source: SocketAddr) {
+        let Ok(destination) = stream.local_addr() else {
+            return;
+        };
         let mut first = [0; 1];
         let Ok(read) = stream.peek(&mut first).await else {
             return;
@@ -150,7 +159,7 @@ impl Connection {
             async move { Ok::<_, hyper::Error>(answer(&site, request).await) }
         });
         let builder = auto::Builder::new(self.executor);
-        let observed = self.observations.connection();
+        let observed = self.observations.connection(source, destination);
         let tls = read == 1 && first[0] == TLS_HANDSHAKE;
         let wire = Wire::new(stream, Arc::clone(&observed), tls);
         if tls {

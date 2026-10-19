@@ -5,6 +5,10 @@
 //! timing), the bytes each
 //! request and each host received and sent, and the Effects the site
 //! carried out. The oracle and the suites read them, never a tool's report.
+//! The connection record beside them lists every connection the Proving
+//! ground's listeners accepted and every relay its forward proxies carried
+//! out, each entry with the time step it came at, which `PUT /time-step`
+//! sets.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -22,12 +26,14 @@
 //! `unrecorded_requests` and in their host's bytes.
 
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use serde::Serialize;
 
 use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
+use crate::connection_record::{self, ConnectionRecord, Stamp};
 use crate::sync::Mutex;
 use crate::task::Effect;
 
@@ -39,12 +45,14 @@ pub(crate) struct Observations {
     /// Each host name served, with the task it belongs to, if any.
     hosts: BTreeMap<String, Option<String>>,
     stopwatch: Stopwatch,
+    /// The time step the connection record stamps each entry with.
+    time_step: Mutex<u64>,
     state: Mutex<State>,
+    record: ConnectionRecord,
 }
 
 #[derive(Default)]
 struct State {
-    connections: u64,
     requests: Vec<Request>,
     unrecorded_requests: u64,
     hosts: BTreeMap<Arc<str>, ByteCount>,
@@ -163,6 +171,8 @@ struct Document<'a> {
     effects: &'a [EffectRecord],
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
+    #[serde(flatten)]
+    record: &'a connection_record::Document<'a>,
 }
 
 impl Observations {
@@ -171,21 +181,56 @@ impl Observations {
         Self {
             hosts,
             stopwatch: Stopwatch::start(),
+            time_step: Mutex::new(0),
             state: Mutex::default(),
+            record: ConnectionRecord::default(),
         }
+    }
+
+    /// The host names observed, each with its task, if any.
+    pub(crate) fn hosts(&self) -> &BTreeMap<String, Option<String>> {
+        &self.hosts
+    }
+
+    /// The task of the host `authority` names, if the Proving ground serves
+    /// it for one.
+    pub(crate) fn task_of(&self, authority: &str) -> Option<String> {
+        self.served(authority).and_then(|(_, task)| task.clone())
+    }
+
+    /// Sets the time step every later entry of the connection record is
+    /// stamped with.
+    pub(crate) fn set_time_step(&self, step: u64) {
+        *self.time_step.lock() = step;
+    }
+
+    /// The time step and the time now.
+    pub(crate) fn stamp(&self) -> Stamp {
+        Stamp {
+            time_step: *self.time_step.lock(),
+            at_microseconds: self.stopwatch.microseconds(),
+        }
+    }
+
+    /// The connection record.
+    pub(crate) fn record(&self) -> &ConnectionRecord {
+        &self.record
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock()
     }
 
-    /// Starts observing a new connection.
-    pub(crate) fn connection(self: &Arc<Self>) -> Arc<Connection> {
-        let id = {
-            let mut state = self.state();
-            state.connections += 1;
-            state.connections - 1
-        };
+    /// Starts observing a new connection the site's listener accepted from
+    /// `source` on `destination`, which the connection record lists.
+    pub(crate) fn connection(
+        self: &Arc<Self>,
+        source: SocketAddr,
+        destination: SocketAddr,
+    ) -> Arc<Connection> {
+        let id = self
+            .record
+            .accepted(self.stamp(), "site", source, destination);
         Arc::new(Connection {
             id,
             observations: Arc::clone(self),
@@ -238,14 +283,17 @@ impl Observations {
                     .add(*bytes);
             }
         }
-        serde_json::to_vec(&Document {
-            requests: &state.requests,
-            unrecorded_requests: state.unrecorded_requests,
-            effects: &state.effects,
-            tasks,
-            hosts: &state.hosts,
+        self.record.with_document(|record| {
+            serde_json::to_vec(&Document {
+                requests: &state.requests,
+                unrecorded_requests: state.unrecorded_requests,
+                effects: &state.effects,
+                tasks,
+                hosts: &state.hosts,
+                record,
+            })
+            .expect("invariant: the observations serialize")
         })
-        .expect("invariant: the observations serialize")
     }
 
     fn update(&self, request: RequestId, change: impl FnOnce(&mut Request)) {

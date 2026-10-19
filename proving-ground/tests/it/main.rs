@@ -8,6 +8,9 @@
 )]
 
 mod clients;
+mod connections;
+mod dns;
+mod forward_proxy;
 mod observations;
 mod oracle;
 mod pages;

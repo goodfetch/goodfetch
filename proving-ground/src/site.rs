@@ -1,14 +1,15 @@
 //! What the Proving ground answers to one request: a page family's page on
 //! that family's host names, and the Effect its form carries out, and on any other host name its own task list
 //! (`GET /tasks`), oracle (`POST /oracle`), certificate authority
-//! (`GET /certificate-authority`) and observations (`GET /observations`).
+//! (`GET /certificate-authority`), observations (`GET /observations`) and
+//! time step (`PUT /time-step`).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::catalog;
 use crate::observation::{self, Observations};
@@ -117,6 +118,7 @@ impl Site {
                 &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
             (&Method::POST, "/oracle") => self.judge(body),
+            (&Method::PUT, "/time-step") => self.set_time_step(body),
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
@@ -129,6 +131,21 @@ impl Site {
             },
             _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
         }
+    }
+
+    /// Sets the time step, `{"step": n}`, which the connection record stamps
+    /// each later entry with.
+    fn set_time_step(&self, body: &Bytes) -> Reply {
+        #[derive(Deserialize, Serialize)]
+        #[serde(deny_unknown_fields)]
+        struct TimeStep {
+            step: u64,
+        }
+        let Ok(time_step) = serde_json::from_slice::<TimeStep>(body) else {
+            return Reply::error(StatusCode::BAD_REQUEST, "malformed_time_step");
+        };
+        self.observations.set_time_step(time_step.step);
+        Reply::json(StatusCode::OK, &time_step)
     }
 
     /// Judges a submission against its task's expected result.

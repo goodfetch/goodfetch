@@ -2,15 +2,20 @@
 //! and generates from a seed, with its task list and its oracle. Its command
 //! line and HTTP are the interface every caller sees: `serve` binds an
 //! address, prints one JSON line, and serves each page family on its own host
-//! name, the task list at `/tasks` and the oracle at `/oracle`.
+//! name, the task list at `/tasks` and the oracle at `/oracle`, beside its
+//! network fixtures: forward proxies, a DNS fixture and a watched target.
 
 mod authority;
 mod catalog;
 mod client_hello;
 mod clock;
 mod command;
+mod connection_record;
 mod digest;
+mod dns;
+mod forward_proxy;
 mod generator;
+mod network_fixture;
 mod observation;
 mod oracle;
 mod output;
@@ -25,6 +30,7 @@ use anyhow::{Context as _, Result};
 use clap::Parser as _;
 
 use crate::command::{Command, Serve};
+use crate::network_fixture::NetworkFixtures;
 use crate::server::Server;
 
 fn main() -> Result<()> {
@@ -39,10 +45,20 @@ fn main() -> Result<()> {
         .context("building the Tokio runtime")?;
     let Serve { seed, address, .. } = serve;
     let server = runtime.block_on(Server::bind(address, seed))?;
-    output::line(&serde_json::json!({
-        "address": server.address().to_string(),
-        "version": version::VERSION,
-        "seed": seed,
-    }))?;
-    runtime.block_on(server.run())
+    let fixtures = runtime.block_on(NetworkFixtures::bind(
+        server.address().ip(),
+        seed,
+        server.observations(),
+    ))?;
+    let mut line = fixtures.report()?;
+    line.insert("address".to_owned(), server.address().to_string().into());
+    line.insert("version".to_owned(), version::VERSION.into());
+    line.insert("seed".to_owned(), seed.into());
+    output::line(&line)?;
+    runtime.block_on(async {
+        tokio::select! {
+            outcome = server.run() => outcome,
+            () = fixtures.run() => Ok(()),
+        }
+    })
 }

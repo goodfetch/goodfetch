@@ -5,6 +5,7 @@
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, ChildStdout, Command, Stdio};
 
+use base64::Engine as _;
 use serde_json::Value;
 
 /// A running `serve`, stopped when dropped.
@@ -75,6 +76,69 @@ impl ProvingGround {
     /// The address `serve` reported.
     pub(crate) fn address(&self) -> &str {
         &self.address
+    }
+
+    /// `serve`'s first output line, as JSON.
+    fn line_json(&self) -> Value {
+        serde_json::from_str(&self.line).expect("the line is JSON")
+    }
+
+    /// The address of the forward proxy `serve` reported under `name`.
+    pub(crate) fn proxy(&self, name: &str) -> String {
+        self.line_json()["proxies"][name]
+            .as_str()
+            .unwrap_or_else(|| panic!("the line names the {name} proxy: {}", self.line))
+            .to_owned()
+    }
+
+    /// The `Proxy-Authorization` header value an authenticated proxy accepts
+    /// for `username` (the reported one, or a sticky form built on it) and
+    /// the reported password.
+    pub(crate) fn proxy_authorization(&self, username: &str) -> String {
+        let password = self.line_json()["proxy_credentials"]["password"]
+            .as_str()
+            .expect("the line names the proxy password")
+            .to_owned();
+        basic(username, &password)
+    }
+
+    /// The username the authenticated proxies accept.
+    pub(crate) fn proxy_username(&self) -> String {
+        self.line_json()["proxy_credentials"]["username"]
+            .as_str()
+            .expect("the line names the proxy username")
+            .to_owned()
+    }
+
+    /// The address of the DNS fixture `serve` reported.
+    pub(crate) fn dns(&self) -> String {
+        self.line_json()["dns"]
+            .as_str()
+            .expect("the line names the DNS fixture")
+            .to_owned()
+    }
+
+    /// The address of the watched target `serve` reported.
+    pub(crate) fn target(&self) -> String {
+        self.line_json()["target"]
+            .as_str()
+            .expect("the line names the target")
+            .to_owned()
+    }
+
+    /// Sets the Proving ground's time step.
+    pub(crate) fn set_time_step(&self, step: u64) -> Answer {
+        self.put_json("/time-step", &serde_json::json!({ "step": step }))
+    }
+
+    /// Puts a JSON body to a path on the Proving ground's own address.
+    pub(crate) fn put_json(&self, path: &str, body: &Value) -> Answer {
+        let response = self
+            .agent
+            .put(format!("http://{}{path}", self.address))
+            .send_json(body)
+            .expect("the Proving ground answers");
+        Self::answer(response)
     }
 
     /// The port `serve` bound.
@@ -166,6 +230,15 @@ impl ProvingGround {
             .expect("the body is UTF-8");
         Answer { status, body }
     }
+}
+
+/// HTTP's Basic credentials for `username` and `password` (RFC 7617), as a
+/// `Proxy-Authorization` value.
+pub(crate) fn basic(username: &str, password: &str) -> String {
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"))
+    )
 }
 
 impl Drop for ProvingGround {

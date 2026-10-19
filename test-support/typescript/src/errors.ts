@@ -28,7 +28,15 @@ export type TestSupportErrorCode =
   /** An entry of the axe exception file names a selector that matches nothing on a page where its rule ran (ADR 0073). */
   | "axe_exception_unmatched"
   /** The axe exception file cannot be read, or an entry lacks a field or has one it does not define (ADR 0073). */
-  | "axe_exceptions_invalid";
+  | "axe_exceptions_invalid"
+  /** At 320 × 256 CSS pixels, the page or a region of it scrolls horizontally outside a data table or code block (ADR 0073). */
+  | "horizontal_scroll"
+  /** Text is clipped by its box with no way to read it in full, such as by scrolling (ADR 0073). */
+  | "text_clipped"
+  /** `noRunningAnimations` ran on a page whose `prefers-reduced-motion` is not `reduce` (ADR 0073). */
+  | "reduced_motion_off"
+  /** An animation or transition was still running under `prefers-reduced-motion: reduce` (ADR 0073). */
+  | "animations_running";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

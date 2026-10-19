@@ -8,6 +8,7 @@
 // screenshot (`updateSnapshots: 'none'`); only the `update-screenshots`
 // workflow does, and references are named without the platform.
 import { sep } from "node:path";
+import type { ServedOptions } from "@goodfetch/test-support/playwright";
 import { defineConfig, type PlaywrightTestConfig, type Project } from "@playwright/test";
 
 // Playwright matches a glob against a test file's absolute path, from any
@@ -39,17 +40,27 @@ const visual: Project = {
 };
 
 // The Release suite runs every test on every browser Playwright ships; the
-// Pre-merge suite on Chromium alone (TESTING.md, Browsers).
-const releaseBrowsers: Project[] =
+// Pre-merge suite on Chromium alone (TESTING.md, Browsers). Its translation
+// project reruns the served tests with test support's translation-emulation
+// script on every page, which wraps each new text node in `<font>` as page
+// translators do; they must still pass, with no uncaught error (ADR 0073).
+const releaseProjects: Project<ServedOptions>[] =
   process.env["GOODFETCH_TEST_SUITE"] === "release"
-    ? (["firefox", "webkit"] as const).map((browserName) => ({
-        name: browserName,
-        testIgnore: [...ignored, "**/*.visual.spec.ts"],
-        use: { browserName },
-      }))
+    ? [
+        ...(["firefox", "webkit"] as const).map((browserName) => ({
+          name: browserName,
+          testIgnore: [...ignored, "**/*.visual.spec.ts"],
+          use: { browserName },
+        })),
+        {
+          name: "translation",
+          testIgnore: [...ignored, "**/*.visual.spec.ts"],
+          use: { translationEmulation: true },
+        },
+      ]
     : [];
 
-const config: PlaywrightTestConfig = defineConfig({
+const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>({
   testMatch: "**/*.spec.ts",
   testIgnore: ignored,
   // Each test's output, a failed test's trace among it, sits beside the JUnit
@@ -70,7 +81,7 @@ const config: PlaywrightTestConfig = defineConfig({
   },
   projects: [
     { name: "default", testIgnore: [...ignored, "**/*.visual.spec.ts"] },
-    ...releaseBrowsers,
+    ...releaseProjects,
     ...(process.env["GOODFETCH_VISUAL_IMAGE"] === undefined ? [] : [visual]),
   ],
 });

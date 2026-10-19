@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Reflow clean</title>
+    <link rel="stylesheet" href="/reflow.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Reflow clean</h1>
+      <p>This paragraph wraps at any width, so the page never needs a horizontal scroll bar.</p>
+      <div class="scroller" id="runs" role="region" aria-label="Runs" tabindex="0">
+        <table>
+          <caption>
+            Runs
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Run</th>
+              <th scope="col">Started</th>
+              <th scope="col">Pages fetched</th>
+              <th scope="col">State</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>run-0001</td>
+              <td>2026-10-19T08:00:00Z</td>
+              <td>1204</td>
+              <td>Succeeded</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <pre
+        id="command"
+        tabindex="0"
+      ><code>goodfetch-collie run --script ./a-script-with-a-long-name.ts --output ./results</code></pre>
+    </main>
+  </body>
+</html>

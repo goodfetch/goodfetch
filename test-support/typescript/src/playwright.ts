@@ -9,6 +9,9 @@
 //   `launchPersistentContext`, `launch`, `connect` and `connectOverCDP`.
 // - `failOnErrors`, on in every test: fails it when a page logged a
 //   `console` error, threw, broke the CSP or had a same-origin request fail.
+// - `translationEmulation`, an option off by default: adds the
+//   translation-emulation script to every page, as the Release suite's
+//   translation project does (ADR 0073).
 // - `axe`, on in every test: once the test has passed, audits each of its
 //   open pages for WCAG 2.2 AA and best practices (ADR 0073), with the
 //   repository's exception file, before `failOnErrors` judges the pages, so
@@ -30,6 +33,7 @@ import { auditAccessibility } from "./accessibility.ts";
 import { readAxeExceptions } from "./axe-exceptions.ts";
 import { refuseBypassCSP } from "./bypass-csp.ts";
 import { watchPageErrors, type PageErrorWatch } from "./page-errors.ts";
+import { emulateTranslation } from "./translation.ts";
 
 export {
   AXE_TAGS,
@@ -44,6 +48,9 @@ export {
   type AxeException,
 } from "./axe-exceptions.ts";
 export { refuseBypassCSP, type CspOptions } from "./bypass-csp.ts";
+export { noRunningAnimations } from "./reduced-motion.ts";
+export { reflow } from "./reflow.ts";
+export { emulateTranslation } from "./translation.ts";
 export {
   watchPageErrors,
   type PageError,
@@ -51,8 +58,18 @@ export {
   type PageErrorWatch,
 } from "./page-errors.ts";
 
+/** The options of test support's Playwright `test`, which a project or `test.use` sets. */
+export interface ServedOptions {
+  /**
+   * Adds the translation-emulation script to every page of the test's
+   * context (`emulateTranslation`), as the Release suite's translation
+   * project does. Off by default.
+   */
+  translationEmulation: boolean;
+}
+
 /** What a served test takes from test support's Playwright `test`, beside Playwright's own. */
-export interface ServedFixtures {
+export interface ServedFixtures extends ServedOptions {
   /** The errors of the test's pages so far; the test fails at teardown if there is one. */
   failOnErrors: PageErrorWatch;
   /** axe's audit of each open page, at the end of a test that passed; the test fails on a violation. */
@@ -64,8 +81,12 @@ export const test: TestType<
   PlaywrightTestArgs & PlaywrightTestOptions & ServedFixtures,
   PlaywrightWorkerArgs & PlaywrightWorkerOptions
 > = base.extend<ServedFixtures>({
-  context: async ({ context, bypassCSP, contextOptions }, use) => {
+  translationEmulation: [false, { option: true }],
+  context: async ({ context, bypassCSP, contextOptions, translationEmulation }, use) => {
     refuseBypassCSP({ bypassCSP, contextOptions });
+    if (translationEmulation) {
+      await emulateTranslation(context);
+    }
     await use(context);
   },
   request: async ({ request, bypassCSP, contextOptions }, use) => {

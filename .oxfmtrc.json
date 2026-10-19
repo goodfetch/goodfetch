@@ -3,6 +3,7 @@
   "ignorePatterns": [
     "rnd/**",
     "**/generated/**",
+    "**/fixtures/schemas/**",
     "**/compat/**",
     ".agents/**",
     "ci/proofs/**",

@@ -21,7 +21,7 @@ fn shell(env: &TestEnv, unix: &str, windows: &str) -> Process {
 }
 
 #[test]
-fn reported_address_reads_the_childs_first_line() {
+fn reported_address_reads_the_first_line_a_child_writes() {
     let env = TestEnv::new();
     let process = shell(
         &env,

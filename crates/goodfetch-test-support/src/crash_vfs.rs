@@ -1,9 +1,18 @@
-//! The crash VFS (ADR 0060): an in-memory SQLite VFS, built on
-//! `sqlite-plugin` and registered by name with the SQLite `rusqlite`
-//! bundles, so the code under test opens its database with the VFS name as a
-//! value and production passes none. It holds every write until a sync of
-//! its file. Its locks and shared memory serve several connections of one
-//! process, so WAL databases work.
+//! The crash VFS (ADR 0060), modelled on SQLite's own: an in-memory SQLite
+//! VFS, built on `sqlite-plugin` and registered by name with the SQLite
+//! `rusqlite` bundles, so the code under test opens its database with the
+//! VFS name as a value and production passes none. It holds every write and
+//! truncation until a sync of its file; a crash then keeps them (a process
+//! crash) or drops, tears or reorders them from the seed (a power cut), and
+//! refuses every later I/O of the crashed instance. It also injects I/O
+//! errors and a full disk at chosen operations.
+//!
+//! Files live in memory under the path SQLite opens them with, so a test
+//! touches no real file and behaves alike on every OS. Creating and deleting
+//! a file take effect at once and survive any crash. The locks and shared
+//! memory serve several connections of one process, so WAL databases work.
+//! The VFS claims no device characteristic: SQLite then expects any sector
+//! to tear and writes to land out of order.
 #![expect(
     clippy::disallowed_types,
     reason = "SQLite calls a VFS from any connection's thread: one Mutex guards the whole \
@@ -76,6 +85,7 @@ impl CrashVfs {
 
     /// How many I/O operations the VFS has run, which is the index of the
     /// next one.
+    ///
     /// The operations counted are opens, deletes, existence checks, reads,
     /// writes, truncations, syncs and size queries; locks and shared memory
     /// are not. One workload runs the same operations in the same order
@@ -109,8 +119,9 @@ pub enum IoFault {
     /// (`SQLITE_IOERR_WRITE` for a write, `SQLITE_IOERR_FSYNC` for a sync,
     /// `SQLITE_CANTOPEN` for an open).
     Error,
-    /// The disk is full from this operation on: every write or truncation
-    /// that would grow a file fails with `SQLITE_FULL`.
+    /// The disk is full from this operation on, across crashes, for as long
+    /// as the VFS lives: every write or truncation that would grow a file
+    /// fails with `SQLITE_FULL`, and the rest still succeed.
     Full,
 }
 

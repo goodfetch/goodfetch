@@ -3,7 +3,8 @@
 //! time), the processes a test starts and the addresses they report, the
 //! test tool manifest, the paused runtime, proptest's configuration, the
 //! test `tracing` subscriber, the Observation log with its fencing and
-//! Limits checkers, and seeded kills of real processes (ADR 0060); and
+//! Limits checkers, seeded kills of real processes and the crash VFS under
+//! SQLite (ADR 0060); and
 //! `goodfetch-test-env`, which gives the same
 //! setup to TypeScript and Python as one JSON description. It works on
 //! values only: it depends on no Goodfetch crate and is only ever a

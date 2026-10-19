@@ -17,6 +17,8 @@ use hyper::http::uri::PathAndQuery;
 use hyper::{Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 
+use crate::access;
+use crate::adversarial;
 use crate::agent;
 use crate::catalog;
 use crate::encodings;
@@ -28,12 +30,12 @@ use crate::languages;
 use crate::login::{self, Logins};
 use crate::model::{self, Candidate, FakeModel};
 use crate::observation::{self, Observations};
-use crate::oracle::{self, Submission};
+use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
+use crate::protection;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
-use crate::sync::Mutex;
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -47,7 +49,6 @@ pub(crate) struct Site {
     certificate_authority: String,
     observations: Arc<Observations>,
     logins: Logins,
-    time_step: Mutex<u64>,
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
@@ -78,7 +79,6 @@ impl Site {
             certificate_authority,
             observations,
             logins: Logins::default(),
-            time_step: Mutex::new(0),
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
@@ -102,7 +102,7 @@ impl Site {
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
-            Self::tasks_of(seed, 0)
+            Self::every_task(seed, None)
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
@@ -112,15 +112,20 @@ impl Site {
                 .chain(handmade::hosts())
                 .map(|(host, task)| (host, Some(task))),
         );
+        hosts.extend(adversarial::hosts());
+        hosts.extend(protection::hosts());
+        hosts.extend(access::hosts());
         hosts
     }
 
-    /// Every family's tasks, in the task list's order.
+    /// Every family's tasks, as this `serve` lists them.
     fn tasks(&self) -> Vec<Task> {
-        Self::tasks_of(self.seed, self.port)
+        Self::every_task(self.seed, Some(self.port))
     }
 
-    fn tasks_of(seed: u64, port: u16) -> Vec<Task> {
+    /// Every family's tasks for `seed`, in the task list's order, their start
+    /// URLs on `port`, or on none when listed without serving.
+    pub(crate) fn every_task(seed: u64, port: Option<u16>) -> Vec<Task> {
         let mut tasks = catalog::tasks(seed, port);
         tasks.extend(rendered::tasks(seed, port));
         tasks.extend(login::tasks(seed, port));
@@ -133,6 +138,9 @@ impl Site {
         tasks.extend(encodings::tasks(seed, port));
         tasks.extend(languages::tasks(seed, port));
         tasks.extend(files::tasks(seed, port));
+        tasks.extend(adversarial::tasks(seed, port));
+        tasks.extend(protection::tasks(seed, port));
+        tasks.extend(access::tasks(seed, port));
         tasks
     }
 
@@ -168,6 +176,15 @@ impl Site {
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
+        if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
+            .or_else(|| protection::respond(self.seed, &name, request))
+            .or_else(|| access::respond(self.seed, &name, request))
+        {
+            if let Some(recorded) = recorded {
+                self.observations.record(host, recorded);
+            }
+            return reply;
+        }
         if let Some((reply, effect)) = self
             .portal
             .respond(&name, request)
@@ -205,7 +222,7 @@ impl Site {
                 catalog::HOST => self.catalog(host, request),
                 rendered::HOST => rendered::respond(self.seed, request),
                 login::HOST => login::respond(self.seed, &self.logins, request),
-                _ => schedule::respond(self.seed, *self.time_step.lock(), request),
+                _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
         }
         match (request.method, request.path) {
@@ -268,7 +285,7 @@ impl Site {
     /// Answers a request to the `agent` family: its pages at the current
     /// time step, and the Effects their script posts, recorded with it.
     fn agent(&self, host: &str, name: &str, request: &Request<'_>) -> Reply {
-        let step = *self.time_step.lock();
+        let step = self.observations.time_step();
         match (request.method, request.path) {
             (&Method::POST, agent::EFFECTS_PATH) => match agent::effect(request.body, step) {
                 Some(effect) => {
@@ -297,7 +314,7 @@ impl Site {
         if method != Method::POST || observation::host_name(host) != model::HOST {
             return None;
         }
-        let step = *self.time_step.lock();
+        let step = self.observations.time_step();
         let candidates: Vec<Candidate> = self
             .tasks()
             .into_iter()
@@ -370,12 +387,13 @@ impl Site {
         open
     }
 
-    /// Sets the time step scheduled content and drifting pages follow.
+    /// Sets the time step scheduled content and drifting pages follow, which
+    /// the connection record stamps each later entry with.
     fn set_time_step(&self, body: &Bytes) -> Reply {
         let Ok(time_step) = serde_json::from_slice::<TimeStep>(body) else {
             return Reply::error(StatusCode::BAD_REQUEST, "malformed_time_step");
         };
-        *self.time_step.lock() = time_step.step;
+        self.observations.set_time_step(time_step.step);
         Reply::json(StatusCode::OK, &time_step)
     }
 
@@ -388,14 +406,42 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
-                let now = self.portal.expected_now(&task.entry.id);
+                let submitted = submission.record_ids();
+                let now = self
+                    .portal
+                    .expected_now(&task.entry.id)
+                    .or_else(|| access::expected_now(&task.entry.id, &self.observations));
                 let expected = now.as_ref().unwrap_or(&task.expected);
-                Reply::json(
-                    StatusCode::OK,
-                    &oracle::judge(expected, submission, &effects),
-                )
+                let answer = oracle::judge(expected, submission, &effects)
+                    .refuted_by(self.reported(&task.entry.id));
+                if task.entry.family == access::FAMILY {
+                    let answer = access::judge(&task.entry.id, answer, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
+                if task.entry.id == protection::TIER_MOVE_TASK {
+                    let answer =
+                        protection::judge_tier_move(answer, &submitted, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
+                Reply::json(StatusCode::OK, &answer)
             }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),
         }
+    }
+
+    /// What the pages of `task` reported beyond having run: each a finding,
+    /// since a page's script reports only what must not have worked.
+    fn reported(&self, task: &str) -> Vec<Finding> {
+        self.observations
+            .reports_of(task)
+            .into_iter()
+            .filter(|report| report.check != observation::RAN)
+            .map(|report| Finding {
+                check: report.check,
+                at: report.page,
+                expected: None,
+                observed: report.observed.into(),
+            })
+            .collect()
     }
 }

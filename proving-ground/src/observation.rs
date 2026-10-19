@@ -3,8 +3,12 @@
 //! order sent, cookies, HTTP message signature, the connection's TLS
 //! `ClientHello` and HTTP/2 settings, pseudo-header order, status and
 //! timing), the bytes each
-//! request and each host received and sent, and the Effects the site
-//! carried out. The oracle and the suites read them, never a tool's report.
+//! request and each host received and sent, the Effects the site
+//! carried out, and what its pages' own scripts reported. The oracle and the
+//! suites read them, never a tool's report. The connection record beside
+//! them lists every connection the Proving ground's listeners accepted and
+//! every relay its forward proxies carried out, each entry with the time
+//! step it came at, which `PUT /time-step` sets.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -22,12 +26,14 @@
 //! `unrecorded_requests` and in their host's bytes.
 
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
+use crate::connection_record::{self, ConnectionRecord, Stamp};
 use crate::sync::Mutex;
 use crate::task::Effect;
 
@@ -39,16 +45,19 @@ pub(crate) struct Observations {
     /// Each host name served, with the task it belongs to, if any.
     hosts: BTreeMap<String, Option<String>>,
     stopwatch: Stopwatch,
+    /// The Proving ground's time step, as `PUT /time-step` sets it.
+    time_step: Mutex<u64>,
     state: Mutex<State>,
+    record: ConnectionRecord,
 }
 
 #[derive(Default)]
 struct State {
-    connections: u64,
     requests: Vec<Request>,
     unrecorded_requests: u64,
     hosts: BTreeMap<Arc<str>, ByteCount>,
     effects: Vec<EffectRecord>,
+    reports: Vec<ReportRecord>,
 }
 
 /// Bytes received from and sent to a client.
@@ -126,6 +135,79 @@ struct Request {
     bytes: ByteCount,
 }
 
+/// One request as a check of its client reads it.
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct Seen {
+    pub(crate) method: String,
+    pub(crate) target: String,
+    /// `None` while its answer has not left.
+    pub(crate) status: Option<u16>,
+    pub(crate) fingerprint: Fingerprint,
+}
+
+/// What a request shows of the client that sent it, beyond its content:
+/// what a site's bot protection compares between requests.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct Fingerprint {
+    pub(crate) protocol: Protocol,
+    /// The connection's JA4 without what a resumed handshake adds (its
+    /// `ja4_base`); `None` over plain text.
+    pub(crate) ja4: Option<String>,
+    /// HTTP/2's settings, first window update and pseudo-header order.
+    pub(crate) http2: Option<Http2Fingerprint>,
+    /// The header names in the order sent, in lowercase.
+    pub(crate) header_order: Vec<String>,
+    pub(crate) user_agent: Option<String>,
+    /// The `Sec-CH-UA` headers (client hints), names in lowercase, in the
+    /// order sent.
+    pub(crate) client_hints: Vec<(String, String)>,
+}
+
+/// What an HTTP/2 request shows of its client.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct Http2Fingerprint {
+    pub(crate) settings: Vec<(u16, u32)>,
+    pub(crate) window_update: Option<u32>,
+    pub(crate) pseudo_header_order: Vec<String>,
+}
+
+impl Request {
+    fn seen(&self) -> Seen {
+        let header = |wanted: &str| {
+            self.headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
+                .map(|(_, value)| value.clone())
+        };
+        Seen {
+            method: self.method.clone(),
+            target: self.target.clone(),
+            status: self.status,
+            fingerprint: Fingerprint {
+                protocol: self.protocol,
+                ja4: self.tls.as_ref().map(|hello| hello.ja4_base.clone()),
+                http2: self.http2.as_ref().map(|stream| Http2Fingerprint {
+                    settings: stream.connection.settings.clone(),
+                    window_update: stream.connection.window_update,
+                    pseudo_header_order: self.pseudo_header_order.clone().unwrap_or_default(),
+                }),
+                header_order: self
+                    .headers
+                    .iter()
+                    .map(|(name, _)| name.to_ascii_lowercase())
+                    .collect(),
+                user_agent: header("user-agent"),
+                client_hints: self
+                    .headers
+                    .iter()
+                    .filter(|(name, _)| name.to_ascii_lowercase().starts_with("sec-ch-ua"))
+                    .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
+                    .collect(),
+            },
+        }
+    }
+}
+
 /// The HTTP Message Signatures headers of a request (RFC 9421), as Web Bot
 /// Auth sends them.
 #[derive(Serialize)]
@@ -151,6 +233,53 @@ struct EffectRecord {
     effect: Effect,
 }
 
+/// What a page's own script reported to the site: that it ran, or what it
+/// found or achieved, such as a probe's signal or an escape that worked. A
+/// family's page posts it to its host's `/reports`; the site records it
+/// for the host's task.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Report {
+    /// The path of the page whose script reported.
+    pub(crate) page: String,
+    /// What the script checked, such as `escape`.
+    pub(crate) check: String,
+    /// What it found, such as `top_navigation`.
+    pub(crate) observed: String,
+}
+
+/// The `check` of a [`Report`] that says only that the page's script ran.
+pub(crate) const RAN: &str = "ran";
+
+/// The longest field of a [`Report`] the site records, in bytes.
+const REPORT_FIELD_LIMIT: usize = 256;
+
+impl Report {
+    /// The report a page's script posted, from its JSON body; `None` when it
+    /// is not one or a field is empty or longer than 256 bytes.
+    pub(crate) fn parse(body: &[u8]) -> Option<Self> {
+        let report = serde_json::from_slice::<Self>(body).ok()?;
+        [&report.page, &report.check, &report.observed]
+            .iter()
+            .all(|field| !field.is_empty() && field.len() <= REPORT_FIELD_LIMIT)
+            .then_some(report)
+    }
+}
+
+/// What the site recorded of one request beside the request itself.
+pub(crate) enum Recorded {
+    Effect(Effect),
+    Report(Report),
+}
+
+/// A report a page's script sent, with the task of the host it came on.
+#[derive(Serialize)]
+struct ReportRecord {
+    task: Option<String>,
+    #[serde(flatten)]
+    report: Report,
+}
+
 /// A recorded request's place in the record.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RequestId(usize);
@@ -161,8 +290,11 @@ struct Document<'a> {
     requests: &'a [Request],
     unrecorded_requests: u64,
     effects: &'a [EffectRecord],
+    reports: &'a [ReportRecord],
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
+    #[serde(flatten)]
+    record: &'a connection_record::Document<'a>,
 }
 
 impl Observations {
@@ -171,21 +303,61 @@ impl Observations {
         Self {
             hosts,
             stopwatch: Stopwatch::start(),
+            time_step: Mutex::new(0),
             state: Mutex::default(),
+            record: ConnectionRecord::default(),
         }
+    }
+
+    /// The host names observed, each with its task, if any.
+    pub(crate) fn hosts(&self) -> &BTreeMap<String, Option<String>> {
+        &self.hosts
+    }
+
+    /// The task of the host `authority` names, if the Proving ground serves
+    /// it for one.
+    pub(crate) fn task_of(&self, authority: &str) -> Option<String> {
+        self.served(authority).and_then(|(_, task)| task.clone())
+    }
+
+    /// Sets the Proving ground's time step, which scheduled content follows
+    /// and every later entry of the connection record is stamped with.
+    pub(crate) fn set_time_step(&self, step: u64) {
+        *self.time_step.lock() = step;
+    }
+
+    /// The Proving ground's time step.
+    pub(crate) fn time_step(&self) -> u64 {
+        *self.time_step.lock()
+    }
+
+    /// The time step and the time now.
+    pub(crate) fn stamp(&self) -> Stamp {
+        Stamp {
+            time_step: self.time_step(),
+            at_microseconds: self.stopwatch.microseconds(),
+        }
+    }
+
+    /// The connection record.
+    pub(crate) fn connection_record(&self) -> &ConnectionRecord {
+        &self.record
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock()
     }
 
-    /// Starts observing a new connection.
-    pub(crate) fn connection(self: &Arc<Self>) -> Arc<Connection> {
-        let id = {
-            let mut state = self.state();
-            state.connections += 1;
-            state.connections - 1
-        };
+    /// Starts observing a new connection the site's listener accepted from
+    /// `source` on `destination`, which the connection record lists.
+    pub(crate) fn connection(
+        self: &Arc<Self>,
+        source: SocketAddr,
+        destination: SocketAddr,
+    ) -> Arc<Connection> {
+        let id = self
+            .record
+            .accepted(self.stamp(), "site", source, destination);
         Arc::new(Connection {
             id,
             observations: Arc::clone(self),
@@ -225,7 +397,33 @@ impl Observations {
             .collect()
     }
 
-    /// The record as JSON: the requests, the Effects, and the bytes per task
+    /// Records what the site recorded of a request to `authority`: an
+    /// Effect it carried out, or a report its page's script sent. At most
+    /// [`REQUEST_LIMIT`] reports are kept.
+    pub(crate) fn record(&self, authority: &str, recorded: Recorded) {
+        match recorded {
+            Recorded::Effect(effect) => self.effect(authority, effect),
+            Recorded::Report(report) => {
+                let task = self.served(authority).and_then(|(_, task)| task.clone());
+                let mut state = self.state();
+                if state.reports.len() < REQUEST_LIMIT {
+                    state.reports.push(ReportRecord { task, report });
+                }
+            }
+        }
+    }
+
+    /// The reports the pages of `task` sent, in order.
+    pub(crate) fn reports_of(&self, task: &str) -> Vec<Report> {
+        self.state()
+            .reports
+            .iter()
+            .filter(|record| record.task.as_deref() == Some(task))
+            .map(|record| record.report.clone())
+            .collect()
+    }
+
+    /// The record as JSON: the requests, the Effects, the reports, and the bytes per task
     /// and per host.
     pub(crate) fn document(&self) -> Vec<u8> {
         let state = self.state();
@@ -238,14 +436,29 @@ impl Observations {
                     .add(*bytes);
             }
         }
-        serde_json::to_vec(&Document {
-            requests: &state.requests,
-            unrecorded_requests: state.unrecorded_requests,
-            effects: &state.effects,
-            tasks,
-            hosts: &state.hosts,
+        self.record.with_document(|record| {
+            serde_json::to_vec(&Document {
+                requests: &state.requests,
+                unrecorded_requests: state.unrecorded_requests,
+                effects: &state.effects,
+                reports: &state.reports,
+                tasks,
+                hosts: &state.hosts,
+                record,
+            })
+            .expect("invariant: the observations serialize")
         })
-        .expect("invariant: the observations serialize")
+    }
+
+    /// What the Proving ground saw of each request to `task`'s host, in
+    /// arrival order: its target, status and fingerprint.
+    pub(crate) fn requests_of(&self, task: &str) -> Vec<Seen> {
+        self.state()
+            .requests
+            .iter()
+            .filter(|request| request.task.as_deref() == Some(task))
+            .map(Request::seen)
+            .collect()
     }
 
     fn update(&self, request: RequestId, change: impl FnOnce(&mut Request)) {

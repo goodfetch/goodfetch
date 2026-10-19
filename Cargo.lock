@@ -841,6 +841,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-conformance"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "jsonschema",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml",
+ "ureq",
+]
+
+[[package]]
 name = "goodfetch-engine"
 version = "0.0.0"
 dependencies = [
@@ -907,6 +922,7 @@ dependencies = [
  "h2",
  "hmac",
  "http-body-util",
+ "httparse",
  "hyper",
  "hyper-util",
  "loona-hpack",
@@ -3039,6 +3055,7 @@ dependencies = [
  "clap",
  "flate2",
  "goodfetch-protocol",
+ "goodfetch-test-support",
  "insta",
  "jiff",
  "jsonschema",

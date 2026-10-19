@@ -42,7 +42,9 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     agent/1 agent/2 agent/3 agent/4 agent/5 agent/6 agent/7 agent/8 agent/9 \
     replay/1 replay/2 \
     extraction/1 extraction/2 extraction/3 extraction/4 extraction/5 extraction/6 \
-    encodings/1 encodings/2 languages/1 languages/2 files/1 files/2 files/3";
+    encodings/1 encodings/2 languages/1 languages/2 files/1 files/2 files/3 \
+    adversarial/1 adversarial/2 adversarial/3 adversarial/4 protection/1 protection/2 \
+    access/1 access/2 access/3 access/4 access/5";
 
 /// Each task's kind, in the same order.
 const KINDS: &str = "crawl extract submit \
@@ -54,7 +56,9 @@ const KINDS: &str = "crawl extract submit \
     submit extract extract extract extract extract extract extract extract \
     extract extract \
     crawl extract crawl crawl extract crawl \
-    crawl crawl crawl extract crawl extract extract";
+    crawl crawl crawl extract crawl extract extract \
+    extract submit extract extract crawl extract \
+    extract extract extract extract crawl";
 
 #[test]
 fn the_task_list_names_the_tasks_of_every_family() {
@@ -149,4 +153,35 @@ fn another_expected_result_changes_the_digest() {
 
     assert_eq!(crawl, other);
     assert_ne!(digests.0, digests.1);
+}
+
+/// `tasks --seed N` prints the list `serve` serves for that seed, with no
+/// port, since it binds none, so `xtask journeys tasks` can commit it
+/// (ADR 0063, rule 3).
+#[test]
+fn tasks_prints_the_served_list_with_no_port() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
+        .args(["tasks", "--seed", "158"])
+        .env_clear()
+        .output()
+        .expect("the Proving ground runs");
+    let served = ProvingGround::start(158).tasks();
+
+    assert!(output.status.success(), "{output:?}");
+    let printed: Value = serde_json::from_slice(&output.stdout).expect("it prints JSON");
+    assert_eq!(printed["proving_ground"], served["proving_ground"]);
+    assert_eq!(each(&printed, "id"), each(&served, "id"));
+    assert_eq!(each(&printed, "digest"), each(&served, "digest"));
+    assert_eq!(
+        printed["tasks"][0]["start_url"],
+        "http://1.catalog.test/catalog/1"
+    );
+    // Every family's start URL, on its own host name and no port.
+    let portless = Regex::new(r"^https?://[^/:]+(/|$)").unwrap();
+    assert!(
+        each(&printed, "start_url")
+            .iter()
+            .all(|url| portless.is_match(url.as_str().unwrap())),
+        "{printed}"
+    );
 }

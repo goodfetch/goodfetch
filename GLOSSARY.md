@@ -580,6 +580,14 @@ _Avoid_: cassette, fixture (alone), snapshot
 One thing the Proving ground asks a tool to do on one page family, with its starting URL and the expected result its oracle judges against. Called a task where the Proving ground is already the subject.
 _Avoid_: fixture, test case
 
+**Result document**:
+The one JSON document a conformance suite or a Journey variant writes each time it is run, of kind `conformance` or `journey`, whose outcomes are derived from what it records and recomputed by every reader, never set by the test.
+_Avoid_: test report, run result, results file
+
+**Case log**:
+The JSON Lines a runner writes as it runs Client conformance cases, one entry per case run with its checks and evidence and no outcome, which the conformance harness turns into a Result document.
+_Avoid_: test log, results log
+
 **Journey**:
 A goal a person reaches through a Product's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
 _Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)

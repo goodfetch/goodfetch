@@ -6,7 +6,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./screenshot": "./src/screenshot.ts"
+    "./playwright": "./src/playwright.ts",
+    "./screenshot": "./src/screenshot.ts",
+    "./vitest-browser": "./src/vitest-browser.ts",
+    "./vitest-browser/setup": "./src/vitest-browser-setup.ts",
+    "./vitest-browser/commands": "./src/vitest-browser-commands.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
@@ -16,9 +20,13 @@
     "ajv-formats": "3.0.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
+    "@types/ws": "8.18.2",
+    "@vitest/browser-playwright": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "ws": "8.22.0"
   }
 }

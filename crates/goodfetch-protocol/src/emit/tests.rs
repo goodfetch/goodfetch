@@ -68,3 +68,16 @@ fn product_reads_and_writes_the_mark_the_catalog_writes(
     assert_eq!(product.as_str(), mark);
     assert_eq!(serde_json::from_value::<Product>(written).unwrap(), product);
 }
+
+#[test]
+fn the_bundle_holds_the_schemas_of_the_result_document_and_the_case_log_entry() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["documents"],
+        json!({
+            "result_document": { "$ref": "#/$defs/ResultDocument" },
+            "case_log_entry": { "$ref": "#/$defs/CaseLogEntry" },
+        })
+    );
+}

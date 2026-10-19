@@ -153,6 +153,8 @@ jobs:
       # target/junit/repeat-<count>/, uploaded with the suite's.
       - name: "Test: just stress"
         run: ci/vm/exec.sh just stress HEAD^1
+      - name: Check the Journeys' task lists against the Proving ground
+        run: ci/vm/exec.sh just journeys-tasks --check
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -348,7 +350,7 @@ jobs:
         with:
           name: visual-differences-pull-request
           path: |
-            target/playwright/
+            target/junit/playwright/
             target/vitest-attachments/
           if-no-files-found: ignore
       - name: Destroy the VM

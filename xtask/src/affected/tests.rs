@@ -23,6 +23,7 @@ fn library(name: &str, folder: &str, dependencies: &[&str]) -> Crate {
         dependencies: names(dependencies),
         benches: BTreeSet::new(),
         executable: false,
+        runs: BTreeSet::new(),
     }
 }
 
@@ -36,6 +37,14 @@ fn executable(name: &str, folder: &str, dependencies: &[&str]) -> Crate {
 fn with_benches(benches: &[&str], krate: Crate) -> Crate {
     Crate {
         benches: names(benches),
+        ..krate
+    }
+}
+
+/// A crate whose tests run the executables of `runs`.
+fn running(runs: &[&str], krate: Crate) -> Crate {
+    Crate {
+        runs: names(runs),
         ..krate
     }
 }
@@ -111,6 +120,15 @@ fn crates() -> Vec<Crate> {
             "goodfetch-sink-s3",
             "crates/foxhound/sinks/goodfetch-sink-s3",
             &["goodfetch-sink-shared"],
+        ),
+        executable("goodfetch-proving-ground", "proving-ground", &[]),
+        running(
+            &["goodfetch-proving-ground"],
+            library(
+                "goodfetch-conformance",
+                "crates/goodfetch-conformance",
+                &["goodfetch-protocol", "goodfetch-test-support"],
+            ),
         ),
         executable("xtask", "xtask", &[]),
     ]
@@ -292,6 +310,7 @@ fn changed_crate_selects_its_and_its_dependants_bench_targets(
 #[case::changed_crates(&["crates/goodfetch-engine/src/lib.rs", "xtask/src/main.rs"], "rdeps(=goodfetch-engine) | rdeps(=xtask)")]
 #[case::workspace_input(&["Cargo.toml"], "all()")]
 #[case::no_crate(&["sdks/typescript/collie/src/index.ts"], "none()")]
+#[case::executable_and_the_crates_whose_tests_run_it(&["proving-ground/src/oracle.rs"], "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-proving-ground)")]
 fn changed_crates_select_their_dependants_through_rdeps(
     #[case] paths: &[&str],
     #[case] filter: &str,
@@ -303,8 +322,10 @@ fn changed_crates_select_their_dependants_through_rdeps(
 
 #[rstest]
 #[case::crate_and_its_dependants(&["crates/goodfetch-engine/src/lib.rs"], "goodfetch-collie goodfetch-engine goodfetch-foxhound goodfetch-frontier")]
-#[case::dev_dependency_reaches_its_dependants(&["crates/goodfetch-test-support/src/lib.rs"], "goodfetch-collie goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-test-support")]
+#[case::dev_dependency_reaches_its_dependants(&["crates/goodfetch-test-support/src/lib.rs"], "goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-test-support")]
 #[case::no_crate(&["sdks/typescript/collie/src/index.ts"], "")]
+// Its tests run the Proving ground's executable through the test tool manifest.
+#[case::executable_reaches_the_crates_whose_tests_run_it(&["proving-ground/src/oracle.rs"], "goodfetch-conformance goodfetch-proving-ground")]
 fn changed_crates_list_them_and_their_dependants_for_cargo(
     #[case] paths: &[&str],
     #[case] crates: &str,
@@ -378,7 +399,7 @@ fn workspace_input_change_selects_everything() {
     products=collie foxhound
     jobs=["pre-merge","sinks","perf","visual","docs"]
     nextest-filter=all()
-    crates=goodfetch-collie goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-protocol goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared goodfetch-test-support xtask
+    crates=goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-protocol goodfetch-proving-ground goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared goodfetch-test-support xtask
     vitest-packages=console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript
     pytest-packages=sdks/python/collie sdks/python/collie-client sdks/python/foxhound
     sinks=goodfetch-sink-kafka goodfetch-sink-s3

@@ -30,6 +30,8 @@ toml.workspace = true
 ureq.workspace = true
 
 [dev-dependencies]
+# The test tool manifest's Proving ground, for `journeys tasks`' tests.
+goodfetch-test-support.workspace = true
 insta.workspace = true
 rstest.workspace = true
 

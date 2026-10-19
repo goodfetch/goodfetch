@@ -1,9 +1,10 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
+crash_dumps = []
 crash_vfs = []
 description = ["endpoints", "env", "ssrf", "tools"]
 endpoints = []
-env = ["process", "variables"]
+env = ["crash_dumps", "process", "variables"]
 fuzz = []
 invariants = ["observation"]
 kill = ["observation", "process"]

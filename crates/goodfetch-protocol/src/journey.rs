@@ -355,6 +355,12 @@ impl From<TaskId> for String {
     }
 }
 
+impl fmt::Display for TaskId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
 impl JsonSchema for TaskId {
     fn schema_name() -> Cow<'static, str> {
         "TaskId".into()

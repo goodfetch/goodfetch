@@ -1,6 +1,9 @@
 # typos, run by `just lint` on every pull request (STYLE.md). `rnd/` is frozen.
 [files]
-extend-exclude = ["rnd/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE"]
+# `journeys/tasks/` holds the Proving ground's task lists, which
+# `xtask journeys tasks` writes from seeds (its generated names, such as
+# `portal-b6caa2ba`, are no words).
+extend-exclude = ["rnd/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE", "journeys/tasks/"]
 
 [default]
 # Words typos misreads in the ADRs: a vendor's name, "mis-templated",

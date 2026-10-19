@@ -589,7 +589,7 @@ jobs:
         with:
           name: visual-differences-release-dispatch
           path: |
-            target/playwright/
+            target/junit/playwright/
             target/vitest-attachments/
           if-no-files-found: ignore
       - name: Destroy the VM

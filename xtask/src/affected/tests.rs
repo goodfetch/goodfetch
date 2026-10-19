@@ -238,6 +238,9 @@ fn change_confined_to_foxhounds_side_selects_only_foxhound(
 #[case::crate_and_its_dependants(&["crates/goodfetch-engine/src/lib.rs"], "goodfetch-engine/engine goodfetch-frontier/frontier")]
 #[case::crate_without_dependants(&["crates/foxhound/goodfetch-frontier/benches/frontier.rs"], "goodfetch-frontier/frontier")]
 #[case::crate_whose_dependants_have_none(&["crates/foxhound/sinks/goodfetch-sink-shared/src/lib.rs"], "")]
+// A ceiling changed in `xtask perf`'s budget is checked at once on the bench
+// targets of the crates it reads (ADR 0134).
+#[case::ceilings_of_the_performance_budget(&["xtask/src/perf/budget.rs"], "goodfetch-frontier/frontier")]
 fn changed_crate_selects_its_and_its_dependants_bench_targets(
     #[case] paths: &[&str],
     #[case] bench_targets: &str,

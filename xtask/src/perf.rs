@@ -32,6 +32,19 @@ use crate::{github, output};
 
 use compare::{Row, Verdict};
 
+/// The file that holds the absolute ceilings, relative to the repository.
+pub(crate) const BUDGET_FILE: &str = "xtask/src/perf/budget.rs";
+
+/// The crates whose benchmarks an absolute ceiling reads, so a change to the
+/// ceilings selects their bench targets (`xtask affected`).
+pub(crate) fn ceilinged_crates() -> std::collections::BTreeSet<&'static str> {
+    budget::ceilings()
+        .flat_map(budget::Ceiling::subjects)
+        .filter_map(|subject| subject.split_once('/').map(|(package, _)| package))
+        .filter(|package| *package != "size-limit")
+        .collect()
+}
+
 #[derive(Subcommand)]
 pub(crate) enum Command {
     /// Before the deny: checks the base out under target/perf/ and builds

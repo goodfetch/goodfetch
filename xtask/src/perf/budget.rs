@@ -53,6 +53,16 @@ pub(crate) enum Ceiling {
     },
 }
 
+impl Ceiling {
+    /// The benchmarks or entries whose figures it reads.
+    pub(crate) fn subjects(&self) -> Vec<&'static str> {
+        match self {
+            Self::Figure { subject, .. } | Self::PerBodyByte { subject, .. } => vec![subject],
+            Self::PerUrl { subject, empty, .. } => vec![subject, empty],
+        }
+    }
+}
+
 /// The fixed ceilings of ADRs 0087 and 0134. Each starts when its benchmark
 /// or entry first runs.
 pub(crate) const FIXED_CEILINGS: [Ceiling; 4] = [

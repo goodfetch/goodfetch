@@ -8,7 +8,7 @@ use std::path::Path;
 
 use super::RepoPath;
 use super::workspace::{Crate, Ecosystem, Package, Workspace};
-use crate::foxhound_side;
+use crate::{foxhound_side, perf};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -314,8 +314,21 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
     if !sinks.is_empty() {
         jobs.insert(Job::Sinks);
     }
+    // A changed ceiling is checked at once, on the crates it reads.
+    let ceilinged: BTreeSet<&str> = if paths.iter().any(|path| path.as_str() == perf::BUDGET_FILE) {
+        perf::ceilinged_crates()
+    } else {
+        BTreeSet::new()
+    };
     let bench_targets: BTreeSet<String> = reached
         .iter()
+        .copied()
+        .chain(
+            members
+                .iter()
+                .copied()
+                .filter(|krate| ceilinged.contains(krate.name.as_str())),
+        )
         .flat_map(|krate| {
             krate
                 .benches

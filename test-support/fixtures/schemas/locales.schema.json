@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "TimeZoneCase": {
+      "additionalProperties": false,
+      "description": "One shared time zone, with the days its daylight saving time starts and\nends on when a test needs them.",
+      "properties": {
+        "dst_gap": {
+          "description": "The day in 2026 whose local clock skips an hour (the gap).",
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dst_overlap": {
+          "description": "The day in 2026 whose local clock repeats an hour (the overlap).",
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The zone's IANA name, such as `Europe/Paris`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The committed table, as its file holds it.",
+  "properties": {
+    "locales": {
+      "description": "The BCP 47 tags of the shared locales.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "time_zones": {
+      "description": "The shared time zones.",
+      "items": {
+        "$ref": "#/$defs/TimeZoneCase"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "locales",
+    "time_zones"
+  ],
+  "title": "LocaleTable",
+  "type": "object"
+}

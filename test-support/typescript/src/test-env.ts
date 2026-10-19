@@ -6,11 +6,11 @@
 import { readFileSync } from "node:fs";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
-import { Ajv2020, type SchemaObject, type ValidateFunction } from "ajv/dist/2020.js";
-import { fullFormats } from "ajv-formats/dist/formats.js";
+import type { ValidateFunction } from "ajv/dist/2020.js";
 import { TestSupportError } from "./errors.ts";
 import type { ProcessRecord, RecordedProcess } from "./process-record.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
+import { ajv, committedSchema } from "./schemas.ts";
 
 /** The commit's executables, each present when its crate exists in the workspace. */
 export interface Tools {
@@ -83,20 +83,11 @@ const TOOLS_VARIABLE = "GOODFETCH_TEST_TOOLS";
 const RUN_WITH_JUST =
   "run the tests with `just test`, which builds the commit's executables and writes the test tool manifest";
 
-const ajv = new Ajv2020({ allErrors: true });
-ajv.addFormat("date-time", fullFormats["date-time"]);
-// schemars writes Rust's `u64` as this format; the description's seed is also
-// at most 2^53 - 1, so every language reads it exactly.
-ajv.addFormat("uint64", {
-  type: "number",
-  validate: (value: number) => Number.isSafeInteger(value) && value >= 0,
-});
-
 const isTools: ValidateFunction<Tools> = ajv.compile<Tools>(
-  schema("test-tool-manifest.schema.json"),
+  committedSchema("test-tool-manifest.schema.json"),
 );
 const isDescription: ValidateFunction<TestEnvDescription> = ajv.compile<TestEnvDescription>(
-  schema("test-env-description.schema.json"),
+  committedSchema("test-env-description.schema.json"),
 );
 
 /** Starts `goodfetch-test-env` for one test and reads its description. */
@@ -247,12 +238,4 @@ function forwardStderr(stream: Readable): () => string {
     }
   });
   return () => text;
-}
-
-/** A committed schema of `test-support/fixtures/schemas/`, which Ajv checks as it compiles it. */
-function schema(file: string): SchemaObject {
-  const committed: SchemaObject = JSON.parse(
-    readFileSync(new URL(`../../fixtures/schemas/${file}`, import.meta.url), "utf8"),
-  );
-  return committed;
 }

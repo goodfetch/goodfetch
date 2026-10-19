@@ -14,4 +14,5 @@ pub mod emit;
 pub mod foxhound;
 pub mod foxhound_names;
 pub mod releases;
+pub mod routing;
 pub mod sample;

@@ -125,19 +125,13 @@ pub struct Attestation {
 }
 
 /// Why a value of `compat/releases.toml` was refused.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("`{value}` is not {what}")]
+#[non_exhaustive]
 pub struct Malformed {
     what: &'static str,
     value: String,
 }
-
-impl fmt::Display for Malformed {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "`{}` is not {}", self.value, self.what)
-    }
-}
-
-impl std::error::Error for Malformed {}
 
 fn malformed(what: &'static str, value: &str) -> Malformed {
     Malformed {

@@ -28,7 +28,7 @@
 //! `unrecorded_requests` and in their host's bytes, and at most
 //! [`FINDING_LIMIT`] findings, later ones counted in `unrecorded_findings`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -63,6 +63,10 @@ struct State {
     unrecorded_requests: u64,
     hosts: BTreeMap<Arc<str>, ByteCount>,
     effects: Vec<EffectRecord>,
+    /// The latest request each host received, by its sequence.
+    latest_of_host: HashMap<Arc<str>, usize>,
+    /// The latest request of each host, method and target.
+    latest_of_target: HashMap<(Arc<str>, String, String), usize>,
     reports: Vec<ReportRecord>,
     findings: Vec<FindingRecord>,
     unrecorded_findings: u64,
@@ -141,6 +145,65 @@ struct Request {
     status: Option<u16>,
     timing: Timing,
     bytes: ByteCount,
+    /// The earlier request of the same host, method and target this one
+    /// repeats, the latest of them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeats: Option<usize>,
+    /// The next request the same host received, and how long after this
+    /// one's answer (or its arrival, if it had none) it arrived.
+    #[serde(rename = "next_request", skip_serializing_if = "Option::is_none")]
+    followed_by: Option<NextRequest>,
+    /// What the raw server sent of the answer, for the hosts it answers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivery: Option<Delivery>,
+}
+
+/// The request that followed another to its host.
+#[derive(Serialize)]
+struct NextRequest {
+    sequence: usize,
+    after_microseconds: u64,
+}
+
+/// What the raw server sent of an answer: the body length its head
+/// declared, the body bytes it sent, and how the answer ended.
+#[derive(Debug, Serialize)]
+pub(crate) struct Delivery {
+    /// The answer's `Content-Length`, if its head had one.
+    pub(crate) declared_length: Option<u64>,
+    /// The body's bytes sent, before any transfer coding or framing.
+    pub(crate) body_sent: u64,
+    pub(crate) end: End,
+}
+
+/// How an answer ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum End {
+    /// Its whole message was sent.
+    Complete,
+    /// The connection was closed after what was sent.
+    ConnectionClosed,
+    /// Its HTTP/2 stream was reset with `RST_STREAM`.
+    StreamReset { error_code: &'static str },
+    /// The connection's `GOAWAY` named a last stream below the request's,
+    /// so the request was never processed.
+    GoAway {
+        last_stream: u32,
+        error_code: &'static str,
+    },
+}
+
+/// What the Proving ground found when it checked a request's Web Bot Auth
+/// signature against the key directory its `Signature-Agent` names, as the
+/// request arrived.
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct Verification {
+    pub(crate) verified: bool,
+    /// The key that signed it, when verified.
+    pub(crate) key_id: Option<String>,
+    /// Why it was refused, when it was.
+    pub(crate) error: Option<String>,
 }
 
 /// One request as a check of its client reads it.
@@ -151,6 +214,10 @@ pub(crate) struct Seen {
     /// `None` while its answer has not left.
     pub(crate) status: Option<u16>,
     pub(crate) fingerprint: Fingerprint,
+    /// `None` when unsigned; else whether its Web Bot Auth signature was
+    /// verified as it arrived.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) signature: Option<bool>,
 }
 
 /// What a request shows of the client that sent it, beyond its content:
@@ -212,6 +279,12 @@ impl Request {
                     .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
                     .collect(),
             },
+            signature: self.message_signature.as_ref().map(|signature| {
+                signature
+                    .verification
+                    .as_ref()
+                    .is_some_and(|found| found.verified)
+            }),
         }
     }
 }
@@ -223,6 +296,8 @@ struct SignatureHeaders {
     signature_agent: Option<String>,
     signature_input: Option<String>,
     signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verification: Option<Verification>,
 }
 
 /// When a request's head arrived and its answer's head left, in
@@ -535,6 +610,9 @@ struct ConnectionState {
     /// Bytes counted before the host was known.
     pending: ByteCount,
     tls: Option<Arc<ClientHello>>,
+    /// The latest request read on each HTTP/2 stream, or on the connection
+    /// for HTTP/1.1 (stream 0).
+    latest: BTreeMap<u32, RequestId>,
 }
 
 /// Whose bytes a connection's are.
@@ -599,6 +677,7 @@ impl Connection {
             state.tls.clone()
         };
         let (host, task) = self.observations.served(&head.authority)?;
+        let stream = head.http2.as_ref().map_or(0, |http2| http2.stream);
         let arrived = self.observations.stopwatch.microseconds();
         let mut state = self.observations.state();
         if state.requests.len() >= REQUEST_LIMIT {
@@ -606,6 +685,23 @@ impl Connection {
             return None;
         }
         let sequence = state.requests.len();
+        let host_key: Arc<str> = Arc::from(host);
+        if let Some(previous) = state.latest_of_host.insert(Arc::clone(&host_key), sequence)
+            && let Some(record) = state.requests.get_mut(previous)
+        {
+            let since = record
+                .timing
+                .answered_microseconds
+                .unwrap_or(record.timing.arrived_microseconds);
+            record.followed_by = Some(NextRequest {
+                sequence,
+                after_microseconds: arrived.saturating_sub(since),
+            });
+        }
+        let repeats = state.latest_of_target.insert(
+            (host_key, head.method.clone(), head.target.clone()),
+            sequence,
+        );
         state.requests.push(Request {
             sequence,
             connection: self.id,
@@ -626,8 +722,34 @@ impl Connection {
                 answered_microseconds: None,
             },
             bytes: ByteCount::default(),
+            repeats,
+            followed_by: None,
+            delivery: None,
         });
+        drop(state);
+        self.state().latest.insert(stream, RequestId(sequence));
         Some(RequestId(sequence))
+    }
+
+    /// The latest request read on HTTP/2 stream `stream`, or on the
+    /// connection for HTTP/1.1 (stream 0).
+    pub(crate) fn latest_request(&self, stream: u32) -> Option<RequestId> {
+        self.state().latest.get(&stream).copied()
+    }
+
+    /// Records what the raw server sent of a request's answer.
+    pub(crate) fn delivered(&self, request: RequestId, delivery: Delivery) {
+        self.observations
+            .update(request, |record| record.delivery = Some(delivery));
+    }
+
+    /// Records the check of a request's Web Bot Auth signature.
+    pub(crate) fn verified(&self, request: RequestId, verification: Verification) {
+        self.observations.update(request, |record| {
+            if let Some(signature) = &mut record.message_signature {
+                signature.verification = Some(verification);
+            }
+        });
     }
 
     /// Counts bytes of a request's own messages.
@@ -684,6 +806,7 @@ fn message_signature(headers: &[(String, String)]) -> Option<SignatureHeaders> {
         signature_agent: header("signature-agent"),
         signature_input: header("signature-input"),
         signature: header("signature"),
+        verification: None,
     };
     (signature.signature_agent.is_some()
         || signature.signature_input.is_some()

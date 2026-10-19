@@ -11,7 +11,9 @@
 //! from the day before they are made, because some clients' platforms refuse
 //! a longer-lived server certificate. One leaf per host name, never a
 //! wildcard, so an HTTP/2 client never reuses one host's connection for
-//! another and each connection's host is the name it asked for.
+//! another and each connection's host is the name it asked for, except for
+//! the one leaf that also names a host the fetch edge's `421` page needs a
+//! client to coalesce.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -30,6 +32,8 @@ use rustls::server::ResolvesServerCertUsingSni;
 use rustls::sign::CertifiedKey;
 use sha2::{Digest as _, Sha256};
 
+use crate::raw_site;
+
 /// How long a leaf certificate is valid, within the 398 days the strictest
 /// client platforms accept.
 const LEAF_VALIDITY: Duration = Duration::from_hours(397 * 24);
@@ -40,6 +44,7 @@ const LEAF_BACKDATE: Duration = Duration::from_hours(24);
 pub(crate) struct Authority {
     certificate_pem: String,
     server_config: Arc<ServerConfig>,
+    http1_server_config: Arc<ServerConfig>,
 }
 
 impl Authority {
@@ -78,7 +83,11 @@ impl Authority {
             .context("dating the leaf certificates")?;
         let mut resolver = ResolvesServerCertUsingSni::new();
         for host in hosts {
-            let mut params = CertificateParams::new(vec![host.to_owned()])
+            let names = std::iter::once(host)
+                .chain(raw_site::also_named(host).iter().copied())
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            let mut params = CertificateParams::new(names)
                 .with_context(|| format!("naming the leaf certificate of {host}"))?;
             params.distinguished_name = name(host);
             params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
@@ -98,17 +107,27 @@ impl Authority {
                 )
                 .with_context(|| format!("serving the leaf certificate of {host}"))?;
         }
-        let mut server_config =
-            ServerConfig::builder_with_provider(Arc::new(ring::default_provider()))
-                .with_safe_default_protocol_versions()
-                .context("choosing the TLS versions")?
-                .with_no_client_auth()
-                .with_cert_resolver(Arc::new(resolver));
-        server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        let resolver = Arc::new(resolver);
+        let config = |alpn: &[&[u8]]| -> Result<Arc<ServerConfig>> {
+            let mut config =
+                ServerConfig::builder_with_provider(Arc::new(ring::default_provider()))
+                    .with_safe_default_protocol_versions()
+                    .context("choosing the TLS versions")?
+                    .with_no_client_auth()
+                    .with_cert_resolver(Arc::clone(&resolver) as Arc<_>);
+            config.alpn_protocols = alpn.iter().map(|name| name.to_vec()).collect();
+            Ok(Arc::new(config))
+        };
         Ok(Self {
             certificate_pem: certificate.pem(),
-            server_config: Arc::new(server_config),
+            server_config: config(&[b"h2", b"http/1.1"])?,
+            http1_server_config: config(&[b"http/1.1"])?,
         })
+    }
+
+    /// The TLS configuration of the host names that offer HTTP/1.1 alone.
+    pub(crate) fn http1_server_config(&self) -> Arc<ServerConfig> {
+        Arc::clone(&self.http1_server_config)
     }
 
     /// The authority's certificate, as PEM.

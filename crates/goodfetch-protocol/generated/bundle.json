@@ -48,6 +48,21 @@
       ],
       "type": "object"
     },
+    "CancelParams": {
+      "additionalProperties": false,
+      "description": "What `$/cancel` names: the call to stop.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The call's id."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
     "CapabilityResult": {
       "description": "One capability of a `conformance` document.",
       "properties": {
@@ -365,6 +380,119 @@
       ],
       "type": "object"
     },
+    "EngineInfo": {
+      "description": "What `engine.info` answers.",
+      "properties": {
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product the engine runs as."
+        },
+        "product_major": {
+          "arrived_in": "0.1",
+          "description": "The major of its Product version, which names its per-major state.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "The engine's Product version."
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version the engine speaks."
+        }
+      },
+      "required": [
+        "product",
+        "product_version",
+        "protocol_version",
+        "product_major"
+      ],
+      "type": "object"
+    },
+    "EngineInfoParams": {
+      "additionalProperties": false,
+      "description": "What `engine.info` takes: nothing.",
+      "type": "object"
+    },
+    "ErrorData": {
+      "additionalProperties": true,
+      "description": "What a failure's `data` holds: its Error code, whether the same call may\nsucceed when made again, and the code's own details.",
+      "properties": {
+        "code": {
+          "description": "The Error code, or the name of the protocol failure.",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether the same call may succeed when made again.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "ErrorObject": {
+      "additionalProperties": false,
+      "description": "A failure on the wire (ADR 0038).",
+      "properties": {
+        "code": {
+          "description": "One of JSON-RPC's predefined codes for a protocol failure; otherwise\nthe numeric class of the Error code's group, from −32000 to −32099.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "data": {
+          "$ref": "#/$defs/ErrorData",
+          "description": "The Error code and its details."
+        },
+        "message": {
+          "description": "What went wrong, for people; never matched on.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "description": "The reply to a call that failed.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorObject",
+          "description": "The failure."
+        },
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The call's id, or `null` when the engine could not read one."
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "Always `\"2.0\"`."
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "error"
+      ],
+      "type": "object"
+    },
     "Evidence": {
       "additionalProperties": false,
       "description": "What a test saw, beside its checks.",
@@ -417,6 +545,79 @@
       "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
+    },
+    "HelloParams": {
+      "additionalProperties": false,
+      "description": "What a `hello` says.",
+      "properties": {
+        "needs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Product"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Product the Client needs, which every surface but a Browser\nhost's must name (ADR 0095)."
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "The sender's own Product version."
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version the sender speaks."
+        },
+        "surface": {
+          "$ref": "#/$defs/Surface",
+          "arrived_in": "0.1",
+          "description": "The surface it comes from."
+        },
+        "token": {
+          "arrived_in": "0.1",
+          "description": "The Daemon's token; an Attached engine needs none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "protocol_version",
+        "surface",
+        "product_version"
+      ],
+      "type": "object"
+    },
+    "HelloResult": {
+      "description": "What an engine answers to a `hello` it accepts.",
+      "properties": {
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The engine's Product."
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "The engine's Product version."
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version the engine speaks."
+        }
+      },
+      "required": [
+        "protocol_version",
+        "product",
+        "product_version"
+      ],
+      "type": "object"
     },
     "HttpsUrl": {
       "description": "An https:// URL with a host.",
@@ -641,6 +842,31 @@
         }
       ]
     },
+    "JsonRpcVersion": {
+      "const": "2.0",
+      "description": "JSON-RPC's version, always \"2.0\"."
+    },
+    "Message": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Request",
+          "description": "A call."
+        },
+        {
+          "$ref": "#/$defs/Notification",
+          "description": "A message that expects no reply."
+        },
+        {
+          "$ref": "#/$defs/Response",
+          "description": "A success."
+        },
+        {
+          "$ref": "#/$defs/ErrorResponse",
+          "description": "A failure."
+        }
+      ],
+      "description": "Any message of the protocol, as one line of a transcript holds it."
+    },
     "Milestone": {
       "description": "A milestone of ADR 0058, `M1` to `M4`.",
       "oneOf": [
@@ -665,6 +891,28 @@
           "type": "string"
         }
       ]
+    },
+    "Notification": {
+      "additionalProperties": false,
+      "description": "A message that expects no reply, such as `$/cancel`.",
+      "properties": {
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "Always `\"2.0\"`."
+        },
+        "method": {
+          "description": "What it says.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Its params, a JSON object."
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method"
+      ],
+      "type": "object"
     },
     "OracleAnswer": {
       "additionalProperties": true,
@@ -835,8 +1083,13 @@
       "type": "object"
     },
     "ProductVersion": {
-      "description": "A Product version of a stable release or patch, `X.Y.Z` (ADR 0030).",
-      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
+      "description": "A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+      "type": "string"
+    },
+    "ProtocolVersion": {
+      "description": "A version `major.minor` (ADR 0030).",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "type": "string"
     },
     "ProvingGround": {
@@ -945,6 +1198,70 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "Request": {
+      "additionalProperties": false,
+      "description": "A call that expects a reply.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "description": "What the reply carries back."
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "Always `\"2.0\"`."
+        },
+        "method": {
+          "description": "The operation, or `hello`.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Its params, a JSON object."
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
+    "RequestId": {
+      "anyOf": [
+        {
+          "description": "A number the Client chose.",
+          "format": "int64",
+          "type": "integer"
+        },
+        {
+          "description": "A string the Client chose.",
+          "type": "string"
+        }
+      ],
+      "description": "A request's id, which its reply carries back."
+    },
+    "Response": {
+      "additionalProperties": false,
+      "description": "The reply to a call that succeeded.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "description": "The call's id."
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "Always `\"2.0\"`."
+        },
+        "result": {
+          "description": "What the call answered."
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
       "type": "object"
     },
     "ResultDocument": {
@@ -1241,6 +1558,56 @@
       ],
       "type": "object"
     },
+    "Surface": {
+      "description": "The surface a `hello` comes from (ADR 0024).",
+      "oneOf": [
+        {
+          "const": "sdk_typescript",
+          "description": "The TypeScript SDK.",
+          "type": "string"
+        },
+        {
+          "const": "sdk_python",
+          "description": "The Python SDK.",
+          "type": "string"
+        },
+        {
+          "const": "rust",
+          "description": "A Rust program, through a Product's crate.",
+          "type": "string"
+        },
+        {
+          "const": "cli",
+          "description": "The CLI, as a Client of a Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "mcp",
+          "description": "The MCP server, as a Client of a Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "console",
+          "description": "The Console.",
+          "type": "string"
+        },
+        {
+          "const": "cloud",
+          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+          "type": "string"
+        },
+        {
+          "const": "browser_host",
+          "description": "A Browser host, which is never a Client and needs no Product\n(ADR 0095).",
+          "type": "string"
+        },
+        {
+          "const": "worker",
+          "description": "A Script sandbox worker.",
+          "type": "string"
+        }
+      ]
+    },
     "SurfacePackage": {
       "additionalProperties": false,
       "description": "The package of a Journey variant's surface.",
@@ -1381,6 +1748,21 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "connection": {
+    "cancel": {
+      "params": {
+        "$ref": "#/$defs/CancelParams"
+      }
+    },
+    "hello": {
+      "params": {
+        "$ref": "#/$defs/HelloParams"
+      },
+      "result": {
+        "$ref": "#/$defs/HelloResult"
+      }
+    }
+  },
   "documents": {
     "case_log_entry": {
       "$ref": "#/$defs/CaseLogEntry"
@@ -1400,6 +1782,17 @@
       "$ref": "#/$defs/JourneyCatalog"
     }
   },
+  "formats": [
+    {
+      "name": "protocol",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/Message"
+      },
+      "storage": "transcript",
+      "version": "0.1"
+    }
+  ],
   "protocol_version": "0.1",
   "title": "Goodfetch protocol"
 }

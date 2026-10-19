@@ -1,0 +1,53 @@
+[package]
+name = "goodfetch-collie"
+description = "Collie, Goodfetch's Product for browser automation: its executable and its composition of the engine (ADRs 0087, 0090 and 0094)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# benches/scenarios.rs would be a module of the bench targets, not a target.
+autobenches = false
+
+[features]
+# The executable's own dependencies (ADR 0094): `cargo install
+# goodfetch-collie --locked --features executable` builds Collie's
+# executable; a program embedding the crate never compiles them.
+executable = ["dep:clap", "dep:mimalloc", "dep:tracing", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+
+[dependencies]
+clap = { workspace = true, optional = true }
+goodfetch-engine.workspace = true
+goodfetch-protocol.workspace = true
+mimalloc = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt"] }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true, features = ["env-filter"] }
+
+[dev-dependencies]
+# Its own executable, for the integration tests and the startup benchmarks
+# (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062).
+goodfetch-collie = { path = ".", features = ["executable"] }
+goodfetch-test-support.workspace = true
+gungraun.workspace = true
+serde_json.workspace = true
+# The corpus writer's in-memory Client (examples/compat-protocol.rs).
+tokio = { workspace = true, features = ["io-util", "macros"] }
+
+[package.metadata.cargo-shear]
+# The dev-dependency on itself only turns its executable on for its tests.
+ignored = ["goodfetch-collie"]
+
+[[bin]]
+name = "goodfetch-collie"
+path = "src/main.rs"
+required-features = ["executable"]
+
+# ADR 0071: the startup benchmarks of Collie's executable.
+[[bench]]
+name = "startup"
+harness = false
+
+[lints]
+workspace = true

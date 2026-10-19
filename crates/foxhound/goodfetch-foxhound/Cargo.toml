@@ -1,0 +1,47 @@
+[package]
+name = "goodfetch-foxhound"
+description = "Foxhound, Goodfetch's Product for crawling, which contains Collie: its executable and its composition of the engine (ADRs 0087, 0090 and 0094)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# benches/scenarios.rs would be a module of the bench targets, not a target.
+autobenches = false
+
+[features]
+# The executable's own dependencies (ADR 0094), with Collie's executable
+# entry, which Foxhound's starts from.
+executable = ["dep:mimalloc", "goodfetch-collie/executable"]
+
+[dependencies]
+goodfetch-collie.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-protocol.workspace = true
+mimalloc = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Its own executable, for the integration tests and the startup benchmarks
+# (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
+goodfetch-foxhound = { path = ".", features = ["executable"] }
+goodfetch-test-support.workspace = true
+gungraun.workspace = true
+serde_json.workspace = true
+
+[package.metadata.cargo-shear]
+# The dev-dependency on itself only turns its executable on for its tests.
+ignored = ["goodfetch-foxhound"]
+
+[[bin]]
+name = "goodfetch-foxhound"
+path = "src/main.rs"
+required-features = ["executable"]
+
+# ADR 0071: the startup benchmarks of Foxhound's executable.
+[[bench]]
+name = "startup"
+harness = false
+
+[lints]
+workspace = true

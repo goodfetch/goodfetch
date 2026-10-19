@@ -46,6 +46,7 @@ mod replay;
 mod scale;
 mod schedule;
 mod serve;
+mod sitemaps;
 mod statuses;
 mod task_list;
 #[cfg(target_os = "linux")]

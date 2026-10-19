@@ -15,7 +15,7 @@ const TASK: &str = "fields/1";
 
 /// Each listing's Record: its `id` and every field its page shows.
 fn records(pages: &[Fetched]) -> Vec<Value> {
-    let shown = Regex::new(r#"<dd class="([a-z]+)">([^<]*)</dd>"#).unwrap();
+    let shown = Regex::new(r#"<dd class="([a-z]+)">([^<]*)</dd>"#).expect("a valid pattern");
     pages
         .iter()
         .filter_map(|page| {
@@ -36,7 +36,12 @@ fn records(pages: &[Fetched]) -> Vec<Value> {
 /// The Records as an export whose columns are its first Record's fields
 /// writes them.
 fn columns_of_the_first(records: &[Value]) -> Vec<Value> {
-    let columns: Vec<String> = records[0].as_object().unwrap().keys().cloned().collect();
+    let columns: Vec<String> = records[0]
+        .as_object()
+        .expect("a Record is an object")
+        .keys()
+        .cloned()
+        .collect();
     records
         .iter()
         .map(|record| {

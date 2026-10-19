@@ -4,7 +4,7 @@
 //! Covers: story:2-79
 
 use regex::Regex;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::proving_ground::ProvingGround;
 
@@ -18,6 +18,36 @@ fn each(tasks: &Value, field: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Each task's `field`, in list order, joined by spaces.
+fn joined(tasks: &Value, field: &str) -> String {
+    each(tasks, field)
+        .iter()
+        .map(|value| value.as_str().expect("a string field"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The task list's IDs, in order.
+const IDS: &str = "catalog/1 catalog/2 catalog/3 \
+    rendered/1 rendered/2 login/1 login/2 schedule/1 \
+    portal/1 portal/2 portal/3 portal/4 portal/5 portal/6 portal/7 portal/8 portal/9 portal/10 \
+    portal/11 portal/12 portal/13 \
+    actionability/1 actionability/2 actionability/3 actionability/4 actionability/5 \
+    actionability/6 actionability/7 actionability/8 actionability/9 actionability/10 \
+    actionability/11 actionability/12 actionability/13 actionability/14 actionability/15 \
+    actionability/16 actionability/17 actionability/18 actionability/19 actionability/20 \
+    actionability/21 actionability/22 actionability/23 actionability/24 actionability/25 \
+    actionability/26 \
+    navigation/1 navigation/2 navigation/3 navigation/4 navigation/5 navigation/6 navigation/7";
+
+/// Each task's kind, in the same order.
+const KINDS: &str = "crawl extract submit \
+    crawl extract crawl crawl watch \
+    crawl crawl crawl crawl crawl crawl crawl crawl crawl crawl crawl crawl crawl \
+    act act act act act act act act act act act act act act act act act act act \
+    submit submit submit submit submit submit act \
+    act act act act act act download";
+
 #[test]
 fn the_task_list_names_the_tasks_of_every_family() {
     let proving_ground = ProvingGround::start(158);
@@ -25,45 +55,13 @@ fn the_task_list_names_the_tasks_of_every_family() {
     let tasks = proving_ground.tasks();
 
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
-    assert_eq!(
-        each(&tasks, "id"),
-        [
-            json!("catalog/1"),
-            json!("catalog/2"),
-            json!("catalog/3"),
-            json!("rendered/1"),
-            json!("rendered/2"),
-            json!("login/1"),
-            json!("login/2"),
-            json!("schedule/1"),
-        ]
-    );
-    assert_eq!(
-        each(&tasks, "family"),
-        [
-            json!("catalog"),
-            json!("catalog"),
-            json!("catalog"),
-            json!("rendered"),
-            json!("rendered"),
-            json!("login"),
-            json!("login"),
-            json!("schedule"),
-        ]
-    );
-    assert_eq!(
-        each(&tasks, "kind"),
-        [
-            json!("crawl"),
-            json!("extract"),
-            json!("submit"),
-            json!("crawl"),
-            json!("extract"),
-            json!("crawl"),
-            json!("crawl"),
-            json!("watch"),
-        ]
-    );
+    assert_eq!(joined(&tasks, "id"), IDS);
+    assert_eq!(joined(&tasks, "kind"), KINDS);
+    let families: Vec<&str> = IDS
+        .split(' ')
+        .map(|id| id.split('/').next().expect("a family"))
+        .collect();
+    assert_eq!(joined(&tasks, "family"), families.join(" "));
     assert_eq!(
         tasks["tasks"][0]["start_url"],
         format!("http://1.catalog.test:{}/catalog/1", proving_ground.port())

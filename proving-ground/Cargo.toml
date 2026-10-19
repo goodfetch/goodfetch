@@ -33,6 +33,7 @@ time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "macros", "io-util"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
+toml.workspace = true
 
 [dev-dependencies]
 data-encoding.workspace = true

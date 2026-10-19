@@ -9,12 +9,20 @@ use serde::Serialize;
 pub(crate) struct Request<'a> {
     pub(crate) method: &'a Method,
     pub(crate) path: &'a str,
+    /// The query, without its `?`; empty when the target has none.
+    pub(crate) query: &'a str,
     /// The `Cookie` header, empty when the request has none.
     pub(crate) cookies: &'a str,
     pub(crate) body: &'a Bytes,
 }
 
 impl Request<'_> {
+    /// The first value of the query parameter `name`, percent-decoded, if
+    /// the query has it.
+    pub(crate) fn parameter(&self, name: &str) -> Option<String> {
+        form_value(self.query, name)
+    }
+
     /// The value of the cookie `name` the request sends, if any.
     pub(crate) fn cookie(&self, name: &str) -> Option<&str> {
         self.cookies
@@ -68,6 +76,24 @@ impl Reply {
         }
     }
 
+    /// A `204 No Content`.
+    pub(crate) fn no_content() -> Self {
+        Self {
+            status: StatusCode::NO_CONTENT,
+            content_type: "text/plain; charset=utf-8",
+            headers: Vec::new(),
+            body: Bytes::new(),
+        }
+    }
+
+    /// A `302 Found` to `location`, a path on the same host.
+    pub(crate) fn found(location: &str) -> Self {
+        Self {
+            status: StatusCode::FOUND,
+            ..Self::see_other(location)
+        }
+    }
+
     /// A JSON error naming its code.
     pub(crate) fn error(status: StatusCode, code: &str) -> Self {
         Self::json(status, &serde_json::json!({ "error": code }))
@@ -86,5 +112,73 @@ impl Reply {
             format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax"),
         ));
         self
+    }
+}
+
+/// The first value of `name` in a form-encoded text (a query or a form body),
+/// percent-decoded, `+` read as a space; `None` when it is absent or does not
+/// decode to UTF-8.
+pub(crate) fn form_value(form: &str, name: &str) -> Option<String> {
+    form.split('&')
+        .filter_map(|pair| pair.split_once('=').or(Some((pair, ""))))
+        .find(|(key, _)| decode(key).as_deref() == Some(name))
+        .and_then(|(_, value)| decode(value))
+}
+
+/// A form-encoded component, decoded.
+fn decode(component: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(component.len());
+    let mut rest = component.bytes();
+    while let Some(byte) = rest.next() {
+        bytes.push(match byte {
+            b'+' => b' ',
+            b'%' => {
+                let high = char::from(rest.next()?).to_digit(16)?;
+                let low = char::from(rest.next()?).to_digit(16)?;
+                u8::try_from(high * 16 + low).ok()?
+            }
+            other => other,
+        });
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// A text encoded as one component of a query, every byte but an unreserved
+/// one (RFC 3986) percent-encoded.
+pub(crate) fn encode(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_form_value_is_percent_decoded() {
+        assert_eq!(
+            form_value("a=1&next=%2Freports%3Fpage%3D2&b", "next").as_deref(),
+            Some("/reports?page=2")
+        );
+        assert_eq!(
+            form_value("name=Ada+L%C3%B6", "name").as_deref(),
+            Some("Ada Lö")
+        );
+        assert_eq!(form_value("b&a=1", "b").as_deref(), Some(""));
+        assert_eq!(form_value("a=1", "b"), None);
+        assert_eq!(form_value("a=%zz", "a"), None);
+    }
+
+    #[test]
+    fn an_encoded_component_decodes_to_itself() {
+        assert_eq!(encode("/reports?page=2"), "%2Freports%3Fpage%3D2");
+        assert_eq!(decode(&encode("Ünï ✓&=")).as_deref(), Some("Ünï ✓&="));
     }
 }

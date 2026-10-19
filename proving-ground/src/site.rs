@@ -2,8 +2,10 @@
 //! that family's host names, and the Effect its form carries out, and on any
 //! other host name its own task list (`GET /tasks`), oracle (`POST /oracle`),
 //! time step (`PUT /time-step`), which a task's harness sets and scheduled
-//! content follows, certificate authority (`GET /certificate-authority`) and
-//! observations (`GET /observations`).
+//! content follows, certificate authority (`GET /certificate-authority`),
+//! observations (`GET /observations`) and the revocation of the portal's
+//! sessions (`POST /revoke-sessions`), which a harness asks for while a tool
+//! is stopped.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -14,9 +16,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog;
 use crate::exchange::{Reply, Request};
+use crate::handmade;
 use crate::login::{self, Logins};
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
+use crate::portal::{self, Portal};
 use crate::rendered;
 use crate::schedule;
 use crate::sync::Mutex;
@@ -34,6 +38,7 @@ pub(crate) struct Site {
     observations: Arc<Observations>,
     logins: Logins,
     time_step: Mutex<u64>,
+    portal: Portal,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -62,6 +67,7 @@ impl Site {
             observations,
             logins: Logins::default(),
             time_step: Mutex::new(0),
+            portal: Portal::new(seed),
         }
     }
 
@@ -78,6 +84,12 @@ impl Site {
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
+        hosts.extend(
+            portal::hosts()
+                .into_iter()
+                .chain(handmade::hosts())
+                .map(|(host, task)| (host, Some(task))),
+        );
         hosts
     }
 
@@ -91,12 +103,24 @@ impl Site {
         tasks.extend(rendered::tasks(seed, port));
         tasks.extend(login::tasks(seed, port));
         tasks.extend(schedule::tasks(seed, port));
+        tasks.extend(portal::tasks(seed, port));
+        tasks.extend(handmade::tasks(seed, port));
         tasks
     }
 
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
+        if let Some((reply, effect)) = self
+            .portal
+            .respond(&name, request)
+            .or_else(|| handmade::respond(self.seed, self.port, &name, request))
+        {
+            if let Some(effect) = effect {
+                self.observations.effect(host, effect);
+            }
+            return reply;
+        }
         if self.hosts.contains_key(&name) {
             let family = FAMILY_HOSTS
                 .into_iter()
@@ -121,6 +145,10 @@ impl Site {
             ),
             (&Method::POST, "/oracle") => self.judge(request.body),
             (&Method::PUT, "/time-step") => self.set_time_step(request.body),
+            (&Method::POST, "/revoke-sessions") => {
+                self.portal.revoke();
+                Reply::no_content()
+            }
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
@@ -173,9 +201,11 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
+                let now = self.portal.expected_now(&task.entry.id);
+                let expected = now.as_ref().unwrap_or(&task.expected);
                 Reply::json(
                     StatusCode::OK,
-                    &oracle::judge(&task.expected, submission, &effects),
+                    &oracle::judge(expected, submission, &effects),
                 )
             }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),

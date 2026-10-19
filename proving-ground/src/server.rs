@@ -208,10 +208,13 @@ async fn stop_signal() -> Result<()> {
 /// `Host` header, or an HTTP/2 request's `:authority`.
 async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>> {
     let (parts, body) = request.into_parts();
-    let host = parts
-        .headers
-        .get(HOST)
-        .and_then(|host| host.to_str().ok())
+    let header = |name| {
+        parts
+            .headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+    };
+    let host = header(HOST)
         .or_else(|| {
             parts
                 .uri
@@ -235,6 +238,7 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>
             &exchange::Request {
                 method: &parts.method,
                 path: parts.uri.path(),
+                query: parts.uri.query().unwrap_or_default(),
                 cookies: &cookies,
                 body: &body.to_bytes(),
             },

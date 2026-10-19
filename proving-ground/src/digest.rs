@@ -17,7 +17,12 @@ pub(crate) fn of(entry: &impl Serialize, expected: &impl Serialize) -> String {
     remove_ports(&mut pinned);
     let canonical = serde_json_canonicalizer::to_vec(&pinned)
         .expect("invariant: a JSON value serializes canonically");
-    Sha256::digest(canonical)
+    sha256(&canonical)
+}
+
+/// The lowercase hex SHA-256 of `bytes`.
+pub(crate) fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
         .iter()
         .fold(String::with_capacity(64), |mut hex, byte| {
             write!(hex, "{byte:02x}").expect("invariant: writing to a String succeeds");

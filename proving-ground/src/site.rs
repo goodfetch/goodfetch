@@ -1,12 +1,17 @@
 //! What the Proving ground answers to one request: a page family's page on
 //! that family's host name, and on any other host name its own task list
-//! (`GET /tasks`) and oracle (`POST /oracle`).
+//! (`GET /tasks`), oracle (`POST /oracle`), certificate authority
+//! (`GET /certificate-authority`) and observations (`GET /observations`).
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
 use serde::Serialize;
 
 use crate::catalog;
+use crate::observation::Observations;
 use crate::oracle::{self, Submission};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
@@ -15,6 +20,9 @@ use crate::version::VERSION;
 pub(crate) struct Site {
     seed: u64,
     port: u16,
+    /// The seed's certificate authority, as PEM.
+    certificate_authority: String,
+    observations: Arc<Observations>,
 }
 
 /// A reply's status, media type and body.
@@ -50,8 +58,25 @@ impl Reply {
 }
 
 impl Site {
-    pub(crate) fn new(seed: u64, port: u16) -> Self {
-        Self { seed, port }
+    pub(crate) fn new(
+        seed: u64,
+        port: u16,
+        certificate_authority: String,
+        observations: Arc<Observations>,
+    ) -> Self {
+        Self {
+            seed,
+            port,
+            certificate_authority,
+            observations,
+        }
+    }
+
+    /// Every host name a page family is served on, each with the task its
+    /// requests belong to, if any. Each has its own leaf certificate, and
+    /// only these are observed.
+    pub(crate) fn hosts() -> BTreeMap<String, Option<String>> {
+        BTreeMap::from([(catalog::HOST.to_owned(), None)])
     }
 
     /// Every family's tasks, in the task list's order.
@@ -74,6 +99,16 @@ impl Site {
                 &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
             (&Method::POST, "/oracle") => self.judge(body),
+            (&Method::GET, "/observations") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/json",
+                body: self.observations.document().into(),
+            },
+            (&Method::GET, "/certificate-authority") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/x-pem-file",
+                body: self.certificate_authority.clone().into(),
+            },
             _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
         }
     }

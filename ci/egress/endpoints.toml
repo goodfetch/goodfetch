@@ -40,6 +40,11 @@ job = "pull-request.yml#perf"
 [[deny]]
 job = "pull-request.yml#visual"
 
+# TLC on the TLA+ models (ADR 0060): the pinned tools are fetched before the
+# deny, and TLC runs under it.
+[[deny]]
+job = "pull-request.yml#tlc"
+
 [[deny]]
 job = "update-screenshots.yml#update"
 

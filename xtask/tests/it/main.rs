@@ -16,6 +16,7 @@ mod workspace;
 mod affected;
 mod all_green;
 mod allure;
+mod axe_exceptions;
 mod budgets;
 mod codegen;
 mod commit_messages;

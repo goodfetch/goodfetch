@@ -55,6 +55,8 @@ lint: fmt-check
     cargo run --quiet -p xtask -- no-retry
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet -p xtask -- axe-exceptions check
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
     cargo run --quiet -p xtask -- features check

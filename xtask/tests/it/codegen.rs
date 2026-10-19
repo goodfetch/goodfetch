@@ -56,6 +56,7 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
             JOURNEY_SCHEMA.to_owned(),
             workspace.read_text(JOURNEY_SCHEMA),
         ),
+        (SCRIPT_SCHEMA.to_owned(), workspace.read_text(SCRIPT_SCHEMA)),
     ];
     for folder in GENERATED_FOLDERS {
         let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
@@ -289,6 +290,41 @@ fn check_fails_when_the_committed_description_schema_drifts_from_the_type() {
         outcome.stderr
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// The script format's schema, which `xtask codegen` commits among the
+/// engine-script fixtures rather than in `schemas/` (ADR 0069).
+const SCRIPT_SCHEMA: &str = "test-support/fixtures/engine-scripts/script.schema.json";
+
+#[test]
+fn check_fails_when_the_committed_script_schema_drifts_from_the_type() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        DESCRIPTION,
+        "    pub description: String,\n",
+        "    pub description: String,\n    /// Its steps.\n    pub steps: Vec<String>,\n",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", SCRIPT_SCHEMA)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn codegen_writes_the_script_schema_among_the_engine_scripts() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.remove(SCRIPT_SCHEMA);
+
+    codegen(&workspace);
+
+    let schema: Value = serde_json::from_str(&workspace.read_text(SCRIPT_SCHEMA)).unwrap();
+    assert_eq!(schema["title"], "Script");
 }
 
 #[test]

@@ -1,14 +1,16 @@
 //! The description `goodfetch-test-env` prints (ADR 0062): one JSON line
 //! that gives a TypeScript or Python test the setup a Rust test gets from
 //! `TestEnv`. Its JSON Schema, with the schemas of the crate's other file
-//! types, is what `goodfetch-test-env --print-schemas` prints for
-//! `xtask codegen`, which commits it among `test-support/`'s shared fixtures.
+//! types, the Scripted engine's script format among them, is what
+//! `goodfetch-test-env --print-schemas` prints for `xtask codegen`, which
+//! commits it among `test-support/`'s shared fixtures.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
+use crate::script::Script;
 use crate::ssrf::SsrfTable;
 use crate::tools::Tools;
 
@@ -49,24 +51,30 @@ impl Description {
     }
 }
 
-/// The JSON Schemas of the file types this crate defines, by the file name
-/// `xtask codegen` commits each under.
+/// The JSON Schemas of the file types this crate defines, by the path
+/// `xtask codegen` commits each under, relative to `test-support/fixtures/`:
+/// `schemas/` for most, and the script format's among the engine scripts it
+/// describes (ADR 0069).
 pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
     BTreeMap::from([
         (
-            "endpoint-table.schema.json",
+            "engine-scripts/script.schema.json",
+            schemars::schema_for!(Script).to_value(),
+        ),
+        (
+            "schemas/endpoint-table.schema.json",
             schemars::schema_for!(EndpointTable).to_value(),
         ),
         (
-            "ssrf-cases.schema.json",
+            "schemas/ssrf-cases.schema.json",
             schemars::schema_for!(SsrfTable).to_value(),
         ),
         (
-            "test-env-description.schema.json",
+            "schemas/test-env-description.schema.json",
             schemars::schema_for!(Description).to_value(),
         ),
         (
-            "test-tool-manifest.schema.json",
+            "schemas/test-tool-manifest.schema.json",
             schemars::schema_for!(Tools).to_value(),
         ),
     ])

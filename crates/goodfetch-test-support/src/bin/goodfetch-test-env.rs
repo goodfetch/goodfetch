@@ -26,8 +26,8 @@ struct Arguments {
     /// come.
     #[arg(long, default_value = "goodfetch-test-env")]
     test_name: String,
-    /// Prints the JSON Schemas of test support's file types, keyed by file
-    /// name, and starts nothing.
+    /// Prints the JSON Schemas of test support's file types, keyed by their
+    /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
     print_schemas: bool,
 }

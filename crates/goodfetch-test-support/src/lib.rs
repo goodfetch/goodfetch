@@ -26,6 +26,7 @@ mod observation;
 mod process;
 mod resolver;
 mod runtime;
+mod script;
 mod special_purpose;
 mod ssrf;
 mod strict_stdout;
@@ -55,6 +56,10 @@ pub use process::{
 };
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use script::{
+    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
+    engine_script,
+};
 pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
 };

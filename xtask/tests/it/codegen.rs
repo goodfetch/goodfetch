@@ -147,6 +147,51 @@ fn check_fails_after_a_type_change_that_was_not_regenerated(
     assert_eq!(outcome.code, 1);
 }
 
+/// An outside generator's output depends on its version, which the lockfile
+/// pins, so a bump that was not regenerated is stale, though no type changed.
+#[rstest]
+#[case::json_schema_to_typescript(
+    "pnpm-lock.yaml",
+    "version: 16.0.0",
+    "version: 16.1.0",
+    vec![
+        finding("stale", "sdks/typescript/collie-client/src/generated/types.ts"),
+        finding("stale", "sdks/typescript/foxhound/src/generated/types.ts"),
+    ],
+)]
+#[case::datamodel_code_generator(
+    "uv.lock",
+    "version = \"0.86.0\"",
+    "version = \"0.87.0\"",
+    vec![
+        finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
+        finding("stale", "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py"),
+    ],
+)]
+#[case::ruff_which_formats_the_python_models(
+    "uv.lock",
+    "version = \"0.17.1\"",
+    "version = \"0.18.0\"",
+    vec![
+        finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
+        finding("stale", "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py"),
+    ],
+)]
+fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
+    #[case] lockfile: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(lockfile, from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}
+
 #[rstest]
 #[case::generator_output("sdks/typescript/collie-client/src/generated/types.ts", "edited")]
 #[case::method_layer(

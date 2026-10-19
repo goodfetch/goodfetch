@@ -25,14 +25,16 @@ pub(super) fn generate(layer: &Layer) -> Generated {
         .generator_input(&format!("{}Types", layer.product.name()), |name| {
             ("tsType", name.to_owned())
         });
+    // The header comes first, then the imports, then the generator's
+    // output, which has no banner of its own.
     let prefix = if replaced.is_empty() {
-        String::new()
+        format!("{HEADER}\n")
     } else {
-        format!("{}\n", import_line(&replaced, CLIENT_PACKAGE))
+        format!("{HEADER}\n{}\n", import_line(&replaced, CLIENT_PACKAGE))
     };
     Generated {
         files: vec![
-            ("index.ts", index()),
+            ("index.ts", index(layer)),
             ("operations.ts", operations(layer)),
             ("events.ts", events(layer)),
             ("errors.ts", errors(layer)),
@@ -42,6 +44,7 @@ pub(super) fn generate(layer: &Layer) -> Generated {
             output: "types.ts",
             input,
             prefix,
+            header: String::new(),
         },
     }
 }
@@ -103,10 +106,20 @@ fn doc(
     text
 }
 
-fn index() -> String {
-    format!(
-        "{HEADER}\nexport * from \"./types.js\";\nexport * from \"./operations.js\";\nexport * from \"./events.js\";\nexport * from \"./errors.js\";\nexport * from \"./plugins.js\";\n"
-    )
+/// The layer's exports: each type it defines, never the generator's root,
+/// which holds no value, and every other module whole.
+fn index(layer: &Layer) -> String {
+    let types: Vec<&str> = layer.definitions.keys().map(String::as_str).collect();
+    let mut text = format!("{HEADER}\n");
+    if !types.is_empty() {
+        let _ = writeln!(
+            text,
+            "export type {{ {} }} from \"./types.js\";",
+            types.join(", ")
+        );
+    }
+    text.push_str("export * from \"./operations.js\";\nexport * from \"./events.js\";\nexport * from \"./errors.js\";\nexport * from \"./plugins.js\";\n");
+    text
 }
 
 fn operations(layer: &Layer) -> String {

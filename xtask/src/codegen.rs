@@ -8,8 +8,11 @@
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
 //! `json-schema-to-typescript` and `datamodel-code-generator` is checked
-//! against the digests recorded when it was written, of its input (a type
-//! changed and not regenerated) and of itself (a hand edit).
+//! against what was recorded when it was written: the digest of its input
+//! and options, and its tools' versions as the lockfiles pin them (a type,
+//! an option or a version changed and not regenerated), and the digest of
+//! itself (a hand edit). Both generators' files open with `xtask codegen`'s
+//! own header; the Python models have Google docstrings in ruff's format.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -97,6 +100,71 @@ enum Generator {
     DatamodelCodegen,
 }
 
+impl Generator {
+    /// The tools whose versions shape this generator's output, each with the
+    /// lockfile that pins it: `datamodel-code-generator` formats its output
+    /// with ruff.
+    fn tools(self) -> &'static [(&'static str, Lockfile)] {
+        match self {
+            Self::Json2ts => &[("json-schema-to-typescript", Lockfile::Pnpm)],
+            Self::DatamodelCodegen => &[
+                ("datamodel-code-generator", Lockfile::Uv),
+                ("ruff", Lockfile::Uv),
+            ],
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Lockfile {
+    /// `pnpm-lock.yaml`: the root importer's dependencies.
+    Pnpm,
+    /// `uv.lock`: its packages.
+    Uv,
+}
+
+/// The locked version of each tool of `generator`, read from the lockfiles at
+/// `root`, so `--check` notices a bump without running the generator.
+fn tool_versions(root: &Path, generator: Generator) -> Result<digest::Tools> {
+    let mut versions = digest::Tools::new();
+    for (tool, lockfile) in generator.tools() {
+        let version = match lockfile {
+            Lockfile::Pnpm => {
+                let path = root.join("pnpm-lock.yaml");
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                // pnpm writes its configuration's lock as a first document.
+                let documents: Vec<Value> = serde_saphyr::from_str_multiple(&text)
+                    .with_context(|| format!("parsing {}", path.display()))?;
+                documents.iter().find_map(|lock| {
+                    let importer = &lock["importers"]["."];
+                    ["dependencies", "devDependencies"]
+                        .iter()
+                        .find_map(|section| importer[*section][*tool]["version"].as_str())
+                        .map(str::to_owned)
+                })
+            }
+            Lockfile::Uv => {
+                let path = root.join("uv.lock");
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                let lock: Value =
+                    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+                lock["package"].as_array().and_then(|packages| {
+                    packages
+                        .iter()
+                        .find(|package| package["name"].as_str() == Some(tool))
+                        .and_then(|package| package["version"].as_str())
+                        .map(str::to_owned)
+                })
+            }
+        };
+        let version = version.with_context(|| format!("no lockfile pins {tool}"))?;
+        versions.insert((*tool).to_owned(), version);
+    }
+    Ok(versions)
+}
+
 /// A file an outside generator writes from a JSON Schema input.
 struct External {
     output: String,
@@ -108,7 +176,38 @@ struct External {
     /// Lines put before the generator's output: the imports of types
     /// another package defines.
     prefix: String,
+    /// What the generator writes first, its banner or file header.
+    header: String,
 }
+
+impl External {
+    /// Everything the generator's output follows from, besides its version:
+    /// its input, its options and the header it writes, so a changed option
+    /// that was not regenerated is stale too.
+    fn recipe(&self) -> Vec<u8> {
+        let options: &[&str] = match self.generator {
+            Generator::Json2ts => &JSON2TS_OPTIONS,
+            Generator::DatamodelCodegen => &python::DATAMODEL_CODEGEN_OPTIONS,
+        };
+        let mut recipe = self.input.clone();
+        for part in options
+            .iter()
+            .copied()
+            .chain([self.header.as_str(), &self.prefix])
+        {
+            recipe.push(b'\0');
+            recipe.extend_from_slice(part.as_bytes());
+        }
+        recipe
+    }
+}
+
+/// How `xtask codegen` runs `json-schema-to-typescript`, before its banner.
+const JSON2TS_OPTIONS: [&str; 3] = [
+    "--unreachableDefinitions",
+    "--additionalProperties",
+    "false",
+];
 
 /// What one language's generator gives for one package's layer.
 struct Generated {
@@ -125,6 +224,9 @@ struct TypesFile {
     input: Value,
     /// Lines put before the generator's output.
     prefix: String,
+    /// What the generator writes first: `json-schema-to-typescript`'s banner,
+    /// `datamodel-code-generator`'s file header.
+    header: String,
 }
 
 /// Everything `xtask codegen` writes, by path relative to the root.
@@ -218,6 +320,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
             input_name: layer::input_name(package.product),
             input: json_text(&generated.types.input)?,
             prefix: generated.types.prefix,
+            header: generated.types.header,
         });
     }
     Ok(Plan { files, externals })
@@ -249,9 +352,10 @@ pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Resu
     let scratch = tempfile::tempdir().context("creating a scratch folder")?;
     let mut digests = digest::Digests::default();
     for external in &plan.externals {
+        let tools = tool_versions(root, external.generator)?;
         let output = run_generator(external, generators, root, scratch.path())?;
         write_file(&root.join(&external.output), &output)?;
-        digests.record(&external.output, &external.input, &output);
+        digests.record(&external.output, &external.recipe(), &tools, &output);
     }
     write_file(&root.join(DIGESTS), &json_text(&digests.to_json()?)?)?;
     Ok(())
@@ -273,12 +377,13 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
     let digests = digest::Digests::read(&root.join(DIGESTS))?;
     for external in &plan.externals {
         let actual = std::fs::read(root.join(&external.output)).ok();
-        match digests.verify(&external.output, &external.input, actual.as_deref()) {
+        let tools = tool_versions(root, external.generator)?;
+        match digests.verify(&external.output, &external.recipe(), &tools, actual.as_deref()) {
             digest::Verdict::Current => {}
             digest::Verdict::Stale => findings.push(Finding::new(
                 "stale",
                 external.output.as_str(),
-                "was generated from other types; run `xtask codegen` and commit the result",
+                "was generated from other types or by another version of its generator; run `xtask codegen` and commit the result",
             )),
             digest::Verdict::Edited => findings.push(Finding::new(
                 "edited",
@@ -357,11 +462,9 @@ fn run_generator(
                 .arg(&input)
                 .arg("--output")
                 .arg(&output)
-                .args([
-                    "--unreachableDefinitions",
-                    "--additionalProperties",
-                    "false",
-                ]);
+                .args(JSON2TS_OPTIONS)
+                .arg("--bannerComment")
+                .arg(&external.header);
             command
         }
         Generator::DatamodelCodegen => {
@@ -373,7 +476,9 @@ fn run_generator(
                 .arg(&input)
                 .arg("--output")
                 .arg(&output)
-                .args(python::DATAMODEL_CODEGEN_OPTIONS);
+                .args(python::DATAMODEL_CODEGEN_OPTIONS)
+                .arg("--custom-file-header")
+                .arg(&external.header);
             command
         }
     };

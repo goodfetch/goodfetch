@@ -6,7 +6,7 @@
 # or `xtask codegen` itself, from the repository root after `just codegen`
 # installed the generators.
 generator = "xtask codegen"
-generators = ["json-schema-to-typescript 16.0.0", "datamodel-code-generator 0.86.0"]
+generators = ["json-schema-to-typescript 16.0.0", "datamodel-code-generator 0.86.0", "ruff 0.17.1"]
 date = "2026-10-19"
 command = """
 cargo build -p xtask && (cd xtask/tests/it/fixtures/codegen && \

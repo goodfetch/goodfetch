@@ -1,8 +1,9 @@
 //! The entry of both Products' executables (ADRs 0087 and 0090): one command
 //! line, which Foxhound's executable keeps with its names, flags and exit
 //! codes, and one start, from the composition and Product its `main` passes.
-//! Today the command line holds `--version` and the hidden Attached-engine
-//! entry, which an SDK starts; the CLI's commands join with area 11.
+//! Today the command line holds `--version`, the hidden Attached-engine
+//! entry, which an SDK starts, and `browsers install` and `browsers clean`;
+//! the CLI's other commands join with area 11.
 //!
 //! Logs go to stderr through the `tracing` subscriber, filtered by
 //! `GOODFETCH_LOG` in `EnvFilter`'s syntax (`info` when unset); stdout is
@@ -15,8 +16,12 @@ use std::process::ExitCode;
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_engine::transport::Network;
 use goodfetch_engine::{Channel, Composition, Engine, Identity};
+use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+
+mod browsers;
+mod output;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -35,6 +40,32 @@ enum Command {
     /// input: what an SDK starts.
     #[command(hide = true)]
     AttachedEngine,
+    /// Manages the browser builds this version pins in the Browser cache.
+    Browsers {
+        #[command(subcommand)]
+        command: BrowsersCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum BrowsersCommand {
+    /// Downloads every build this version pins into the Browser cache
+    /// (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images.
+    Install {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Deletes the builds nothing installed pins, unused for
+    /// `browser_cache.max_unused_age` and held by no running browser.
+    Clean {
+        /// Lists what it would delete, and deletes nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// What a Product's `main` passes to [`main`].
@@ -105,6 +136,10 @@ pub fn main(start: &Start) -> ExitCode {
         );
         return ExitCode::FAILURE;
     };
+    let pinned_by = PinnedBy {
+        product: start.product,
+        product_version: product_version.clone(),
+    };
     let identity = Identity {
         product: start.product,
         product_version,
@@ -121,6 +156,12 @@ pub fn main(start: &Start) -> ExitCode {
     };
     match command_line.command {
         Command::AttachedEngine => run_attached(&engine),
+        Command::Browsers {
+            command: BrowsersCommand::Install { json },
+        } => browsers::install(pinned_by, &start.environment, json),
+        Command::Browsers {
+            command: BrowsersCommand::Clean { dry_run, json },
+        } => browsers::clean(pinned_by, &start.environment, dry_run, json),
     }
 }
 

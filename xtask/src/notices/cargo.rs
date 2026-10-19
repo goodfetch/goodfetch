@@ -1,5 +1,8 @@
-//! The Cargo workspace's third-party crates, every feature on, read from
-//! `cargo metadata`: the graph cargo-deny checks.
+//! The third-party crates the workspace ships, every feature on, read from
+//! `cargo metadata`: what its shipped members (every member but `xtask` and
+//! the test-only crates) reach through normal dependencies, never through a
+//! dev or build dependency, as npm and Python list only shipped packages.
+//! cargo-deny still checks the whole graph.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
@@ -21,10 +24,38 @@ const CRATES_IO: [&str; 2] = [
     "sparse+https://index.crates.io/",
 ];
 
+/// The members no Product ships: the build tool and the test-only crates
+/// (STYLE.md, Workspace and crates; TESTING.md, Shared helpers).
+const NEVER_SHIPPED: [&str; 2] = ["xtask", "goodfetch-test-support"];
+
 #[derive(Deserialize)]
 struct Metadata {
     packages: Vec<Package>,
     workspace_members: BTreeSet<String>,
+    resolve: Resolve,
+}
+
+#[derive(Deserialize)]
+struct Resolve {
+    nodes: Vec<Node>,
+}
+
+#[derive(Deserialize)]
+struct Node {
+    id: String,
+    deps: Vec<NodeDependency>,
+}
+
+#[derive(Deserialize)]
+struct NodeDependency {
+    pkg: String,
+    dep_kinds: Vec<DependencyKind>,
+}
+
+#[derive(Deserialize)]
+struct DependencyKind {
+    /// `None` for a normal dependency, else `dev` or `build`.
+    kind: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -38,7 +69,8 @@ struct Package {
     manifest_path: PathBuf,
 }
 
-/// Every crate of the workspace's graph that is not one of its members.
+/// Every crate a shipped member reaches through normal dependencies, the
+/// members themselves aside.
 pub(super) fn entries(cargo: &OsStr, root: &Path) -> Result<Vec<Entry>> {
     let output = Command::new(cargo)
         .args([
@@ -59,10 +91,13 @@ pub(super) fn entries(cargo: &OsStr, root: &Path) -> Result<Vec<Entry>> {
     }
     let metadata: Metadata =
         serde_json::from_slice(&output.stdout).context("reading cargo metadata's output")?;
+    let shipped = shipped(&metadata);
     Ok(metadata
         .packages
         .into_iter()
-        .filter(|package| !metadata.workspace_members.contains(&package.id))
+        .filter(|package| {
+            shipped.contains(&package.id) && !metadata.workspace_members.contains(&package.id)
+        })
         .map(|package| Entry {
             ecosystem: Ecosystem::Cargo,
             source: source(&package, root),
@@ -72,6 +107,42 @@ pub(super) fn entries(cargo: &OsStr, root: &Path) -> Result<Vec<Entry>> {
             usage: Usage::Unmodified,
         })
         .collect())
+}
+
+/// The IDs of every package a shipped member reaches through normal
+/// dependencies, the members included.
+fn shipped(metadata: &Metadata) -> BTreeSet<String> {
+    let names: std::collections::BTreeMap<&str, &str> = metadata
+        .packages
+        .iter()
+        .map(|package| (package.id.as_str(), package.name.as_str()))
+        .collect();
+    let mut pending: Vec<&str> = metadata
+        .workspace_members
+        .iter()
+        .map(String::as_str)
+        .filter(|id| {
+            !names
+                .get(id)
+                .is_some_and(|name| NEVER_SHIPPED.contains(name))
+        })
+        .collect();
+    let mut reached = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !reached.insert(id.to_owned()) {
+            continue;
+        }
+        let Some(node) = metadata.resolve.nodes.iter().find(|node| node.id == id) else {
+            continue;
+        };
+        pending.extend(
+            node.deps
+                .iter()
+                .filter(|dependency| dependency.dep_kinds.iter().any(|kind| kind.kind.is_none()))
+                .map(|dependency| dependency.pkg.as_str()),
+        );
+    }
+    reached
 }
 
 /// Its crates.io page, its other registry or repository, or its folder.

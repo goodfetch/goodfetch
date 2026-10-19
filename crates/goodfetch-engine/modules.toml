@@ -1,6 +1,7 @@
 # Which of goodfetch-engine's top-level modules may import which (ADR 0126).
 [modules]
 composition = ["product"]
+dns = ["composition"]
 engine = ["composition", "product", "rpc", "tasks", "transport"]
 executables = ["composition"]
 info = ["composition"]

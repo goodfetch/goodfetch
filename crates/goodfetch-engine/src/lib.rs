@@ -8,6 +8,7 @@
 //! an interface defined here.
 
 mod composition;
+pub mod dns;
 mod engine;
 pub mod executables;
 mod info;

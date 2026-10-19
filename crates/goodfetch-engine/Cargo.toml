@@ -12,10 +12,11 @@ autobenches = false
 
 [dependencies]
 goodfetch-protocol.workspace = true
+hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros"] }
+tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "net"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 

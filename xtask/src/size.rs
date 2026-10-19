@@ -149,6 +149,8 @@ fn measure(mode: &Mode<'_>, root: &Path, files: &Path, save: Option<&Path>) -> R
     if let Some(save) = save {
         report::save(root, save, &profile, &measured)?;
     }
+    // What the estimate compared with, said under its table.
+    let mut compared = "No report of `main` to compare with".to_owned();
     let mut rows: Vec<Row> = match mode {
         Mode::Ceilings => {
             if !profile.is_release() {
@@ -160,8 +162,21 @@ fn measure(mode: &Mode<'_>, root: &Path, files: &Path, save: Option<&Path>) -> R
             measured.into_iter().map(ceiling_row).collect()
         }
         Mode::Estimate { main } => {
+            // The estimate never fails: a report it cannot compare with is
+            // left out, and said so.
             let main = match main {
-                Some(main) => report::read_main(root, main.report, main.reference, &profile)?,
+                Some(main) => {
+                    match report::read_main(root, main.report, main.reference, &profile) {
+                        Ok(main) => {
+                            "Compared with `main`'s report".clone_into(&mut compared);
+                            main
+                        }
+                        Err(error) => {
+                            compared = format!("No comparable report of `main` ({error:#})");
+                            BTreeMap::new()
+                        }
+                    }
+                }
                 None => BTreeMap::new(),
             };
             measured
@@ -188,15 +203,10 @@ fn measure(mode: &Mode<'_>, root: &Path, files: &Path, save: Option<&Path>) -> R
             &right.file.name,
         ))
     });
-    if let Mode::Estimate { main } = mode {
+    if let Mode::Estimate { .. } = mode {
         output::line(&format!(
-            "### Size estimate\n\n{}\n{}",
+            "### Size estimate\n\n{}\n{compared}; the merge queue's increase check decides.",
             table::render(&rows),
-            if main.is_some() {
-                "Compared with `main`'s report; the merge queue's increase check decides."
-            } else {
-                "No report of `main` to compare with; the merge queue's increase check decides."
-            }
         ));
         return Ok(ExitCode::SUCCESS);
     }

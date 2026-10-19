@@ -399,6 +399,44 @@ fn main_report_of_another_tree_is_an_error() {
     assert_eq!(outcome.code, 2);
 }
 
+/// The estimate never fails (#201): a report of `main` it cannot compare
+/// with is left out, and the estimate says so.
+#[rstest]
+#[case::another_tree("4b825dc642cb6eb9a060e54bf8d69288fbee4904", "ci")]
+#[case::another_profile("", "release")]
+fn estimate_with_an_incomparable_main_report_still_passes(
+    #[case] report_tree: &str,
+    #[case] report_profile: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let tree = workspace.commit();
+    let report_tree = if report_tree.is_empty() {
+        tree.as_str()
+    } else {
+        report_tree
+    };
+    write_main_report(
+        &workspace,
+        report_tree,
+        report_profile,
+        &[built("collie", "wheel", "wheel", 30_000_000)],
+    );
+    write_files(
+        &workspace,
+        "ci",
+        &[built("collie", "wheel", "wheel", 30_000_000)],
+    );
+
+    let outcome = size(
+        &workspace,
+        "estimate",
+        &["--main-report", "main-report.json", "--main", "HEAD"],
+    );
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
 #[test]
 fn main_report_of_another_profile_is_an_error() {
     let workspace = Workspace::from_fixture("empty");

@@ -27,10 +27,12 @@ use crate::exchange::{Reply, Request};
 use crate::extraction;
 use crate::files;
 use crate::handmade;
+use crate::hostile;
 use crate::languages;
+use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
 use crate::model::{self, Candidate, FakeModel};
-use crate::observation::{self, Observations};
+use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
 use crate::protection;
@@ -51,6 +53,7 @@ pub(crate) struct Site {
     certificate_authority: String,
     observations: Arc<Observations>,
     logins: Logins,
+    canaries: Canaries,
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
@@ -83,6 +86,7 @@ impl Site {
             certificate_authority,
             observations,
             logins: Logins::default(),
+            canaries: Canaries::default(),
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
@@ -132,6 +136,8 @@ impl Site {
         hosts.extend(access::hosts());
         hosts.extend(crawl::hosts(seed));
         hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
+        hosts.extend(hostile::hosts());
+        hosts.extend(canaries::hosts());
         hosts
     }
 
@@ -160,6 +166,8 @@ impl Site {
         tasks.extend(access::tasks(seed, port));
         tasks.extend(crawl::tasks(seed, port));
         tasks.extend(raw_site::tasks(seed, port));
+        tasks.extend(hostile::tasks(seed, port));
+        tasks.extend(canaries::tasks(seed, port));
         tasks
     }
 
@@ -216,6 +224,20 @@ impl Site {
         (self.respond(host, request), None)
     }
 
+    /// The whole response, as bytes, of a request to `path` on `host` (its
+    /// `Host` header) whose head hyper cannot write; `None` for any other
+    /// request.
+    pub(crate) fn raw_response(&self, host: &str, path: &str) -> Option<Vec<u8>> {
+        hostile::raw_response(self.seed, &observation::host_name(host), path)
+    }
+
+    /// Whether a TLS connection to `name`, a host name without its port, is
+    /// offered HTTP/1.1 alone, so a page whose head hyper cannot write is
+    /// reached over it.
+    pub(crate) fn http1_only(name: &str) -> bool {
+        hostile::http1_only(name)
+    }
+
     /// Answers one request, given its `Host` header.
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
@@ -226,6 +248,7 @@ impl Site {
         if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
             .or_else(|| protection::respond(self.seed, &name, request))
             .or_else(|| access::respond(self.seed, &name, request))
+            .or_else(|| hostile::respond(self.seed, self.port, &name, request))
         {
             if let Some(recorded) = recorded {
                 self.observations.record(host, recorded);
@@ -240,6 +263,9 @@ impl Site {
             if let Some(effect) = effect {
                 self.observations.effect(host, effect);
             }
+            return reply;
+        }
+        if let Some(reply) = canaries::respond(self.seed, &self.canaries, &name, request) {
             return reply;
         }
         if name == model::HOST {
@@ -272,6 +298,20 @@ impl Site {
                 _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
         }
+        self.control(request)
+    }
+
+    /// Answers a request on a host name no page family is served on, such
+    /// as the bound address: the landing of a redirect to the Proving
+    /// ground's own address, or one of its own paths.
+    fn control(&self, request: &Request<'_>) -> Reply {
+        if request.method == Method::GET
+            && let Some((reply, task_host, report)) = hostile::private_landing(request.path)
+        {
+            self.observations
+                .record(&task_host, Recorded::Report(report));
+            return reply;
+        }
         match (request.method, request.path) {
             (&Method::GET, "/tasks") => Reply::json(
                 StatusCode::OK,
@@ -279,6 +319,8 @@ impl Site {
             ),
             (&Method::POST, "/oracle") => self.judge(request.body),
             (&Method::PUT, "/time-step") => self.set_time_step(request.body),
+            (&Method::POST, "/canaries") => self.plant(request),
+            (&Method::GET, "/canaries") => self.canaries.document(),
             (&Method::POST, "/revoke-sessions") => {
                 self.portal.revoke();
                 Reply::no_content()
@@ -308,6 +350,42 @@ impl Site {
                 body: self.certificate_authority.clone().into(),
             },
             _ => Reply::not_found(),
+        }
+    }
+
+    /// Plants a Secret canary for a test on a loopback address, never for a
+    /// request from elsewhere, so the online copy never hands one out.
+    fn plant(&self, request: &Request<'_>) -> Reply {
+        if !request.peer.is_loopback() {
+            return Reply::error(StatusCode::FORBIDDEN, "canary_plant_refused");
+        }
+        match serde_json::from_slice::<Plant>(request.body) {
+            Ok(plant) => self.canaries.plant(self.seed, &plant),
+            Err(_) => Reply::error(StatusCode::BAD_REQUEST, "malformed_plant"),
+        }
+    }
+
+    /// Records each planted Secret canary a request carries in its target,
+    /// a header or its body, and a sighting outside its flow as a leak
+    /// against the canary's task.
+    pub(crate) fn sight_canaries<'a>(
+        &self,
+        host: &str,
+        target: &'a str,
+        headers: impl Iterator<Item = (&'a str, &'a [u8])>,
+        body: &'a [u8],
+    ) {
+        let name = observation::host_name(host);
+        let parts = canaries::parts(target, headers, body);
+        for leak in self.canaries.sight(&name, target, &parts) {
+            self.observations.record(
+                &leak.task_host,
+                Recorded::Report(Report {
+                    page: leak.target,
+                    check: "secret_canary_leaked".to_owned(),
+                    observed: leak.observed,
+                }),
+            );
         }
     }
 

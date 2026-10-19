@@ -26,6 +26,7 @@ mod files;
 mod forward_proxy;
 mod generator;
 mod handmade;
+mod hostile;
 mod languages;
 mod login;
 mod model;

@@ -1,6 +1,5 @@
-github.com 443 140.82.121.4
-storage.googleapis.com 443 142.250.180.155
-release-assets.githubusercontent.com 443 185.199.109.133
-release-assets.githubusercontent.com 443 185.199.108.133
-release-assets.githubusercontent.com 443 2606:50c0:8000::154
-storage.googleapis.com 443 142.250.180.155
+db.example.com 5432 203.0.113.10
+objects.example.com 443 203.0.113.21
+objects.example.com 443 203.0.113.20
+objects.example.com 443 2001:db8::20
+db.example.com 5432 203.0.113.10

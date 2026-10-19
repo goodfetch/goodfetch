@@ -1,5 +1,5 @@
-# A stand-in for compat/releases.toml (ADR 0066): its format is #316's; the
-# mirror reads every `url` wherever an entry holds it.
+# A stand-in for compat/releases.toml (ADR 0066): its format is #316's. Its
+# artifacts are fetched before the deny, so the deny allows none of its hosts.
 [[release]]
 version = "0.1.0"
 

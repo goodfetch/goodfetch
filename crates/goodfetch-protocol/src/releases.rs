@@ -6,9 +6,9 @@
 //! attestation bundle, and the version of every registered format it shipped.
 //!
 //! The release's pull request to `main` appends the entry. `xtask compat
-//! check` reads the format versions to know which frozen sets must exist, the
-//! CI's pinned artifact mirror takes every `url`, and the Release suite's skew
-//! and upgrade jobs fetch the artifacts by digest. Its JSON Schema is the
+//! check` reads the format versions to know which frozen sets must exist, and
+//! the Release suite's skew and upgrade jobs fetch the artifacts by digest
+//! before ADR 0043's deny, which allows no `url`. Its JSON Schema is the
 //! bundle's `files."compat/releases.toml"`.
 
 use std::borrow::Cow;

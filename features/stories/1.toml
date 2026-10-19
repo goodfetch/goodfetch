@@ -539,7 +539,7 @@ status = "active"
 
 [[story]]
 id = 68
-title = "As the owner, I want every job step that runs Goodfetch's product to deny outbound traffic except to the fixtures and the pinned artifact mirror, and to fail on any other connection, so that CI proves ADR 0043's rule on every OS it covers."
+title = "As the owner, I want every job step that runs Goodfetch's product to deny outbound traffic except to the fixtures, after every pinned download, and to fail on any other connection, so that CI proves ADR 0043's rule on every OS it covers."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"

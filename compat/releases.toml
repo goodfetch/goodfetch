@@ -7,8 +7,9 @@
 # frozen set for each), each Product's executables per target, npm and PyPI
 # packages, crates, Helm chart and OCI image (`collie`, `foxhound`), the Collie
 # client packages (`collie_client`) and the Plugin artifacts (`plugins`), each
-# with its `url`, `sha256` and Sigstore `attestation` bundle. CI's pinned
-# artifact mirror takes every `url` (ci/egress/endpoints.toml).
+# with its `url`, `sha256` and Sigstore `attestation` bundle. CI fetches each
+# `url` by digest before ADR 0043's deny, which allows none of them
+# (ci/egress/endpoints.toml).
 #
 # Its schema is `files."compat/releases.toml"` in
 # crates/goodfetch-protocol/generated/bundle.json, generated from

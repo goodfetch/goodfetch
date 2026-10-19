@@ -100,18 +100,25 @@ fn windows_job_each_other_dropped_destination_fails_once() {
 }
 
 #[test]
-fn windows_rules_block_everything_but_the_resolved_mirror_and_loopback() {
+fn windows_rules_block_everything_but_the_resolved_named_endpoints_and_loopback() {
     let workspace = Workspace::from_fixture("egress");
+    workspace.append(
+        "ci/egress/endpoints.toml",
+        "[[named]]\n\
+         job = \"nightly.yml#sinks\"\n\
+         exception = \"saas-sinks\"\n\
+         endpoints = [\"db.example.com:5432\", \"objects.example.com:443\"]\n",
+    );
     workspace.write(
         "resolved.txt",
-        b"github.com 443 140.82.121.4\nrelease-assets.githubusercontent.com 443 2606:50c0:8000::154\n",
+        b"db.example.com 5432 203.0.113.10\nobjects.example.com 443 2001:db8::20\n",
     );
 
     let outcome = workspace.xtask(&[
         "egress",
         "rules",
         "--job",
-        "pull-request.yml#quick",
+        "nightly.yml#sinks",
         "--resolved",
         "resolved.txt",
         "--windows",
@@ -119,11 +126,11 @@ fn windows_rules_block_everything_but_the_resolved_mirror_and_loopback() {
 
     assert_eq!(
         outcome.stdout,
-        "any 0.0.0.0-126.255.255.255,128.0.0.0-140.82.121.3,140.82.121.5-255.255.255.255,::,::2-2606:50c0:8000::153,2606:50c0:8000::155-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff *\n\
-         tcp 140.82.121.4 1-442,444-65535\n\
-         udp 140.82.121.4 *\n\
-         tcp 2606:50c0:8000::154 1-442,444-65535\n\
-         udp 2606:50c0:8000::154 *\n"
+        "any 0.0.0.0-126.255.255.255,128.0.0.0-203.0.113.9,203.0.113.11-255.255.255.255,::,::2-2001:db8::1f,2001:db8::21-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff *\n\
+         tcp 203.0.113.10 1-5431,5433-65535\n\
+         udp 203.0.113.10 *\n\
+         tcp 2001:db8::20 1-442,444-65535\n\
+         udp 2001:db8::20 *\n"
     );
     assert_eq!(outcome.code, 0);
 }

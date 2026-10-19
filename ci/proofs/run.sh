@@ -4,9 +4,9 @@
 # configuration (`just proofs`, in the Pre-merge suite). Each proof passes only
 # when its check fails for the expected reason and writes nothing.
 #   - ADR 0062's mocking bans: cargo-deny on each banned crate, oxlint on each
-#     refused `vi` method, ruff's TID251 on `unittest.mock` and
-#     `pytest.MonkeyPatch` (pytest-mock in uv.lock: `xtask mocking-lockfile`'s
-#     own tests);
+#     refused `vi` method, ruff's TID251 on `unittest.mock`,
+#     `pytest.MonkeyPatch` and `_pytest.monkeypatch` (pytest-mock in uv.lock:
+#     `xtask mocking-lockfile`'s own tests);
 #   - snapshots never written in CI: a mismatched, a missing and an orphaned
 #     snapshot for insta and Vitest, a missing and a mismatched one for
 #     inline-snapshot (whose inline snapshots cannot be orphaned);
@@ -193,8 +193,8 @@ else
 fi
 
 codes=$(uv run ruff check --no-cache --output-format json ci/proofs/ruff/mocking.py 2>/dev/null | jq -r '.[].code' | tally)
-if [[ "$codes" == "2 TID251" ]]; then
-  pass "ruff refuses unittest.mock and pytest.MonkeyPatch"
+if [[ "$codes" == "3 TID251" ]]; then
+  pass "ruff refuses unittest.mock, pytest.MonkeyPatch and _pytest.monkeypatch"
 else
   fail ruff "findings: ${codes:-none}"
 fi

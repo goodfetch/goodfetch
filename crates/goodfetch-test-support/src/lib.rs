@@ -1,9 +1,11 @@
 //! Goodfetch's shared Rust test helpers (ADR 0062): `TestEnv` (the per-test
 //! folder, Goodfetch home, cleared environment, printed seed and start
 //! time), the processes a test starts and the addresses they report, the
-//! test tool manifest, the paused runtime, proptest's configuration and the
-//! test `tracing` subscriber, the endpoint table and `EndpointRunner`, which
-//! applies it to a listener; and `goodfetch-test-env`, which gives the same
+//! test tool manifest, the paused runtime, proptest's configuration, the
+//! test `tracing` subscriber, the Observation log with its fencing and
+//! Limits checkers, seeded kills of real processes (ADR 0060), and the
+//! endpoint table with `EndpointRunner`, which applies it to a listener
+//! (ADR 0067); and `goodfetch-test-env`, which gives the same
 //! setup to TypeScript and Python as one JSON description. It works on
 //! values only: it depends on no Goodfetch crate and is only ever a
 //! dev-dependency.
@@ -11,6 +13,9 @@
 mod description;
 mod endpoints;
 mod env;
+mod invariants;
+mod kill;
+mod observation;
 mod process;
 mod runtime;
 mod tools;
@@ -23,6 +28,11 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
+pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
+pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
+pub use observation::{
+    Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
+};
 pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,
     reported_address, reported_address_within,

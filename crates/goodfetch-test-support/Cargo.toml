@@ -11,12 +11,14 @@ publish = false
 # Values only: no Goodfetch crate, not even in its own tests (ADR 0062).
 [dependencies]
 assert_cmd.workspace = true
+chacha20.workspace = true
 clap.workspace = true
 jiff.workspace = true
 proptest.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 toml.workspace = true

@@ -5,6 +5,8 @@
 //! name, the task list at `/tasks` and the oracle at `/oracle`. `tasks`
 //! prints one seed's task list and exits.
 
+mod access;
+mod adversarial;
 mod agent;
 mod authority;
 mod catalog;
@@ -26,6 +28,7 @@ mod observation;
 mod oracle;
 mod output;
 mod portal;
+mod protection;
 mod rendered;
 mod replay;
 mod schedule;

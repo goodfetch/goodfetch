@@ -149,6 +149,19 @@ impl ProvingGround {
         Self::answer(request.call().expect("the Proving ground answers"))
     }
 
+    /// Fetches a URL as [`Self::get`] does, sending `headers` after `Host`.
+    pub(crate) fn get_with_headers(&self, url: &str, headers: &[(&str, &str)]) -> Answer {
+        let (host, path) = split(url);
+        let mut request = self
+            .agent
+            .get(format!("http://{}{path}", self.address))
+            .header("host", host);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        Self::answer(request.call().expect("the Proving ground answers"))
+    }
+
     /// Posts a form to a URL on one of the Proving ground's host names,
     /// sending `cookie` when given.
     pub(crate) fn post_form(

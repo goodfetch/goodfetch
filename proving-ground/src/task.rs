@@ -224,3 +224,38 @@ impl<'a> TaskList<'a> {
         }
     }
 }
+
+/// The host name of task `ordinal` of the family served on `family_host`,
+/// on which the task's pages are served: `1.adversarial.test`.
+pub(crate) fn task_host(ordinal: u32, family_host: &str) -> String {
+    format!("{ordinal}.{family_host}")
+}
+
+/// Every host name of a family with `tasks` tasks, each with its task:
+/// `family_host` itself, and each task's.
+pub(crate) fn family_hosts(
+    family: &str,
+    family_host: &str,
+    tasks: u32,
+) -> Vec<(String, Option<String>)> {
+    let mut hosts = vec![(family_host.to_owned(), None)];
+    hosts.extend((1..=tasks).map(|ordinal| {
+        (
+            task_host(ordinal, family_host),
+            Some(format!("{family}/{ordinal}")),
+        )
+    }));
+    hosts
+}
+
+/// Whether `host`, a host name without its port, is `family_host` or the
+/// host name of one of its family's first `tasks` tasks.
+pub(crate) fn serves(host: &str, family_host: &str, tasks: u32) -> bool {
+    host == family_host
+        || host
+            .strip_suffix(family_host)
+            .and_then(|prefix| prefix.strip_suffix('.'))
+            .filter(|ordinal| !ordinal.starts_with('0'))
+            .and_then(|ordinal| ordinal.parse::<u32>().ok())
+            .is_some_and(|ordinal| (1..=tasks).contains(&ordinal))
+}

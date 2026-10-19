@@ -7,7 +7,9 @@
     reason = "the tests start the Proving ground's binary as a child process"
 )]
 
+mod access;
 mod actionability;
+mod adversarial;
 mod agent;
 mod browserless;
 mod clients;
@@ -24,6 +26,7 @@ mod observations;
 mod oracle;
 mod pages;
 mod portal;
+mod protection;
 mod proving_ground;
 mod reading;
 mod rendered;

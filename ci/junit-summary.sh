@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Writes the job's failed tests to its summary page (ADR 0061; TESTING.md,
 # Sharding, caching and reports): `xtask junit-summary` reads every JUnit
-# file in target/junit/ and lists each failed test with its failure's first
-# lines and its seeds, or says that none failed. Every test job runs it,
+# file in target/junit/ and its repeat-<count>/ folders (`just stress`) and
+# lists each failed test with its failure's first lines and its seeds, or
+# says that none failed. Every test job runs it,
 # pass or fail, after ci/junit-context.sh has gathered the JUnit files:
 #   ci/junit-summary.sh       on the runner's own system, as the hosted jobs
 #                             and the owner's machine's host steps do;

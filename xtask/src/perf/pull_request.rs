@@ -2,7 +2,7 @@
 //! ADR 0133), through the rule `xtask size` shares (`crate::acceptance`): a
 //! figure past its increase threshold passes only when the body's
 //! "Performance change" section lists it with its change at least the
-//! measured one and its reason, and a comment by someone with write access
+//! measured one and its reason, and a comment by the repository's owner
 //! says "Performance change accepted" and names the head SHA:
 //!
 //! ```text

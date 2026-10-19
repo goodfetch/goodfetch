@@ -6,10 +6,12 @@
 //! - the body's section of the rule's heading (to the next heading of the
 //!   same or a higher level) has a line naming the item's identifier, as the
 //!   check's finding prints it, followed by a change at least the measured
-//!   one, in the check's own unit;
-//! - and a comment by someone with write access (owner, member or
-//!   collaborator) says the rule's phrase and names the pull request's head
-//!   SHA, in full or abbreviated to at least 7 characters.
+//!   one, in the check's own unit, and then its reason;
+//! - and a comment by the repository's owner, who accepts when merging (ADR
+//!   0133), says the rule's phrase and names the pull request's head SHA, in
+//!   full or abbreviated to at least 7 characters. An agent that posts with
+//!   the owner's token posts as the owner, so this is the convention the
+//!   owner keeps, not a proof of who wrote the comment.
 
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
@@ -42,8 +44,8 @@ pub(crate) struct Acceptance {
     accepted_on_head: bool,
 }
 
-/// The comment authors GitHub reports as having write access.
-const WRITERS: [&str; 3] = ["OWNER", "MEMBER", "COLLABORATOR"];
+/// The comment author GitHub reports for the repository's owner.
+const OWNER: &str = "OWNER";
 /// Git's shortest abbreviation of an object name.
 const SHORTEST_SHA: usize = 7;
 const FULL_SHA: usize = 40;
@@ -120,13 +122,14 @@ impl Acceptance {
     }
 
     /// Whether the item `id`, grown by `change`, is accepted: `listed`
-    /// reads a change from the start of a text, and the first `+` after the
-    /// identifier on a line of the section that gives one counts.
+    /// reads a change from the start of a text, with the length it read, and
+    /// the first `+` after the identifier on a line of the section that gives
+    /// one counts, when a reason follows it.
     pub(crate) fn accepts<T: PartialOrd>(
         &self,
         id: &str,
         change: &T,
-        listed: impl Fn(&str) -> Option<T>,
+        listed: impl Fn(&str) -> Option<(T, usize)>,
     ) -> bool {
         self.accepted_on_head
             && self
@@ -134,8 +137,12 @@ impl Acceptance {
                 .iter()
                 .filter_map(|line| after_identifier(line, id))
                 .filter_map(|rest| {
-                    rest.match_indices('+')
-                        .find_map(|(plus, _)| listed(&rest[plus + 1..]))
+                    rest.match_indices('+').find_map(|(plus, _)| {
+                        let listed_change = &rest[plus + 1..];
+                        let (delta, read) = listed(listed_change)?;
+                        let reason = &listed_change[read..];
+                        reason.chars().any(char::is_alphanumeric).then_some(delta)
+                    })
                 })
                 .any(|delta| delta >= *change)
     }
@@ -143,7 +150,7 @@ impl Acceptance {
 
 fn accepts(comment: &Comment, rule: &Rule, head: &str) -> bool {
     let body = comment.body.as_deref().unwrap_or_default();
-    WRITERS.contains(&comment.author_association.as_str())
+    comment.author_association == OWNER
         && body
             .to_ascii_lowercase()
             .contains(&rule.phrase.to_ascii_lowercase())
@@ -215,15 +222,18 @@ fn is_identifier_character(character: char) -> bool {
 
 /// A decimal number of at most `decimals` decimals at the start of `text`,
 /// followed by `unit` (after optional spaces), in units of
-/// `10^-decimals`: `1.10 MB` with 6 decimals is 1,100,000.
-pub(crate) fn decimal(text: &str, unit: &str, decimals: usize) -> Option<u64> {
+/// `10^-decimals`: `1.10 MB` with 6 decimals is 1,100,000. Also gives the
+/// length of what it read, the unit included.
+pub(crate) fn decimal(text: &str, unit: &str, decimals: usize) -> Option<(u64, usize)> {
     let number_length = text
         .find(|character: char| !(character.is_ascii_digit() || character == '.'))
         .unwrap_or(text.len());
     let (number, rest) = text.split_at(number_length);
+    let spaces = rest.len() - rest.trim_start().len();
     if !rest.trim_start().starts_with(unit) {
         return None;
     }
+    let read = number_length + spaces + unit.len();
     let (whole, fraction) = number.split_once('.').unwrap_or((number, ""));
     if whole.is_empty() || fraction.len() > decimals {
         return None;
@@ -237,4 +247,5 @@ pub(crate) fn decimal(text: &str, unit: &str, decimals: usize) -> Option<u64> {
     whole
         .checked_mul(10_u64.checked_pow(u32::try_from(decimals).ok()?)?)
         .and_then(|units| units.checked_add(fraction))
+        .map(|units| (units, read))
 }

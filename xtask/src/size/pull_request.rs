@@ -4,8 +4,8 @@
 //!
 //! - the body's "Size increase" section has a line naming the file's
 //!   identifier, as the table's finding prints it, with a delta in MB at
-//!   least the measured one: `- collie/x86_64-unknown-linux-gnu/<file>: +1.10 MB, <reason>`;
-//! - and a comment by someone with write access says "Size increase
+//!   least the measured one and its reason: `- collie/x86_64-unknown-linux-gnu/<file>: +1.10 MB, <reason>`;
+//! - and a comment by the repository's owner says "Size increase
 //!   accepted" and names the pull request's head SHA.
 
 use anyhow::Result;
@@ -32,6 +32,7 @@ pub(crate) fn read(pull_request: &PullRequest<'_>) -> Result<Acceptance> {
 /// Whether the file `id`, grown by `change`, is accepted.
 pub(crate) fn accepts(acceptance: &Acceptance, id: &str, change: Bytes) -> bool {
     acceptance.accepts(id, &change, |text| {
-        acceptance::decimal(text, "MB", MB_DECIMALS).map(Bytes)
+        acceptance::decimal(text, "MB", MB_DECIMALS)
+            .map(|(megabytes, read)| (Bytes(megabytes), read))
     })
 }

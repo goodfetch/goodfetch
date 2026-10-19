@@ -512,6 +512,17 @@ fn tripped_file_with_its_section_and_acceptance_on_the_head_passes(#[case] comme
     &format!("Size increase accepted for {HEAD_SHA}."),
     "CONTRIBUTOR"
 )]
+// The owner accepts when merging (ADR 0133); a collaborator's agent cannot.
+#[case::acceptance_by_a_collaborator(
+    SECTION,
+    &format!("Size increase accepted for {HEAD_SHA}."),
+    "COLLABORATOR"
+)]
+#[case::section_line_without_a_reason(
+    "## Size increase\n\n- collie/x86_64-unknown-linux-gnu/wheel: +1.10 MB\n",
+    &format!("Size increase accepted for {HEAD_SHA}."),
+    "OWNER"
+)]
 fn tripped_file_without_a_matching_acceptance_fails(
     #[case] body: &str,
     #[case] comment: &str,

@@ -363,6 +363,10 @@ fn tripped_figure_listed_and_accepted_on_the_head_passes(#[case] comment: &str) 
     &format!("Performance change accepted for {HEAD_SHA}.")
 )]
 #[case::no_acceptance(SECTION, &format!("Looks fine at {HEAD_SHA}."))]
+#[case::section_line_without_a_reason(
+    "## Performance change\n\n- goodfetch-frontier/instructions::frontier::push instructions: +5.10%\n",
+    &format!("Performance change accepted for {HEAD_SHA}.")
+)]
 fn tripped_figure_without_a_matching_acceptance_fails(#[case] body: &str, #[case] comment: &str) {
     let workspace = Workspace::from_fixture("empty");
     write_gungraun(

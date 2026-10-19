@@ -27,10 +27,11 @@ use crate::exchange::{Reply, Request};
 use crate::extraction;
 use crate::files;
 use crate::handmade;
+use crate::hostile;
 use crate::languages;
 use crate::login::{self, Logins};
 use crate::model::{self, Candidate, FakeModel};
-use crate::observation::{self, Observations};
+use crate::observation::{self, Observations, Recorded};
 use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
 use crate::protection;
@@ -120,6 +121,7 @@ impl Site {
         hosts.extend(protection::hosts());
         hosts.extend(access::hosts());
         hosts.extend(crawl::hosts(seed));
+        hosts.extend(hostile::hosts());
         hosts
     }
 
@@ -147,6 +149,7 @@ impl Site {
         tasks.extend(protection::tasks(seed, port));
         tasks.extend(access::tasks(seed, port));
         tasks.extend(crawl::tasks(seed, port));
+        tasks.extend(hostile::tasks(seed, port));
         tasks
     }
 
@@ -209,6 +212,7 @@ impl Site {
         if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
             .or_else(|| protection::respond(self.seed, &name, request))
             .or_else(|| access::respond(self.seed, &name, request))
+            .or_else(|| hostile::respond(self.seed, self.port, &name, request))
         {
             if let Some(recorded) = recorded {
                 self.observations.record(host, recorded);
@@ -254,6 +258,13 @@ impl Site {
                 login::HOST => login::respond(self.seed, &self.logins, request),
                 _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
+        }
+        if request.method == Method::GET
+            && let Some((reply, task_host, report)) = hostile::private_landing(request.path)
+        {
+            self.observations
+                .record(&task_host, Recorded::Report(report));
+            return reply;
         }
         match (request.method, request.path) {
             (&Method::GET, "/tasks") => Reply::json(

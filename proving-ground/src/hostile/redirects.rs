@@ -177,7 +177,9 @@ fn stand_in(case: &'static Case) -> Reply {
         },
         Redirect::RefreshHeader { location } => {
             let mut reply = Reply::html(page("Moved", "<p>This page has moved.</p>\n"));
-            reply.headers.push(("refresh", format!("0; url={location}")));
+            reply
+                .headers
+                .push(("refresh", format!("0; url={location}")));
             reply
         }
         Redirect::MetaRefresh { location } => Reply::html(format!(

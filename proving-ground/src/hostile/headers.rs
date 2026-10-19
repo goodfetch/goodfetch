@@ -171,12 +171,16 @@ pub(super) fn respond(seed: u64, request: &Request<'_>) -> (Reply, Option<Record
         ),
         "/oversized" => {
             let mut reply = Reply::html(body(seed, page("/oversized")));
-            reply.headers.push(("x-padding", "a".repeat(OVERSIZED_BYTES)));
+            reply
+                .headers
+                .push(("x-padding", "a".repeat(OVERSIZED_BYTES)));
             reply
         }
         "/two-locations" => {
             let mut reply = Reply::found("/two-locations/first");
-            reply.headers.push(("location", "/two-locations/second".to_owned()));
+            reply
+                .headers
+                .push(("location", "/two-locations/second".to_owned()));
             reply
         }
         "/two-locations/first" | "/two-locations/second" => {
@@ -223,9 +227,11 @@ pub(super) fn raw_response(seed: u64, path: &str) -> Option<Vec<u8>> {
     let body = body(seed, hostile).into_bytes();
     let length = body.len();
     let line: &[u8] = &match path {
-        "/conflicting-length" => {
-            format!("Content-Length: {length}\r\nContent-Length: {}\r\n", length + 10).into_bytes()
-        }
+        "/conflicting-length" => format!(
+            "Content-Length: {length}\r\nContent-Length: {}\r\n",
+            length + 10
+        )
+        .into_bytes(),
         "/repeated-length" => {
             format!("Content-Length: {length}\r\nContent-Length: {length}\r\n").into_bytes()
         }

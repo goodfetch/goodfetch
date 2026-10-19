@@ -440,7 +440,15 @@ impl Registry {
                 Command::Uses(run_id, product) => self.uses(&run_id, product).await,
                 Command::Ended(run_id, report) => {
                     if let Some(live) = self.live.remove(&run_id) {
-                        live.report.send_replace(Some(report.clone()));
+                        // The lock goes before the report, so whoever the
+                        // report wakes finds the Run's writer gone.
+                        let Live {
+                            report: waiters,
+                            lock,
+                            ..
+                        } = live;
+                        drop(lock);
+                        waiters.send_replace(Some(report.clone()));
                     }
                     self.ended.insert(run_id, report);
                 }

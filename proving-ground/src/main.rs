@@ -12,6 +12,7 @@ mod command;
 mod digest;
 mod encodings;
 mod extraction;
+mod files;
 mod generator;
 mod languages;
 mod observation;

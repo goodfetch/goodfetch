@@ -231,8 +231,10 @@ async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>
     };
     let mut response = Response::new(Full::new(reply.body));
     *response.status_mut() = reply.status;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    if !reply.content_type.is_empty() {
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    }
     response
 }

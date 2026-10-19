@@ -10,6 +10,7 @@
 mod clients;
 mod encodings;
 mod extraction;
+mod files;
 mod languages;
 mod observations;
 mod oracle;

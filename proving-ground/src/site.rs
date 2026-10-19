@@ -13,6 +13,7 @@ use serde::Serialize;
 use crate::catalog;
 use crate::encodings;
 use crate::extraction;
+use crate::files;
 use crate::languages;
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
@@ -33,6 +34,7 @@ pub(crate) struct Site {
 /// A reply's status, media type and body.
 pub(crate) struct Reply {
     pub(crate) status: StatusCode,
+    /// Empty for a reply with no `Content-Type`, which a client sniffs.
     pub(crate) content_type: &'static str,
     pub(crate) body: Bytes,
 }
@@ -86,6 +88,7 @@ impl Site {
             (catalog::HOST.to_owned(), None),
             (encodings::HOST.to_owned(), None),
             (extraction::HOST.to_owned(), None),
+            (files::HOST.to_owned(), None),
             (languages::HOST.to_owned(), None),
         ]);
         hosts.extend(
@@ -107,6 +110,7 @@ impl Site {
         tasks.extend(extraction::tasks(seed, port));
         tasks.extend(encodings::tasks(seed, port));
         tasks.extend(languages::tasks(seed, port));
+        tasks.extend(files::tasks(seed, port));
         tasks
     }
 
@@ -114,19 +118,22 @@ impl Site {
     /// of its host names; `None` when `name` is another family's.
     fn extraction(&self, name: &str, method: &Method, path: &str, query: &str) -> Option<Reply> {
         let of = |family: &str| name == family || name.ends_with(&format!(".{family}"));
-        let html = |page: String| ("text/html; charset=utf-8", page.into_bytes());
+        let ok = |(content_type, body)| (StatusCode::OK, content_type, body);
+        let html = |page: String| ok(("text/html; charset=utf-8", page.into_bytes()));
         let page = if of(extraction::HOST) {
-            extraction::page(self.seed, path)
+            extraction::page(self.seed, path).map(ok)
         } else if of(encodings::HOST) {
-            encodings::page(self.seed, path)
+            encodings::page(self.seed, path).map(ok)
         } else if of(languages::HOST) {
             languages::page(self.seed, name, path, query).map(html)
+        } else if of(files::HOST) {
+            files::page(self.seed, path).map(|file| (file.status, file.content_type, file.body))
         } else {
             return None;
         };
         Some(match (method, page) {
-            (&Method::GET, Some((content_type, body))) => Reply {
-                status: StatusCode::OK,
+            (&Method::GET, Some((status, content_type, body))) => Reply {
+                status,
                 content_type,
                 body: body.into(),
             },

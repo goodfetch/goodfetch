@@ -181,3 +181,5 @@ A failure in a deterministic nightly-only job is a bug, not flakiness. A real-pr
 - **Adds to ADR 0032:** `test-support/` gains `models/` for the TLA+ models.
 - **Builds on ADRs 0061 and 0064:** the suites, budgets and caches are ADR 0061's, and failures of nightly-only jobs are recorded and filed as ADR 0064 says.
 - **Delivery order (ADR 0058).** Each check lands with the code it covers. M1 brings the seams, the model-based tests, the crash VFS, LazyFS and the real-process crash tests. The Simulation's group and Partition scenarios, Toxiproxy and `kind` arrive with Daemon groups, Partitioned crawls and the Politeness store in M4.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the real process crashes' `GOODFETCH_TEST_SEED` override is ADR 0059's, not ADR 0063's.

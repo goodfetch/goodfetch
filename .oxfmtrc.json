@@ -5,6 +5,7 @@
     "**/generated/**",
     "**/features/inventory.json",
     "**/features/*.schema.json",
+    "**/fixtures/schemas/**",
     "**/journeys/journey.schema.json",
     "**/compat/**",
     ".agents/**",

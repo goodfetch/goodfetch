@@ -36,6 +36,8 @@ agree node "$(image_arg NODE_VERSION)" "$(sed -n 's/^NODE_24=//p' "$root/ci/host
   "the CI image and ci/host/runtimes.env"
 agree pnpm "$(image_arg PNPM_VERSION)" "$(sed -n 's/^  "packageManager": "pnpm@\(.*\)"$/\1/p' "$root/package.json")" \
   "the CI image and package.json"
+agree mold "$(image_arg MOLD_VERSION)" "$(sed -n 's/^ *mold-version: //p' "$action")" \
+  "the CI image and the host-tools action"
 agree gungraun "$(image_tool gungraun-runner)" "$(sed -n 's/^gungraun = { version = "=\([0-9.]*\)".*/\1/p' "$root/Cargo.toml")" \
   "the CI image's gungraun-runner and the workspace's gungraun"
 

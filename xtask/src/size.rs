@@ -8,7 +8,9 @@
 //! - **increase**, the merge queue's check of each file against `main`'s
 //!   report of the same Product and profile, and of each crate tarball
 //!   against its ceiling; a tripped file passes only with the pull request's
-//!   "Size increase" section and acceptance comment on its head;
+//!   "Size increase" section and acceptance comment on its head; with no
+//!   report of `main`'s tree, each file is reported as having no baseline
+//!   and nothing is gated on growth (ADR 0061);
 //! - **ceilings**, the release's check of release-profile files against
 //!   each Product's own ceilings, whatever the pull request says.
 
@@ -33,6 +35,9 @@ use budget::{Bytes, Limit};
 use files::Measured;
 use table::{Row, Verdict};
 
+/// What a table without `main`'s report says under it (ADR 0061).
+const NO_BASELINE: &str = "No baseline: no report of `main`'s tree to compare with";
+
 /// `main`'s report, and the reference whose tree it must have been saved for.
 struct Main<'a> {
     report: &'a Path,
@@ -44,7 +49,8 @@ enum Mode<'a> {
         main: Option<Main<'a>>,
     },
     Increase {
-        main: Main<'a>,
+        /// `main`'s report; with none, `main`'s tree has no baseline.
+        main: Option<Main<'a>>,
         /// The pull request whose acceptance a tripped file needs; with none,
         /// every tripped file fails.
         pull_request: Option<PullRequest<'a>>,
@@ -71,9 +77,10 @@ pub(crate) enum Command {
     Increase {
         #[command(flatten)]
         files: FileArguments,
-        /// `main`'s report, saved for the tree of `--main`.
+        /// `main`'s report, saved for the tree of `--main`; without one, the
+        /// tree has no baseline and nothing is gated on growth.
         #[arg(long)]
-        main_report: PathBuf,
+        main_report: Option<PathBuf>,
         /// The reference to `main`'s head, whose tree the report must have.
         #[arg(long, default_value = "origin/main")]
         main: String,
@@ -125,10 +132,10 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
             pull_request,
             github,
         } => {
-            let main = Main {
-                report: main_report,
+            let main = main_report.as_deref().map(|report| Main {
+                report,
                 reference: main,
-            };
+            });
             let pull_request = pull_request.map(|number| PullRequest {
                 api: github.api(environment.token()),
                 repository: &github.repository,
@@ -149,7 +156,7 @@ fn measure(mode: &Mode<'_>, root: &Path, files: &Path, save: Option<&Path>) -> R
         report::save(root, save, &profile, &measured)?;
     }
     // What the estimate compared with, said under its table.
-    let mut compared = "No report of `main` to compare with".to_owned();
+    let mut compared = NO_BASELINE.to_owned();
     let mut rows: Vec<Row> = match mode {
         Mode::Ceilings => {
             if !profile.is_release() {
@@ -168,26 +175,30 @@ fn measure(mode: &Mode<'_>, root: &Path, files: &Path, save: Option<&Path>) -> R
                     match report::read_main(root, main.report, main.reference, &profile) {
                         Ok(main) => {
                             "Compared with `main`'s report".clone_into(&mut compared);
-                            main
+                            Some(main)
                         }
                         Err(error) => {
-                            compared = format!("No comparable report of `main` ({error:#})");
-                            BTreeMap::new()
+                            compared =
+                                format!("No baseline: no comparable report of `main` ({error:#})");
+                            None
                         }
                     }
                 }
-                None => BTreeMap::new(),
+                None => None,
             };
             measured
                 .into_iter()
-                .map(|file| increase_row(file, &main))
+                .map(|file| increase_row(file, main.as_ref()))
                 .collect()
         }
         Mode::Increase { main, pull_request } => {
-            let main = report::read_main(root, main.report, main.reference, &profile)?;
+            let main = main
+                .as_ref()
+                .map(|main| report::read_main(root, main.report, main.reference, &profile))
+                .transpose()?;
             let mut rows: Vec<Row> = measured
                 .into_iter()
-                .map(|file| increase_row(file, &main))
+                .map(|file| increase_row(file, main.as_ref()))
                 .collect();
             if let Some(pull_request) = pull_request {
                 accept(&mut rows, pull_request)?;
@@ -210,6 +221,9 @@ fn measure(mode: &Mode<'_>, root: &Path, files: &Path, save: Option<&Path>) -> R
         return Ok(ExitCode::SUCCESS);
     }
     output::line(&table::render(&rows));
+    if let Mode::Increase { main: None, .. } = mode {
+        output::line(&format!("{NO_BASELINE}; nothing is gated on growth."));
+    }
     let findings: Vec<Finding> = rows.iter().filter_map(finding).collect();
     Ok(check::report(&findings))
 }
@@ -228,11 +242,15 @@ fn ceiling_row(file: Measured) -> Row {
     }
 }
 
-fn increase_row(file: Measured, main: &BTreeMap<String, Bytes>) -> Row {
+/// `file`'s row against `main`'s figures; `None` when `main`'s tree has no
+/// baseline.
+fn increase_row(file: Measured, main: Option<&BTreeMap<String, Bytes>>) -> Row {
     let limit = budget::increase(file.kind);
-    let main = main.get(&file.id()).copied();
+    let baseline = main.is_some();
+    let main = main.and_then(|main| main.get(&file.id()).copied());
     let verdict = match (limit, main) {
         (Limit::Ceiling(ceiling), _) if file.bytes > ceiling => Verdict::OverCeiling,
+        (Limit::Increase(_), None) if !baseline => Verdict::NoBaseline,
         (Limit::Increase(threshold), Some(main))
             if file.bytes.0 > main.0.saturating_add(threshold.0) =>
         {
@@ -290,6 +308,6 @@ fn finding(row: &Row) -> Option<Finding> {
                 row.limit
             ),
         )),
-        Verdict::Within | Verdict::New | Verdict::Accepted => None,
+        Verdict::Within | Verdict::New | Verdict::NoBaseline | Verdict::Accepted => None,
     }
 }

@@ -45,6 +45,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       # `just quick all` in its two parts, around the deny: `just lint` before
       # it, since the quarantine-list check reads GitHub's issues, then
       # `just test quick` under it.
@@ -66,12 +68,12 @@ jobs:
       - name: List the parts the job skipped
         if: always()
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -133,6 +135,8 @@ jobs:
           fetch-depth: 2
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Build with the CI profile
         run: ci/vm/exec.sh just build ci
       - name: Prove the static checks on their fixtures
@@ -146,12 +150,12 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -259,6 +263,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Fetch the pinned TLA+ tools
         run: ci/vm/exec.sh just tlc-fetch
       - name: Deny outbound traffic
@@ -304,6 +310,8 @@ jobs:
           persist-credentials: false
       - name: Start the VM with the pinned Playwright image
         run: ci/vm/start.sh read-only ci playwright
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Install the visual projects' packages
         run: ci/vm/visual.sh install
       - name: Deny outbound traffic
@@ -315,12 +323,12 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: failure()
-        run: ci/junit-summary.sh
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Upload the JUnit files
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -365,6 +373,8 @@ jobs:
           fetch-depth: 0
       - name: Start the VM
         run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
       - name: Check every commit's sign-off
         run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
       - name: Check every commit's message

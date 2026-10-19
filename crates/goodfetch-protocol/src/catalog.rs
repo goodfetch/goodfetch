@@ -1,6 +1,7 @@
 //! What a catalog entry declares: an operation, an event, an Error code, a
-//! Plugin kind or a metric, with the markers and versions ADRs 0030, 0038,
-//! 0050 and 0095 give it. Each module that defines entries lists them in one
+//! Plugin kind, a metric, a Setting, a Hook stage or a value of a shared
+//! type, with the markers and versions ADRs 0030, 0038, 0050 and 0095 give
+//! it. Each module that defines entries lists them in one
 //! `Entries` value, which the emitter reads.
 
 use std::fmt;
@@ -333,6 +334,62 @@ pub struct Metric {
     pub arrived_in: ProtocolVersion,
 }
 
+/// A Setting (ADR 0028), named by its key, which ADR 0087 refuses on a
+/// Product that lacks it.
+pub struct Setting {
+    /// Its key, a dotted `snake_case` path such as `crawl.max_pages`.
+    pub name: &'static str,
+    /// What the setting shapes.
+    pub description: &'static str,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
+/// A Hook stage: a fixed stage of a request, a navigation, a page, a Record
+/// or a run's lifecycle where Hooks run (ADR 0033).
+pub struct HookStage {
+    /// Its `snake_case` name.
+    pub name: &'static str,
+    /// The stage the Hooks run at.
+    pub description: &'static str,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
+/// A type both Products share, to which each may add values (ADR 0095).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SharedType {
+    /// What Usage counts.
+    UsageKind,
+    /// What a Limit applies to.
+    LimitScope,
+    /// What a Notification reports.
+    NotificationEvent,
+}
+
+impl SharedType {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::UsageKind => "usage_kind",
+            Self::LimitScope => "limit_scope",
+            Self::NotificationEvent => "notification_event",
+        }
+    }
+}
+
+/// A value of a type both Products share, such as a Usage kind.
+pub struct SharedTypeValue {
+    /// The type it is a value of.
+    pub shared_type: SharedType,
+    /// The value's `snake_case` name.
+    pub name: &'static str,
+    /// What it means.
+    pub description: &'static str,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
 /// Every entry one module defines.
 pub struct Entries {
     /// The `module_path!()` of the module, which gives each entry's Product
@@ -348,4 +405,10 @@ pub struct Entries {
     pub plugin_kinds: &'static [PluginKind],
     /// Its metrics.
     pub metrics: &'static [Metric],
+    /// Its Settings.
+    pub settings: &'static [Setting],
+    /// Its Hook stages.
+    pub hook_stages: &'static [HookStage],
+    /// The values it adds to types both Products share.
+    pub shared_type_values: &'static [SharedTypeValue],
 }

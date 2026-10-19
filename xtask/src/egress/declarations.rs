@@ -11,7 +11,8 @@ use super::endpoints::{ENDPOINTS, Endpoints, JobKey, Rule};
 use crate::check::Finding;
 use crate::workflow::{self, Step};
 
-const DENY: &str = "ci/egress/egress.sh deny";
+/// The step that puts the deny in place.
+pub(crate) const DENY: &str = "ci/egress/egress.sh deny";
 const CANARY: &str = "ci/egress/egress.sh canary";
 const CHECK: &str = "ci/egress/egress.sh check";
 

@@ -145,3 +145,11 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 - **Changes ADR 0059's last consequence.** The test `Clock` and the seeded `Entropy` are not test-support helpers: they are the handles' named constructors, `Clock::paused` and `Entropy::seeded`, in the crate that defines the handles. `goodfetch-test-support` supplies only their seed and start time.
 - **Adds to `STYLE.md`'s lint list:** `Clock::paused` and `Entropy::seeded` join `disallowed-methods`.
 - **Property tests:** parsers and stateful rules get property tests (`proptest` in Rust, `hypothesis` in Python), and their regression files are committed, as `TESTING.md` records.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): `STYLE.md`'s pointer names ADR 0067's security tests, and `TESTING.md`'s fuzzing line carries ADR 0067's wording (every decoder of input Goodfetch did not write itself), not the line that moved from `STYLE.md`.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): Vitest's `unstubEnvs` and `unstubGlobals` (ADR 0064) are only a safety net under the bans of `vi.stubEnv` and `vi.stubGlobal`, as `TESTING.md` now says.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the line on flaky tests did not stay unchanged: ADR 0064 replaced it in place with its rule that a test is never retried, and `TESTING.md`'s attribution of its sections now says so.
+
+> Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): `TID251` also bans `_pytest.monkeypatch`, the module `pytest.MonkeyPatch` comes from, since importing it from there escapes a ban on `pytest.MonkeyPatch` alone.

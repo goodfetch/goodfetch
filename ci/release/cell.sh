@@ -108,7 +108,7 @@ case "$part" in
       echo "CPython $python"
       # pytest exits 5 when it collects no test, as before any Python test exists.
       code=0
-      uv run --frozen --python "$python" pytest -n auto --randomly-seed="$GOODFETCH_ORDER_SEED" \
+      uv run --frozen --python "$python" pytest -n auto -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" \
         --junitxml="target/junit/pytest-$python.xml" ${skip_pytest[@]+"${skip_pytest[@]}"} || code=$?
       [[ $code -eq 0 || $code -eq 5 ]] || status=$code
     done

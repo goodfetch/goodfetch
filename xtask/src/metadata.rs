@@ -37,6 +37,9 @@ pub(crate) struct Target {
     pub(crate) name: String,
     pub(crate) kind: Vec<String>,
     pub(crate) src_path: PathBuf,
+    /// The features the target needs, such as a Product's `executable`.
+    #[serde(default, rename = "required-features")]
+    pub(crate) required_features: Vec<String>,
 }
 
 /// Every member of the workspace at `root`.

@@ -21,6 +21,7 @@ use crate::access;
 use crate::adversarial;
 use crate::agent;
 use crate::catalog;
+use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
 use crate::extraction;
@@ -52,6 +53,8 @@ pub(crate) struct Site {
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
+    /// What the Crawl families saw crawls do.
+    crawl: Families,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -82,6 +85,7 @@ impl Site {
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
+            crawl: Families::new(),
         }
     }
 
@@ -115,6 +119,7 @@ impl Site {
         hosts.extend(adversarial::hosts());
         hosts.extend(protection::hosts());
         hosts.extend(access::hosts());
+        hosts.extend(crawl::hosts(seed));
         hosts
     }
 
@@ -141,6 +146,7 @@ impl Site {
         tasks.extend(adversarial::tasks(seed, port));
         tasks.extend(protection::tasks(seed, port));
         tasks.extend(access::tasks(seed, port));
+        tasks.extend(crawl::tasks(seed, port));
         tasks
     }
 
@@ -171,6 +177,30 @@ impl Site {
             },
             _ => Reply::not_found(),
         })
+    }
+
+    /// Answers one request as [`Self::respond`] does, with how long the
+    /// server holds the reply first, which only a Crawl family asks for.
+    pub(crate) fn respond_held(
+        &self,
+        host: &str,
+        request: &Request<'_>,
+    ) -> (Reply, Option<crawl::Held>) {
+        let name = observation::host_name(host);
+        if self.hosts.contains_key(&name) {
+            let visit = crawl::Request {
+                method: request.method,
+                host: &name,
+                authority: host,
+                path: request.path,
+                query: request.query,
+                peer: request.peer,
+            };
+            if let Some(page) = self.crawl.respond(self.seed, &visit, &self.observations) {
+                return page.into_reply();
+            }
+        }
+        (self.respond(host, request), None)
     }
 
     /// Answers one request, given its `Host` header.
@@ -406,13 +436,14 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
+                let findings = self.observations.findings_of(&task.entry.id);
                 let submitted = submission.record_ids();
                 let now = self
                     .portal
                     .expected_now(&task.entry.id)
                     .or_else(|| access::expected_now(&task.entry.id, &self.observations));
                 let expected = now.as_ref().unwrap_or(&task.expected);
-                let answer = oracle::judge(expected, submission, &effects)
+                let answer = oracle::judge(expected, submission, &effects, findings)
                     .refuted_by(self.reported(&task.entry.id));
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);

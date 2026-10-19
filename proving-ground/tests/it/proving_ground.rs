@@ -273,6 +273,18 @@ impl ProvingGround {
         answer.json()
     }
 
+    /// The task `id` of the task list.
+    pub(crate) fn task(&self, id: &str) -> Value {
+        let tasks = self.tasks();
+        tasks["tasks"]
+            .as_array()
+            .expect("`tasks` is an array")
+            .iter()
+            .find(|task| task["id"] == id)
+            .unwrap_or_else(|| panic!("the task list has no {id}: {tasks}"))
+            .clone()
+    }
+
     /// The certificate authority the Proving ground made from its seed, as
     /// PEM.
     pub(crate) fn certificate_authority(&self) -> String {
@@ -305,18 +317,6 @@ impl ProvingGround {
             .call()
             .expect("the Proving ground answers");
         Self::answer(response)
-    }
-
-    /// The task `id` of the task list.
-    pub(crate) fn task(&self, id: &str) -> Value {
-        let tasks = self.tasks();
-        tasks["tasks"]
-            .as_array()
-            .expect("`tasks` is an array")
-            .iter()
-            .find(|task| task["id"] == id)
-            .unwrap_or_else(|| panic!("the task list has no {id}: {tasks}"))
-            .clone()
     }
 
     /// Sets the Proving ground's time step, on its own address.

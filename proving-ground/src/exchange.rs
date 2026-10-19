@@ -1,6 +1,8 @@
 //! One request a page family answers and the reply it gives: the parts of
 //! HTTP the families read and write, apart from hyper's types.
 
+use std::net::IpAddr;
+
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
 use serde::Serialize;
@@ -14,6 +16,8 @@ pub(crate) struct Request<'a> {
     /// The `Cookie` header, empty when the request has none.
     pub(crate) cookies: &'a str,
     pub(crate) body: &'a Bytes,
+    /// The address the request came from, as the site sees it.
+    pub(crate) peer: IpAddr,
 }
 
 impl Request<'_> {

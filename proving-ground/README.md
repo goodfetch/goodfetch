@@ -8,7 +8,7 @@ The website Goodfetch owns and generates (ADRs 0025, 0032 and 0063): every page 
 cargo run -p goodfetch-proving-ground -- serve --seed 158 --copy local --address 127.0.0.1:0 --network-profile none
 ```
 
-The first output line is one JSON object: `address` (the bound address, port 0 replaced), `version` (the workspace version plus the commit, `0.0.0+<sha>`), `seed` (an unsigned 64-bit integer), `network` (below), and the address of each [network fixture](#network-fixtures): `proxies` (each forward proxy's address by name), `proxy_credentials` (`username` and `password`, derived from the seed), `dns` and `target`. It serves until Ctrl-C or `SIGTERM`. Only the `local` copy exists yet; the online copy is #168's.
+The first output line is one JSON object: `address` (the bound address, port 0 replaced), `version` (the workspace version plus the commit, `0.0.0+<sha>`), `seed` (an unsigned 64-bit integer), `hosts` (every host name it serves, sorted, which a caller's `resolve` maps to the address's IP), `certificate_authority` (the seed's certificate authority as PEM, the same as `GET /certificate-authority`), `network` (below), and the address of each [network fixture](#network-fixtures): `proxies` (each forward proxy's address by name), `proxy_credentials` (`username` and `password`, derived from the seed), `dns` and `target`. It serves until Ctrl-C or `SIGTERM`. Only the `local` copy exists yet; the online copy is #168's.
 
 ## Network profiles
 

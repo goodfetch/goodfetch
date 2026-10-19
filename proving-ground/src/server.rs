@@ -88,6 +88,11 @@ impl Server {
         })
     }
 
+    /// The site it serves.
+    pub(crate) fn site(&self) -> &Site {
+        &self.site
+    }
+
     /// What the server observes, which the network fixtures record into
     /// too.
     pub(crate) fn observations(&self) -> Arc<Observations> {

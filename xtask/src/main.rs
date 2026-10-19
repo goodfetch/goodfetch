@@ -15,6 +15,7 @@ mod allure;
 mod ceiling;
 mod check;
 mod codegen;
+mod commit_messages;
 mod compat;
 mod containment;
 mod dco;
@@ -74,6 +75,20 @@ enum Command {
     /// the names only Foxhound carries, the cargo-deny `wrappers` list and
     /// each SDK package's `generated/` layer (ADR 0038).
     Codegen(codegen::Arguments),
+    /// Fails on a commit from `--base` to `--head`, merges and the ancestors
+    /// of `--since` aside, whose subject is not a Conventional Commit
+    /// (CONTRIBUTING.md).
+    CommitMessages {
+        /// The pull request's base commit.
+        #[arg(long)]
+        base: String,
+        /// The pull request's head commit.
+        #[arg(long)]
+        head: String,
+        /// The recorded starting point: it and its ancestors are not judged.
+        #[arg(long)]
+        since: String,
+    },
     /// The Compatibility corpus under `compat/` (ADR 0066).
     Compat {
         #[command(subcommand)]
@@ -290,6 +305,9 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
+        Command::CommitMessages { base, head, since } => Ok(check::report(
+            &commit_messages::check(root, &base, &head, &since)?,
+        )),
         Command::Compat { command } => compat::run(command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),

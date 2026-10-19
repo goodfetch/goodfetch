@@ -224,7 +224,7 @@ quick *all: _skips-reset lint (_suite "quick" all) _skips-report
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
-pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco perf _visual-elsewhere _skips-report
+pre-merge *all: _skips-reset lint (_suite "quick" all) (_suite "pre-merge" all) proofs supply-chain dco commit-messages perf _visual-elsewhere _skips-report
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
@@ -385,6 +385,23 @@ dco base="" head="HEAD":
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
     cargo run --quiet -p xtask -- dco --base "$base" --head "{{ head }}"
+
+# The recorded starting point of the Conventional Commits rule
+# (CONTRIBUTING.md): this commit, the tip of spec #130's integration branch
+# when the owner adopted the rule on 2026-10-19, and its ancestors keep their
+# messages, since history is never rewritten.
+conventional_commits_since := "9e62a6c527577f8dc08b119bdf2acb952fcc62b1"
+
+# Checks that every commit from `base` to `head`, merges aside, after the
+# rule's starting point has a Conventional Commits subject (CONTRIBUTING.md).
+# Locally: since the merge base with `origin/main`.
+commit-messages base="" head="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
+    cargo run --quiet -p xtask -- commit-messages --base "$base" --head "{{ head }}" \
+      --since "{{ conventional_commits_since }}"
 
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.

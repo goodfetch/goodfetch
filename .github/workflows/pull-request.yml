@@ -284,9 +284,9 @@ jobs:
 
   # The supply-chain gates (#133): the advisories of every lockfile, the MSRV
   # build, cargo-hack over each Product's SDK crate, Miri on opted-in
-  # `unsafe`, the DCO sign-off of every commit the pull request adds, and the
-  # third-party notice inventory's license check over every ecosystem and
-  # declared input (#137). cargo-deny's licenses, bans, sources and the
+  # `unsafe`, the DCO sign-off and the Conventional Commits subject of every
+  # commit the pull request adds, and the third-party notice inventory's
+  # license check over every ecosystem and declared input (#137). cargo-deny's licenses, bans, sources and the
   # boundary checks run in the Quick job's lints.
   # The audits read public advisory databases, so they run before the egress
   # deny; Miri runs tests, so it runs under it (ci/egress/endpoints.toml).
@@ -308,6 +308,8 @@ jobs:
         run: ci/vm/start.sh read-only
       - name: Check every commit's sign-off
         run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
+      - name: Check every commit's message
+        run: ci/vm/exec.sh just commit-messages HEAD^1 HEAD^2
       - name: Audit the locked dependencies
         run: ci/vm/exec.sh just audit
       - name: Build on the MSRV

@@ -17,6 +17,7 @@ mod affected;
 mod all_green;
 mod allure;
 mod codegen;
+mod commit_messages;
 mod compat;
 mod containment;
 mod dco;

@@ -11,6 +11,14 @@ packages:
   - conformance/*
   - test-support/typescript
 
+# eslint-plugin-lingui (ADR 0073) takes micromatch only for its `matcher`,
+# which is picomatch's own function, and micromatch's `braces` has an advisory
+# with no fix (GHSA-vfj7-8cjw-p6xm). It gets picomatch instead, through the
+# patch that calls it directly, so no package with an open advisory installs
+# (STYLE.md, Dependencies). Remove both once the plugin drops micromatch.
+overrides:
+  "eslint-plugin-lingui>micromatch": "npm:picomatch@2.3.2"
+
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).
 catalog:
@@ -24,3 +32,6 @@ catalog:
   playwright: 1.64.1
   typescript: 7.0.2
   vitest: 5.0.5
+
+patchedDependencies:
+  eslint-plugin-lingui@0.16.0: patches/eslint-plugin-lingui@0.16.0.patch

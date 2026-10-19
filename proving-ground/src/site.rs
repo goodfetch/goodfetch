@@ -17,6 +17,8 @@ use hyper::http::uri::PathAndQuery;
 use hyper::{Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 
+use crate::access;
+use crate::adversarial;
 use crate::agent;
 use crate::catalog;
 use crate::encodings;
@@ -28,8 +30,9 @@ use crate::languages;
 use crate::login::{self, Logins};
 use crate::model::{self, Candidate, FakeModel};
 use crate::observation::{self, Observations};
-use crate::oracle::{self, Submission};
+use crate::oracle::{self, Finding, Submission};
 use crate::portal::{self, Portal};
+use crate::protection;
 use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
@@ -113,6 +116,9 @@ impl Site {
                 .chain(handmade::hosts())
                 .map(|(host, task)| (host, Some(task))),
         );
+        hosts.extend(adversarial::hosts());
+        hosts.extend(protection::hosts());
+        hosts.extend(access::hosts());
         hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
         hosts
     }
@@ -137,6 +143,9 @@ impl Site {
         tasks.extend(encodings::tasks(seed, port));
         tasks.extend(languages::tasks(seed, port));
         tasks.extend(files::tasks(seed, port));
+        tasks.extend(adversarial::tasks(seed, port));
+        tasks.extend(protection::tasks(seed, port));
+        tasks.extend(access::tasks(seed, port));
         tasks.extend(raw_site::tasks(seed, port));
         tasks
     }
@@ -176,6 +185,15 @@ impl Site {
         if raw_site::serves(&name) {
             // The raw server answers these over TLS alone.
             return Reply::error(StatusCode::MISDIRECTED_REQUEST, "tls_required");
+        }
+        if let Some((reply, recorded)) = adversarial::respond(self.seed, host, &name, request)
+            .or_else(|| protection::respond(self.seed, &name, request))
+            .or_else(|| access::respond(self.seed, &name, request))
+        {
+            if let Some(recorded) = recorded {
+                self.observations.record(host, recorded);
+            }
+            return reply;
         }
         if let Some((reply, effect)) = self
             .portal
@@ -397,15 +415,43 @@ impl Site {
         match tasks.iter().find(|task| task.entry.id == submission.task) {
             Some(task) => {
                 let effects = self.observations.effects_of(&task.entry.id);
+                let submitted = submission.record_ids();
                 let requests = self.observations.requests_of(&task.entry.id);
-                let now = self.portal.expected_now(&task.entry.id);
+                let now = self
+                    .portal
+                    .expected_now(&task.entry.id)
+                    .or_else(|| access::expected_now(&task.entry.id, &self.observations));
                 let expected = now.as_ref().unwrap_or(&task.expected);
-                Reply::json(
-                    StatusCode::OK,
-                    &oracle::judge(expected, submission, &effects, &requests),
-                )
+                let answer = oracle::judge(expected, submission, &effects, &requests)
+                    .refuted_by(self.reported(&task.entry.id));
+                if task.entry.family == access::FAMILY {
+                    let answer = access::judge(&task.entry.id, answer, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
+                if task.entry.id == protection::TIER_MOVE_TASK {
+                    let answer =
+                        protection::judge_tier_move(answer, &submitted, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
+                Reply::json(StatusCode::OK, &answer)
             }
             None => Reply::error(StatusCode::NOT_FOUND, "unknown_task"),
         }
+    }
+
+    /// What the pages of `task` reported beyond having run: each a finding,
+    /// since a page's script reports only what must not have worked.
+    fn reported(&self, task: &str) -> Vec<Finding> {
+        self.observations
+            .reports_of(task)
+            .into_iter()
+            .filter(|report| report.check != observation::RAN)
+            .map(|report| Finding {
+                check: report.check,
+                at: report.page,
+                expected: None,
+                observed: report.observed.into(),
+            })
+            .collect()
     }
 }

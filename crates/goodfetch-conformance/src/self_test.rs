@@ -30,6 +30,9 @@ use crate::writer::{WriteError, write_document};
 /// does.
 const CASES: &str = include_str!("../../../conformance/self-test/cases.toml");
 
+/// The page family whose tasks the suite judges.
+const CATALOG: &str = "catalog";
+
 /// The target's name in the document.
 const TARGET: &str = "goodfetch-proving-ground";
 
@@ -57,9 +60,9 @@ pub struct Record {
 
 impl References {
     /// Reads the reference result of every `crawl` and `extract` task of the
-    /// `catalog` family from the pages: a crawl from its start page through
-    /// each listing's next link, an extract of its one page. A task of
-    /// another kind or family gets none.
+    /// `catalog` family, the one the suite's cases judge, from the pages: a
+    /// crawl from its start page through each listing's next link, an
+    /// extract of its one page. A task of another kind or family gets none.
     ///
     /// # Errors
     ///
@@ -69,9 +72,9 @@ impl References {
         let reader = Reader::new();
         let mut records = BTreeMap::new();
         for task in proving_ground.task_list()?.tasks {
-            // Only the catalog's pages are read; another family's tasks get
-            // no reference result until a case of the suite needs one.
-            if task.family != "catalog" {
+            // The reader knows only the `catalog` family's pages; another
+            // family's pages show their Records in their own shape.
+            if task.family != CATALOG {
                 continue;
             }
             let read = match task.kind.as_str() {

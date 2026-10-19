@@ -350,7 +350,7 @@ jobs:
         with:
           name: visual-differences-pull-request
           path: |
-            target/playwright/
+            target/junit/playwright/
             target/vitest-attachments/
           if-no-files-found: ignore
       - name: Destroy the VM

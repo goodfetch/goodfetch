@@ -18,3 +18,13 @@ prefix = "sample."
 number = 1
 kind = "error"
 prefix = "sample_"
+
+[[area]]
+number = 1
+kind = "setting"
+prefix = "sample."
+
+[[area]]
+number = 1
+kind = "setting"
+prefix = "crawl.sample_"

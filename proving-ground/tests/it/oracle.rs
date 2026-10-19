@@ -4,7 +4,6 @@
 //!
 //! The known-correct results come from reading the pages the way any tool
 //! would: a crawl from the task's start page, an extract of its one page.
-//! Covers: story:2-3, story:2-4, story:2-5, story:2-31, story:2-32
 
 use regex::Regex;
 use rstest::rstest;
@@ -71,6 +70,7 @@ fn submission(task: &str, status: &str, records: &[Value]) -> Value {
     json!({ "task": task, "status": status, "records": records })
 }
 
+/// Covers: story:2-31, story:2-32
 #[rstest]
 #[case::crawl(0)]
 #[case::extract(1)]
@@ -99,6 +99,7 @@ fn a_correct_result_is_verified(#[case] index: usize) {
     );
 }
 
+/// Covers: story:2-3, story:2-5
 #[rstest]
 #[case::needs_review("needs-review")]
 #[case::failure("failure")]
@@ -114,6 +115,7 @@ fn a_correct_result_is_verified_whatever_the_tools_status(#[case] status: &str) 
     assert_eq!(answer["tool_status"], status, "{answer}");
 }
 
+/// Covers: story:2-32
 #[test]
 fn a_result_missing_one_record_is_incomplete() {
     let proving_ground = ProvingGround::start(SEED);
@@ -131,6 +133,7 @@ fn a_result_missing_one_record_is_incomplete() {
     assert_eq!(answer["wrong"], json!([]));
 }
 
+/// Covers: story:2-4, story:2-32
 #[test]
 fn a_success_missing_one_record_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
@@ -146,6 +149,7 @@ fn a_success_missing_one_record_is_a_false_success() {
     assert_eq!(answer["missing"], json!([dropped["id"]]));
 }
 
+/// Covers: story:2-4, story:2-32
 #[test]
 fn a_success_with_a_wrong_price_is_a_false_success_naming_the_price() {
     let proving_ground = ProvingGround::start(SEED);
@@ -166,6 +170,7 @@ fn a_success_with_a_wrong_price_is_a_false_success_naming_the_price() {
     );
 }
 
+/// Covers: story:2-32
 #[test]
 fn a_failure_with_an_extra_record_is_failed_naming_the_record() {
     let proving_ground = ProvingGround::start(SEED);
@@ -181,6 +186,7 @@ fn a_failure_with_an_extra_record_is_failed_naming_the_record() {
     assert_eq!(answer["extra"], json!([extra]));
 }
 
+/// Covers: story:2-32
 #[test]
 fn a_record_submitted_twice_is_extra() {
     let proving_ground = ProvingGround::start(SEED);

@@ -54,17 +54,21 @@ done
 
 if [[ "${GOODFETCH_CACHE_MODE:-}" == writable && $status -eq 0 ]]; then
   # Each folder is replaced whole, through a temporary name, so a failed save
-  # never leaves a half-written cache behind.
+  # never leaves a half-written cache behind: the old folder is removed only
+  # once its copy is complete, and a failed save fails the step.
   save() {
-    rm -rf "/cache/$2.partial"
-    cp -a "$1" "/cache/$2.partial"
-    rm -rf "/cache/$2"
-    mv "/cache/$2.partial" "/cache/$2"
+    rm -rf "/cache/$2.partial" &&
+      cp -a "$1" "/cache/$2.partial" &&
+      rm -rf "/cache/$2" &&
+      mv "/cache/$2.partial" "/cache/$2"
   }
-  save "$CARGO_HOME/registry" cargo-registry
-  save "$CARGO_TARGET_DIR" target
-  save "$npm_config_store_dir" pnpm-store
-  save "$UV_CACHE_DIR" uv
+  for folder in "$CARGO_HOME/registry:cargo-registry" "$CARGO_TARGET_DIR:target" \
+    "$npm_config_store_dir:pnpm-store" "$UV_CACHE_DIR:uv"; do
+    save "${folder%:*}" "${folder##*:}" || {
+      echo "error: saving the cache's ${folder##*:} failed; the cache keeps its previous copy" >&2
+      exit 1
+    }
+  done
 fi
 
 exit "$status"

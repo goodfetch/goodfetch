@@ -24,6 +24,12 @@
         "stubGlobal": "Patches a global (ADR 0062); pass the value through an option instead.",
         "stubEnv": "Patches the environment (ADR 0062); pass the environment map through an option instead."
       }
+    ],
+    "vitest/no-standalone-expect": [
+      "error",
+      {
+        "additionalTestBlockFunctions": ["test"]
+      }
     ]
   },
   "overrides": [

@@ -30,6 +30,9 @@ use crate::writer::{WriteError, write_document};
 /// does.
 const CASES: &str = include_str!("../../../conformance/self-test/cases.toml");
 
+/// The page family whose tasks the suite judges.
+const CATALOG: &str = "catalog";
+
 /// The target's name in the document.
 const TARGET: &str = "goodfetch-proving-ground";
 
@@ -56,29 +59,22 @@ pub struct Record {
 }
 
 impl References {
-    /// Reads the reference result of every `crawl` and `extract` task a case
-    /// of the suite names from the pages: a crawl from its start page through
-    /// each listing's next link, an extract of its one page. A task of
-    /// another kind, or that no case names, gets none, since the reader
-    /// knows only the pages of the cases' family.
+    /// Reads the reference result of every `crawl` and `extract` task of the
+    /// `catalog` family, the one the suite's cases judge, from the pages: a
+    /// crawl from its start page through each listing's next link, an
+    /// extract of its one page. A task of another kind or family gets none.
     ///
     /// # Errors
     ///
     /// When the Proving ground cannot serve the task list or a page, or a
     /// page lacks what its family shows.
     pub fn read(proving_ground: &ProvingGround) -> Result<Self, SelfTestError> {
-        let cases: SelfTestCases =
-            toml::from_str(CASES).expect("invariant: the embedded case list is valid");
-        let named: Vec<&TaskId> = cases
-            .capabilities
-            .iter()
-            .flat_map(|capability| &capability.cases)
-            .map(|case| &case.task)
-            .collect();
         let reader = Reader::new();
         let mut records = BTreeMap::new();
         for task in proving_ground.task_list()?.tasks {
-            if !named.contains(&&task.id) {
+            // The reader knows only the `catalog` family's pages; another
+            // family's pages show their Records in their own shape.
+            if task.family != CATALOG {
                 continue;
             }
             let read = match task.kind.as_str() {

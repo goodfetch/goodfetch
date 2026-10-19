@@ -14,10 +14,11 @@ autobenches = false
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:mimalloc", "dep:tracing", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+executable = ["dep:clap", "dep:dirs", "dep:mimalloc", "dep:tracing", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 mimalloc = { workspace = true, optional = true }
@@ -31,7 +32,10 @@ tracing-subscriber = { workspace = true, optional = true, features = ["env-filte
 goodfetch-collie = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs).
+rusqlite.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
 

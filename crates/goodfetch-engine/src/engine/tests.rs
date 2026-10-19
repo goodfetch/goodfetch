@@ -6,6 +6,12 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "tests run on the test Clock and Entropy (ADR 0059)"
+)]
+
+mod run;
 
 use std::time::Duration;
 
@@ -15,9 +21,16 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 
-use super::Engine;
+use goodfetch_test_support::TestEnv;
+
+use super::{Dependencies, Engine};
+use crate::clock::Clock;
 use crate::composition::{CallContext, CallError, Composition, Contribution, Handler};
+use crate::entropy::Entropy;
+use crate::home::{Home, RunStateLocation};
 use crate::product::{Channel, Identity};
+use crate::run_state::RunStateOptions;
+use crate::tasks::BlockingPolicy;
 use crate::transport::{self, ConnectionReader, ConnectionWriter, Network};
 
 /// A call that waits until it is cancelled, at its one await point.
@@ -54,14 +67,23 @@ fn test_operations() -> Contribution {
 }
 
 fn engine(product: Product) -> Engine {
+    engine_with(product, None)
+}
+
+/// An engine of `product` with the engine's own operations, the tests' and
+/// `more`.
+fn engine_with(product: Product, more: Option<Contribution>) -> Engine {
     let identity = Identity {
         product,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
         channel: Channel::CratesIo,
     };
-    let composition = Composition::default()
+    let mut composition = Composition::default()
         .with(crate::info::contribution())
         .with(test_operations());
+    if let Some(more) = more {
+        composition = composition.with(more);
+    }
     Engine::new(identity, &composition).unwrap()
 }
 
@@ -118,9 +140,32 @@ impl Client {
     }
 }
 
+/// What an in-process test's engine runs on: the test's home, the test
+/// `Clock` and `Entropy`, and blocking work inline.
+fn dependencies(env: &TestEnv) -> Dependencies {
+    Dependencies {
+        home: Home::new(env.home().to_owned()),
+        clock: Clock::paused(env.start_time()),
+        entropy: Entropy::seeded(env.seed()),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions::default(),
+    }
+}
+
 /// Runs `engine` as an Attached engine on the in-memory network while
 /// `client` talks to it, on the tests' paused runtime.
 fn attached<F, Fut, T>(engine: &Engine, client: F) -> T
+where
+    F: FnOnce(Client) -> Fut,
+    Fut: Future<Output = T>,
+{
+    let env = TestEnv::new();
+    attached_on(engine, dependencies(&env), client)
+}
+
+/// [`attached`], on `dependencies`.
+fn attached_on<F, Fut, T>(engine: &Engine, dependencies: Dependencies, client: F) -> T
 where
     F: FnOnce(Client) -> Fut,
     Fut: Future<Output = T>,
@@ -135,8 +180,10 @@ where
             })
             .await
         };
-        let (served, observed) =
-            tokio::join!(engine.run_attached(Network::InMemory(network)), talk);
+        let (served, observed) = tokio::join!(
+            engine.run_attached(Network::InMemory(network), dependencies),
+            talk
+        );
         served.unwrap();
         observed
     })

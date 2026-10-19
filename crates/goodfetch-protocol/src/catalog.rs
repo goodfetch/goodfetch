@@ -236,6 +236,26 @@ pub struct Event {
     pub arrived_in: ProtocolVersion,
 }
 
+/// A request the engine sends to a handler of the program over the
+/// Connection that serves it, whose reply is the handler's answer (ADRs 0024
+/// and 0069): the program's own code, never a Plugin.
+pub struct HandlerRequest {
+    /// `<namespace>.<member>` in `snake_case` words (ADR 0099).
+    pub name: &'static str,
+    /// What the handler is asked to do.
+    pub description: &'static str,
+    /// The type of its params.
+    pub params: SchemaOf,
+    /// The type of the handler's answer.
+    pub result: SchemaOf,
+    /// Its semver status.
+    pub stability: Stability,
+    /// Its deprecation, if any.
+    pub deprecated: Option<Deprecation>,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
 /// The seven groups of Error codes, named for their remedy (ADR 0079).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrorGroup {
@@ -467,6 +487,8 @@ pub struct Entries {
     pub operations: &'static [Operation],
     /// Its events.
     pub events: &'static [Event],
+    /// The requests the engine sends to the program's handlers.
+    pub handler_requests: &'static [HandlerRequest],
     /// Its Error codes.
     pub error_codes: &'static [ErrorCodeDefinition],
     /// Its Plugin kinds.

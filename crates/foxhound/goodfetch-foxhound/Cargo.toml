@@ -17,6 +17,7 @@ executable = ["dep:mimalloc", "goodfetch-collie/executable"]
 
 [dependencies]
 goodfetch-collie.workspace = true
+goodfetch-crawl.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 mimalloc = { workspace = true, optional = true }
@@ -27,7 +28,12 @@ mimalloc = { workspace = true, optional = true }
 goodfetch-foxhound = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# The run-state corpus writer (examples/compat-run-state.rs): its runtime,
+# in-memory Client, home and SQL dump.
+rusqlite.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "io-util", "macros"] }
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

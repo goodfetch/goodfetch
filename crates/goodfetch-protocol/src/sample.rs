@@ -86,6 +86,7 @@ pub const ENTRIES: Entries = Entries {
         arrived_in: ARRIVED_IN,
     }],
     events: &[SAMPLE_ECHOED],
+    handler_requests: &[],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_refused",
         description: "The sample operation refused the text.",

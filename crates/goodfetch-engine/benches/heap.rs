@@ -1,5 +1,9 @@
 //! The engine's heap metrics, under gungraun's DHAT with the system
 //! allocator (ADR 0071): DHAT counts allocations by replacing `malloc`.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "bench targets run on the test Clock and Entropy (ADR 0071)"
+)]
 
 mod scenarios;
 

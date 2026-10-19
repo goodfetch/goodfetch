@@ -1,5 +1,9 @@
 //! The engine's instruction counts, under gungraun's Callgrind with mimalloc
 //! as the global allocator, as the executables ship (ADR 0071).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "bench targets run on the test Clock and Entropy (ADR 0071)"
+)]
 
 mod scenarios;
 

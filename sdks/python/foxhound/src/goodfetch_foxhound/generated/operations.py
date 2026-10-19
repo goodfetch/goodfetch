@@ -9,7 +9,8 @@ from typing import Any, cast
 
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
-from .models import SampleCrawlParams, SampleCrawlResult
+from goodfetch_collie_client.generated.models import RunStarted
+from .models import CrawlStartParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -24,6 +25,13 @@ class AsyncFoxhoundOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
+    async def crawl_start(self, params: CrawlStartParams) -> RunStarted:
+        """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(await self._caller.call("crawl.start", params)))
+
     async def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""
         return SampleCrawlResult.model_construct(**_fields(await self._caller.call("sample.crawl", params)))
@@ -35,6 +43,13 @@ class FoxhoundOperations:
     def __init__(self, caller: Caller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    def crawl_start(self, params: CrawlStartParams) -> RunStarted:
+        """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(self._caller.call("crawl.start", params)))
 
     def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""

@@ -1,0 +1,112 @@
+//! A Run on Collie's executable over stdio (spec #213's Seam 1): its file in
+//! the per-user, per-major data folder of the Goodfetch home, or of the OS's
+//! usual folders when `GOODFETCH_HOME` is unset (ADR 0059), in WAL mode
+//! under its writer's lock, listed in the Run index, with its three axes
+//! when it ends.
+
+use std::path::Path;
+
+use goodfetch_test_support::TestEnv;
+use rusqlite::Connection;
+use serde_json::{Value, json};
+
+use crate::attached::{Attached, hello};
+
+fn call(engine: &mut Attached, id: i64, method: &str, params: &Value) -> Value {
+    engine.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+    engine.next().unwrap()
+}
+
+/// Starts and finishes the Run `run_id`, and answers its report.
+fn start_and_finish(engine: &mut Attached, run_id: &str) -> Value {
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    call(engine, 1, "run.start", &json!({ "run_id": run_id }));
+    call(engine, 2, "run.finish", &json!({ "run_id": run_id }))
+}
+
+fn journal_mode(file: &Path) -> String {
+    Connection::open(file)
+        .unwrap()
+        .pragma_query_value(None, "journal_mode", |row| row.get(0))
+        .unwrap()
+}
+
+/// Covers: story:3-25, story:3-28, operation:run.start, operation:run.finish
+#[test]
+fn a_run_on_collies_executable_keeps_its_own_wal_file_in_the_goodfetch_homes_per_major_folder() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+
+    let report = start_and_finish(&mut engine, "first");
+    let (rest, exited) = engine.finish();
+
+    let per_major = env.home().join("0.0");
+    let file = per_major.join("runs").join("first").join("run.sqlite");
+    let listed: String = Connection::open(per_major.join("run-index.sqlite"))
+        .unwrap()
+        .query_row(
+            "SELECT lifecycle FROM runs WHERE run_id = 'first'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        (
+            (
+                &report["result"]["lifecycle"],
+                &report["result"]["completeness"]
+            ),
+            journal_mode(&file),
+            per_major
+                .join("runs")
+                .join("first")
+                .join("run.lock")
+                .exists(),
+            listed,
+            (rest, exited),
+        ),
+        (
+            (&json!("finished"), &json!("complete")),
+            "wal".to_owned(),
+            true,
+            "finished".to_owned(),
+            (vec![], true),
+        )
+    );
+}
+
+/// Without `GOODFETCH_HOME`, the run files go to the OS's usual data folder
+/// (ADR 0059). Windows' Known Folders ignore the environment, so the case
+/// runs where the environment moves the data folder.
+///
+/// Covers: story:3-28
+#[cfg(unix)]
+#[test]
+fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start_with(&env, |command| {
+        command.env_remove("GOODFETCH_HOME");
+    });
+
+    start_and_finish(&mut engine, "usual");
+    let _ = engine.finish();
+
+    let data = if cfg!(target_os = "macos") {
+        Path::new(&env.env()["HOME"])
+            .join("Library")
+            .join("Application Support")
+    } else {
+        Path::new(&env.env()["XDG_DATA_HOME"]).to_owned()
+    };
+    let file = data
+        .join("goodfetch")
+        .join("0.0")
+        .join("runs")
+        .join("usual")
+        .join("run.sqlite");
+    assert_eq!(
+        (file.exists(), env.home().join("0.0").exists()),
+        (true, false)
+    );
+}

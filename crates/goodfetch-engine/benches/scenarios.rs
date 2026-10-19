@@ -4,9 +4,14 @@
 //! in-memory network on the tests' paused current-thread runtime. Inputs are
 //! literals; no network, no sleep, no work whose amount depends on timing.
 
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::rpc::framing::{Frame, Framer, MAX_MESSAGE_BYTES, decode};
+use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
-use goodfetch_engine::{Channel, Composition, Engine, Identity};
+use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -72,8 +77,19 @@ pub(crate) fn dispatch(calls: &[u8]) -> usize {
             };
             tokio::join!(send, receive).1
         };
-        let (served, replies) =
-            tokio::join!(engine.run_attached(Network::InMemory(network)), client);
+        let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+        let dependencies = Dependencies {
+            home: Home::new(home.path().to_owned()),
+            clock: Clock::paused(std::time::UNIX_EPOCH),
+            entropy: Entropy::seeded(0),
+            blocking: BlockingPolicy::Inline,
+            run_state_location: RunStateLocation::PerMajor,
+            run_state: RunStateOptions::default(),
+        };
+        let (served, replies) = tokio::join!(
+            engine.run_attached(Network::InMemory(network), dependencies),
+            client
+        );
         served.expect("invariant: the engine got its Connection");
         replies
     })

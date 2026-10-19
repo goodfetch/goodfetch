@@ -11,8 +11,13 @@
 
 use std::path::PathBuf;
 
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
-use goodfetch_engine::{Channel, Engine, Identity};
+use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use serde_json::{Value, json};
@@ -49,6 +54,20 @@ fn lines(messages: &[Value]) -> Vec<u8> {
     text
 }
 
+/// The scenario's engine runs on a home of its own, the test `Clock` and a
+/// fixed `Entropy` seed, so its answers never vary (ADR 0066).
+fn dependencies(home: &std::path::Path) -> Dependencies {
+    Dependencies {
+        home: Home::new(home.to_owned()),
+        // 2026-01-05T09:00:00Z, test support's `START_TIME`.
+        clock: Clock::paused(std::time::UNIX_EPOCH + std::time::Duration::from_hours(491_001)),
+        entropy: Entropy::seeded(0),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions::default(),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let folder = PathBuf::from(
         std::env::args_os()
@@ -65,6 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_all()
         .build()?;
     let sent = scenario();
+    let home = tempfile::tempdir()?;
     let answered = runtime.block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
@@ -86,8 +106,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             writer.shutdown().await?;
             Ok::<_, Box<dyn std::error::Error>>(answered)
         };
-        let (served, answered) =
-            tokio::join!(engine.run_attached(Network::InMemory(network)), client);
+        let (served, answered) = tokio::join!(
+            engine.run_attached(Network::InMemory(network), dependencies(home.path())),
+            client
+        );
         served?;
         answered
     })?;

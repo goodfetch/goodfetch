@@ -29,8 +29,8 @@ use serde_json::{Value, json};
 
 use crate::case_log::CaseLogEntry;
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Metric, Operation,
-    PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
+    Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
 use crate::connection::{CancelParams, HelloParams, HelloResult};
 use crate::entries::MODULES;
@@ -108,6 +108,7 @@ pub fn emit() -> Emitted {
 struct Sections {
     operations: Vec<Value>,
     events: Vec<Value>,
+    handler_requests: Vec<Value>,
     error_codes: Vec<Value>,
     plugin_kinds: Vec<Value>,
     metrics: Vec<Value>,
@@ -130,6 +131,12 @@ impl Sections {
                 .events
                 .iter()
                 .map(|event| event_entry(product, event, generator)),
+        );
+        self.handler_requests.extend(
+            entries
+                .handler_requests
+                .iter()
+                .map(|request| handler_request_entry(product, request, generator)),
         );
         self.error_codes.extend(
             entries
@@ -174,6 +181,7 @@ impl Sections {
             "protocol_version": PROTOCOL_VERSION.to_string(),
             "operations": sorted(self.operations),
             "events": sorted(self.events),
+            "handler_requests": sorted(self.handler_requests),
             "error_groups": ErrorGroup::ALL.iter().map(|group| error_group_entry(*group)).collect::<Vec<_>>(),
             "error_codes": sorted(self.error_codes),
             "plugin_kinds": sorted(self.plugin_kinds),
@@ -227,6 +235,23 @@ fn event_entry(product: Product, event: &Event, generator: &mut SchemaGenerator)
         "stability": event.stability.as_str(),
         "deprecated": deprecation(event.deprecated),
         "arrived_in": event.arrived_in.to_string(),
+    })
+}
+
+fn handler_request_entry(
+    product: Product,
+    request: &HandlerRequest,
+    generator: &mut SchemaGenerator,
+) -> Value {
+    json!({
+        "name": request.name,
+        "product": product.as_str(),
+        "description": request.description,
+        "params": (request.params)(generator),
+        "result": (request.result)(generator),
+        "stability": request.stability.as_str(),
+        "deprecated": deprecation(request.deprecated),
+        "arrived_in": request.arrived_in.to_string(),
     })
 }
 

@@ -7,6 +7,7 @@
 
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, schema_of};
 use crate::jsonrpc::Message;
+use crate::run::{RunIndexRow, RunStateRow};
 
 /// How a format's files are stored in its corpus sets (ADR 0066).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,8 +106,28 @@ pub const PROTOCOL: Format = Format {
     schema: schema_of::<Message>,
 };
 
+/// A Run's own SQLite file (ADRs 0002 and 0031): its metadata row, its
+/// tags and the tables each Product's composition adds, such as a crawl's
+/// work items and Records.
+pub const RUN_STATE: Format = Format {
+    name: "run-state",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::Default,
+    schema: schema_of::<RunStateRow>,
+};
+
+/// The per-user, per-major Run index (ADR 0031): one row per Run.
+pub const RUN_INDEX: Format = Format {
+    name: "run-index",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::Default,
+    schema: schema_of::<RunIndexRow>,
+};
+
 /// Every registered format.
-pub const FORMATS: &[&Format] = &[&PROTOCOL];
+pub const FORMATS: &[&Format] = &[&PROTOCOL, &RUN_INDEX, &RUN_STATE];
 
 #[cfg(test)]
 mod tests;

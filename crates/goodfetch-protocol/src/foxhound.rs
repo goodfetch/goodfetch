@@ -1,6 +1,10 @@
 //! Foxhound's own entries: what only Foxhound carries (ADRs 0095 and 0099).
 //! Outside `crates/foxhound/`, only this crate and `xtask` name this module.
-//! The entries here are samples until the crawl areas define the real ones.
+//! Its `sample` entries are samples until the crawl areas define the real
+//! ones; `crawl` holds a crawl's start and the exchange that serves its work
+//! items.
+
+pub mod crawl;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -79,6 +83,7 @@ pub const ENTRIES: Entries = Entries {
         arrived_in: ARRIVED_IN,
     }],
     events: &[SAMPLE_CRAWLED],
+    handler_requests: &[],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_crawl_refused",
         description: "The sample crawl refused its pages.",

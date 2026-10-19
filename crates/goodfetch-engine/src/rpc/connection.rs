@@ -5,6 +5,11 @@
 //! and the Connection then closes (ADR 0066). At the end of input, calls in
 //! flight are cancelled at their next cancellation point, answered, and the
 //! Connection closes once they all are.
+//!
+//! The engine also sends the Client handler requests, such as a crawl's
+//! `crawl_request.handle`, each under an id of its own, and routes each
+//! reply back to its sender; the Connection's end fails those still
+//! waiting.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -14,16 +19,20 @@ use goodfetch_protocol::connection::{
     CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams, StoppedBy,
 };
 use goodfetch_protocol::foxhound_names;
-use goodfetch_protocol::jsonrpc::{Notification, ProtocolFailure, Request, RequestId};
+use goodfetch_protocol::jsonrpc::{
+    ErrorObject, Notification, ProtocolFailure, Request, RequestId, Version,
+};
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
-use super::{failure_line, handshake, not_in_product, record, success_line};
+use super::{failure_line, handshake, line, not_in_product, record, success_line};
+use crate::client::{Client, Outgoing};
 use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
+use crate::runs::Runs;
 use crate::tasks::TaskOwner;
 use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
 
@@ -48,11 +57,17 @@ pub(crate) struct Dispatch {
 ///
 /// Dropping the future leaves the calls it started to `owner`, which stops
 /// them.
-pub(crate) async fn serve(dispatch: Arc<Dispatch>, connection: Connection, owner: &TaskOwner) {
+pub(crate) async fn serve(
+    dispatch: Arc<Dispatch>,
+    connection: Connection,
+    owner: &TaskOwner,
+    runs: Runs,
+) {
     let (mut reader, writer) = connection.split();
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
     owner.spawn(write_lines(writer, lines));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
+    let (client, requests) = Client::new();
     let mut session = Session {
         dispatch,
         owner,
@@ -62,6 +77,11 @@ pub(crate) async fn serve(dispatch: Arc<Dispatch>, connection: Connection, owner
         in_flight: BTreeMap::new(),
         behind_gateway: false,
         opened: false,
+        client,
+        runs,
+        requests,
+        pending: BTreeMap::new(),
+        next_request: 0,
     };
     session.run(&mut reader).await;
     session.cancel_in_flight();
@@ -104,6 +124,17 @@ struct Session<'owner> {
     in_flight: BTreeMap<RequestId, InFlight>,
     behind_gateway: bool,
     opened: bool,
+    client: Client,
+    runs: Runs,
+    requests: mpsc::Receiver<Outgoing>,
+    pending: BTreeMap<RequestId, Pending>,
+    next_request: i64,
+}
+
+/// A handler request the engine sent, waiting for its reply.
+struct Pending {
+    method: &'static str,
+    reply: oneshot::Sender<Result<Value, ErrorObject>>,
 }
 
 impl Session<'_> {
@@ -129,6 +160,11 @@ impl Session<'_> {
                 biased;
                 Some(id) = self.completions.recv() => {
                     self.in_flight.remove(&id);
+                }
+                Some(request) = self.requests.recv(), if self.opened => {
+                    if let Flow::Close = self.send_request(request).await {
+                        return;
+                    }
                 }
                 read = reader.read(&mut chunk), if reading => match read {
                     Ok(0) | Err(_) => {
@@ -173,7 +209,53 @@ impl Session<'_> {
                 self.notification(&notification);
                 Flow::Continue
             }
+            (Ok(Incoming::Reply { id, .. }), false) => {
+                tracing::debug!(?id, "a Connection that does not open with `hello` closes");
+                Flow::Close
+            }
+            (Ok(Incoming::Reply { id, answer }), true) => {
+                self.reply(&id, answer);
+                Flow::Continue
+            }
         }
+    }
+
+    /// Sends a handler request under the next id of the engine's own.
+    async fn send_request(&mut self, request: Outgoing) -> Flow {
+        let id = RequestId::Number(self.next_request);
+        self.next_request += 1;
+        let message = Request {
+            jsonrpc: Version,
+            id: id.clone(),
+            method: request.method.to_owned(),
+            params: Some(request.params),
+        };
+        self.pending.insert(
+            id,
+            Pending {
+                method: request.method,
+                reply: request.reply,
+            },
+        );
+        if self.send(line(&message)).await {
+            Flow::Continue
+        } else {
+            Flow::Close
+        }
+    }
+
+    /// Routes a reply to the handler request it answers; a reply whose
+    /// sender stopped waiting, or that answers no request, is dropped.
+    fn reply(&mut self, id: &RequestId, answer: Result<Value, ErrorObject>) {
+        let Some(pending) = self.pending.remove(id) else {
+            tracing::debug!(?id, "a reply that answers no handler request is ignored");
+            return;
+        };
+        record(
+            pending.method,
+            answer.as_ref().err().map(|error| error.data.code.as_str()),
+        );
+        let _ = pending.reply.send(answer);
     }
 
     /// The first request, which must be `hello`.
@@ -264,7 +346,12 @@ impl Session<'_> {
     fn call(&mut self, id: RequestId, handler: &Handler, params: Option<Value>) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
-        let context = CallContext::new(Arc::clone(&self.dispatch.identity), token.clone());
+        let context = CallContext::new(
+            Arc::clone(&self.dispatch.identity),
+            token.clone(),
+            self.client.clone(),
+            self.runs.clone(),
+        );
         let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
         self.in_flight.insert(
             id.clone(),

@@ -3,14 +3,16 @@
 //! where each entry is defined (ADRs 0095 and 0099).
 
 use crate::catalog::{Entries, Operation, Product};
-use crate::{connection, engine, foxhound, sample};
+use crate::{connection, engine, foxhound, run, sample};
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 4] = [
+pub const MODULES: [&Entries; 6] = [
     &connection::ENTRIES,
     &engine::ENTRIES,
+    &run::ENTRIES,
     &sample::ENTRIES,
     &foxhound::ENTRIES,
+    &foxhound::crawl::ENTRIES,
 ];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
@@ -32,7 +34,27 @@ mod tests {
         let collie: Vec<&str> = operations_of(Product::Collie).map(|op| op.name).collect();
         let foxhound: Vec<&str> = operations_of(Product::Foxhound).map(|op| op.name).collect();
 
-        assert_eq!(collie, ["engine.info", "sample.echo"]);
-        assert_eq!(foxhound, ["engine.info", "sample.echo", "sample.crawl"]);
+        assert_eq!(
+            collie,
+            [
+                "engine.info",
+                "run.start",
+                "run.finish",
+                "run.abort",
+                "sample.echo"
+            ]
+        );
+        assert_eq!(
+            foxhound,
+            [
+                "engine.info",
+                "run.start",
+                "run.finish",
+                "run.abort",
+                "sample.echo",
+                "sample.crawl",
+                "crawl.start"
+            ]
+        );
     }
 }

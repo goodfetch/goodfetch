@@ -2,9 +2,10 @@
 //! [`Contribution`] listing what it adds to the engine, and each Product's
 //! executable crate passes the ones it links to the engine at start, a list
 //! in its `main`. Nothing registers itself by being linked. Today a
-//! contribution adds operation handlers; settings keys, run-state tables,
-//! Plugin kinds and Hook stages, Usage kinds and Limit scopes, Notifications
-//! and gates in admission join it with the tickets that build them.
+//! contribution adds operation handlers and the tables it keeps in every
+//! run file; settings keys, Plugin kinds and Hook stages, Usage kinds and
+//! Limit scopes, Notifications and gates in admission join it with the
+//! tickets that build them.
 //!
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
@@ -22,7 +23,10 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::client::Client;
 use crate::product::Identity;
+use crate::run_state::RunStateTables;
+use crate::runs::Runs;
 
 /// A failure a call answers with: an Error code of the catalog, with its
 /// message and details, or a failure of the protocol itself.
@@ -129,11 +133,34 @@ impl std::error::Error for CallError {}
 pub struct CallContext {
     identity: Arc<Identity>,
     token: CancellationToken,
+    client: Client,
+    runs: Runs,
 }
 
 impl CallContext {
-    pub(crate) fn new(identity: Arc<Identity>, token: CancellationToken) -> Self {
-        Self { identity, token }
+    pub(crate) fn new(
+        identity: Arc<Identity>,
+        token: CancellationToken,
+        client: Client,
+        runs: Runs,
+    ) -> Self {
+        Self {
+            identity,
+            token,
+            client,
+            runs,
+        }
+    }
+
+    /// The Client of the call's Connection, to which a Run started by the
+    /// call sends its handler requests.
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
+    /// The engine's Runs.
+    pub fn runs(&self) -> &Runs {
+        &self.runs
     }
 
     /// The running engine's Product and version.
@@ -203,6 +230,7 @@ impl Handler {
 pub struct Contribution {
     name: &'static str,
     handlers: Vec<Handler>,
+    run_state_tables: Vec<RunStateTables>,
 }
 
 impl Contribution {
@@ -211,6 +239,7 @@ impl Contribution {
         Self {
             name,
             handlers: Vec::new(),
+            run_state_tables: Vec::new(),
         }
     }
 
@@ -218,6 +247,13 @@ impl Contribution {
     #[must_use]
     pub fn with_handler(mut self, handler: Handler) -> Self {
         self.handlers.push(handler);
+        self
+    }
+
+    /// The same, adding `tables` to every run file (ADR 0087).
+    #[must_use]
+    pub fn with_run_state_tables(mut self, tables: RunStateTables) -> Self {
+        self.run_state_tables.push(tables);
         self
     }
 
@@ -269,6 +305,14 @@ impl Composition {
             .iter()
             .flat_map(|contribution| &contribution.handlers)
             .map(|handler| handler.operation.name)
+    }
+
+    /// The tables every contribution adds to every run file, in order.
+    pub(crate) fn run_state_tables(&self) -> Vec<RunStateTables> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.run_state_tables.iter().copied())
+            .collect()
     }
 
     /// Each operation's one handler.

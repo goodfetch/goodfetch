@@ -335,6 +335,26 @@
       ],
       "type": "object"
     },
+    "Completeness": {
+      "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "They do.",
+          "type": "string"
+        },
+        {
+          "const": "incomplete",
+          "description": "The Run ended early.",
+          "type": "string"
+        },
+        {
+          "const": "unverified",
+          "description": "It finished, but the engine cannot vouch that nothing was missed.",
+          "type": "string"
+        }
+      ]
+    },
     "ConformanceDocument": {
       "description": "A `conformance` document: each declared capability's outcome, derived\nfrom its cases.",
       "properties": {
@@ -377,6 +397,117 @@
         "proving_ground",
         "online",
         "capabilities"
+      ],
+      "type": "object"
+    },
+    "CrawlRequest": {
+      "description": "One work item of a crawl as its handler receives it (ADR 0093).",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Its ID within the Run.",
+          "type": "string"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Its Label.",
+          "type": "string"
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "Its Payload."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "url",
+        "label"
+      ],
+      "type": "object"
+    },
+    "CrawlRequestHandleParams": {
+      "description": "What `crawl_request.handle` gives the handler: one attempt of one work\nitem, under its lease.",
+      "properties": {
+        "attempt": {
+          "arrived_in": "0.1",
+          "description": "Which attempt this is, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "crawl_request": {
+          "$ref": "#/$defs/CrawlRequest",
+          "arrived_in": "0.1",
+          "description": "The work item."
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The lease's epoch, which only goes up (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request",
+        "attempt",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
+    "CrawlRequestHandled": {
+      "additionalProperties": false,
+      "description": "What a handler answers once its attempt returned: the outputs it staged,\nwhich commit once, under the attempt's lease (ADR 0003).",
+      "properties": {
+        "records": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "The Records it pushed, in order.",
+          "items": {
+            "$ref": "#/$defs/PushedRecord"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "CrawlStartParams": {
+      "additionalProperties": false,
+      "description": "What `crawl.start` takes.",
+      "properties": {
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run's ID, as `run.start` takes it.",
+          "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seeds": {
+          "$ref": "#/$defs/Seeds",
+          "arrived_in": "0.1",
+          "description": "The requests the crawl starts from."
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "arrived_in": "0.1",
+          "description": "The Run's opaque tags."
+        }
+      },
+      "required": [
+        "seeds"
       ],
       "type": "object"
     },
@@ -846,6 +977,31 @@
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
     },
+    "Lifecycle": {
+      "description": "Where a Run is (ADR 0029).",
+      "oneOf": [
+        {
+          "const": "running",
+          "description": "It runs.",
+          "type": "string"
+        },
+        {
+          "const": "stopped",
+          "description": "It ended early: by a Limit, an abort, its timeout, the loss of its\nengine or exhausted resources.",
+          "type": "string"
+        },
+        {
+          "const": "finished",
+          "description": "It reached its end.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "An error in the engine or the program's code ended it.",
+          "type": "string"
+        }
+      ]
+    },
     "Message": {
       "anyOf": [
         {
@@ -1016,6 +1172,11 @@
       ],
       "type": "object"
     },
+    "PointInTime": {
+      "description": "A point in time in UTC, as RFC 3339.",
+      "format": "date-time",
+      "type": "string"
+    },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
       "oneOf": [
@@ -1134,6 +1295,26 @@
       "required": [
         "version",
         "seed"
+      ],
+      "type": "object"
+    },
+    "PushedRecord": {
+      "additionalProperties": false,
+      "description": "One Record a handler pushed into a Dataset (ADR 0103).",
+      "properties": {
+        "data": {
+          "arrived_in": "0.1",
+          "description": "The Record."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dataset",
+        "data"
       ],
       "type": "object"
     },
@@ -1297,6 +1478,320 @@
         }
       ]
     },
+    "RunId": {
+      "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+      "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+      "type": "string"
+    },
+    "RunIndexRow": {
+      "description": "One row of the Run index (ADR 0031): a Run, where its state is, and its\nthree axes.",
+      "properties": {
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Completeness, once it ended."
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it ended."
+        },
+        "kind": {
+          "$ref": "#/$defs/RunKind",
+          "description": "What kind of Run it is."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "description": "Where it is."
+        },
+        "location": {
+          "description": "Its folder: relative to the per-major data folder when it is inside,\nabsolute otherwise.",
+          "type": "string"
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "description": "The Product it needs (ADR 0098)."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "description": "The Run's ID."
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "description": "When it started."
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "description": "Its tags (ADR 0036)."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Verdict, once it ended."
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "kind",
+        "needs",
+        "tags",
+        "lifecycle",
+        "started_at"
+      ],
+      "type": "object"
+    },
+    "RunKind": {
+      "description": "What kind of Run it is: a Collie Run its program drives, or a crawl\n(ADR 0102), which its start's inputs name.",
+      "oneOf": [
+        {
+          "const": "collie",
+          "description": "A Run its program drives page by page.",
+          "type": "string"
+        },
+        {
+          "const": "crawl",
+          "description": "A crawl, whose work items the engine leases to its handlers.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunParams": {
+      "additionalProperties": false,
+      "description": "What `run.finish` and `run.abort` take: the Run.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunReport": {
+      "description": "What a Run states about itself when it ends (ADR 0102): its three axes\n(ADR 0029) and when it ran.",
+      "properties": {
+        "completeness": {
+          "$ref": "#/$defs/Completeness",
+          "arrived_in": "0.1",
+          "description": "Whether its results cover its scope."
+        },
+        "ended_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it ended."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it ended."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it started."
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it stopped, when it did."
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict",
+          "arrived_in": "0.1",
+          "description": "Whether its own checks prove what it committed."
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle",
+        "verdict",
+        "completeness",
+        "started_at",
+        "ended_at"
+      ],
+      "type": "object"
+    },
+    "RunStartParams": {
+      "additionalProperties": false,
+      "description": "What `run.start` takes.",
+      "properties": {
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run's ID; the engine generates a lowercase ULID when it is\nabsent. An existing ID returns that Run when the caller and the\ninputs match, and fails with `run_conflict` otherwise.",
+          "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "arrived_in": "0.1",
+          "description": "The Run's opaque tags."
+        }
+      },
+      "type": "object"
+    },
+    "RunStarted": {
+      "description": "What a start answers once its Run is started, never at its end.",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is now."
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "run_id",
+        "started_as",
+        "lifecycle",
+        "needs"
+      ],
+      "type": "object"
+    },
+    "RunStateRow": {
+      "description": "One row of a Run's run state about itself: its `run` table (ADR 0002).",
+      "properties": {
+        "caller": {
+          "description": "Who started it (ADR 0102).",
+          "type": "string"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Completeness, once it ended."
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it ended."
+        },
+        "epoch": {
+          "description": "The current run epoch (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inputs": {
+          "description": "Its start's inputs, as canonical JSON, which a later start compares.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/RunKind",
+          "description": "What kind of Run it is."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "description": "Where it is."
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "description": "The Product it needs (ADR 0098)."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "description": "The Run's ID."
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "description": "When it started."
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it stopped."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Verdict, once it ended."
+        }
+      },
+      "required": [
+        "run_id",
+        "kind",
+        "needs",
+        "caller",
+        "epoch",
+        "inputs",
+        "lifecycle",
+        "started_at"
+      ],
+      "type": "object"
+    },
     "SampleCrawlParams": {
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
@@ -1447,10 +1942,58 @@
       ],
       "type": "object"
     },
+    "Seed": {
+      "additionalProperties": false,
+      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload.",
+      "properties": {
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Its Label.",
+          "type": "string"
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The data the program attaches for its handler."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "label"
+      ],
+      "type": "object"
+    },
+    "Seeds": {
+      "description": "A crawl's seeds, at least one.",
+      "items": {
+        "$ref": "#/$defs/Seed"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
     "Sha256": {
       "description": "A SHA-256 digest of 64 lowercase hexadecimal digits.",
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
+    },
+    "StartedAs": {
+      "description": "Whether a start began its Run or found it.",
+      "oneOf": [
+        {
+          "const": "new",
+          "description": "The start began it.",
+          "type": "string"
+        },
+        {
+          "const": "existing",
+          "description": "Its Run ID named a Run started before with the same inputs, which is\nreturned as it is.",
+          "type": "string"
+        }
+      ]
     },
     "Status": {
       "description": "Whether a Journey is still run.",
@@ -1539,6 +2082,40 @@
       ],
       "type": "object"
     },
+    "StopReason": {
+      "description": "Why a Run stopped (ADR 0102); the other causes join with the tickets that\nstop Runs for them.",
+      "oneOf": [
+        {
+          "description": "Its program, a person or a Client aborted it, a Connection's close\nincluded (ADR 0078).",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/StoppedBy",
+              "arrived_in": "0.1",
+              "description": "Who stopped it."
+            },
+            "kind": {
+              "const": "abort",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "by"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StoppedBy": {
+      "description": "Who stopped a call (ADR 0113).",
+      "oneOf": [
+        {
+          "const": "client",
+          "description": "A Client, such as through `$/cancel`.",
+          "type": "string"
+        }
+      ]
+    },
     "Suite": {
       "additionalProperties": false,
       "description": "A conformance suite.",
@@ -1626,6 +2203,19 @@
         "version"
       ],
       "type": "object"
+    },
+    "Tag": {
+      "description": "An opaque text a Run is tagged with (ADR 0036).",
+      "maxLength": 64,
+      "type": "string"
+    },
+    "Tags": {
+      "description": "A Run's tags, in the order given.",
+      "items": {
+        "$ref": "#/$defs/Tag"
+      },
+      "maxItems": 16,
+      "type": "array"
     },
     "Target": {
       "description": "What a suite ran against: an engine over the protocol, the Browser host,\na process Plugin, Goodfetch Cloud's engine or, for the self-test, the\nProving ground itself.",
@@ -1745,6 +2335,26 @@
         "id"
       ],
       "type": "object"
+    },
+    "Verdict": {
+      "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
+      "oneOf": [
+        {
+          "const": "verified",
+          "description": "Every check the Run relies on passed, none was switched off, and no\nEffect is left uncertain.",
+          "type": "string"
+        },
+        {
+          "const": "rejected",
+          "description": "A declared Success check failed.",
+          "type": "string"
+        },
+        {
+          "const": "needs_review",
+          "description": "Everything else: a person reviews it.",
+          "type": "string"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1790,6 +2400,24 @@
         "$ref": "#/$defs/Message"
       },
       "storage": "transcript",
+      "version": "0.1"
+    },
+    {
+      "name": "run-index",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/RunIndexRow"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "name": "run-state",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/RunStateRow"
+      },
+      "storage": "sqlite",
       "version": "0.1"
     }
   ],

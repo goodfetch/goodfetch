@@ -30,6 +30,7 @@ export {
   type PageErrorKind,
   type PageErrorWatch,
 } from "./page-errors.ts";
+export { keyboardWalk, type FocusStop } from "./focus.ts";
 
 /** What a served test takes from test support's Playwright `test`, beside Playwright's own. */
 export interface ServedFixtures {

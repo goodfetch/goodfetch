@@ -88,6 +88,8 @@ insta = { version = "1.49.0", default-features = false }
 # The executables' global allocator (ADR 0024), and the Callgrind
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }
+# `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071).
+libc = { version = "0.2.191", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the
@@ -129,6 +131,8 @@ toml = { version = "1.1.8", default-features = false, features = ["std", "parse"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
+# `xtask rss`'s peak reader: GetProcessMemoryInfo on Windows (ADR 0071).
+windows-sys = { version = "0.61.2", default-features = false }
 
 # STYLE.md, Lints, formatting and toolchain; `unsafe`; Async and concurrency.
 # `missing_docs` warns on `goodfetch-collie-client`, `goodfetch-collie`,

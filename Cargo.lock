@@ -3163,6 +3163,7 @@ dependencies = [
  "insta",
  "jiff",
  "jsonschema",
+ "libc",
  "proc-macro2",
  "quick-xml",
  "quote",
@@ -3177,6 +3178,7 @@ dependencies = [
  "tempfile",
  "toml",
  "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -32,6 +32,10 @@ use crate::{github, output};
 
 use compare::{Row, Verdict};
 
+// The figures `xtask rss check` saves for the drift check, in the same file.
+pub(crate) use figure::Figure;
+pub(crate) use figures::{Figures, Recorded};
+
 /// The file that holds the absolute ceilings, relative to the repository.
 pub(crate) const BUDGET_FILE: &str = "xtask/src/perf/budget.rs";
 

@@ -91,17 +91,13 @@ pub(crate) fn arguments(
         arguments.push(("vitest", format!("--testNamePattern=^(?:{names})$")));
     }
 
-    // Playwright matches its pattern against the project, the file and the
-    // titles joined by spaces.
     let playwright = of(Runner::Playwright);
     if !playwright.is_empty() {
-        let paths = alternation(
-            playwright
-                .iter()
-                .map(|test| test.as_str().replace(" › ", " ")),
-        );
         arguments.push(("playwright", format!("--repeat-each={count}")));
-        arguments.push(("playwright", format!("--grep=(?:^| )(?:{paths})(?: |$)")));
+        arguments.push((
+            "playwright",
+            format!("--grep={}", quarantine::playwright_pattern(&playwright)),
+        ));
     }
 
     let pytest = of(Runner::Pytest);

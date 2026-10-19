@@ -131,12 +131,7 @@ impl TryFrom<RawEntry> for Entry {
     type Error = anyhow::Error;
 
     fn try_from(raw: RawEntry) -> Result<Self> {
-        if raw.id.trim().is_empty() {
-            bail!("an entry has an empty test ID");
-        }
-        if raw.runner == Runner::Nextest && !raw.id.contains(' ') {
-            bail!("nextest test `{}` is not `<binary ID> <test name>`", raw.id);
-        }
+        let test = TestId::parse(raw.runner, &raw.id)?;
         if raw.date.date.is_none() || raw.date.time.is_some() {
             bail!(
                 "test `{}` has a date with a time; give the day only",
@@ -145,7 +140,7 @@ impl TryFrom<RawEntry> for Entry {
         }
         Ok(Self {
             runner: raw.runner,
-            test: TestId(raw.id),
+            test,
             issue: raw.issue,
             date: raw.date,
         })
@@ -299,14 +294,11 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
         arguments.push(("vitest", format!("--testNamePattern=^(?!(?:{names})$)")));
     }
 
-    // Playwright matches its pattern against the project, the file and the
-    // titles joined by spaces.
     let playwright = tests(Runner::Playwright);
     if !playwright.is_empty() {
-        let paths = alternation(playwright.iter().map(|test| test.0.replace(" › ", " ")));
         arguments.push((
             "playwright",
-            format!("--grep-invert=(?:^| )(?:{paths})(?: |$)"),
+            format!("--grep-invert={}", playwright_pattern(&playwright)),
         ));
     }
 
@@ -314,6 +306,13 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
         arguments.push(("pytest", format!("--deselect={test}")));
     }
     Ok(arguments)
+}
+
+/// The pattern that matches exactly `tests` of Playwright, which matches a
+/// pattern against the project, the file and the titles joined by spaces.
+pub(crate) fn playwright_pattern(tests: &[&TestId]) -> String {
+    let paths = alternation(tests.iter().map(|test| test.0.replace(" › ", " ")));
+    format!("(?:^| )(?:{paths})(?: |$)")
 }
 
 /// The texts as a JavaScript regular expression's alternatives, each literal.

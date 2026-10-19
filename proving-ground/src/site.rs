@@ -1,18 +1,21 @@
 //! What the Proving ground answers to one request: a page family's page on
 //! that family's host names, and the Effect its form carries out, and on any other host name its own task list
 //! (`GET /tasks`), oracle (`POST /oracle`), certificate authority
-//! (`GET /certificate-authority`) and observations (`GET /observations`).
+//! (`GET /certificate-authority`), observations (`GET /observations`) and
+//! the revocation of the portal's sessions (`POST /revoke-sessions`), which
+//! a harness asks for while a tool is stopped.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
-use serde::Serialize;
 
 use crate::catalog;
+use crate::exchange::{Reply, Request};
 use crate::observation::{self, Observations};
 use crate::oracle::{self, Submission};
+use crate::portal::{self, Portal};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -25,38 +28,7 @@ pub(crate) struct Site {
     /// The seed's certificate authority, as PEM.
     certificate_authority: String,
     observations: Arc<Observations>,
-}
-
-/// A reply's status, media type and body.
-pub(crate) struct Reply {
-    pub(crate) status: StatusCode,
-    pub(crate) content_type: &'static str,
-    pub(crate) body: Bytes,
-}
-
-impl Reply {
-    fn json(status: StatusCode, value: &impl Serialize) -> Self {
-        Self {
-            status,
-            content_type: "application/json",
-            body: serde_json::to_vec(value)
-                .expect("invariant: the Proving ground's own values serialize")
-                .into(),
-        }
-    }
-
-    fn html(page: String) -> Self {
-        Self {
-            status: StatusCode::OK,
-            content_type: "text/html; charset=utf-8",
-            body: page.into(),
-        }
-    }
-
-    /// A JSON error naming its code.
-    pub(crate) fn error(status: StatusCode, code: &str) -> Self {
-        Self::json(status, &serde_json::json!({ "error": code }))
-    }
+    portal: Portal,
 }
 
 impl Site {
@@ -72,6 +44,7 @@ impl Site {
             hosts: Self::hosts(seed),
             certificate_authority,
             observations,
+            portal: Portal::new(seed),
         }
     }
 
@@ -85,49 +58,66 @@ impl Site {
                 .into_iter()
                 .map(|task| (task.host, Some(task.entry.id))),
         );
+        hosts.extend(
+            portal::hosts()
+                .into_iter()
+                .map(|(host, task)| (host, Some(task))),
+        );
         hosts
     }
 
     /// Every family's tasks, in the task list's order.
     fn tasks(&self) -> Vec<Task> {
-        catalog::tasks(self.seed, self.port)
+        let mut tasks = catalog::tasks(self.seed, self.port);
+        tasks.extend(portal::tasks(self.seed, self.port));
+        tasks
     }
 
-    /// Answers one request, given its `Host` header, path and body.
-    pub(crate) fn respond(&self, method: &Method, host: &str, path: &str, body: &Bytes) -> Reply {
+    /// Answers one request, given its `Host` header.
+    pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
+        if let Some((reply, effect)) = self.portal.respond(&observation::host_name(host), request) {
+            if let Some(effect) = effect {
+                self.observations.effect(host, effect);
+            }
+            return reply;
+        }
         if self.hosts.contains_key(&observation::host_name(host)) {
-            return match (method, path) {
-                (&Method::POST, "/orders") => match catalog::order(body) {
+            return match (request.method, request.path) {
+                (&Method::POST, "/orders") => match catalog::order(request.body) {
                     Some((effect, page)) => {
                         self.observations.effect(host, effect);
                         Reply::html(page)
                     }
                     None => Reply::error(StatusCode::BAD_REQUEST, "unknown_product"),
                 },
-                (&Method::GET, _) => catalog::page(self.seed, path).map_or_else(
-                    || Reply::error(StatusCode::NOT_FOUND, "not_found"),
-                    Reply::html,
-                ),
-                _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
+                (&Method::GET, _) => catalog::page(self.seed, request.path)
+                    .map_or_else(Reply::not_found, Reply::html),
+                _ => Reply::not_found(),
             };
         }
-        match (method, path) {
+        match (request.method, request.path) {
             (&Method::GET, "/tasks") => Reply::json(
                 StatusCode::OK,
                 &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
-            (&Method::POST, "/oracle") => self.judge(body),
+            (&Method::POST, "/oracle") => self.judge(request.body),
+            (&Method::POST, "/revoke-sessions") => {
+                self.portal.revoke();
+                Reply::no_content()
+            }
             (&Method::GET, "/observations") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
+                headers: Vec::new(),
                 body: self.observations.document().into(),
             },
             (&Method::GET, "/certificate-authority") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",
+                headers: Vec::new(),
                 body: self.certificate_authority.clone().into(),
             },
-            _ => Reply::error(StatusCode::NOT_FOUND, "not_found"),
+            _ => Reply::not_found(),
         }
     }
 

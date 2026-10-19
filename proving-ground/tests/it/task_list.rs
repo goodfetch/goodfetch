@@ -4,7 +4,7 @@
 //! Covers: story:2-79
 
 use regex::Regex;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::proving_ground::ProvingGround;
 
@@ -19,7 +19,7 @@ fn each(tasks: &Value, field: &str) -> Vec<Value> {
 }
 
 #[test]
-fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
+fn the_task_list_names_the_tasks_of_every_family() {
     let proving_ground = ProvingGround::start(158);
 
     let tasks = proving_ground.tasks();
@@ -27,15 +27,36 @@ fn the_task_list_names_the_catalog_crawl_and_extract_tasks() {
     assert_eq!(tasks["proving_ground"]["seed"], 158, "{tasks}");
     assert_eq!(
         each(&tasks, "id"),
-        [json!("catalog/1"), json!("catalog/2"), json!("catalog/3")]
+        [
+            "catalog/1",
+            "catalog/2",
+            "catalog/3",
+            "portal/1",
+            "portal/2",
+            "portal/3",
+            "portal/4",
+            "portal/5",
+            "portal/6",
+            "portal/7",
+            "portal/8",
+            "portal/9",
+            "portal/10",
+            "portal/11",
+        ]
     );
     assert_eq!(
         each(&tasks, "family"),
-        [json!("catalog"), json!("catalog"), json!("catalog")]
+        [
+            "catalog", "catalog", "catalog", "portal", "portal", "portal", "portal", "portal",
+            "portal", "portal", "portal", "portal", "portal", "portal",
+        ]
     );
     assert_eq!(
         each(&tasks, "kind"),
-        [json!("crawl"), json!("extract"), json!("submit")]
+        [
+            "crawl", "extract", "submit", "crawl", "crawl", "crawl", "crawl", "crawl", "crawl",
+            "crawl", "crawl", "crawl", "crawl", "crawl",
+        ]
     );
     assert_eq!(
         tasks["tasks"][0]["start_url"],

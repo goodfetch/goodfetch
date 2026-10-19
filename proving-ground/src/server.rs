@@ -16,7 +16,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use http_body_util::{BodyExt as _, Full, Limited};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{CONTENT_TYPE, HOST, HeaderValue};
+use hyper::header::{CONTENT_TYPE, COOKIE, HOST, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
@@ -28,8 +28,9 @@ use tokio_util::task::TaskTracker;
 
 use crate::authority::Authority;
 use crate::clock;
+use crate::exchange::{self, Reply};
 use crate::observation::Observations;
-use crate::site::{Reply, Site};
+use crate::site::Site;
 use crate::tap::{Tap, Wire};
 
 /// The largest request body the server reads, a submission to the oracle
@@ -207,26 +208,41 @@ async fn stop_signal() -> Result<()> {
 /// `Host` header, or an HTTP/2 request's `:authority`.
 async fn answer(site: &Site, request: Request<Incoming>) -> Response<Full<Bytes>> {
     let (parts, body) = request.into_parts();
-    let host = parts
-        .headers
-        .get(HOST)
-        .and_then(|host| host.to_str().ok())
+    let header = |name| {
+        parts
+            .headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+    };
+    let host = header(HOST)
         .or_else(|| {
             parts
                 .uri
                 .authority()
                 .map(hyper::http::uri::Authority::as_str)
         })
-        .unwrap_or_default()
-        .to_owned();
+        .unwrap_or_default();
     let reply = match Limited::new(body, BODY_LIMIT).collect().await {
-        Ok(body) => site.respond(&parts.method, &host, parts.uri.path(), &body.to_bytes()),
+        Ok(body) => site.respond(
+            host,
+            &exchange::Request {
+                method: &parts.method,
+                path: parts.uri.path(),
+                query: parts.uri.query().unwrap_or_default(),
+                cookies: header(COOKIE).unwrap_or_default(),
+                body: &body.to_bytes(),
+            },
+        ),
         Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, "body_unreadable"),
     };
     let mut response = Response::new(Full::new(reply.body));
     *response.status_mut() = reply.status;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
+    for (name, value) in reply.headers {
+        let value = HeaderValue::try_from(value)
+            .expect("invariant: the Proving ground's own header values are visible ASCII");
+        headers.append(name, value);
+    }
     response
 }

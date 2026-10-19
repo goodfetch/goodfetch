@@ -7,10 +7,12 @@
     reason = "the tests start the Proving ground's binary as a child process"
 )]
 
+mod browserless;
 mod clients;
 mod observations;
 mod oracle;
 mod pages;
+mod portal;
 mod proving_ground;
 mod serve;
 mod task_list;

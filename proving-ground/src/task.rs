@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::digest;
 
@@ -27,6 +27,22 @@ pub(crate) struct Entry {
     /// The page the task starts on, with the port `serve` bound.
     pub(crate) start_url: String,
     pub(crate) description: &'static str,
+    /// The account a task behind a login logs in with, derived from the seed
+    /// so each Journey variant has its own (ADR 0063).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account: Option<Account>,
+}
+
+/// A login account of the task list.
+#[derive(Serialize)]
+pub(crate) struct Account {
+    pub(crate) username: String,
+    pub(crate) password: String,
+    /// The account's authenticator secret in base32 (RFC 4648, unpadded),
+    /// from which a tool computes its TOTP codes (RFC 6238); absent when the
+    /// account has no MFA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) totp_secret: Option<String>,
 }
 
 /// What a task asks a tool to do.
@@ -41,13 +57,51 @@ pub(crate) enum Kind {
     Submit,
 }
 
-/// A task's expected result, derived from the seed data only: the Records
-/// a tool returns, and the Effects the Proving ground records it carried
-/// out.
-#[derive(Serialize)]
+/// A task's expected result, derived from the seed data only or written by
+/// hand: the Records a tool returns, the Effects the Proving ground records
+/// it carried out, the files it downloads, and whether the task must be
+/// refused.
+#[derive(Default, Serialize)]
 pub(crate) struct Expected {
     pub(crate) records: Vec<Record>,
     pub(crate) effects: Vec<Effect>,
+    /// Records a result may hold or leave out, such as rows a table gained
+    /// or lost while the tool read it, each correct when it is there.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) tolerated: Vec<Record>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) files: Vec<File>,
+    /// Whether the only right result is a refusal: no Effect, and a tool that
+    /// reports a failure, as when the control under the pointer is not the
+    /// task's.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) refusal: bool,
+}
+
+impl Expected {
+    /// The expected Records alone.
+    pub(crate) fn records(records: Vec<Record>) -> Self {
+        Self {
+            records,
+            ..Self::default()
+        }
+    }
+
+    /// The expected Effects alone.
+    pub(crate) fn effects(effects: Vec<Effect>) -> Self {
+        Self {
+            effects,
+            ..Self::default()
+        }
+    }
+}
+
+/// A file a task asks a tool to download: its name and the SHA-256 of its
+/// bytes, in lowercase hex.
+#[derive(Clone, Serialize)]
+pub(crate) struct File {
+    pub(crate) name: String,
+    pub(crate) sha256: String,
 }
 
 /// An Effect a task asks a tool to carry out (ADR 0010), as the site
@@ -57,6 +111,42 @@ pub(crate) struct Expected {
 pub(crate) enum Effect {
     /// An order of one product, placed through its order form.
     Order { product: String },
+    /// A sign-in that opened a new session on a site behind a login form.
+    SignIn,
+    /// An event a hand-made page's script reports when an action reaches one
+    /// of its controls: the event, the control's ID, whether the browser
+    /// marked the event trusted (`isTrusted`), and what the page read, such
+    /// as a field's value.
+    Event {
+        event: String,
+        target: String,
+        trusted: bool,
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        details: BTreeMap<String, String>,
+    },
+}
+
+/// What a hand-made page's script posts when an action reaches one of its
+/// controls, before the site records it as an [`Effect::Event`].
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Reported {
+    event: String,
+    target: String,
+    trusted: bool,
+    #[serde(default)]
+    details: BTreeMap<String, String>,
+}
+
+impl From<Reported> for Effect {
+    fn from(reported: Reported) -> Self {
+        Self::Event {
+            event: reported.event,
+            target: reported.target,
+            trusted: reported.trusted,
+            details: reported.details,
+        }
+    }
 }
 
 /// One expected Record: its fields by name, `id` among them, each as the page

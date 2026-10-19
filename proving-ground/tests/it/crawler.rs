@@ -1,7 +1,8 @@
 //! A plain breadth-first crawler over one task's host: the known-right crawl
 //! of the Crawl families' tests, and, through its knobs, the wrong crawls
 //! tools make (following hidden links, fetching every URL of a page, staying
-//! in a trap, ignoring `Retry-After`, never following a redirect).
+//! in a trap, ignoring `Retry-After`, never following a redirect, resolving
+//! links against the wrong base, reading only the HTML's links).
 #![expect(
     clippy::disallowed_methods,
     reason = "the crawler waits the `Retry-After` the Proving ground sets, one second at most"
@@ -38,6 +39,22 @@ pub(crate) struct Crawler<'a> {
     pub(crate) honour_retry_after: bool,
     /// The most requests the crawl makes.
     pub(crate) limit: usize,
+    /// What a page's relative links resolve against.
+    pub(crate) base: Base,
+    /// Follows the links a page's scripts navigate to, as a crawl that
+    /// clicks them in a browser does; otherwise reads only `<a href>`s.
+    pub(crate) follow_scripts: bool,
+}
+
+/// What a page's relative links resolve against.
+#[derive(Clone, Copy)]
+pub(crate) enum Base {
+    /// The document's base URL (HTML): its first `<base href>`, else the
+    /// URL its last redirect named.
+    Document,
+    /// The URL the crawl asked for, before any redirect, any `<base href>`
+    /// ignored (pitfall U08).
+    Requested,
 }
 
 /// What fetching one link reached.
@@ -63,6 +80,8 @@ impl<'a> Crawler<'a> {
             max_redirects: 20,
             honour_retry_after: true,
             limit: 2_000,
+            base: Base::Document,
+            follow_scripts: true,
         }
     }
 
@@ -88,8 +107,17 @@ impl<'a> Crawler<'a> {
                 Reached::Nothing => continue,
                 Reached::Limit => break,
             };
-            for link in links(&fetched.answer.body, self.follow_hidden) {
-                let target = resolve(&fetched.url, &link);
+            let base = match self.base {
+                Base::Document => base_element(&fetched.answer.body)
+                    .map_or_else(|| fetched.url.clone(), |href| resolve(&fetched.url, &href)),
+                Base::Requested => url.clone(),
+            };
+            let mut found = links(&fetched.answer.body, self.follow_hidden);
+            if self.follow_scripts {
+                found.extend(script_links(&fetched.answer.body));
+            }
+            for link in found {
+                let target = resolve(&base, &link);
                 if origin_of_same(&target, &origin) && seen.insert((self.key)(&target)) {
                     queue.push_back(target);
                 }
@@ -191,6 +219,28 @@ pub(crate) fn links(html: &str, hidden: bool) -> Vec<String> {
             .map(|link| link[1].replace("&amp;", "&")),
     );
     links
+}
+
+/// The `href` of a page's first `<base>`, if it has one.
+pub(crate) fn base_element(html: &str) -> Option<String> {
+    field(html, r#"<base\s[^>]*href="([^"]*)""#)
+}
+
+/// The paths a page's `onclick` handlers navigate to, open or push, each
+/// built from its parts as the page's scripts build them:
+/// `['', 'rooms', 'R-01'].join('/')`.
+pub(crate) fn script_links(html: &str) -> Vec<String> {
+    let call = Regex::new(r#"onclick="[^"]*\[((?:'[^']*'(?:,\s*)?)+)\]\.join\('/'\)"#)
+        .expect("a valid pattern");
+    let part = Regex::new(r"'([^']*)'").expect("a valid pattern");
+    call.captures_iter(html)
+        .map(|parts| {
+            part.captures_iter(&parts[1])
+                .map(|text| text[1].to_owned())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .collect()
 }
 
 /// Whether an `<a>`'s attributes hide it from people.

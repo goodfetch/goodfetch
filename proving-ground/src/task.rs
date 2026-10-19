@@ -203,6 +203,10 @@ pub(crate) enum Finding {
     /// A request sent while the site already had its cap of requests in
     /// flight.
     OverInFlightCap { target: String },
+    /// A request for what a relative link names when resolved against the
+    /// wrong base: the URL before a redirect, or the document's URL where a
+    /// `<base href>` names another (pitfall U08).
+    WrongBase { target: String },
 }
 
 /// One expected Record: its fields by name, `id` among them, each as the page

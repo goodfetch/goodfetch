@@ -10,7 +10,10 @@
 //!   and a cap of requests in flight;
 //! - `parameters`: a parameter that seems to change nothing but separates
 //!   distinct pages on some products;
-//! - `scale`: millions of seeded pages, with sitemaps.
+//! - `scale`: millions of seeded pages, with sitemaps;
+//! - `links`: relative links under a `<base href>` and after a redirect, and
+//!   links only scripts follow (pitfalls U08 and U14);
+//! - `pacing`: a host whose latency rises with the time step.
 //!
 //! Every page and expected result is a pure function of the seed and the
 //! page's place; what a family keeps between requests is what it saw a
@@ -18,6 +21,8 @@
 //! oracle.
 
 mod limits;
+mod links;
+mod pacing;
 mod parameters;
 mod scale;
 mod statuses;
@@ -39,12 +44,14 @@ use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 pub(crate) use limits::Held;
 
 /// The family host names, each with its family's name.
-const FAMILIES: [(&str, &str); 5] = [
+const FAMILIES: [(&str, &str); 7] = [
     (statuses::HOST, statuses::FAMILY),
     (traps::HOST, traps::FAMILY),
     (limits::HOST, limits::FAMILY),
     (parameters::HOST, parameters::FAMILY),
     (scale::HOST, scale::FAMILY),
+    (links::HOST, links::FAMILY),
+    (pacing::HOST, pacing::FAMILY),
 ];
 
 /// The parts of a request a Crawl family reads: an
@@ -217,6 +224,8 @@ impl Families {
             traps::FAMILY => traps::respond(&visit, &self.traps),
             limits::FAMILY => limits::respond(&visit, &self.limits),
             parameters::FAMILY => parameters::respond(&visit),
+            links::FAMILY => links::respond(&visit),
+            pacing::FAMILY => pacing::respond(&visit),
             _ => scale::respond(&visit),
         })
     }
@@ -256,6 +265,8 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     tasks.extend(parameters::tasks(seed, port));
     tasks.extend(limits::tasks(seed, port));
     tasks.extend(scale::tasks(seed, port));
+    tasks.extend(links::tasks(seed, port));
+    tasks.extend(pacing::tasks(seed, port));
     tasks
 }
 

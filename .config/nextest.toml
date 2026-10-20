@@ -3,8 +3,14 @@
 # tests and writes JUnit XML to `target/nextest/<profile>/junit.xml`.
 nextest-version = { required = "0.9.131" }
 
+# The LazyFS power cuts (`lazyfs::` in an integration-test binary) run only in
+# the Release suite on Linux x64 (ADR 0060), where `just lazyfs-test` builds
+# LazyFS and selects them with `--ignore-default-filter`; every other run
+# leaves them out.
+
 # Local runs without a suite: the Pre-merge caps.
 [profile.default]
+default-filter = "not (kind(test) & test(/^lazyfs::/))"
 retries = 0
 flaky-result = "fail"
 fail-fast = false
@@ -28,6 +34,7 @@ path = "junit.xml"
 
 # The Pre-merge and Release suites in CI: slow after 30 s, killed at 5 min.
 [profile.ci]
+default-filter = "not (kind(test) & test(/^lazyfs::/))"
 retries = 0
 flaky-result = "fail"
 fail-fast = false

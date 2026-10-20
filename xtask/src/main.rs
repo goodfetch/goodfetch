@@ -415,7 +415,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             journeys::run(&command, environment, features::manual_exceptions)
         }
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
-        Command::Lazyfs { command } => lazyfs::run(command, environment),
+        Command::Lazyfs { command } => lazyfs::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),

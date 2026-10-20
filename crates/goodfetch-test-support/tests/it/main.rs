@@ -18,6 +18,8 @@ mod endpoints;
 mod exercise_record;
 mod hostile_tables;
 mod journey_run;
+#[cfg(target_os = "linux")]
+mod lazyfs;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

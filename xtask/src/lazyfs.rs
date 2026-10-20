@@ -2,13 +2,14 @@
 //! (ADR 0060): built from source archives pinned by SHA-256 in
 //! `test-support/lazyfs/sources.toml`. `fetch` keeps them before the
 //! outbound-traffic deny; `build` builds from the kept archives alone, with
-//! CMake's own downloads turned off, into `target/lazyfs/bin/`, where
-//! `GOODFETCH_LAZYFS` names the executable for the LazyFS tests.
+//! `cmake`'s `FetchContent` downloads turned off, into `target/lazyfs/bin/`,
+//! where `GOODFETCH_LAZYFS` names the executable for the LazyFS tests.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitCode};
 
@@ -40,8 +41,8 @@ pub(crate) enum Command {
     /// pins into `target/lazyfs/sources/`, unless the kept file already has
     /// its pinned SHA-256, and fails on a download whose SHA-256 differs.
     Fetch,
-    /// Builds LazyFS (Linux, with CMake, a C++17 compiler and libfuse3's
-    /// headers) from the kept archives into `target/lazyfs/bin/`, and prints
+    /// Builds LazyFS (Linux, with `cmake`, a C++17 compiler and the headers
+    /// of `libfuse3`) from the kept archives into `target/lazyfs/bin/`, and prints
     /// the executable's path; fails unless each archive is its pin.
     Build,
 }
@@ -52,7 +53,7 @@ struct SourcesFile {
     source: Vec<Pin>,
 }
 
-pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
     let root = &environment.root;
     let pins = pinned::read(root, SOURCES_FILE, |file: SourcesFile| file.source)?;
     let sources = root.join(FOLDER).join("sources");
@@ -63,14 +64,16 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             SOURCES_FILE,
             MAXIMUM_DOWNLOAD,
         )?)),
-        Command::Build => match pinned::kept(&sources, &pins, "just lazyfs-fetch")? {
-            Err(findings) => Ok(check::report(&findings)),
-            Ok(_) => {
-                let executable = build(&root.join(FOLDER), &sources, &pins)?;
-                output::line(&executable.display().to_string());
-                Ok(ExitCode::SUCCESS)
+        Command::Build => {
+            if let Err(findings) = pinned::kept(&sources, &pins, "just lazyfs-fetch")? {
+                return Ok(check::report(&findings));
             }
-        },
+            let executable = build(&root.join(FOLDER), &sources, &pins)?;
+            let executable = std::path::absolute(&executable)
+                .with_context(|| format!("resolving {}", executable.display()))?;
+            output::line(&executable.display().to_string());
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -89,10 +92,10 @@ fn build(folder: &Path, sources: &Path, pins: &[Pin]) -> Result<PathBuf> {
     let bin = folder.join("bin");
     let executable = bin.join("lazyfs");
     let stamp_path = bin.join("pins");
-    let stamp: String = pins
-        .iter()
-        .map(|pin| format!("{} {}\n", pin.sha256, pin.name))
-        .collect();
+    let stamp = pins.iter().fold(String::new(), |mut stamp, pin| {
+        let _ = writeln!(stamp, "{} {}", pin.sha256, pin.name);
+        stamp
+    });
     if executable.exists() && std::fs::read_to_string(&stamp_path).ok().as_deref() == Some(&stamp) {
         return Ok(executable);
     }

@@ -686,6 +686,9 @@ jobs:
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: "Test: the visual projects in the pinned image"
+        # Firefox's and WebKit's visual projects run in the Release suite only.
+        env:
+          GOODFETCH_TEST_SUITE: release
         run: ci/vm/visual.sh test
       - name: Check that every Reference screenshot was read
         run: ci/vm/exec.sh cargo run --quiet --locked -p xtask -- screenshots orphans

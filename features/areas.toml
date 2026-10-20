@@ -51,6 +51,22 @@ number = 3
 kind = "error"
 prefix = "call_cancelled"
 
+# The engine's own DNS resolver and Smart App Control's refusal (#260).
+[[area]]
+number = 3
+kind = "error"
+prefix = "name_not_resolved"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "name_lookup_failed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "executable_blocked_by_smart_app_control"
+
 [[area]]
 number = 3
 kind = "format"
@@ -114,3 +130,43 @@ prefix = "browser_cache."
 number = 3
 kind = "format"
 prefix = "browser-cache"
+
+# The Browser cache's commands (#259): `browsers install` and `browsers clean`.
+[[area]]
+number = 3
+kind = "command"
+prefix = "browsers."
+
+# The hidden Attached-engine entry of both executables, which an SDK starts
+# (spec #213).
+[[area]]
+number = 3
+kind = "command"
+prefix = "attached-engine"
+
+# Area 3's event stream and page bodies (spec #213, #216): the subscription
+# and its events, a Run's axis changes, and `page.body` with its Error code.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "events."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "events."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "run."
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "page.body"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "body_"

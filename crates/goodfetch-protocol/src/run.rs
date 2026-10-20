@@ -13,8 +13,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, Product, ProtocolVersion,
-    Setting, Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation, OperationClass,
+    Product, ProtocolVersion, Setting, Stability, schema_of,
 };
 use crate::connection::StoppedBy;
 
@@ -424,6 +424,37 @@ pub struct RunReport {
     pub ended_at: PointInTime,
 }
 
+/// A Run's three axes as they are now (ADR 0029): what
+/// `run.axes_changed` reports, and what a resync gives of each Run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunAxes {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where it is.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lifecycle: Lifecycle,
+    /// Whether its own checks prove what it committed, once it ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub verdict: Option<Verdict>,
+    /// Whether its results cover its scope, once it ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub completeness: Option<Completeness>,
+}
+
+/// A Run's axes changed: it started, or it ended (ADRs 0029 and 0031).
+pub const RUN_AXES_CHANGED: Event = Event {
+    name: "run.axes_changed",
+    description: "A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.",
+    class: EventClass::Lossless,
+    payload: schema_of::<RunAxes>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `run.start`.
 pub const RUN_START: Operation = Operation {
     name: "run.start",
@@ -630,7 +661,7 @@ pub struct RunIndexRow {
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[RUN_START, RUN_FINISH, RUN_ABORT],
-    events: &[],
+    events: &[RUN_AXES_CHANGED],
     handler_requests: &[],
     error_codes: &[
         RUN_ID_INVALID,

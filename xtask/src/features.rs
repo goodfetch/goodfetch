@@ -3,7 +3,9 @@
 //! test declares in its runner's idiom, and the Feature check: in the Quick
 //! suite without the runners' listings, in the Pre-merge suite with them.
 
+mod block_cause;
 mod check;
+mod command;
 mod contract;
 mod covers;
 mod entry;
@@ -13,6 +15,7 @@ mod inventory;
 mod listed;
 mod row;
 mod scan;
+mod screen;
 mod story;
 
 use std::collections::BTreeSet;
@@ -24,8 +27,10 @@ use anyhow::Result;
 use crate::environment::Environment;
 use crate::output;
 
+pub(crate) use command::{CommandLines, CommandTree, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
+pub(crate) use scan::tests;
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {

@@ -6,6 +6,7 @@
     "**/features/inventory.json",
     "**/features/*.schema.json",
     "**/fixtures/schemas/**",
+    "**/fixtures/engine-scripts/script.schema.json",
     "proving-ground/fixtures/archive/**",
     "**/journeys/journey.schema.json",
     "**/compat/**",

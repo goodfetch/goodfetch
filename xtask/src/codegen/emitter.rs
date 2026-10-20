@@ -25,11 +25,17 @@ pub(super) struct Emitted {
 const BUILT_FROM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 
 pub(super) fn emit(cargo: &OsStr, root: &Path) -> Result<Emitted> {
-    let canonical = |path: &Path| path.canonicalize().ok();
-    if canonical(root).is_some() && canonical(root) == canonical(Path::new(BUILT_FROM)) {
+    if built_from(root) {
         return linked();
     }
     run_example(cargo, root)
+}
+
+/// Whether `root` is the workspace this `xtask` was built from, whose crates
+/// it links.
+pub(super) fn built_from(root: &Path) -> bool {
+    let canonical = |path: &Path| path.canonicalize().ok();
+    canonical(root).is_some() && canonical(root) == canonical(Path::new(BUILT_FROM))
 }
 
 /// The files as the `emit` example writes them: pretty JSON with a final

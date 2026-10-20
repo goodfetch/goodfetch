@@ -413,6 +413,35 @@
       ],
       "type": "object"
     },
+    "Chunk": {
+      "additionalProperties": false,
+      "description": "What `$/chunk` carries: the next bytes of the body a call reads.",
+      "properties": {
+        "data": {
+          "arrived_in": "0.1",
+          "description": "Its bytes, in Base64 (RFC 4648, with padding).",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `page.body` call."
+        },
+        "offset": {
+          "arrived_in": "0.1",
+          "description": "Where its bytes start in the body.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "offset",
+        "data"
+      ],
+      "type": "object"
+    },
     "ClientPackages": {
       "additionalProperties": false,
       "description": "The Collie client packages, one per language (ADR 0095).",
@@ -613,6 +642,29 @@
       ],
       "type": "object"
     },
+    "CreditParams": {
+      "additionalProperties": false,
+      "description": "What `$/credit` grants: more events, or chunks, for a streaming call.",
+      "properties": {
+        "credits": {
+          "arrived_in": "0.1",
+          "description": "How many more events, or chunks, the Client takes.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The streaming call's id."
+        }
+      },
+      "required": [
+        "id",
+        "credits"
+      ],
+      "type": "object"
+    },
     "DownloadProgress": {
       "description": "What `browser_cache.download_progress` reports.",
       "properties": {
@@ -762,6 +814,82 @@
         "jsonrpc",
         "error"
       ],
+      "type": "object"
+    },
+    "EventBatch": {
+      "additionalProperties": false,
+      "description": "What `$/events` carries: a batch of one subscription's events, in the\norder of their positions.",
+      "properties": {
+        "events": {
+          "arrived_in": "0.1",
+          "description": "Its events.",
+          "items": {
+            "$ref": "#/$defs/EventEnvelope"
+          },
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the subscription's `events.subscribe` call."
+        }
+      },
+      "required": [
+        "id",
+        "events"
+      ],
+      "type": "object"
+    },
+    "EventEnvelope": {
+      "additionalProperties": false,
+      "description": "One event of a batch.",
+      "properties": {
+        "data": {
+          "arrived_in": "0.1",
+          "description": "Its payload, of the type the catalog gives the event."
+        },
+        "dropped": {
+          "arrived_in": "0.1",
+          "description": "For a telemetry event, how many of the same kind and scope it\nreplaced unsent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event": {
+          "arrived_in": "0.1",
+          "description": "The catalog's name of the event.",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "arrived_in": "0.1",
+          "description": "Its position."
+        }
+      },
+      "required": [
+        "position",
+        "event",
+        "data"
+      ],
+      "type": "object"
+    },
+    "EventsSubscribeParams": {
+      "additionalProperties": false,
+      "description": "What `events.subscribe` takes.",
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Position"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The position of the last event the Client read: the subscription\nresumes after it, or starts with `events.resync` when the engine no\nlonger holds it. Absent, it starts with the next event."
+        }
+      },
       "type": "object"
     },
     "Evidence": {
@@ -1274,6 +1402,44 @@
         }
       ]
     },
+    "PageBodyParams": {
+      "additionalProperties": false,
+      "description": "What `page.body` takes: the body to read.",
+      "properties": {
+        "body": {
+          "arrived_in": "0.1",
+          "description": "Its ID.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose folder holds it."
+        }
+      },
+      "required": [
+        "run_id",
+        "body"
+      ],
+      "type": "object"
+    },
+    "PageBodyRead": {
+      "description": "What `page.body` answers once it sent the last chunk.",
+      "properties": {
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The body's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size"
+      ],
+      "type": "object"
+    },
     "PinnedTask": {
       "additionalProperties": false,
       "description": "A Proving ground task a Journey names.",
@@ -1316,6 +1482,11 @@
       "description": "A point in time in UTC, as RFC 3339.",
       "format": "date-time",
       "type": "string"
+    },
+    "Position": {
+      "description": "An event's position among every event of one engine, which only goes up.",
+      "minimum": 0,
+      "type": "integer"
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -1617,6 +1788,67 @@
           "type": "object"
         }
       ]
+    },
+    "Resync": {
+      "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
+      "properties": {
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The axes of each Run the engine knows, live or ended.",
+          "items": {
+            "$ref": "#/$defs/RunAxes"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "RunAxes": {
+      "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
+      "properties": {
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Whether its results cover its scope, once it ended."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Whether its own checks prove what it committed, once it ended."
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle"
+      ],
+      "type": "object"
     },
     "RunId": {
       "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
@@ -2256,6 +2488,10 @@
         }
       ]
     },
+    "SubscriptionEnded": {
+      "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
+      "type": "object"
+    },
     "Suite": {
       "additionalProperties": false,
       "description": "A conformance suite.",
@@ -2502,6 +2738,21 @@
     "cancel": {
       "params": {
         "$ref": "#/$defs/CancelParams"
+      }
+    },
+    "chunk": {
+      "params": {
+        "$ref": "#/$defs/Chunk"
+      }
+    },
+    "credit": {
+      "params": {
+        "$ref": "#/$defs/CreditParams"
+      }
+    },
+    "events": {
+      "params": {
+        "$ref": "#/$defs/EventBatch"
       }
     },
     "hello": {

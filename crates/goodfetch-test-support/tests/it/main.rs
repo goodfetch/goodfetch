@@ -1,7 +1,8 @@
 //! goodfetch-test-support's integration tests (Seam B, Pre-merge): the
 //! crate's interface with real child processes (seeded kills and a failed
-//! test's Observation log among them), and `goodfetch-test-env`'s command
-//! line and JSON description.
+//! test's Observation log among them), `goodfetch-test-env`'s command
+//! line and JSON description, and `goodfetch-scripted-engine` playing
+//! scripts to a tiny Client.
 #![expect(
     clippy::disallowed_methods,
     reason = "these tests start processes, read files and wait outside any async worker"
@@ -12,10 +13,12 @@
 )]
 
 mod endpoints;
+mod journey_run;
 mod observation_log;
 mod probe;
 mod proving_ground;
 mod reported;
+mod scripted_engine;
 mod seed;
 mod seeded_kill;
 mod ssrf_table;

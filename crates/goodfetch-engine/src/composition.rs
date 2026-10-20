@@ -17,13 +17,15 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::Client;
+use crate::events::{Credits, Events};
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
 use crate::runs::Runs;
@@ -135,21 +137,58 @@ pub struct CallContext {
     token: CancellationToken,
     client: Client,
     runs: Runs,
+    events: Events,
+    stream: CallStream,
+}
+
+/// What a streaming call sends its notifications with: its id, the credits
+/// its Client grants it and the Connection's writer.
+#[derive(Clone)]
+pub(crate) struct CallStream {
+    pub(crate) id: RequestId,
+    pub(crate) credits: Credits,
+    pub(crate) outgoing: mpsc::Sender<Vec<u8>>,
+}
+
+/// Where a call runs: its Connection's Client, the engine's Runs and event
+/// stream, and its own stream of notifications.
+pub(crate) struct CallSetup {
+    pub(crate) identity: Arc<Identity>,
+    pub(crate) token: CancellationToken,
+    pub(crate) client: Client,
+    pub(crate) runs: Runs,
+    pub(crate) events: Events,
+    pub(crate) stream: CallStream,
 }
 
 impl CallContext {
-    pub(crate) fn new(
-        identity: Arc<Identity>,
-        token: CancellationToken,
-        client: Client,
-        runs: Runs,
-    ) -> Self {
+    pub(crate) fn new(setup: CallSetup) -> Self {
+        let CallSetup {
+            identity,
+            token,
+            client,
+            runs,
+            events,
+            stream,
+        } = setup;
         Self {
             identity,
             token,
             client,
             runs,
+            events,
+            stream,
         }
+    }
+
+    /// The engine's event stream, on which a handler publishes its events.
+    pub fn events(&self) -> &Events {
+        &self.events
+    }
+
+    /// The call's own stream of notifications.
+    pub(crate) fn stream(&self) -> &CallStream {
+        &self.stream
     }
 
     /// The Client of the call's Connection, to which a Run started by the

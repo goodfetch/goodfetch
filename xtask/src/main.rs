@@ -16,6 +16,7 @@ mod axe_exceptions;
 mod budgets;
 mod ceiling;
 mod check;
+mod clients;
 mod codegen;
 mod commit_messages;
 mod compat;
@@ -48,6 +49,7 @@ mod rate;
 mod release_suite;
 mod repeat;
 mod results;
+mod rss;
 mod scan;
 mod screenshots;
 mod self_hosted;
@@ -92,6 +94,12 @@ enum Command {
     /// tier, read from the results store, is past its budget in TESTING.md;
     /// never fails.
     Budgets(budgets::Arguments),
+    /// The Client conformance case list under `conformance/clients/` (ADR
+    /// 0069).
+    Clients {
+        #[command(subcommand)]
+        command: clients::Command,
+    },
     /// Regenerates every file generated from `goodfetch-protocol`'s types:
     /// the JSON Schema bundle and catalog file, each Product's projection,
     /// the names only Foxhound carries, the cargo-deny `wrappers` list and
@@ -206,6 +214,12 @@ enum Command {
     Results {
         #[command(subcommand)]
         command: ResultsCommand,
+    },
+    /// The resident-memory check (ADRs 0071, 0094 and 0134): each
+    /// scenario's peak on each Product's executable, held to its ceiling.
+    Rss {
+        #[command(subcommand)]
+        command: rss::Command,
     },
     /// Reference screenshots (ADR 0073).
     Screenshots {
@@ -374,6 +388,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
         Command::AxeExceptions { command } => axe_exceptions::run(command, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
+        Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,
@@ -401,6 +416,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::Results { command } => run_results(command, environment),
+        Command::Rss { command } => rss::run(command, environment),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),

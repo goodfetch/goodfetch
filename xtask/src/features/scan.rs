@@ -4,7 +4,8 @@
 //! Cargo target's module tree and named as nextest names the test, an rstest
 //! case included. Each declaration's level comes from the path of the file
 //! that holds the test. The sibling modules `listed` and `covers` read the
-//! other idioms.
+//! other idioms. `tests` lists every Rust test the same way, declaring or
+//! not, which `xtask clients check` reads too.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -137,9 +138,49 @@ pub(crate) struct Declaration {
 
 /// Every Rust declaration of the workspace at `root`, sorted.
 pub(crate) fn rust(cargo: &OsStr, root: &Path) -> Result<Vec<Declaration>> {
+    let mut declarations: Vec<Declaration> = tests(cargo, root, None)?
+        .iter()
+        .flat_map(|test| {
+            test.features.iter().map(|feature| Declaration {
+                feature: feature.clone(),
+                level: Level::of(Path::new(&test.path)),
+                source: Source::Nextest,
+                test: format!("{} {}", test.binary, test.name),
+                package: Some(test.package.clone()),
+                path: test.path.clone(),
+            })
+        })
+        .collect();
+    declarations.sort();
+    declarations.dedup();
+    Ok(declarations)
+}
+
+/// One Rust test, as nextest names it, with the Features it declares.
+#[derive(Debug)]
+pub(crate) struct Test {
+    /// nextest's binary ID of the target that holds it.
+    pub(crate) binary: String,
+    /// Its name in that binary, an rstest case's included:
+    /// `store::keeps_a_value::case_1_empty`.
+    pub(crate) name: String,
+    /// The crate that holds it.
+    pub(crate) package: String,
+    /// The file that holds it, relative to the workspace's root.
+    pub(crate) path: String,
+    /// The Features its `Covers:` lines and its modules' declare.
+    pub(crate) features: Vec<String>,
+}
+
+/// Every Rust test of the workspace at `root`, read from each Cargo target's
+/// module tree; only those of `packages` when given.
+pub(crate) fn tests(cargo: &OsStr, root: &Path, packages: Option<&[&str]>) -> Result<Vec<Test>> {
     let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let mut declarations = Vec::new();
+    let mut tests = Vec::new();
     for package in metadata::packages(cargo, root)? {
+        if packages.is_some_and(|packages| !packages.contains(&package.name.as_str())) {
+            continue;
+        }
         for target in &package.targets {
             let Some(binary) = binary_id(&package.name, target) else {
                 continue;
@@ -151,12 +192,10 @@ pub(crate) fn rust(cargo: &OsStr, root: &Path) -> Result<Vec<Declaration>> {
             };
             let source = &target.src_path;
             let folder = source.parent().context("a crate root sits in a folder")?;
-            context.file(source, folder, &[], &[], &mut declarations)?;
+            context.file(source, folder, &[], &[], &mut tests)?;
         }
     }
-    declarations.sort();
-    declarations.dedup();
-    Ok(declarations)
+    Ok(tests)
 }
 
 /// nextest's binary ID of a target that holds tests: the package's name for
@@ -194,7 +233,7 @@ impl Target<'_> {
         children: &Path,
         module_path: &[String],
         inherited: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) -> Result<()> {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -207,7 +246,7 @@ impl Target<'_> {
             children,
             names: module_path,
         };
-        self.items(&module, &syntax.items, &features, declarations)
+        self.items(&module, &syntax.items, &features, tests)
     }
 
     fn items(
@@ -215,14 +254,14 @@ impl Target<'_> {
         module: &Module<'_>,
         items: &[syn::Item],
         features: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) -> Result<()> {
         for item in items {
             match item {
                 syn::Item::Fn(function) => {
-                    self.function(module, function, features, declarations);
+                    self.function(module, function, features, tests);
                 }
-                syn::Item::Mod(child) => self.module(module, child, features, declarations)?,
+                syn::Item::Mod(child) => self.module(module, child, features, tests)?,
                 _ => {}
             }
         }
@@ -234,7 +273,7 @@ impl Target<'_> {
         parent: &Module<'_>,
         child: &syn::ItemMod,
         features: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) -> Result<()> {
         let name = child.ident.to_string();
         let mut module_path = parent.names.to_vec();
@@ -247,7 +286,7 @@ impl Target<'_> {
                 children: &parent.children.join(&name),
                 names: &module_path,
             };
-            return self.items(&module, items, &inherited, declarations);
+            return self.items(&module, items, &inherited, tests);
         }
         let file = [
             parent.children.join(format!("{name}.rs")),
@@ -266,7 +305,7 @@ impl Target<'_> {
             Some(parent.children.join(&name))
         }
         .unwrap_or_default();
-        self.file(&file, &children, &module_path, &inherited, declarations)
+        self.file(&file, &children, &module_path, &inherited, tests)
     }
 
     fn function(
@@ -274,7 +313,7 @@ impl Target<'_> {
         module: &Module<'_>,
         function: &syn::ItemFn,
         features: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) {
         let attributes = &function.attrs;
         if !is_test(attributes) {
@@ -282,31 +321,23 @@ impl Target<'_> {
         }
         let mut all = features.to_vec();
         all.extend(covers(attributes));
-        if all.is_empty() {
-            return;
-        }
         let mut name = module.names.to_vec();
         name.push(function.sig.ident.to_string());
         let base = name.join("::");
         let cases = cases(attributes);
-        let tests: Vec<String> = if cases.is_empty() {
+        let names: Vec<String> = if cases.is_empty() {
             vec![base]
         } else {
             cases.iter().map(|case| format!("{base}::{case}")).collect()
         };
         let path = relative(self.root, module.path);
-        for test in &tests {
-            for feature in &all {
-                declarations.push(Declaration {
-                    feature: feature.clone(),
-                    level: Level::of(Path::new(&path)),
-                    source: Source::Nextest,
-                    test: format!("{} {test}", self.binary),
-                    package: Some(self.package.to_owned()),
-                    path: path.clone(),
-                });
-            }
-        }
+        tests.extend(names.into_iter().map(|name| Test {
+            binary: self.binary.to_owned(),
+            name,
+            package: self.package.to_owned(),
+            path: path.clone(),
+            features: all.clone(),
+        }));
     }
 }
 

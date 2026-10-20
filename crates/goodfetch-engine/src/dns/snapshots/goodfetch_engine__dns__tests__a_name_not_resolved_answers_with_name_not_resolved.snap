@@ -1,0 +1,14 @@
+---
+source: crates/goodfetch-engine/src/dns/tests.rs
+expression: error
+---
+CallError {
+    code: "name_not_resolved",
+    message: "printer.local is a .local name, which multicast DNS answers; the engine's own resolver asks only the name servers of the system's resolver configuration. Map it with the `resolve` setting",
+    retryable: false,
+    details: {
+        "multicast_dns_name": Bool(true),
+        "name": String("printer.local"),
+        "resolver": String("engine"),
+    },
+}

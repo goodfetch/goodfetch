@@ -61,6 +61,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
     cargo run --quiet -p xtask -- features check
+    cargo run --quiet -p xtask -- clients check
     cargo run --quiet -p xtask -- compat check
     cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- journeys check
@@ -227,9 +228,12 @@ test suite *packages:
     # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
     # the commit's executables through the test tool manifest (ADRs 0062 and
     # 0094): those the workspace has, built here with the tests' profile.
+    # Each Rust Journey variant writes its result document, `<id>@<surface>.json`,
+    # into target/result-documents/ (ADR 0063).
     export GOODFETCH_TEST_SUITE="{{ suite }}"
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
     if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
       manifest=$(jq --arg engine "$GOODFETCH_TEST_ENGINE" '.collie = $engine | .foxhound = $engine' target/test-tools.json)
       printf '%s\n' "$manifest" > target/test-tools.json
@@ -542,23 +546,42 @@ quick *all:
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
+#
+# `perf` runs beside the other steps, in its container on Linux x86-64
+# (ci/perf.sh), with its lines marked `[perf]`; the suite waits for it and
+# fails when it fails, and stops it when another step fails first. The checks
+# that take seconds and judge the whole change (sign-offs, commit messages,
+# the SDK crates' features, advisories, the proofs) run before the suites.
 pre-merge *all:
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
     rm -f target/skipped.txt
-    trap '"$just" _skips-report' EXIT
+    "$just" perf > >(awk '{ print "[perf] " $0; fflush() }') 2>&1 &
+    perf=$!
+    trap '[[ -z "$perf" ]] || kill "$perf" 2>/dev/null || true; "$just" _skips-report' EXIT
+    "$just" dco
+    "$just" commit-messages
     "$just" lint
+    "$just" feature-combinations
+    "$just" audit
+    "$just" proofs
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
     "$just" journeys-tasks --check
     "$just" features-tests
     "$just" _tlc "{{ all }}"
-    "$just" proofs
-    "$just" supply-chain
-    "$just" dco
-    "$just" commit-messages
-    "$just" perf
+    "$just" msrv
+    "$just" miri
+    "$just" notices
+    echo "Waiting for perf…"
+    status=0
+    wait "$perf" || status=$?
+    perf=
+    if [[ $status -ne 0 ]]; then
+      echo "error: just perf failed with exit status $status" >&2
+      exit "$status"
+    fi
     "$just" _visual-elsewhere
 
 # This host's cell of the Release suite. The other cells run in CI only:
@@ -574,6 +597,7 @@ release:
     "$just" test release
     "$just" _tlc all
     "$just" proofs
+    "$just" rss
     "$just" _visual-elsewhere
     echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
@@ -628,6 +652,32 @@ release-ci cells="all" commit="":
         --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
     fi
     exit "$status"
+
+# The resident-memory check (ADRs 0071, 0094 and 0134): builds both Products'
+# executables with the `ci` profile the Release suite's cells build, runs the
+# scenario (every scenario when none is named: idle-attached-engine) on each
+# executable it runs on, then holds each peak to its ceiling in
+# ci/rss-ceilings.toml and shows it against its Performance target. With no
+# ceilings file it reports and gates nothing. The JUnit file and the figures
+# the results store keeps go to target/junit/.
+# Runs the resident-memory check: `just rss [scenario…]`.
+rss *scenarios:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    rm -f target/rss/peaks.jsonl
+    cargo run --quiet -p xtask -- rss measure {{ scenarios }} --tools target/rss/test-tools.json --out target/rss/peaks.jsonl
+    cargo run --quiet -p xtask -- rss check --peaks target/rss/peaks.jsonl
+
+# Proposes the resident-memory ceilings of this platform from 20 runs of each
+# scenario on each executable it runs on: 1.5 times the highest peak, rounded
+# up to a whole MiB, as ci/rss-ceilings.toml writes them. Only the owner
+# commits a ceiling (ADR 0071), measured on the build after M1's optimization
+# pass (ADR 0134).
+# Proposes this platform's resident-memory ceilings from 20 runs.
+rss-propose *scenarios:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    rm -f target/rss/propose.jsonl
+    cargo run --quiet -p xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
+    cargo run --quiet -p xtask -- rss propose --peaks target/rss/propose.jsonl
 
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):
@@ -692,7 +742,7 @@ screenshots-fetch run:
 # the advisories of every lockfile, the MSRV build, cargo-hack over each
 # Product's SDK crate, Miri and the notice inventory's license check. The
 # audits read public advisory databases, so CI runs this before any egress
-# deny.
+# deny. `pre-merge` runs the same parts, cheapest first.
 supply-chain: audit msrv feature-combinations miri notices
 
 # The third-party notice inventory (ADRs 0018 and 0047): fails on a
@@ -784,8 +834,9 @@ proofs:
 hooks:
     git config core.hooksPath .githooks
 
-# Merges a pull request only when `just quick all` and `just pre-merge all`
-# pass on its exact head, in a fresh worktree (AGENTS.md, "Merging").
+# Merges a pull request only when `just pre-merge all`, which starts with
+# `just quick all`'s lint and Quick suite, passes on its exact head, in a
+# clean checkout in the gate's own worktree (AGENTS.md, "Merging").
 merge number:
     ci/merge-pr.sh {{ number }}
 

@@ -9,4 +9,5 @@
 
 mod attached;
 mod browsers;
+mod events;
 mod run;

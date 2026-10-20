@@ -141,7 +141,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "The engine's answer to the request the last `expect` matched, which\ncarries that request's ID; a script never writes an ID.",
+          "description": "The engine's answer to the request the last `expect` of a request\nmatched, which carries that request's ID; an expected notification\nbetween them, such as the `$/cancel` of that request, leaves it to\nanswer. A script never writes an ID.",
           "properties": {
             "reply": {
               "$ref": "#/$defs/Reply"

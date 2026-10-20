@@ -30,16 +30,16 @@
     }
   },
   "test-support/python/src/goodfetch_test_support/generated/result_document.py": {
-    "input": "34e583182f2c866a20d05e2676b493270ed1316337cf2349efe30aba57960a85",
-    "output": "37a4bae42d23fabef8600cb525df3bc77ae6927ffed1956c43d92fb50769a13a",
+    "input": "af2d17d5209494034bddc3f6801c2b0721f56377fab0f777acd74e654e13c78e",
+    "output": "46bba01786a7db396f33e68a3377e03ea72ef8573b81becebaf7647ec96686d8",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "test-support/typescript/src/generated/result-document.ts": {
-    "input": "001dccfe417bd6da68f3190fb1aa7a75d7da62726a47a634b3250a8a5016b89b",
-    "output": "4246b05b60e1c91bf0bb6f693d44c811137cbc1f249e6c5fd1c076f008667c8a",
+    "input": "9cf86e18792b38f4fedb9f723d9b89aa8f44960621a3cf7a4b5f419910fe2f67",
+    "output": "79593e4a8821cdebc50ce5a69c9f6ed8afafcc491989bd3e16b1cd6d321a61c1",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

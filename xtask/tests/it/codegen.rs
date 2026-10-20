@@ -166,6 +166,16 @@ const RESULT_DOCUMENT: &str = "crates/goodfetch-protocol/src/result_document.rs"
         finding("stale", "test-support/typescript/src/generated/result-document.ts"),
     ],
 )]
+#[case::field_added_to_the_case_log_entry(
+    RESULT_DOCUMENT,
+    "    /// The case's ID.\n    pub case: String,\n",
+    "    /// The case's ID.\n    pub case: String,\n    /// Its mode.\n    pub mode: String,\n",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
+        finding("stale", "test-support/typescript/src/generated/result-document.ts"),
+    ],
+)]
 fn check_fails_after_a_type_change_that_was_not_regenerated(
     #[case] source: &str,
     #[case] from: &str,

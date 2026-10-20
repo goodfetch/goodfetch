@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class ResultDocumentTypes(BaseModel):
-    """The root of the result document's types, which holds no value of its own."""
+    """The root of the result document's and the case log entry's types, which holds no value of its own."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -412,6 +412,31 @@ class CaseEntry(BaseModel):
     The mode it ran in, such as `attached` or `daemon`, when the case
     runs in several.
     """
+
+
+class CaseLogEntry(BaseModel):
+    """One time a case ran."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    capability: str
+    """The capability the case belongs to."""
+    case: str
+    """The case's ID in the declared case list."""
+    checks: list[CaseCheck]
+    """Each check's result."""
+    evidence: Evidence | None = None
+    """What it saw: the oracle's answers, the scripted messages."""
+    mode: str | None = None
+    """
+    The mode it ran in, such as `attached` or `daemon`, when the case
+    runs in several.
+    """
+    platform: Platform
+    """Where it ran."""
+    runtime: str
+    """The runtime it ran on, such as `node-24` or `cpython-3.14`."""
 
 
 class CaseResult(BaseModel):

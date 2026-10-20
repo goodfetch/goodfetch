@@ -11,6 +11,7 @@
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
 )]
 
+mod daemon;
 mod events;
 mod run;
 mod settings;

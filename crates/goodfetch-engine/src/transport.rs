@@ -2,15 +2,20 @@
 //! 0060): the OS's, or the in-memory network through which each Product's
 //! SDK crate embeds its engine and its tests drive it, a public product
 //! adapter. An Attached engine's one Connection is the OS's stdio, or the
-//! one an in-memory dialer opens. This is the only module that opens stdin
-//! and stdout; the Daemon's socket, loopback TCP and the other listeners
-//! join here with the tickets that add them. It also opens the outbound TCP
-//! connections of the engine's own pinned downloads (ADR 0043).
+//! one an in-memory dialer opens. A Daemon's Connections come from its
+//! listener: a `0600` Unix socket on macOS and Linux, loopback TCP on
+//! Windows (ADR 0024), or every Connection an in-memory dialer opens; a
+//! Client of the Daemon connects to the endpoint its runtime file names.
+//! This is the only module that opens stdin, stdout and sockets; the other
+//! listeners join here with the tickets that add them. It also opens the
+//! outbound TCP connections of the engine's own pinned downloads (ADR 0043).
 
 use std::io;
+use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use goodfetch_protocol::daemon::DaemonEndpoint;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 
@@ -93,6 +98,9 @@ pub enum TransportError {
     /// The in-memory network's engine went away.
     #[error("the in-memory network's engine is gone")]
     EngineGone,
+    /// The OS failed to accept a Connection on the Daemon's listener.
+    #[error("the Daemon's listener cannot accept: {0}")]
+    Accept(io::Error),
 }
 
 impl Network {
@@ -111,6 +119,162 @@ impl Network {
                 .recv()
                 .await
                 .ok_or(TransportError::DialerClosed),
+        }
+    }
+}
+
+impl Network {
+    /// A Daemon's listener: on the OS, a Unix socket at `socket`, readable
+    /// and writable by its owner alone, on macOS and Linux, and loopback TCP
+    /// on a port the OS chooses on Windows; in memory, every Connection the
+    /// dialer opens. Answers the endpoint a runtime file names.
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses the socket, such as a path too long for it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves at most a socket file that the next
+    /// listener at its path replaces.
+    pub async fn listen(self, socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+        match self {
+            Self::InMemory(network) => Ok((
+                DaemonListener(Listening::InMemory(network)),
+                DaemonEndpoint::Unix(socket.to_owned()),
+            )),
+            Self::Os => listen_os(socket).await,
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn listen_os(socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+    use std::os::unix::fs::PermissionsExt as _;
+    match tokio::fs::remove_file(socket).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = tokio::net::UnixListener::bind(socket)?;
+    tokio::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600)).await?;
+    Ok((
+        DaemonListener(Listening::Unix(listener)),
+        DaemonEndpoint::Unix(socket.to_owned()),
+    ))
+}
+
+#[cfg(not(unix))]
+async fn listen_os(_socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+    let address = listener.local_addr()?;
+    Ok((
+        DaemonListener(Listening::Tcp(listener)),
+        DaemonEndpoint::Tcp(address),
+    ))
+}
+
+/// Where a Daemon takes its Connections from.
+pub struct DaemonListener(Listening);
+
+enum Listening {
+    InMemory(InMemoryNetwork),
+    #[cfg(unix)]
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    Unix(tokio::net::UnixListener),
+    #[cfg(not(unix))]
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    Tcp(tokio::net::TcpListener),
+}
+
+impl DaemonListener {
+    /// The next Connection.
+    ///
+    /// # Errors
+    ///
+    /// `DialerClosed` once every in-memory dialer is gone, or the OS's
+    /// failure to accept.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no Connection.
+    pub async fn accept(&mut self) -> Result<Connection, TransportError> {
+        match &mut self.0 {
+            Listening::InMemory(network) => network
+                .incoming
+                .recv()
+                .await
+                .ok_or(TransportError::DialerClosed),
+            #[cfg(unix)]
+            Listening::Unix(listener) => {
+                let (stream, _) = listener.accept().await.map_err(TransportError::Accept)?;
+                let (reader, writer) = stream.into_split();
+                Ok(Connection::new(reader, writer))
+            }
+            #[cfg(not(unix))]
+            Listening::Tcp(listener) => {
+                let (stream, _) = listener.accept().await.map_err(TransportError::Accept)?;
+                stream.set_nodelay(true).map_err(TransportError::Accept)?;
+                let (reader, writer) = stream.into_split();
+                Ok(Connection::new(reader, writer))
+            }
+        }
+    }
+}
+
+/// A Client's Connection to the Daemon at `endpoint`, as its runtime file
+/// names it.
+///
+/// # Errors
+///
+/// When nothing listens there.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes any connection it was opening.
+pub async fn connect_daemon(endpoint: &DaemonEndpoint) -> io::Result<Connection> {
+    match endpoint {
+        #[cfg(unix)]
+        DaemonEndpoint::Unix(path) => {
+            #[expect(
+                clippy::disallowed_types,
+                reason = "the transport module is the one place that opens sockets (ADR 0060)"
+            )]
+            let stream = tokio::net::UnixStream::connect(path).await?;
+            let (reader, writer) = stream.into_split();
+            Ok(Connection::new(reader, writer))
+        }
+        #[cfg(not(unix))]
+        DaemonEndpoint::Unix(path) => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!(
+                "{} is a Unix socket, which this OS's Daemon never listens on",
+                path.display()
+            ),
+        )),
+        DaemonEndpoint::Tcp(address) => {
+            #[expect(
+                clippy::disallowed_types,
+                reason = "the transport module is the one place that opens sockets (ADR 0060)"
+            )]
+            let stream = tokio::net::TcpStream::connect(address).await?;
+            stream.set_nodelay(true)?;
+            let (reader, writer) = stream.into_split();
+            Ok(Connection::new(reader, writer))
         }
     }
 }

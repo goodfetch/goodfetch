@@ -228,6 +228,12 @@ pub struct ProtocolVersionUnsupportedDetails {
     /// What to upgrade.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub hint: String,
+    /// Whether the refusing engine is a Daemon handing over to its major's
+    /// pick, which a Client of the major waits for and connects to (ADR
+    /// 0098).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handover: bool,
 }
 
 /// A request for what the running Product lacks (ADRs 0087 and 0095).
@@ -259,6 +265,12 @@ pub struct NotInProductDetails {
     /// What to do instead.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fix: String,
+    /// Whether the refusing engine is a Daemon handing over to its major's
+    /// pick, which a Client of the major waits for and connects to (ADR
+    /// 0098).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handover: bool,
 }
 
 /// The answer to a call someone other than its caller stopped, a

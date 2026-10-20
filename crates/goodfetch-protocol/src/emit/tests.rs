@@ -23,7 +23,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
     let mut formats = emitted.bundle["formats"].as_array().unwrap().clone();
     let settings_files: Vec<serde_json::Value> = formats
-        .drain(4..)
+        .drain(5..)
         .map(|format| {
             json!({
                 "name": format["name"],
@@ -84,6 +84,13 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "storage": "sqlite",
                 "rule": "default",
                 "schema": { "$ref": "#/$defs/RunStateRow" },
+            },
+            {
+                "name": "installed-executables",
+                "version": "0.1",
+                "storage": "json",
+                "rule": "frozen_major",
+                "schema": { "$ref": "#/$defs/InstalledExecutables" },
             },
         ])
     );

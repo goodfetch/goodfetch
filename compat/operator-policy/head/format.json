@@ -67,6 +67,17 @@
             },
             "type": "object"
           },
+          "daemon": {
+            "additionalProperties": false,
+            "properties": {
+              "idle_timeout": {
+                "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "sample": {
             "additionalProperties": false,
             "properties": {
@@ -183,6 +194,17 @@
               },
               "sample_pages": {
                 "description": "How many pages the sample crawl visits.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "daemon": {
+            "additionalProperties": false,
+            "properties": {
+              "idle_timeout": {
+                "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
               }
@@ -503,6 +525,17 @@
               },
               "sample_pages": {
                 "description": "How many pages the sample crawl visits.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "daemon": {
+            "additionalProperties": false,
+            "properties": {
+              "idle_timeout": {
+                "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
               }

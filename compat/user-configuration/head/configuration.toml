@@ -1,5 +1,8 @@
 version = "0.1"
 
+[settings.daemon]
+idle_timeout = 30000
+
 [settings.browser_cache]
 max_unused_age = 30000
 

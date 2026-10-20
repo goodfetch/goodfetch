@@ -153,6 +153,17 @@
       ]
     },
     {
+      "id": "error:not_a_daemon",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:not_in_product",
       "kind": "error",
       "area": 3,
@@ -360,6 +371,17 @@
       ]
     },
     {
+      "id": "format:installed-executables",
+      "kind": "format",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:operator-policy",
       "kind": "format",
       "area": 3,
@@ -432,6 +454,28 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:daemon.status",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:daemon.stop",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -2451,6 +2495,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.idle_timeout",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },

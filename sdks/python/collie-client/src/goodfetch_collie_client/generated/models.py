@@ -54,6 +54,50 @@ class Completeness(StrEnum):
     """It finished, but the engine cannot vouch that nothing was missed."""
 
 
+class DaemonEndpoint1(BaseModel):
+    """A Unix socket's path."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    unix: str
+
+
+class DaemonEndpoint2(BaseModel):
+    """A loopback address and port."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tcp: str
+
+
+class DaemonEndpoint(RootModel[DaemonEndpoint1 | DaemonEndpoint2]):
+    root: DaemonEndpoint1 | DaemonEndpoint2
+    """
+    Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
+    Linux, loopback TCP on Windows.
+    """
+
+
+class DaemonParams(BaseModel):
+    """What `daemon.status` and `daemon.stop` take: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class DaemonStopping(BaseModel):
+    """What `daemon.stop` answers, before the Daemon stops."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    live_runs: Annotated[int, Field(ge=0)]
+    """How many live Runs it stops, each resumable from its own state."""
+
+
 class EngineInfoParams(BaseModel):
     """What `engine.info` takes: nothing."""
 
@@ -328,6 +372,33 @@ class ConfigExplainParams(BaseModel):
     Run-layer values to explain with, as a Run's `settings` would give
     them.
     """
+
+
+class DaemonStatus(BaseModel):
+    """What `daemon.status` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    clients: Annotated[int, Field(ge=0)]
+    """How many Clients are connected, the caller and Consoles included."""
+    endpoint: DaemonEndpoint
+    """Where it listens."""
+    idle_timeout: Annotated[int, Field(ge=0)]
+    """Its `daemon.idle_timeout`, in milliseconds."""
+    kept_alive: bool
+    """
+    Whether it never stops idle: `--keep-alive`, a held Schedule or an
+    installed service.
+    """
+    live_runs: Annotated[int, Field(ge=0)]
+    """How many of its Runs are live."""
+    pid: Annotated[int, Field(ge=0)]
+    """Its process ID."""
+    product: Product
+    """The Product the Daemon runs as."""
+    product_version: ProductVersion
+    """Its Product version."""
 
 
 class DownloadProgress(BaseModel):

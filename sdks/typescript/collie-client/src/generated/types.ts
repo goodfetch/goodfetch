@@ -19,6 +19,20 @@ export type ArtifactKind =
  */
 export type Completeness = "complete" | "incomplete" | "unverified";
 /**
+ * Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
+ * Linux, loopback TCP on Windows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonEndpoint".
+ */
+export type DaemonEndpoint =
+  | {
+      unix: string;
+    }
+  | {
+      tcp: string;
+    };
+/**
  * An event's position among every event of one engine, which only goes up.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -243,6 +257,72 @@ export interface ProjectSettings {
   settings: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `daemon.status` and `daemon.stop` take: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonParams".
+ */
+export interface DaemonParams {}
+/**
+ * What `daemon.status` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonStatus".
+ */
+export interface DaemonStatus {
+  /**
+   * How many Clients are connected, the caller and Consoles included.
+   */
+  clients: number;
+  /**
+   * Where it listens.
+   */
+  endpoint:
+    | {
+        unix: string;
+      }
+    | {
+        tcp: string;
+      };
+  /**
+   * Its `daemon.idle_timeout`, in milliseconds.
+   */
+  idle_timeout: number;
+  /**
+   * Whether it never stops idle: `--keep-alive`, a held Schedule or an
+   * installed service.
+   */
+  kept_alive: boolean;
+  /**
+   * How many of its Runs are live.
+   */
+  live_runs: number;
+  /**
+   * Its process ID.
+   */
+  pid: number;
+  /**
+   * The Product the Daemon runs as.
+   */
+  product: "collie" | "foxhound";
+  /**
+   * Its Product version.
+   */
+  product_version: string;
+}
+/**
+ * What `daemon.stop` answers, before the Daemon stops.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonStopping".
+ */
+export interface DaemonStopping {
+  /**
+   * How many live Runs it stops, each resumable from its own state.
+   */
+  live_runs: number;
 }
 /**
  * What `browser_cache.download_progress` reports.

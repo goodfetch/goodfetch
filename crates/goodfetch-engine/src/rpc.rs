@@ -25,6 +25,7 @@ use serde_json::Value;
 use crate::composition::CallError;
 use crate::product::{Identity, Requested};
 
+pub use connection::REFUSAL_TARGET;
 pub(crate) use connection::{Dispatch, serve};
 pub(crate) use stream::handlers;
 

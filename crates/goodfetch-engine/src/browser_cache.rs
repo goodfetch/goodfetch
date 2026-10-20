@@ -14,6 +14,7 @@
 
 mod artifact;
 mod clean_up;
+mod copy;
 mod download;
 mod extract;
 mod platform;
@@ -38,6 +39,7 @@ use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 pub use artifact::{BuildPlatform, Digest, MalformedDigest, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
+pub use copy::{ExecutableCopy, entry_present, hold as hold_copy, place_executable_copy};
 pub use download::Resolve;
 pub use platform::{
     Arch, BrowserChoice, BrowserSource, CHROME_FOR_TESTING, Os, Platform, PlatformNotice,

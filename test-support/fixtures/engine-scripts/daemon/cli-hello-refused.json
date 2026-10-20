@@ -23,7 +23,7 @@
             "retryable": false,
             "client_protocol_version": "0.1",
             "engine_protocol_version": "1.0",
-            "hint": "Upgrade the Client to one that speaks protocol 1.x."
+            "fix": "Upgrade the Client to one that speaks protocol 1.x."
           }
         }
       }

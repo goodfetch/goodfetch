@@ -22,6 +22,8 @@ use rustls::pki_types::CertificateDer;
 use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt as _;
 
+use crate::clock::Clock;
+use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, Resolve, Server};
 
 /// The user agent of every pinned download: the same for every install and
@@ -95,9 +97,9 @@ impl FromStr for Digest {
     }
 }
 
-/// What a pinned download may do: whether `egress.offline` refuses it, and
-/// what it may reach and trust.
-#[derive(Clone, Debug, Default)]
+/// What a pinned download may do: whether `egress.offline` refuses it,
+/// what it may reach and trust, and how it races the host's addresses.
+#[derive(Clone, Debug)]
 pub struct Fetching {
     /// The layer that set `egress.offline` to `true`, or `None` when
     /// downloads are allowed (ADR 0043).
@@ -106,6 +108,24 @@ pub struct Fetching {
     pub resolve: Resolve,
     /// Certificate authorities trusted beside Mozilla's roots.
     pub trusted_certificates: Vec<CertificateDer<'static>>,
+    /// What the Happy Eyeballs race waits on (ADR 0118).
+    pub clock: Clock,
+    /// `resolver.resolution_delay` and `resolver.attempt_delay`.
+    pub delays: Delays,
+}
+
+impl Fetching {
+    /// Downloads allowed, with no mapping, no extra certificate authority
+    /// and RFC 8305's delays, on `clock`.
+    pub fn new(clock: Clock) -> Self {
+        Self {
+            offline: None,
+            resolve: Resolve::new(),
+            trusted_certificates: Vec::new(),
+            clock,
+            delays: Delays::BUILT_IN,
+        }
+    }
 }
 
 /// A pinned URL: `https`, a host, no query, no fragment and no credentials.
@@ -195,6 +215,8 @@ pub(crate) async fn download(
     let network = http_client::Network {
         resolve: &fetching.resolve,
         trusted_certificates: &fetching.trusted_certificates,
+        clock: fetching.clock,
+        delays: fetching.delays,
     };
     let server = Server {
         host: &url.host,

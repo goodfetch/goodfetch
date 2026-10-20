@@ -81,7 +81,9 @@ pub const ATTEMPT_DELAY: Setting = Setting {
 };
 
 /// An IP family.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IpFamily {
     /// IPv4.

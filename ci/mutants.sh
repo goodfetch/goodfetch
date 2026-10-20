@@ -48,13 +48,31 @@ case "$mode" in
       echo "The change touches no Rust code: no mutant to test."
       exit 0
     fi
+    # Each mutant is written into the working tree itself and taken out
+    # again (`--in-place`), so the tests find this tree's executables and
+    # its warm build; uncommitted Rust changes would be in the way.
+    if ! git diff --quiet HEAD -- '*.rs'; then
+      echo "error: commit the Rust changes first: mutants are tested in the working tree, which git restores" >&2
+      exit 2
+    fi
     # The tests find the commit's executables as under `just test`.
     export GOODFETCH_TEST_SUITE=pre-merge
     "${JUST:-just}" _test-tools
     export GOODFETCH_TEST_TOOLS="$root/target/test-tools.json"
+    # nextest skips what `just test` skips: the quarantined tests (ADR 0064)
+    # and those needing an OS service this host lacks (ci/os-services.sh).
+    skip=()
+    while IFS=$'\t' read -r runner argument; do
+      if [[ "$runner" == nextest ]]; then skip+=("$argument"); fi
+    done < <(cargo run --quiet -p xtask -- quarantine exclude)
+    services=$(ci/os-services.sh skipped target/skipped.txt)
+    if [[ -n "$services" ]]; then
+      [[ ${#skip[@]} -gt 0 ]] || skip=(--)
+      while read -r pattern; do skip+=(--skip "$pattern"); done <<<"$services"
+    fi
     status=0
     cargo mutants --in-diff "$out/change.diff" --test-tool nextest --shard "$shard" \
-      --no-shuffle --output "$out" || status=$?
+      --no-shuffle --in-place --output "$out" -- ${skip[@]+"${skip[@]}"} || status=$?
     # 2: a mutant survived; 3: a mutant's tests timed out. Both are listed in
     # the report and fail nothing.
     case "$status" in

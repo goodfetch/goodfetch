@@ -76,7 +76,11 @@ pub(crate) fn output(
         Runner::Vitest => {
             let program = installed(root, "node_modules/.bin/vitest", "pnpm install")?;
             let mut command = Command::new(program);
-            command.args(["list", "--json"]);
+            // Collected by loading each file, as a run collects it: read
+            // statically, a `test.for` or `test.each` test is one test under
+            // its unformatted title (`reads %s`), not one per case under the
+            // name it runs as.
+            command.args(["list", "--json", "--staticParse=false"]);
             if let Some(commit) = changed_since {
                 command.arg(format!("--changed={commit}"));
             }

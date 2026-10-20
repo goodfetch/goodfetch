@@ -125,5 +125,11 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/* /root/.npm
 
+# cargo-mutants, the in-diff mutation job's tool (ADR 0072; ci/mutants.sh).
+# It has a layer of its own at the end, so adding it rebuilt no other layer;
+# it joins the Cargo tools' layer above when that layer next changes.
+RUN cargo install --locked --root /usr/local cargo-mutants@27.1.0 \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
 ENV CI=true
 WORKDIR /work

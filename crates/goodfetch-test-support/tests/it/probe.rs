@@ -146,3 +146,31 @@ fn records_a_command_then_drops_its_test_env() {
 
     goodfetch_test_support::record_command(&env, &["browsers", "install"], Some(0)).unwrap();
 }
+
+#[test]
+#[ignore = "run as a child by journey_run::a_runs_document_stays_its_own_when_another_run_of_its_variant_finishes_after_it"]
+fn runs_journey_901_twice() {
+    let journey =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/journey-run/J-901.toml");
+    let collie = tools().unwrap().path(Tool::Collie).unwrap().to_owned();
+    let start = |outcome: &'static str| {
+        JourneyRun::start_file(
+            &journey,
+            "cli",
+            &collie,
+            move |mut facts: serde_json::Value| {
+                facts["outcome"] = serde_json::json!(outcome);
+                facts
+            },
+        )
+        .unwrap()
+    };
+    let (first, second) = (start("proved"), start("failed"));
+
+    let first = first.finish().unwrap();
+    let _second = second.finish().unwrap();
+
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(first.path()).unwrap()).unwrap();
+    assert_eq!(written["outcome"], serde_json::json!("proved"));
+}

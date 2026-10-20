@@ -41,6 +41,7 @@ mod ingest;
 mod journey_selection;
 mod journey_variants;
 mod journeys;
+mod journeys_report;
 mod junit_summary;
 mod minute_ceiling;
 mod mocking_lockfile;

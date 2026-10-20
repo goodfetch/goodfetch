@@ -33,7 +33,7 @@
 # every Linux cell. The suites of other areas (every Sink's suite on
 # Foxhound's executable, browser conformance on Collie's, skew and upgrades
 # from released artifacts, the security suites, the resident-memory
-# ceilings, the exercise audit) join each cell as steps, or through
+# ceilings) join each cell as steps, or through
 # `just test release`, as their areas add them.
 #
 # A step whose name starts with "Test" is a test step (ADR 0064): a cell
@@ -203,6 +203,11 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over every declaring Rust test; it lists
+      # its findings and fails nothing while the justfile's `exercise_audit`
+      # is `report`.
+      - name: Audit what each declaring test reached
+        run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -320,6 +325,11 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over every declaring Rust test; it lists
+      # its findings and fails nothing while the justfile's `exercise_audit`
+      # is `report`.
+      - name: Audit what each declaring test reached
+        run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -404,6 +414,11 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over every declaring Rust test; it lists
+      # its findings and fails nothing while the justfile's `exercise_audit`
+      # is `report`.
+      - name: Audit what each declaring test reached
+        run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -487,6 +502,11 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over every declaring Rust test; it lists
+      # its findings and fails nothing while the justfile's `exercise_audit`
+      # is `report`.
+      - name: Audit what each declaring test reached
+        run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -570,6 +590,11 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over every declaring Rust test; it lists
+      # its findings and fails nothing while the justfile's `exercise_audit`
+      # is `report`.
+      - name: Audit what each declaring test reached
+        run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"

@@ -94,6 +94,8 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 
   > Agent decision, pending owner review (#350, 2026-10-20): the Rust helper, `goodfetch-test-support`'s `JourneyRun`, adds `check(wording, body)` for a check that names no task, and `expect_task(task, submission)` submits the tool's result to the variant's Proving ground's oracle and records the answer and each check naming the task. A `foxhound-cli` variant in Collie's executable crate takes Foxhound's executable from the test tool manifest (`tools()`'s `foxhound` entry), since Collie's crate takes no Foxhound crate. The executable's Product and version in the document are those its `--version` reports. Each run writes `<id>@<surface>.json` into the folder `GOODFETCH_TEST_RESULT_DOCUMENTS` names, which `just test` sets to `target/result-documents/`, else into the test's own folder. `TESTING.md`, Journeys, has the rules.
 
+  > Agent decision, pending owner review (no ticket, 2026-10-20): each run also writes its document in the test's own folder, and `Finished::path()` names that copy. In the folder `GOODFETCH_TEST_RESULT_DOCUMENTS` names, two tests that run the same variant (the helper's own tests do) wrote one file, and a test read the other's document under load (`journey_run::a_complete_passing_run_is_proved_and_accepted` read `Failed`).
+
 ### The catalog check and report
 
 The "Test infrastructure" spec builds them. The check fails when:
@@ -107,6 +109,8 @@ The "Test infrastructure" spec builds them. The check fails when:
 > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): a Collie Journey that lists `cli` also has the variant `J-NNN@foxhound-cli`, which rule 5 checks against `cli`'s first milestone; a test carrying `foxhound-cli` for a Foxhound Journey, or for a Collie Journey without `cli`, fails rule 4.
 
 The report lists each variant's latest outcome on `main` by milestone and area. Whether `covers` names existing features, and the "every feature is tested" check, are [Feature coverage and traceability](https://github.com/goodfetch/goodfetch/issues/279)'s.
+
+> Agent decision, pending owner review (#355, 2026-10-20): `xtask journeys report` reads the result documents `main`'s latest Release run kept in the results store: each Release cell writes them into its JUnit folder (`GOODFETCH_TEST_RESULT_DOCUMENTS` is `target/junit/result-documents/` there), so the store keeps them as `result-documents/<id>@<surface>.json` beside the cell's JUnit files. "The latest Release run" is the Feature report's: the newest commit of `main` the Release suite's test runs name. Each document goes through `goodfetch-protocol`'s reader; a variant is `proved` or `failed` as its accepted documents give across the cells (`failed` when any is), `rejected` when the reader refuses any of them or a document names another variant than its file, never `proved` then, and `unproved` when none was kept. A `foxhound-cli` variant is grouped under Foxhound. The report also groups by Product (ADR 0094), prints Markdown, and with `--out` writes `journeys.json` and `journeys.md`; `--owner-test <milestone>` prints the "Journeys to try" (every active Journey of either Product with a variant due at that milestone, its manual steps, then each `manual` exception whose Feature is due at it by the Feature report's rule). The daily test-health job adds the report to its summary and attaches both files. `TESTING.md`, Journeys, has the rules.
 
 ### Ownership and review
 

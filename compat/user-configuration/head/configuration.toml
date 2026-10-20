@@ -6,6 +6,10 @@ idle_timeout = 30000
 [settings.browser_cache]
 max_unused_age = 30000
 
+[settings.resolver]
+resolution_delay = 30000
+attempt_delay = 30000
+
 [settings.run_state]
 location = "example"
 

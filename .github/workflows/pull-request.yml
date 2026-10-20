@@ -96,6 +96,7 @@ jobs:
       jobs: ${{ steps.select.outputs.jobs }}
       bench-targets: ${{ steps.select.outputs.bench-targets }}
       models: ${{ steps.select.outputs.models }}
+      mutants-shards: ${{ steps.mutants.outputs.mutants-shards }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,6 +114,14 @@ jobs:
         run: |
           cat target/affected.txt
           cat target/affected.txt >> "$GITHUB_OUTPUT"
+      # The in-diff mutation job's shards: listing the mutants builds nothing.
+      - name: Count the shards of the change's mutants
+        run: ci/vm/exec.sh bash -c "ci/mutants.sh plan HEAD^1 > target/mutants-plan.txt"
+      - name: Write the shards to the job's outputs
+        id: mutants
+        run: |
+          cat target/mutants-plan.txt
+          cat target/mutants-plan.txt >> "$GITHUB_OUTPUT"
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
@@ -413,6 +422,66 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
+  # ADR 0072's in-diff mutation job: cargo-mutants with nextest over the Rust
+  # code the change touches (ci/mutants.sh), in the shards `affected` counts,
+  # each within the 15-minute job budget; skipped when the change touches no
+  # Rust code. It is outside "all green" (not in its `needs`) and fails on no
+  # surviving mutant: each shard's survivors go to its job summary and its
+  # report is attached to the run, for the pull request's Evidence section.
+  # While the repository is private it runs on the owner's machine with the
+  # rest of the tier, using no included minutes, so no shard cap and no
+  # minute threshold apply (ADR 0135). Its steps are not test steps.
+  mutants:
+    name: mutants ${{ matrix.shard }}
+    needs: [affected]
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && needs.affected.result == 'success'
+      && needs.affected.outputs.mutants-shards != '[]'
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.affected.outputs.mutants-shards) }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: Mutate the change's Rust code, one shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: ci/vm/exec.sh ci/mutants.sh run HEAD^1 "$SHARD/$SHARDS"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Write the surviving mutants to the job's summary page
+        if: always()
+        run: if [[ -f target/mutants/summary.md ]]; then cat target/mutants/summary.md >>"$GITHUB_STEP_SUMMARY"; fi
+      - name: Attach the mutation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutants-${{ matrix.shard }}
+          path: target/mutants/
+          if-no-files-found: ignore
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

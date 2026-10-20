@@ -110,6 +110,11 @@ const TOOLCHAIN_VARIABLES: [&str; 6] = [
     "RUSTUP_TOOLCHAIN",
 ];
 
+/// Where an xtask built for coverage writes its profile under `just
+/// coverage` (ADR 0072): passed on, so the profile reaches cargo-llvm-cov's
+/// report rather than landing in the fixture workspace as a new file.
+const COVERAGE_VARIABLE: &str = "LLVM_PROFILE_FILE";
+
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures")
 }
@@ -314,10 +319,12 @@ impl Workspace {
     }
 
     /// A command run in the workspace with a cleared environment, but for the
-    /// variables that find and run the pinned Cargo toolchain.
+    /// variables that find and run the pinned Cargo toolchain and the
+    /// coverage profile's.
     pub(crate) fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
         let toolchain = TOOLCHAIN_VARIABLES
             .iter()
+            .chain([&COVERAGE_VARIABLE])
             .filter_map(|name| std::env::var_os(name).map(|value| (*name, value)));
         let mut command = Command::new(program);
         command.current_dir(self.path()).env_clear().envs(toolchain);

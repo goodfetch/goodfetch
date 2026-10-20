@@ -124,6 +124,10 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 > Verified on 2026-10-19 (#351): Vitest 5.0.5 accepts `:`, `.`, `/`, `-` and `_` in tag names, in the configuration, on a test and in `--tags-filter`, so Feature IDs are its tags as written and no mapping exists.
 
+> Agent decision, pending owner review (#321): the Pre-merge and Release suites run the exercise audit with the verdict the justfile's `exercise_audit` names. It is `report` until the declarations #353's first run found unreached are fixed (#321's report lists them): the audit then lists its findings and fails nothing, so it does not yet fail "all green". Setting it to `gate` makes it the check of the table above.
+
+> Agent decision, pending owner review (#321): the milestone gate's state is the Feature report's `gate` (whether it is ready, and the untested Features' IDs) and its last line; it is ready only when the store holds a Release run of `main`. The daily test-health job writes it to its job summary.
+
 - **Before the merge queue exists**, the Release suite runs on manual dispatch (ADR 0061), and the two gates read the latest such run on `main`.
   > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, "the latest such run" is `main`'s latest commit whose cells have all run, across its dispatches; a commit some of whose cells have not run yet is not read.
 - **The release pull request lists every exception**, with its evidence kind.
@@ -138,6 +142,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 - **It is read for gaps.** The report lists the functions no test executes, per crate and package, beside the feature report. A gap that hides a behaviour with no Feature becomes a story, a Feature or a test. Each milestone's gate issue links the latest report.
 - **Verdicts never come from an instrumented build.** Its results are stored under their own configuration and never decide a Feature's status.
 - **`just coverage`** runs it locally over what changed.
+  > Agent decision, pending owner review (#321): the coverage job is `.github/workflows/coverage.yml`, on Saturdays and by hand. Its tests' JUnit files carry the runtime `instrumented`, so the results store keeps them as a configuration of their own and the flaky-test scan never compares them with an uninstrumented run; its step is not a test step. cargo-llvm-cov builds into a target folder of its own, and test support passes `LLVM_PROFILE_FILE` to every executable a test starts.
 
 ### Mutation testing: read in review, never scored
 
@@ -147,6 +152,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 - **The pull request's Verification section lists each mutant that survives in its changed code**, with the test that now kills it or the reason it stays: an equivalent mutant, or one caught only by a doctest, by a Journey in another runner, or by another OS's test (cargo-mutants doesn't read `cfg(target_os)`). The fresh review checks the list.
   > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the section is the `pr` skill's Evidence section, and checking each reason is a review standard the `code-review` skill applies.
 - **Full runs, weekly once the nightly tier is on:** cargo-mutants sharded over the workspace; StrykerJS on the TypeScript SDK's hand-written runtime and the Console's logic; mutmut on the Python SDK's hand-written runtime, on Linux. Stryker uses its `command` runner until a release fixes #6210, then its Vitest runner, and the TypeScript packages then gain the same in-diff pull-request job as Rust.
+  > Agent decision, pending owner review (#321): the in-diff job's shard count comes from the `affected` job, one shard per 12 mutants `cargo mutants --list` gives for the change (`ci/mutants.sh`), to be retuned from the recorded durations. A shard builds the test tool manifest's executables once, unmutated, so a mutant only an SDK or Journey test of that manifest would kill survives there. The full runs are not built while the nightly tier is off.
 - **No mutation score is published or gated.** A full run's survivors are a list, read at each milestone gate.
 
 ### Reports

@@ -117,6 +117,7 @@ features-tests: journeys-tests
 # every declaring test with `all` (the Release suite). The suites run it
 # with the verdict `exercise_audit` gives; `gate` fails on a finding,
 # `report` lists the findings and passes.
+# Runs the exercise audit: `just features-audit [ran|all] [gate|report]`.
 features-audit scope="ran" verdict=exercise_audit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -225,6 +226,30 @@ features *change:
     fi
     echo "Missing:"
     cargo run --quiet -p xtask -- features check && echo "nothing"
+
+# ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
+# Pre-merge suite's tests of what changed, or of the whole workspace with
+# `all`, with every Rust crate built for coverage (so each SDK, Journey and
+# Console run starts the instrumented executables), Vitest's `v8` provider
+# and coverage.py with branches. Reports go to target/coverage/. Takes
+# `xtask affected`'s change, `--local` by default; listed as skipped without
+# cargo-llvm-cov.
+# Measures code coverage, never gated: `just coverage [all | <change>…]`.
+coverage *change:
+    JUST="{{ just_executable() }}" ci/tool.sh cargo-llvm-cov ci/coverage.sh {{ change }}
+
+# ADR 0072's in-diff mutation testing (ci/mutants.sh): cargo-mutants with
+# nextest over the Rust code changed since `base` (the merge base with
+# `origin/main` by default), every mutant at once; CI's `mutants` job runs
+# the same in 15-minute shards. The report goes to target/mutants/; a
+# surviving mutant never fails it. Listed as skipped without cargo-mutants.
+# Mutation-tests the Rust changes since `base`: `just mutants [base]`.
+mutants base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    JUST="{{ just_executable() }}" ci/tool.sh cargo-mutants ci/mutants.sh run "$base"
 
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the

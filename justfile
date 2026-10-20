@@ -458,10 +458,18 @@ linux:
     ci/linux.sh
 
 # The visual projects in the pinned Playwright image (ADR 0073), through
-# Docker or Podman, comparing every Reference screenshot; listed as skipped
-# without either (ci/visual/container.sh).
+# Docker or Podman, comparing every Reference screenshot; a host with
+# neither fails it (ci/visual/container.sh).
 visual:
-    ci/visual/container.sh
+    ci/visual/container.sh test
+
+# While GitHub Actions is off, stands in for the `update-screenshots`
+# workflow (ADR 0073's note of 2026-10-20): rewrites the changed or missing
+# Reference screenshots in the pinned Playwright image, through Docker or
+# Podman, and copies them into the working tree. Look at each, then commit
+# them in a commit of their own, with your own sign-off.
+screenshots-update:
+    ci/visual/container.sh update
 
 # Keeps each tool of test-support/models/tools.toml in target/tla-tools/,
 # downloading only a file that lacks its pinned SHA-256; a download whose

@@ -10,6 +10,7 @@
 mod attached;
 mod browsers;
 mod config;
+mod daemon;
 mod events;
 mod journeys;
 mod log;

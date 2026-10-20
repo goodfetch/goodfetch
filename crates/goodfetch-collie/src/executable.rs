@@ -2,8 +2,11 @@
 //! line, which Foxhound's executable keeps with its names, flags and exit
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
-//! entry, which an SDK starts, `browsers install`, `browsers clean` and
-//! `config explain`; the CLI's other commands join with area 11.
+//! entry, which an SDK starts, `browsers install`, `browsers clean`,
+//! `config explain` and `daemon start|stop|restart|status`, with the hidden
+//! `daemon launched` a start runs; the CLI's other commands join with area
+//! 11. Every command but `daemon launched` first records the executable in
+//! the list of installed executables (ADR 0098).
 //!
 //! `main` reads the environment once and passes the map (ADR 0059); every
 //! `GOODFETCH_` variable in it must be a deployment variable, or the
@@ -46,6 +49,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 
 mod browsers;
 mod config;
+mod daemon;
 mod output;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
@@ -85,6 +89,56 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Starts, stops and shows the Daemon of this executable's major, which
+    /// both Products share.
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum DaemonCommand {
+    /// Starts the Daemon, the major's pick, unless one runs.
+    Start {
+        /// Never stops it after `daemon.idle_timeout` with no Client.
+        #[arg(long)]
+        keep_alive: bool,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stops the Daemon; its live Runs stop with it.
+    Stop {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stops the Daemon, then starts the major's pick.
+    Restart {
+        /// Never stops it after `daemon.idle_timeout` with no Client.
+        #[arg(long)]
+        keep_alive: bool,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Shows whether the Daemon runs, as which Product, and its Clients.
+    Status {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Runs as the Daemon a start launched, from a versioned copy.
+    #[command(hide = true)]
+    Launched {
+        /// The build of the versioned copy it runs from.
+        #[arg(long)]
+        copy: Option<String>,
+        /// Never stops it after `daemon.idle_timeout` with no Client.
+        #[arg(long)]
+        keep_alive: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -106,6 +160,10 @@ enum ConfigCommand {
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
+        /// Asks the Daemon of the major, starting it if none runs, instead
+        /// of resolving in this process.
+        #[arg(long)]
+        daemon: bool,
     },
 }
 
@@ -179,7 +237,15 @@ pub fn main(start: &Start) -> ExitCode {
     };
     let home = home(&start.environment);
     let filter = start.environment.get(OsStr::new(LOG_VARIABLE));
-    match log_file(&binary, &start.environment, home.as_ref()) {
+    // A Daemon a start launched has no terminal: it logs to its file
+    // (ADR 0122).
+    let launched = matches!(
+        command_line.command,
+        Command::Daemon {
+            command: DaemonCommand::Launched { .. }
+        }
+    );
+    match log_file(&binary, &start.environment, home.as_ref(), launched) {
         Ok(file) => install_logs(filter, file),
         Err(problem) => {
             install_logs(filter, None);
@@ -235,8 +301,40 @@ pub fn main(start: &Start) -> ExitCode {
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
     };
-    match command_line.command {
-        Command::AttachedEngine => run_attached(&engine, dependencies),
+    run(
+        command_line.command,
+        &engine,
+        dependencies,
+        pinned_by,
+        start,
+    )
+}
+
+/// Runs `command` on `engine`, once the executable is set up.
+fn run(
+    command: Command,
+    engine: &Engine,
+    dependencies: Dependencies,
+    pinned_by: PinnedBy,
+    start: &Start,
+) -> ExitCode {
+    let home = dependencies.home.clone();
+    let machine = daemon::Machine {
+        identity: engine.identity(),
+        home: &home,
+        environment: &start.environment,
+        executable: std::env::current_exe().ok(),
+    };
+    if !matches!(
+        command,
+        Command::Daemon {
+            command: DaemonCommand::Launched { .. }
+        }
+    ) {
+        machine.record();
+    }
+    match command {
+        Command::AttachedEngine => run_attached(engine, dependencies),
         Command::Browsers {
             command: BrowsersCommand::Install { json },
         } => browsers::install(pinned_by, &start.environment, json),
@@ -250,15 +348,29 @@ pub fn main(start: &Start) -> ExitCode {
                     set,
                     project,
                     json,
+                    daemon,
                 },
-        } => config_explain(&engine, &dependencies.home, keys, set, project, json),
+        } => config_explain(engine, &machine, daemon, keys, set, project, json),
+        Command::Daemon { command } => match command {
+            DaemonCommand::Start { keep_alive, json } => daemon::start(&machine, keep_alive, json),
+            DaemonCommand::Stop { json } => daemon::stop(&machine, json),
+            DaemonCommand::Restart { keep_alive, json } => {
+                daemon::restart(&machine, keep_alive, json)
+            }
+            DaemonCommand::Status { json } => daemon::status(&machine, json),
+            DaemonCommand::Launched { copy, keep_alive } => {
+                daemon::launched(engine, dependencies, &machine, copy.as_deref(), keep_alive)
+            }
+        },
     }
 }
 
-/// `config explain`, from the working folder.
+/// `config explain`, from the working folder: in this process, or through
+/// the Daemon's `config.explain` under `--daemon`.
 fn config_explain(
     engine: &Engine,
-    home: &Home,
+    machine: &daemon::Machine<'_>,
+    through_daemon: bool,
     keys: Vec<String>,
     set: Vec<String>,
     project: Option<std::path::PathBuf>,
@@ -269,17 +381,21 @@ fn config_explain(
         return ExitCode::FAILURE;
     };
     let identity = engine.identity();
+    let request = config::Explain {
+        keys,
+        set,
+        project,
+        folder,
+        json,
+    };
+    if through_daemon {
+        return config::explain_through(machine, &request);
+    }
     config::explain(
         identity.product,
         &identity.product_version,
-        home,
-        &config::Explain {
-            keys,
-            set,
-            project,
-            folder,
-            json,
-        },
+        machine.home,
+        &request,
     )
 }
 
@@ -345,16 +461,19 @@ fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {
 }
 
 /// The file of this process's logs in the home's log folder, when
-/// `GOODFETCH_LOG_OUTPUT` is `file`; none when it is `none` or unset.
+/// `GOODFETCH_LOG_OUTPUT` is `file`, or it is unset and `by_default`; none
+/// when it is `none` or unset.
 fn log_file(
     binary: &str,
     environment: &BTreeMap<OsString, OsString>,
     home: Option<&Home>,
+    by_default: bool,
 ) -> Result<Option<File>, String> {
     let output = environment.get(OsStr::new(LOG_OUTPUT_VARIABLE));
     match output.map(|output| output.to_str()) {
-        None | Some(Some("none")) => Ok(None),
-        Some(Some("file")) => {
+        None if !by_default => Ok(None),
+        Some(Some("none")) => Ok(None),
+        None | Some(Some("file")) => {
             let home = home.ok_or("no Goodfetch home holds a log folder")?;
             let folder = home.root().join(LOG_FOLDER);
             #[expect(

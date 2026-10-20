@@ -93,6 +93,18 @@
           },
           "type": "array"
         },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where those run values come from: a scope's `settings` option by\ndefault, or the CLI's flags when the CLI asks a Daemon."
+        },
         "project": {
           "anyOf": [
             {

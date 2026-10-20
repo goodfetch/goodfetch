@@ -221,3 +221,23 @@ fn a_settings_files_schema_nests_each_key_by_its_segments() {
         )
     );
 }
+
+/// Each command's `--json` output is a type of the bundle (ADR 0069),
+/// under the command's path.
+#[test]
+fn the_bundle_holds_each_commands_json_output() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["outputs"],
+        json!({
+            "browsers.clean": { "$ref": "#/$defs/BrowsersCleanOutput" },
+            "browsers.install": { "$ref": "#/$defs/BrowsersInstallOutput" },
+            "config.explain": { "$ref": "#/$defs/SettingsExplanation" },
+            "daemon.restart": { "$ref": "#/$defs/DaemonStartOutput" },
+            "daemon.start": { "$ref": "#/$defs/DaemonStartOutput" },
+            "daemon.status": { "$ref": "#/$defs/DaemonStatusOutput" },
+            "daemon.stop": { "$ref": "#/$defs/DaemonStopOutput" },
+        })
+    );
+}

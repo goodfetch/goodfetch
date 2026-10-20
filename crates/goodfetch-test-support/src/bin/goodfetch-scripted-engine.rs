@@ -12,7 +12,9 @@
 //! - `socket`: as a Daemon, on a Unix socket on macOS and Linux and on
 //!   loopback TCP on Windows (ADR 0024), found through the Daemon's runtime
 //!   file it writes into the per-major folder of `GOODFETCH_HOME`, holding
-//!   the endpoint, `--token`, `--product-version` and its PID. It prints
+//!   the endpoint, `--token`, `--product-version` and its PID, and holding
+//!   the Daemon's serving lock beside it while it plays, as a live Daemon
+//!   does, so a Client takes it for running until it exits. It prints
 //!   `{"address": …, "runtime_file": …}` once a Client can find it, and
 //!   removes the file and the socket when the play ends, unless the script
 //!   ends with `exit`, which leaves them as a crashed Daemon does;
@@ -171,6 +173,8 @@ struct Daemon {
     /// The socket's own folder, made outside the home when the socket's
     /// path in the home is too long for the OS.
     socket_folder: Option<tempfile::TempDir>,
+    /// The serving lock, held until the process exits.
+    _serving: std::fs::File,
 }
 
 impl Daemon {
@@ -182,6 +186,12 @@ impl Daemon {
             .parent()
             .expect("invariant: a runtime file sits in a per-major folder");
         create_folder(folder)?;
+        let serving = std::fs::File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(folder.join(goodfetch_test_support::DAEMON_SERVING_LOCK))?;
+        serving.lock()?;
         let (listener, socket_folder) = Listener::daemon(folder)?;
         let endpoint = listener.endpoint()?;
         let contents = RuntimeFile {
@@ -195,6 +205,7 @@ impl Daemon {
             endpoint: endpoint.clone(),
             runtime_file,
             socket_folder,
+            _serving: serving,
         };
         contents.write(&daemon.runtime_file)?;
         announce(&json!({

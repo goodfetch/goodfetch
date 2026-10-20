@@ -1,0 +1,38 @@
+{
+  "description": "The CLI built from this commit opens a Connection to the Daemon and asks config.explain, and the Daemon drops the Connection before it answers.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "config.explain",
+        "params": {
+          "keys": ["daemon"],
+          "origin": "flag"
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

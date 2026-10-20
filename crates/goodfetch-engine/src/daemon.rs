@@ -18,10 +18,12 @@
 pub mod files;
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{ProductVersion, Surface};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonParams, DaemonStatus, DaemonStopping, NOT_A_DAEMON, NotADaemonDetails,
     STATUS, STOP,
@@ -32,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 use crate::clock::Clock;
 use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler};
 use crate::events::Events;
-use crate::product::Identity;
+use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
@@ -437,6 +439,66 @@ async fn idle(shared: &Shared, clock: Clock) {
     }
 }
 
+/// How a Client the Daemon refused runs its own Product's executable.
+#[derive(Clone, Copy, Debug)]
+pub enum RefusedExecutable<'a> {
+    /// The executable it would run attached, at this path: an SDK's, the
+    /// CLI's or the MCP server's.
+    Path(&'a std::path::Path),
+    /// None: a Rust program, which links the engine through its Product's
+    /// crate.
+    Linked,
+}
+
+/// A Client a Daemon refused by Product or version while it could not hand
+/// over (ADR 0098).
+#[derive(Clone, Copy, Debug)]
+pub struct RefusedClient<'a> {
+    /// The Client's own Product.
+    pub product: Product,
+    /// Its Product version.
+    pub version: &'a ProductVersion,
+    /// Its executable.
+    pub executable: RefusedExecutable<'a>,
+    /// The channel its Product came from, whose install commands the fix
+    /// names.
+    pub channel: Channel,
+    /// Whether its executable would be its major's pick once it ran.
+    pub would_be_pick: bool,
+}
+
+/// What a refusal's `fix` adds for `client` (ADR 0098): its own Product's
+/// `daemon restart` at its version, given by its path, a Rust Client's
+/// install of that executable first; and, where that executable would
+/// still not be the pick, Foxhound at its version or newer.
+pub fn refusal_fix(client: &RefusedClient<'_>) -> String {
+    let name = client.product.name();
+    let version = client.version;
+    let mut fix = match client.executable {
+        RefusedExecutable::Path(path) => {
+            let path = path.display().to_string();
+            let path = if path.contains(char::is_whitespace) {
+                format!("\"{path}\"")
+            } else {
+                path
+            };
+            format!("Run `{path} daemon restart` to restart the Daemon on its major's pick.")
+        }
+        RefusedExecutable::Linked => format!(
+            "Install {name}'s executable at {version} (`{}`), then run its `daemon restart` to restart the Daemon on its major's pick.",
+            client.channel.install_command(client.product)
+        ),
+    };
+    if !client.would_be_pick {
+        let install = client.channel.install_command(Product::Foxhound);
+        let _ = write!(
+            fix,
+            " {name}'s executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound {version} or newer (`{install}`) and run its `daemon restart`."
+        );
+    }
+    fix
+}
+
 /// The `daemon.*` handlers.
 pub(crate) fn handlers() -> [Handler; 2] {
     [
@@ -466,3 +528,6 @@ fn daemon_of<'a>(
         )
     })
 }
+
+#[cfg(test)]
+mod tests;

@@ -21,6 +21,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
+use crate::daemon::StopsTheDaemon;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -29,10 +30,11 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 const BUNDLE: &str = include_str!("../../../goodfetch-protocol/generated/bundle.json");
 
 /// How a test reaches the engine: the executable itself, as an Attached
-/// engine does; a Daemon's case joins when the Daemon exists (#220).
+/// engine does, or the major's Daemon, which `--daemon` starts.
 #[derive(Clone, Copy, Debug)]
 enum Mode {
     Attached,
+    Daemon,
 }
 
 /// Lays out settings at three layers: an Operator policy that locks one
@@ -61,6 +63,10 @@ fn lay_out(env: &TestEnv) {
 fn explain(env: &TestEnv, mode: Mode, arguments: &[&str]) -> (String, String, bool) {
     let command = match mode {
         Mode::Attached => cli(env, COLLIE).args(["config", "explain"]).args(arguments),
+        Mode::Daemon => cli(env, COLLIE)
+            .args(["config", "explain"])
+            .args(arguments)
+            .arg("--daemon"),
     };
     let output = command.run().unwrap();
     (output.stdout, output.stderr, output.exit == Some(0))
@@ -92,9 +98,11 @@ fn validate(output: &Value) {
 /// Covers: story:3-89, story:3-142, operation:config.explain, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
 fn config_explain_json_shows_each_value_with_the_layer_that_set_and_locked_it(#[case] mode: Mode) {
     let env = TestEnv::new();
     lay_out(&env);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
 
     let (stdout, _, succeeded) = explain(
         &env,
@@ -124,8 +132,10 @@ fn config_explain_json_shows_each_value_with_the_layer_that_set_and_locked_it(#[
 /// Covers: story:3-89, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
 fn config_explain_shows_one_line_per_key_with_its_origin(#[case] mode: Mode) {
     let env = TestEnv::new();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
     lay_out(&env);
 
     let (stdout, _, succeeded) = explain(&env, mode, &["timeout", "network.resolve", "crawl"]);

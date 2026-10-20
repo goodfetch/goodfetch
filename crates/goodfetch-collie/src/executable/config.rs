@@ -5,8 +5,9 @@
 //! upward (or the one `--project` names) and the run values of `--set`,
 //! the CLI's flags; keys only the other Product honours are listed as that
 //! Product's. Its `--json` output is `goodfetch-protocol`'s type. The
-//! executable resolves in process, as its Attached engine does; through a
-//! Daemon it asks the Daemon's `config.explain` once the Daemon exists.
+//! executable resolves in process, as its Attached engine does, or under
+//! `--daemon` asks the major's Daemon's `config.explain`, starting the
+//! Daemon if none runs, with the project configuration and flags it read.
 //!
 //! The human output is one line per key, as `git config --show-origin`
 //! shows each value's origin: `key = value  (layer, locked by layer)`.
@@ -15,15 +16,18 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use goodfetch_engine::settings::{
-    Layers, SettingsError, SettingsFiles, Values, find_project, load_project, resolve,
+    Layers, SettingsError, SettingsFiles, Values, find_project, load_project, project_settings,
+    resolve,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{
-    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsFile, SettingsLayer,
+    ConfigExplainParams, ExplainedSetting, ProjectSettings, RunOrigin, SettingsExplanation,
+    SettingsFile, SettingsLayer,
 };
 use serde_json::{Map, Value};
 
+use super::daemon::{Failure, Machine};
 use super::output;
 use goodfetch_engine::home::Home;
 
@@ -50,18 +54,70 @@ pub(super) fn explain(
 ) -> ExitCode {
     match explanation(product, version, home, request) {
         Ok(explanation) => {
-            if request.json {
-                output::json(&explanation);
-            } else {
-                for setting in &explanation.settings {
-                    output::line(&describe(setting));
-                }
-            }
+            print(&explanation, request.json);
             ExitCode::SUCCESS
         }
         Err(error) => {
             tracing::error!(code = error.code(), "{error}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// `config explain --daemon`: the same, from the Daemon of the major.
+pub(super) fn explain_through(machine: &Machine<'_>, request: &Explain) -> ExitCode {
+    let params = match daemon_params(request) {
+        Ok(params) => params,
+        Err(error) => {
+            tracing::error!(code = error.code(), "{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let explained = machine.connect(true).and_then(|connected| {
+        let mut connected = connected.ok_or_else(|| {
+            Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
+        })?;
+        let explanation = connected.call::<SettingsExplanation>("config.explain", &params);
+        connected.close();
+        explanation
+    });
+    match explained {
+        Ok(explanation) => {
+            print(&explanation, request.json);
+            ExitCode::SUCCESS
+        }
+        Err(failure) => failure.report(),
+    }
+}
+
+/// What `config.explain` takes for `request`: the project configuration
+/// and flags this process read.
+fn daemon_params(request: &Explain) -> Result<ConfigExplainParams, SettingsError> {
+    let project_path = request
+        .project
+        .clone()
+        .or_else(|| find_project(&request.folder));
+    let project = match project_path {
+        Some(path) => Some(ProjectSettings {
+            settings: project_settings(&path)?.unwrap_or_default(),
+            path: path.display().to_string(),
+        }),
+        None => None,
+    };
+    Ok(ConfigExplainParams {
+        keys: request.keys.clone(),
+        project,
+        settings: flags(&request.set)?,
+        origin: Some(RunOrigin::Flag),
+    })
+}
+
+fn print(explanation: &SettingsExplanation, json: bool) {
+    if json {
+        output::json(explanation);
+    } else {
+        for setting in &explanation.settings {
+            output::line(&describe(setting));
         }
     }
 }

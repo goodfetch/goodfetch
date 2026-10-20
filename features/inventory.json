@@ -45,6 +45,61 @@
       ]
     },
     {
+      "id": "command:daemon.launched",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.restart",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.start",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.status",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.stop",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:artifact_download_failed",
       "kind": "error",
       "area": 3,
@@ -155,7 +210,7 @@
     {
       "id": "error:not_a_daemon",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -373,7 +428,7 @@
     {
       "id": "format:installed-executables",
       "kind": "format",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -460,7 +515,7 @@
     {
       "id": "operation:daemon.status",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -471,7 +526,7 @@
     {
       "id": "operation:daemon.stop",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2501,7 +2556,7 @@
     {
       "id": "setting:daemon.idle_timeout",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

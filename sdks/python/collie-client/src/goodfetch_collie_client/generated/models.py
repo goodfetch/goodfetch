@@ -365,6 +365,11 @@ class ConfigExplainParams(BaseModel):
     The keys to explain, each a key or a prefix of keys, such as
     `timeout`; every key when empty.
     """
+    origin: RunOrigin | None = None
+    """
+    Where those run values come from: a scope's `settings` option by
+    default, or the CLI's flags when the CLI asks a Daemon.
+    """
     project: ProjectSettings | None = None
     """The project configuration to explain with."""
     settings: dict[str, Any] | None = None

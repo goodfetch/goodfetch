@@ -11,7 +11,11 @@
 //!
 //! A Run's driver, such as Foxhound's crawl, holds a [`Run`]: its run
 //! state's writer, its clock, its cancellation, its tasks and its page
-//! bodies.
+//! bodies. On a Daemon, each Run belongs to the Connection that started it,
+//! whose end stops it (ADR 0078).
+//!
+//! Size: one registry actor, its handles and the commands it answers, kept
+//! whole so every change to a Run's state passes through one loop.
 
 use std::collections::BTreeMap;
 use std::fs::File;

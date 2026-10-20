@@ -19,6 +19,13 @@ export type ArtifactKind =
  */
 export type Completeness = "complete" | "incomplete" | "unverified";
 /**
+ * Where a run-layer value came from (ADR 0083).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunOrigin".
+ */
+export type RunOrigin = "argument" | "settings" | "flag" | "form";
+/**
  * Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
  * Linux, loopback TCP on Windows.
  *
@@ -47,13 +54,6 @@ export type Position = number;
  */
 export type SettingsLayer =
   "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
-/**
- * Where a run-layer value came from (ADR 0083).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RunOrigin".
- */
-export type RunOrigin = "argument" | "settings" | "flag" | "form";
 /**
  * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
  * writes it.
@@ -227,6 +227,11 @@ export interface ConfigExplainParams {
    * `timeout`; every key when empty.
    */
   keys?: string[];
+  /**
+   * Where those run values come from: a scope's `settings` option by
+   * default, or the CLI's flags when the CLI asks a Daemon.
+   */
+  origin?: RunOrigin | null;
   /**
    * The project configuration to explain with.
    */

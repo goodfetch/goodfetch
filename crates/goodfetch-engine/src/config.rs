@@ -27,7 +27,7 @@ async fn explain(
             project: params.project.clone(),
             recipe: None,
             settings: params.settings,
-            origin: Some(RunOrigin::Settings),
+            origin: Some(params.origin.unwrap_or(RunOrigin::Settings)),
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;

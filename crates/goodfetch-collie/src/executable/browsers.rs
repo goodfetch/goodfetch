@@ -24,6 +24,8 @@ use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowsersCleanOutput, BrowsersInstallOutput, InstallOutcome, InstalledArtifact,
     MAX_UNUSED_AGE, NotCleaned, PinnedBy,
 };
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{NETWORK_OFFLINE, NETWORK_RESOLVE};
 
 use super::output;
@@ -48,10 +50,14 @@ fn location(environment: &BTreeMap<OsString, OsString>) -> Option<(Home, CacheLo
 }
 
 /// The machine's settings: the Operator policy and user configuration of
-/// `home`'s major, as the engine resolves them before any Run.
-fn machine_settings(home: &Home, pinned_by: &PinnedBy) -> Result<Resolved, SettingsError> {
-    let product = pinned_by.product;
-    let machine = SettingsFiles::of(home, &pinned_by.product_version).load(product)?;
+/// the major of `version` in `home`, as the engine resolves them before
+/// any Run.
+pub(super) fn machine_settings(
+    home: &Home,
+    product: Product,
+    version: &ProductVersion,
+) -> Result<Resolved, SettingsError> {
+    let machine = SettingsFiles::of(home, version).load(product)?;
     let layers = Layers {
         operator_policy: machine.operator_policy,
         user_configuration: machine.user_configuration,
@@ -137,7 +143,7 @@ pub(super) fn install(
     let Some((home, location)) = location(environment) else {
         return no_home();
     };
-    let settings = match machine_settings(&home, &pinned_by) {
+    let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
         Ok(settings) => settings,
         Err(error) => return refused(&error),
     };
@@ -218,7 +224,7 @@ pub(super) fn clean(
     let Some((home, location)) = location(environment) else {
         return no_home();
     };
-    let settings = match machine_settings(&home, &pinned_by) {
+    let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
         Ok(settings) => settings,
         Err(error) => return refused(&error),
     };

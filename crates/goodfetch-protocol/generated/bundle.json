@@ -150,6 +150,70 @@
       ],
       "type": "object"
     },
+    "BrowsersCleanOutput": {
+      "description": "What `browsers clean --json` prints.",
+      "properties": {
+        "cache": {
+          "arrived_in": "0.1",
+          "description": "The Browser cache's path.",
+          "type": "string"
+        },
+        "deleted": {
+          "arrived_in": "0.1",
+          "description": "What it deleted, or would delete under `--dry-run`.",
+          "items": {
+            "$ref": "#/$defs/ArtifactId"
+          },
+          "type": "array"
+        },
+        "dry_run": {
+          "arrived_in": "0.1",
+          "description": "Whether it only listed what it would delete.",
+          "type": "boolean"
+        },
+        "not_cleaned": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotCleaned"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it cleaned nothing, when it did not run."
+        }
+      },
+      "required": [
+        "cache",
+        "dry_run",
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "BrowsersInstallOutput": {
+      "description": "What `browsers install --json` prints.",
+      "properties": {
+        "artifacts": {
+          "arrived_in": "0.1",
+          "description": "Each Pinned artifact of the Product version, and what installing it\ndid.",
+          "items": {
+            "$ref": "#/$defs/InstalledArtifact"
+          },
+          "type": "array"
+        },
+        "cache": {
+          "arrived_in": "0.1",
+          "description": "The Browser cache's path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cache",
+        "artifacts"
+      ],
+      "type": "object"
+    },
     "CancelParams": {
       "additionalProperties": false,
       "description": "What `$/cancel` names: the call to stop.",
@@ -498,6 +562,18 @@
           },
           "type": "array"
         },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where those run values come from: a scope's `settings` option by\ndefault, or the CLI's flags when the CLI asks a Daemon."
+        },
         "project": {
           "anyOf": [
             {
@@ -752,6 +828,26 @@
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
       "type": "object"
     },
+    "DaemonStartOutput": {
+      "description": "What `daemon start --json` and `daemon restart --json` print.",
+      "properties": {
+        "daemon": {
+          "$ref": "#/$defs/DaemonStatus",
+          "arrived_in": "0.1",
+          "description": "The running Daemon."
+        },
+        "started": {
+          "arrived_in": "0.1",
+          "description": "Whether this command started it, rather than finding it running.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "started",
+        "daemon"
+      ],
+      "type": "object"
+    },
     "DaemonStatus": {
       "description": "What `daemon.status` answers.",
       "properties": {
@@ -814,6 +910,50 @@
         "kept_alive",
         "idle_timeout"
       ],
+      "type": "object"
+    },
+    "DaemonStatusOutput": {
+      "description": "What `daemon status --json` prints.",
+      "properties": {
+        "daemon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The running Daemon, or `None` when none runs."
+        },
+        "runtime_file": {
+          "arrived_in": "0.1",
+          "description": "The runtime file of the executable's major.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime_file"
+      ],
+      "type": "object"
+    },
+    "DaemonStopOutput": {
+      "description": "What `daemon stop --json` prints.",
+      "properties": {
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStopping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the stopped Daemon answered, or `None` when none ran."
+        }
+      },
       "type": "object"
     },
     "DaemonStopping": {
@@ -1279,6 +1419,41 @@
       "pattern": "^https://[^/?#\\s]+[^\\s]*$",
       "type": "string"
     },
+    "InstallOutcome": {
+      "description": "What installing an artifact did.",
+      "oneOf": [
+        {
+          "const": "installed",
+          "description": "It was downloaded and checked now.",
+          "type": "string"
+        },
+        {
+          "const": "already_installed",
+          "description": "It was already there, with its pinned digest.",
+          "type": "string"
+        }
+      ]
+    },
+    "InstalledArtifact": {
+      "description": "One artifact `browsers install` made sure of.",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactId",
+          "arrived_in": "0.1",
+          "description": "The artifact."
+        },
+        "outcome": {
+          "$ref": "#/$defs/InstallOutcome",
+          "arrived_in": "0.1",
+          "description": "Whether it was downloaded now or already there."
+        }
+      },
+      "required": [
+        "artifact",
+        "outcome"
+      ],
+      "type": "object"
+    },
     "InstalledExecutable": {
       "description": "One executable that ran on this machine (ADR 0098).",
       "properties": {
@@ -1666,6 +1841,16 @@
         {
           "const": "M4",
           "description": "The fourth milestone.",
+          "type": "string"
+        }
+      ]
+    },
+    "NotCleaned": {
+      "description": "Why the clean-up did not run.",
+      "oneOf": [
+        {
+          "const": "cache_not_writable",
+          "description": "The engine cannot write the cache, such as a read-only\n`GOODFETCH_BROWSERS_PATH` (ADR 0098).",
           "type": "string"
         }
       ]
@@ -4554,6 +4739,29 @@
       "version": "0.1"
     }
   ],
+  "outputs": {
+    "browsers.clean": {
+      "$ref": "#/$defs/BrowsersCleanOutput"
+    },
+    "browsers.install": {
+      "$ref": "#/$defs/BrowsersInstallOutput"
+    },
+    "config.explain": {
+      "$ref": "#/$defs/SettingsExplanation"
+    },
+    "daemon.restart": {
+      "$ref": "#/$defs/DaemonStartOutput"
+    },
+    "daemon.start": {
+      "$ref": "#/$defs/DaemonStartOutput"
+    },
+    "daemon.status": {
+      "$ref": "#/$defs/DaemonStatusOutput"
+    },
+    "daemon.stop": {
+      "$ref": "#/$defs/DaemonStopOutput"
+    }
+  },
   "protocol_version": "0.1",
   "title": "Goodfetch protocol"
 }

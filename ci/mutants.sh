@@ -65,7 +65,9 @@ case "$mode" in
     # and those needing an OS service this host lacks (ci/os-services.sh).
     skip=()
     while IFS=$'\t' read -r runner argument; do
-      if [[ "$runner" == nextest ]]; then skip+=("$argument"); fi
+      case "$runner" in
+        nextest) skip+=("$argument") ;;
+      esac
     done < <(cargo run --quiet -p xtask -- quarantine exclude)
     services=$(ci/os-services.sh skipped target/skipped.txt)
     if [[ -n "$services" ]]; then

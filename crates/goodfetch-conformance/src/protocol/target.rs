@@ -3,8 +3,9 @@
 //! Attached engine, `<executable> attached-engine` over its stdio, or as a
 //! Daemon, `<executable> daemon launched`, whose runtime file it prints once
 //! ready and whose socket the harness then connects to. Every read waits at
-//! most [`DEADLINE`], so a target that stays silent fails its case instead of
-//! holding the harness.
+//! most [`DEADLINE`], and its first answer, which a process just started
+//! gives, at most [`START_DEADLINE`], so a target that stays silent fails
+//! its case instead of holding the harness.
 //!
 //! The harness is a Client of the target and runs outside any engine, so the
 //! Simulation never runs this module: it opens the Daemon's socket itself and
@@ -34,6 +35,11 @@ use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
 /// How long the harness waits for each line the target writes, for the
 /// Daemon to be ready and for the target to exit once the suite ends.
 pub(crate) const DEADLINE: Duration = Duration::from_secs(10);
+
+/// How long the harness waits for a process it just started to be ready
+/// and to answer `hello`, which a loaded machine's first start of a fresh
+/// build can take longer than any later answer.
+pub(crate) const START_DEADLINE: Duration = Duration::from_secs(30);
 
 /// A target that speaks the protocol: an executable taken by path, started
 /// in a mode with exactly this environment.
@@ -184,7 +190,7 @@ impl Started {
             .exited
             .as_ref()
             .expect("invariant: a Daemon's stdout is read")
-            .recv_timeout(DEADLINE);
+            .recv_timeout(START_DEADLINE);
         let runtime: DaemonRuntimeFile = match ready {
             Ok(Ok(line)) => serde_json::from_str(&line).map_err(|error| StartError::NotReady {
                 reason: format!("its first line is no runtime file ({error}): {line}"),
@@ -196,7 +202,7 @@ impl Started {
             }
             Err(RecvTimeoutError::Timeout) => {
                 return Err(StartError::NotReady {
-                    reason: format!("nothing came within {} s", DEADLINE.as_secs()),
+                    reason: format!("nothing came within {} s", START_DEADLINE.as_secs()),
                 });
             }
             Err(RecvTimeoutError::Disconnected) => {
@@ -250,9 +256,10 @@ impl Started {
         }
     }
 
-    /// The next line the target writes on the Connection.
-    pub(crate) fn next_line(&self) -> Next {
-        match self.lines.recv_timeout(DEADLINE) {
+    /// The next line the target writes on the Connection, within
+    /// `deadline`.
+    pub(crate) fn next_line(&self, deadline: Duration) -> Next {
+        match self.lines.recv_timeout(deadline) {
             Ok(Ok(line)) => Next::Line(line),
             Ok(Err(error)) => Next::Failed(error),
             Err(RecvTimeoutError::Timeout) => Next::Silent,

@@ -222,7 +222,7 @@ pub fn run_protocol_suite(
         }
     }
     // A Connection that only fell silent may still take the stop.
-    if matches!(gone, None | Some(Gone::Silent)) {
+    if matches!(gone, None | Some(Gone::Silent(_))) {
         stop(&mut session, target.mode);
     }
     session.close();
@@ -272,7 +272,7 @@ fn hello(session: &mut Session, product: Product) -> Result<HelloResult, Protoco
         reason: why.to_string(),
     };
     let id = session.request(HELLO, &params).map_err(unanswered)?;
-    let answer = session.answer(id).map_err(unanswered)?.message;
+    let answer = session.first_answer(id).map_err(unanswered)?.message;
     if let Some(error) = answer.get("error") {
         return Err(ProtocolSuiteError::HelloRefused {
             error: error.clone(),

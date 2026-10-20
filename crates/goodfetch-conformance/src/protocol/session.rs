@@ -8,15 +8,17 @@ use std::fmt;
 
 use serde_json::{Value, json};
 
-use super::target::{DEADLINE, Next, Started};
+use std::time::Duration;
+
+use super::target::{DEADLINE, Next, START_DEADLINE, Started};
 
 /// Why the Connection gave no more answers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Gone {
     /// The target closed it.
     Closed,
-    /// Nothing came before the deadline.
-    Silent,
+    /// Nothing came within this many seconds.
+    Silent(u64),
     /// Writing or reading failed.
     Failed(String),
 }
@@ -25,11 +27,9 @@ impl fmt::Display for Gone {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Closed => formatter.write_str("the target closed the Connection"),
-            Self::Silent => write!(
-                formatter,
-                "the target answered nothing within {} s",
-                DEADLINE.as_secs()
-            ),
+            Self::Silent(seconds) => {
+                write!(formatter, "the target answered nothing within {seconds} s")
+            }
             Self::Failed(reason) => write!(formatter, "the Connection failed: {reason}"),
         }
     }
@@ -89,12 +89,22 @@ impl Session {
     /// The response to the request `id`: the next message that carries the
     /// ID and no method.
     pub(crate) fn answer(&mut self, id: i64) -> Result<Answer, Gone> {
+        self.answer_within(id, DEADLINE)
+    }
+
+    /// The response to the first request a process just started reads,
+    /// which may take longer.
+    pub(crate) fn first_answer(&mut self, id: i64) -> Result<Answer, Gone> {
+        self.answer_within(id, START_DEADLINE)
+    }
+
+    fn answer_within(&mut self, id: i64, deadline: Duration) -> Result<Answer, Gone> {
         let mut others = Vec::new();
         loop {
-            let line = match self.started.next_line() {
+            let line = match self.started.next_line(deadline) {
                 Next::Line(line) => line,
                 Next::Closed => return Err(Gone::Closed),
-                Next::Silent => return Err(Gone::Silent),
+                Next::Silent => return Err(Gone::Silent(deadline.as_secs())),
                 Next::Failed(error) => return Err(Gone::Failed(error.to_string())),
             };
             let Ok(message) = serde_json::from_str::<Value>(&line) else {

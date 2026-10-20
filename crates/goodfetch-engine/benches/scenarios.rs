@@ -1,11 +1,14 @@
 //! The engine's benchmark scenarios (ADR 0071), shared by its Callgrind and
 //! DHAT targets: framing and decoding a fixed batch of lines, and
 //! dispatching `hello` then a fixed number of `engine.info` calls over the
-//! in-memory network on the tests' paused current-thread runtime, and
+//! in-memory network on the tests' paused current-thread runtime, on a
+//! Goodfetch home made and removed outside the measured run, and
 //! writing a fixed number of rows through a run file's writer, queued
 //! together so they commit in one group, with SQLite's full sync, in a
 //! temporary folder (ADR 0071's run-state writes). Inputs are literals; no
 //! network, no sleep, no work whose amount depends on timing.
+
+use std::path::Path;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
@@ -17,6 +20,7 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 const HELLO: &[u8] = br#"{"jsonrpc":"2.0","id":0,"method":"hello","params":{"protocol_version":"0.1","surface":"rust","needs":"collie","product_version":"0.0.0"}}"#;
@@ -45,10 +49,25 @@ pub(crate) fn frame_and_decode(bytes: &[u8]) -> usize {
         .count()
 }
 
+/// The dispatch benchmark's input: `count` lines from [`engine_info_lines`]
+/// and the Goodfetch home the engine runs on, a temporary folder its setup
+/// makes and its teardown removes, so neither shows in its figures.
+pub(crate) fn dispatch_input(count: usize) -> (Vec<u8>, TempDir) {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    (engine_info_lines(count), home)
+}
+
+/// The dispatch benchmark's teardown: removes its home, and returns how many
+/// replies came back.
+pub(crate) fn dispatch_done((replies, home): (usize, TempDir)) -> usize {
+    drop(home);
+    replies
+}
+
 /// Opens a Connection to a Collie engine with only the engine's own
-/// operations, sends `hello` and `calls` (lines from
-/// [`engine_info_lines`]), and returns how many replies came back.
-pub(crate) fn dispatch(calls: &[u8]) -> usize {
+/// operations on the Goodfetch home `home`, sends `hello` and `calls` (lines
+/// from [`engine_info_lines`]), and returns how many replies came back.
+pub(crate) fn dispatch(calls: &[u8], home: &Path) -> usize {
     let identity = Identity {
         product: Product::Collie,
         product_version: ProductVersion::parse("0.0.0").expect("invariant: a literal version"),
@@ -80,9 +99,8 @@ pub(crate) fn dispatch(calls: &[u8]) -> usize {
             };
             tokio::join!(send, receive).1
         };
-        let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
         let dependencies = Dependencies {
-            home: Home::new(home.path().to_owned()),
+            home: Home::new(home.to_owned()),
             clock: Clock::paused(std::time::UNIX_EPOCH),
             entropy: Entropy::seeded(0),
             blocking: BlockingPolicy::Inline,

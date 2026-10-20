@@ -104,6 +104,14 @@ journeys-tests:
 features-tests: journeys-tests
     cargo run --quiet -p xtask -- features check --listings target/journey-listings
 
+# ADR 0069's Client conformance case-list check with the runners' listings,
+# in the Pre-merge suite: after `journeys-tests`, it reads Vitest's listing,
+# so a case listing `sdk-typescript` fails without a Vitest test of the
+# TypeScript SDK packages tagged `client_case/<id>` in each of its modes; the
+# Quick suite's `xtask clients check`, which reads no listing, only notes it.
+clients-tests: journeys-tests
+    cargo run --quiet -p xtask -- clients check --listings target/journey-listings
+
 # Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
 # 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
 # repeatable; values of one flag add variants, different flags intersect.
@@ -569,7 +577,8 @@ pre-merge *all:
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
     "$just" journeys-tasks --check
-    "$just" features-tests
+    # One invocation, so the listings `journeys-tests` writes serve both.
+    "$just" features-tests clients-tests
     "$just" _tlc "{{ all }}"
     "$just" msrv
     "$just" miri

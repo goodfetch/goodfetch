@@ -30,6 +30,7 @@ mod egress_canary;
 mod egress_hosts;
 mod egress_rules;
 mod evict_caches;
+mod feature_generators;
 mod features;
 mod fixture_size;
 mod ingest;

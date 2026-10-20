@@ -3908,6 +3908,7 @@ dependencies = [
  "anyhow",
  "clap",
  "flate2",
+ "goodfetch-collie",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "insta",

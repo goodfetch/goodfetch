@@ -68,6 +68,21 @@
           "const": "format",
           "description": "A versioned format of the format registry.",
           "type": "string"
+        },
+        {
+          "const": "command",
+          "description": "A CLI command path of a Product's executable, from clap's `Command`.",
+          "type": "string"
+        },
+        {
+          "const": "block-cause",
+          "description": "A Block cause.",
+          "type": "string"
+        },
+        {
+          "const": "screen",
+          "description": "A Console route.",
+          "type": "string"
         }
       ]
     }

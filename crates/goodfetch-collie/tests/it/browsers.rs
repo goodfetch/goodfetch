@@ -45,7 +45,7 @@ fn run(env: &TestEnv, arguments: &[&str], variables: &[(&str, &Path)]) -> Value 
     serde_json::from_slice(&output).unwrap()
 }
 
-/// Covers: row:SDK-08
+/// Covers: row:SDK-08, command:browsers install
 #[test]
 fn browsers_install_fetches_what_the_version_pins_into_goodfetch_home() {
     let env = TestEnv::new();
@@ -84,7 +84,7 @@ fn browsers_clean_dry_run_lists_what_it_would_delete_and_deletes_nothing() {
     assert!(unused.join("entry.json").exists());
 }
 
-/// Covers: story:3-140
+/// Covers: story:3-140, command:browsers clean
 #[test]
 fn browsers_clean_deletes_what_nothing_pins_or_used_within_the_age() {
     let env = TestEnv::new();

@@ -18,6 +18,7 @@ mod observation_log;
 mod probe;
 mod proving_ground;
 mod reported;
+mod scripted_daemon;
 mod scripted_engine;
 mod seed;
 mod seeded_kill;

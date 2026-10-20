@@ -16,9 +16,11 @@
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
 //! (ADRs 0062 and 0073); the Scripted engine's script format and its
-//! player (ADR 0069); `goodfetch-test-env`, which gives the same setup to
-//! TypeScript and Python as one JSON description; and
-//! `goodfetch-scripted-engine`, which plays a script over its stdio. It
+//! player, and the Daemon's runtime file (ADRs 0024 and 0069);
+//! `goodfetch-test-env`, which gives the same setup to TypeScript and
+//! Python as one JSON description; and `goodfetch-scripted-engine`, which
+//! plays a script over its stdio, as a Daemon found through the runtime
+//! file, or on loopback TCP. It
 //! works on values only: it depends on no Goodfetch crate and is only ever
 //! a dev-dependency.
 
@@ -38,6 +40,7 @@ mod process;
 mod proving_ground;
 mod resolver;
 mod runtime;
+mod runtime_file;
 mod script;
 mod snapshot;
 mod special_purpose;
@@ -80,6 +83,10 @@ pub use proving_ground::{
 };
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use runtime_file::{
+    DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile, RuntimeFileError,
+    SCRIPTED_DAEMON_TOKEN,
+};
 pub use script::{
     Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
     engine_script,

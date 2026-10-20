@@ -50,7 +50,7 @@ fn sends_protocol_events_then_hangs() {
 }
 
 #[test]
-#[ignore = "run as a child by exercise_record::the_test_subscriber_writes_the_dispatch_records_into_the_exercise_record"]
+#[ignore = "run as a child by exercise_record::the_test_subscriber_writes_the_dispatch_and_outcome_records_into_the_exercise_record"]
 fn dispatches_under_the_test_subscriber() {
     let start = TestEnv::new().start_time();
     let subscriber = goodfetch_test_support::subscriber(move || start);
@@ -58,6 +58,7 @@ fn dispatches_under_the_test_subscriber() {
     tracing::subscriber::with_default(subscriber, || {
         tracing::info!(target: "goodfetch::engine", "engine started");
         tracing::trace!(target: "goodfetch::rpc::dispatch", method = "engine.info", "request answered");
+        tracing::trace!(target: "goodfetch::run::outcome", error_code = "handler_lost", "the run recorded an error code");
     });
 }
 

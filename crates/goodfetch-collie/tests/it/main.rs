@@ -12,4 +12,5 @@ mod browsers;
 mod config;
 mod events;
 mod journeys;
+mod log;
 mod run;

@@ -13,6 +13,7 @@
 )]
 
 mod endpoints;
+mod exercise_record;
 mod hostile_tables;
 mod journey_run;
 #[cfg(all(

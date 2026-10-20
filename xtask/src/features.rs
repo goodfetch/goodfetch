@@ -1,8 +1,10 @@
 //! `xtask features` (ADRs 0072 and 0075): the Feature inventory's types and
 //! generators, which `xtask codegen` runs, the scanner that reads what each
-//! test declares in its runner's idiom, and the Feature check: in the Quick
-//! suite without the runners' listings, in the Pre-merge suite with them.
+//! test declares in its runner's idiom, the Feature check: in the Quick
+//! suite without the runners' listings, in the Pre-merge suite with them,
+//! and the exercise audit of what each declaring test reached.
 
+mod audit;
 mod block_cause;
 mod check;
 mod command;
@@ -19,7 +21,8 @@ mod screen;
 mod story;
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
@@ -56,6 +59,21 @@ pub(crate) enum Command {
         #[command(flatten)]
         listings: Listings,
     },
+    /// The exercise audit: fails a Rust test that declares an `operation:`,
+    /// `error:`, `event:`, `command:` or `exit:` Feature its exercise record
+    /// never shows it reached, or that left no record. With `--junit`, over
+    /// the tests those files show ran (the Pre-merge suite); without it,
+    /// over every declaring test (the Release suite).
+    Audit {
+        /// The folder of the exercise records `just test` has test support
+        /// write, one file per test.
+        #[arg(long, default_value = "target/test-records")]
+        records: PathBuf,
+        /// nextest's JUnit files of the run, whose tests that ran are the
+        /// ones audited.
+        #[arg(long)]
+        junit: Vec<PathBuf>,
+    },
 }
 
 #[derive(clap::Args)]
@@ -68,20 +86,9 @@ pub(crate) struct Listings {
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
-    let (Command::Scan { listings, .. } | Command::Check { listings }) = &command;
-    let mut declarations = scan::rust(cargo, root)?;
-    declarations.extend(covers::read(root)?);
-    let read = match &listings.folder {
-        Some(folder) => {
-            declarations.extend(listed::read(root, &root.join(folder))?);
-            check::Declarations::All
-        }
-        None => check::Declarations::WithoutListings,
-    };
-    declarations.sort();
-    declarations.dedup();
     match command {
-        Command::Scan { packages, .. } => {
+        Command::Scan { packages, listings } => {
+            let (declarations, _) = declarations(cargo, root, &listings)?;
             let packages: BTreeSet<String> = packages.into_iter().collect();
             for declaration in declarations.iter().filter(|declaration| {
                 packages.is_empty()
@@ -97,7 +104,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Check { .. } => {
+        Command::Check { listings } => {
+            let (declarations, read) = declarations(cargo, root, &listings)?;
             let verdict = check::check(root, &declarations, read)?;
             for note in &verdict.notes {
                 output::line(&format!(
@@ -107,7 +115,38 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             }
             Ok(crate::check::report(&verdict.findings))
         }
+        Command::Audit { records, junit } => {
+            let declarations = scan::rust(cargo, root)?;
+            let ran = if junit.is_empty() {
+                None
+            } else {
+                Some(audit::tests_that_ran(root, &junit)?)
+            };
+            let findings = audit::audit(root, &declarations, &root.join(records), ran.as_ref())?;
+            Ok(crate::check::report(&findings))
+        }
     }
+}
+
+/// Every declaration the scanner reads, the runners' listings' too when
+/// they are given, sorted, with which of them the check reads.
+fn declarations(
+    cargo: &OsStr,
+    root: &Path,
+    listings: &Listings,
+) -> Result<(Vec<scan::Declaration>, check::Declarations)> {
+    let mut declarations = scan::rust(cargo, root)?;
+    declarations.extend(covers::read(root)?);
+    let read = match &listings.folder {
+        Some(folder) => {
+            declarations.extend(listed::read(root, &root.join(folder))?);
+            check::Declarations::All
+        }
+        None => check::Declarations::WithoutListings,
+    };
+    declarations.sort();
+    declarations.dedup();
+    Ok((declarations, read))
 }
 
 /// The inventory as `xtask codegen` writes it: pretty JSON with a final

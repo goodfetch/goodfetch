@@ -30,7 +30,7 @@ toml.workspace = true
 # `test-util` pauses the runtime's clock, so callers need no feature of their own.
 tokio = { workspace = true, features = ["rt", "time", "test-util"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["json"] }
 # `JourneyRun` submits a tool's result to the Proving ground's oracle.
 ureq.workspace = true
 
@@ -45,10 +45,11 @@ libc.workspace = true
 [build-dependencies]
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 
-# Its integration tests start the Proving ground through the test tool
-# manifest, so a change to it runs them (TESTING.md, Commands).
+# Its integration tests start the Proving ground and Collie's executable
+# through the test tool manifest, so a change to either runs them (TESTING.md,
+# Commands).
 [package.metadata.goodfetch]
-runs = ["goodfetch-proving-ground"]
+runs = ["goodfetch-collie", "goodfetch-proving-ground"]
 
 [package.metadata.cargo-shear]
 ignored = ["bindgen"]

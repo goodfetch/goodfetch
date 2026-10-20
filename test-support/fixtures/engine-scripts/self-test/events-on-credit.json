@@ -1,0 +1,62 @@
+{
+  "description": "A subscription whose events the engine sends only once the Client grants credits, then the engine closes the connection.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 1,
+          "credits": 1
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 1,
+            "events": [
+              {
+                "position": 1,
+                "event": "sample.echoed",
+                "data": {
+                  "text": "hello"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

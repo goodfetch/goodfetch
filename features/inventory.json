@@ -47,7 +47,7 @@
     {
       "id": "command:daemon.launched",
       "kind": "command",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -58,7 +58,7 @@
     {
       "id": "command:daemon.restart",
       "kind": "command",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -69,7 +69,7 @@
     {
       "id": "command:daemon.start",
       "kind": "command",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -80,7 +80,7 @@
     {
       "id": "command:daemon.status",
       "kind": "command",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -91,7 +91,7 @@
     {
       "id": "command:daemon.stop",
       "kind": "command",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

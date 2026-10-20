@@ -21,6 +21,9 @@ use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, ServerName};
 
+#[cfg(test)]
+mod tests;
+
 /// The `resolve` setting (ADR 0059): host names mapped to addresses before
 /// any lookup.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

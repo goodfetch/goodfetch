@@ -1195,6 +1195,7 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-test-support",
  "gungraun",
+ "insta",
  "mimalloc",
  "rusqlite",
  "serde_json",

@@ -69,6 +69,19 @@ impl<'env> Attached<'env> {
         self.stdout.is_quiet_for(quiet)
     }
 
+    /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
+    /// or a crash ends it.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(
+            dead_code,
+            reason = "only the LazyFS power cut, on Linux, kills the engine"
+        )
+    )]
+    pub(crate) fn kill(self) {
+        self.process.stop().unwrap();
+    }
+
     /// Ends the input and waits for the engine to exit, returning whatever
     /// it still sent.
     /// Records `attached-engine` and its exit code in the test's command

@@ -14,5 +14,7 @@ mod daemon;
 mod events;
 mod invalid_calls;
 mod journeys;
+#[cfg(target_os = "linux")]
+mod lazyfs;
 mod log;
 mod run;

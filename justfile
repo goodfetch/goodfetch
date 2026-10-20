@@ -808,6 +808,35 @@ tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet -p xtask -- tlc run sample --config broken --expect invariant-violated
 
+# Keeps each archive of test-support/lazyfs/sources.toml in
+# target/lazyfs/sources/, downloading only a file that lacks its pinned
+# SHA-256; a download whose SHA-256 differs fails (ADR 0060).
+# Downloads LazyFS's pinned source archives, before the outbound-traffic deny.
+lazyfs-fetch:
+    cargo run --quiet -p xtask -- lazyfs fetch
+
+# Linux, with cmake, a C++17 compiler and libfuse3's headers
+# (ci/host/lazyfs.sh installs them on a runner); it builds nothing again
+# while target/lazyfs/bin/ holds a build of the same pins.
+# Builds LazyFS from its pinned source archives into target/lazyfs/bin/.
+lazyfs-build:
+    {{ just_executable() }} lazyfs-fetch
+    cargo run --quiet -p xtask -- lazyfs build
+
+# The Release suite runs them on Linux x64 (ADR 0060), and nextest's
+# profiles leave them out of every other run; they need /dev/fuse and
+# fusermount3, and fail, never skip, where a mount cannot be made.
+# Runs the LazyFS power cuts (`lazyfs::` tests) on the LazyFS build.
+lazyfs-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ just_executable() }} lazyfs-fetch
+    GOODFETCH_LAZYFS=$(cargo run --quiet -p xtask -- lazyfs build)
+    export GOODFETCH_LAZYFS GOODFETCH_TEST_SUITE=release
+    cargo nextest run -p goodfetch-test-support -p goodfetch-collie --profile ci \
+      --cargo-profile {{ test_profile }} --ignore-default-filter \
+      -E 'kind(test) & test(/^lazyfs::/)'
+
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
 # dependencies, tests and benchmark targets with its profiles, run by nothing:
 # the Pre-merge job's own `just build ci` among them; the benchmark targets

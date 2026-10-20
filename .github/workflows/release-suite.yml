@@ -195,6 +195,11 @@ jobs:
       - name: Pull the pinned ZAP image
         if: matrix.cell == 'linux-x64-gnu'
         run: just zap fetch
+      # The LazyFS power cuts (ADR 0060), on one cell: FUSE from the runner's
+      # packages, LazyFS from its pinned source archives.
+      - name: Build the pinned LazyFS
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/host/lazyfs.sh
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic
@@ -231,6 +236,9 @@ jobs:
       - name: "Test: the ZAP baseline of the Console"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just zap scan
+      - name: "Test: LazyFS power cuts"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh ci/release/cell.sh lazyfs
       - name: Measure the base, then the commit, against the Performance budget
         if: endsWith(matrix.cell, '-gnu')
         run: ci/egress/under-deny.sh ci/release/perf.sh run

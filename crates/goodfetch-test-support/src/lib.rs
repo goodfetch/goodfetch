@@ -49,6 +49,8 @@ mod hostile;
 mod invariants;
 mod journey_run;
 mod kill;
+#[cfg(target_os = "linux")]
+mod lazyfs;
 mod locales;
 #[cfg(all(
     target_os = "linux",
@@ -112,6 +114,8 @@ pub use journey_run::{
     BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,
 };
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
+#[cfg(target_os = "linux")]
+pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
 pub use locales::{TimeZoneCase, locales, time_zones};
 #[cfg(all(
     target_os = "linux",
@@ -161,6 +165,7 @@ pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use variables::{
-    DNS_NAMESPACE_VARIABLE, MAX_SEED, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
-    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, Variables, current_test,
+    DNS_NAMESPACE_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE,
+    SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, Variables,
+    current_test,
 };

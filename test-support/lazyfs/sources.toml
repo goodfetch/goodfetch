@@ -1,0 +1,29 @@
+# The pinned sources of LazyFS (ADR 0060), the FUSE file system whose cache
+# keeps writes until they are synced, so that clearing it power-cuts a real
+# executable on Linux. `xtask lazyfs fetch` (`just lazyfs-fetch`) downloads
+# each archive before the outbound-traffic deny into `target/lazyfs/sources/`
+# and fails on one whose SHA-256 differs from its pin; `xtask lazyfs build`
+# (`just lazyfs-build`) builds from the kept archives alone, refusing one
+# that differs, with CMake's FetchContent downloads turned off.
+#
+# LazyFS 0.3.1 is commit 045a0b3a1126725e693934e29d3ba15e08cc39ec of
+# dsrhaslab/lazyfs (released 2026-05-07). Its cache library, libpcache,
+# fetches toml11 v3.7.1 and spdlog v1.10.0 itself, unpinned; they are pinned
+# here at the same tags (toml11 dcfe39a783a94e8d52c885e5883a6fbb21529019,
+# spdlog 76fb40d95455f249bd70824ecfcae7a8f0930fa3). Move the three together
+# when LazyFS moves its own.
+
+[[source]]
+name = "lazyfs.tar.gz"
+url = "https://github.com/dsrhaslab/lazyfs/archive/045a0b3a1126725e693934e29d3ba15e08cc39ec.tar.gz"
+sha256 = "e4683f9170ecb76f16a36e2c22eca53b8e2e5edea17ee2d47a5fca45f1bb579b"
+
+[[source]]
+name = "toml11.tar.gz"
+url = "https://github.com/ToruNiina/toml11/archive/refs/tags/v3.7.1.tar.gz"
+sha256 = "afeaa9aa0416d4b6b2cd3897ca55d9317084103077b32a852247d8efd4cf6068"
+
+[[source]]
+name = "spdlog.tar.gz"
+url = "https://github.com/gabime/spdlog/archive/refs/tags/v1.10.0.tar.gz"
+sha256 = "697f91700237dbae2326b90469be32b876b2b44888302afbc7aceb68bcfe8224"

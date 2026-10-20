@@ -15,6 +15,9 @@
 #               smoke scripts Vitest spawns (ADR 0069);
 #   python      pytest on each CPython host-tools recorded, split across
 #               processes by pytest-xdist;
+#   lazyfs      on linux-x64-gnu, the LazyFS power cuts (ADR 0060): the
+#               archive's `lazyfs::` tests, which nextest's profiles leave
+#               out of `rust`, on the LazyFS ci/host/lazyfs.sh built;
 #   rss         the resident-memory check (ADRs 0071, 0094 and 0134): each
 #               scenario on each Product's `ci` executable it runs on, each
 #               peak held to its ceiling in ci/rss-ceilings.toml, reporting
@@ -31,7 +34,7 @@
 # GOODFETCH_NODE_LINES and GOODFETCH_PYTHONS.
 set -euo pipefail
 
-part=${1:?usage: ci/release/cell.sh build|size|rust|typescript|python|rss}
+part=${1:?usage: ci/release/cell.sh build|size|rust|lazyfs|typescript|python|rss}
 cell=${CELL:?the job sets CELL}
 target=${TARGET:?the job sets TARGET}
 shard=${SHARD:-1/1}
@@ -109,6 +112,18 @@ case "$part" in
     fi
     exit "$status"
     ;;
+  lazyfs)
+    export GOODFETCH_LAZYFS="$root/target/lazyfs/bin/lazyfs"
+    [[ -x "$GOODFETCH_LAZYFS" ]] || {
+      echo "error: $GOODFETCH_LAZYFS is missing; run ci/host/lazyfs.sh before the deny" >&2
+      exit 2
+    }
+    status=0
+    cargo nextest run --archive-file "$archive" --workspace-remap . \
+      --profile ci --ignore-default-filter -E 'kind(test) & test(/^lazyfs::/)' || status=$?
+    [[ -f target/nextest/ci/junit.xml ]] && cp target/nextest/ci/junit.xml "target/junit/nextest-$cell-lazyfs.xml"
+    exit "$status"
+    ;;
   typescript)
     status=0
     skip_vitest=() skip_playwright=()
@@ -149,7 +164,7 @@ case "$part" in
     cargo run --quiet --locked -p xtask -- rss check --peaks "$rss_peaks" ${summary[@]+"${summary[@]}"}
     ;;
   *)
-    echo "error: the part is build, size, rust, typescript, python or rss, not $part" >&2
+    echo "error: the part is build, size, rust, lazyfs, typescript, python or rss, not $part" >&2
     exit 2
     ;;
 esac

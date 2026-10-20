@@ -21,6 +21,10 @@ pub const SUITE_VARIABLE: &str = "GOODFETCH_TEST_SUITE";
 /// The path of the test tool manifest, which `just test` writes.
 pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 
+/// The path of the pinned LazyFS build, which `just lazyfs-test` sets
+/// (ADR 0060).
+pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
+
 /// The folder each Journey variant run also writes its result document
 /// into, beside the test's own folder, which `just test` sets.
 pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
@@ -67,6 +71,7 @@ impl Variables {
             SEED_VARIABLE,
             SUITE_VARIABLE,
             TOOLS_VARIABLE,
+            LAZYFS_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,

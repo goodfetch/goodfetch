@@ -1,0 +1,23 @@
+[[story]]
+id = 1
+title = "As a user, I want a tray icon, so that I see the Daemon run."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 2
+title = "As a user, I want a later goal, so that it waits."
+milestone = "M2 Agents"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 3
+title = "As a user, I want a checked goal, so that CI proves it."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

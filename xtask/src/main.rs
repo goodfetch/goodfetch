@@ -403,7 +403,9 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
-        Command::Journeys { command } => journeys::run(&command, environment),
+        Command::Journeys { command } => {
+            journeys::run(&command, environment, features::manual_exceptions)
+        }
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),

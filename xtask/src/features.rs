@@ -41,6 +41,7 @@ use crate::{journeys, output};
 pub(crate) use command::{CommandLines, CommandTree, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
+pub(crate) use report::manual_exceptions;
 pub(crate) use scan::tests;
 
 /// The report's files in its folder.

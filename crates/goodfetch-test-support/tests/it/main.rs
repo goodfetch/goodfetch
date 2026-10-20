@@ -12,6 +12,7 @@
 )]
 
 mod endpoints;
+mod journey_run;
 mod observation_log;
 mod probe;
 mod proving_ground;

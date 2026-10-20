@@ -10,6 +10,12 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
 
+# The exercise audit's verdict in the Pre-merge and Release suites (ADR 0072):
+# `report` while declarations of earlier tickets still miss what they claim
+# (#353's run found 14), so it lists them and fails nothing; `gate` once
+# `just features-audit all gate` passes, when it fails the suites.
+exercise_audit := "report"
+
 # Lists the recipes.
 default:
     @just --list
@@ -117,15 +123,39 @@ clients-tests: journeys-tests
 # Rust test that declares an `operation:`, `error:`, `event:`, `command:` or
 # `exit:` Feature must have reached it, as the exercise record test support
 # wrote for it shows. It reads the tests the run's JUnit file shows ran, or
-# every declaring test with `all` (the Release suite).
-features-audit scope="ran":
+# every declaring test with `all` (the Release suite). The suites run it
+# with the verdict `exercise_audit` gives; `gate` fails on a finding,
+# `report` lists the findings and passes.
+# Runs the exercise audit: `just features-audit [ran|all] [gate|report]`.
+features-audit scope="ran" verdict=exercise_audit:
     #!/usr/bin/env bash
     set -euo pipefail
+    case "{{ verdict }}" in
+      gate | report) ;;
+      *) echo "error: the verdict is gate or report, not {{ verdict }}" >&2; exit 2 ;;
+    esac
     case "{{ scope }}" in
-      ran) cargo run --quiet -p xtask -- features audit --junit target/nextest/ci/junit.xml ;;
-      all) cargo run --quiet -p xtask -- features audit ;;
+      ran)
+        # nextest writes its JUnit file into the target folder, which CI's
+        # VM keeps outside the workspace.
+        target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+        junit="$target/nextest/ci/junit.xml"
+        if [[ ! -f "$junit" ]]; then
+          echo "The exercise audit has nothing to read: no nextest run of the suite left $junit."
+          exit 0
+        fi
+        audit=(--junit "$junit")
+        ;;
+      all) audit=() ;;
       *) echo "error: the scope is ran or all, not {{ scope }}" >&2; exit 2 ;;
     esac
+    status=0
+    cargo run --quiet -p xtask -- features audit ${audit[@]+"${audit[@]}"} || status=$?
+    if [[ $status -eq 1 && "{{ verdict }}" == report ]]; then
+      echo "The exercise audit reports its findings above and fails nothing until they are fixed (exercise_audit in the justfile, #321)."
+      exit 0
+    fi
+    exit "$status"
 
 # Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
 # 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
@@ -205,6 +235,30 @@ features *change:
     fi
     echo "Missing:"
     cargo run --quiet -p xtask -- features check && echo "nothing"
+
+# ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
+# Pre-merge suite's tests of what changed, or of the whole workspace with
+# `all`, with every Rust crate built for coverage (so each SDK, Journey and
+# Console run starts the instrumented executables), Vitest's `v8` provider
+# and coverage.py with branches. Reports go to target/coverage/. Takes
+# `xtask affected`'s change, `--local` by default; listed as skipped without
+# cargo-llvm-cov.
+# Measures code coverage, never gated: `just coverage [all | <change>…]`.
+coverage *change:
+    JUST="{{ just_executable() }}" ci/tool.sh cargo-llvm-cov ci/coverage.sh {{ change }}
+
+# ADR 0072's in-diff mutation testing (ci/mutants.sh): cargo-mutants with
+# nextest over the Rust code changed since `base` (the merge base with
+# `origin/main` by default), every mutant at once; CI's `mutants` job runs
+# the same in 15-minute shards. The report goes to target/mutants/; a
+# surviving mutant never fails it. Listed as skipped without cargo-mutants.
+# Mutation-tests the Rust changes since `base`: `just mutants [base]`.
+mutants base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    JUST="{{ just_executable() }}" ci/tool.sh cargo-mutants ci/mutants.sh run "$base"
 
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the
@@ -330,8 +384,9 @@ test suite *packages:
         ;;
       pre-merge|release)
         # Each test nextest runs leaves its exercise record here, which
-        # `just features-audit` reads (ADR 0072); a run starts with none.
-        rm -rf target/test-records
+        # `just features-audit` reads (ADR 0072) with the run's JUnit file;
+        # a run starts with neither.
+        {{ just_executable() }} _clear-exercise-records
         export GOODFETCH_TEST_RECORDS="$PWD/target/test-records"
         # A quarantined test that owns an insta snapshot does not run, so its
         # snapshot looks unreferenced: while nextest skips any quarantined
@@ -551,6 +606,8 @@ test-affected suite *change:
     read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
     if [[ ${#packages[@]} -eq 0 ]]; then
       echo "The change needs no {{ suite }} tests."
+      # So `just features-audit` reads no earlier run's records.
+      [[ "{{ suite }}" == quick ]] || {{ just_executable() }} _clear-exercise-records
       exit 0
     fi
     {{ just_executable() }} test {{ suite }} "${packages[@]}"
@@ -595,6 +652,7 @@ pre-merge *all:
     "$just" proofs
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
+    "$just" features-audit
     "$just" journeys-tasks --check
     # One invocation, so the listings `journeys-tests` writes serve both.
     "$just" features-tests clients-tests
@@ -623,6 +681,7 @@ release:
     "$just" lint
     "$just" test quick
     "$just" test release
+    "$just" features-audit all
     "$just" _tlc all
     "$just" proofs
     "$just" rss
@@ -885,6 +944,11 @@ rosetta-trial:
 # manifest of their paths to target/test-tools.json.
 _test-tools:
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json"
+
+# Removes the exercise records and the nextest JUnit file of an earlier
+# Pre-merge or Release run, which `just features-audit` would read.
+_clear-exercise-records:
+    rm -rf target/test-records "$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/nextest/ci/junit.xml"
 
 # One suite's tests over the whole workspace with `all`, else over what changed.
 _suite suite all:

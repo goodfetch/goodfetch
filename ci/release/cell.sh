@@ -89,6 +89,10 @@ case "$part" in
       --save "target/release-suite/size-report-$tree-$target.json"
     ;;
   rust)
+    # Each test leaves its exercise record here, which `just features-audit
+    # all` reads after this step (ADR 0072).
+    rm -rf target/test-records
+    export GOODFETCH_TEST_RECORDS="$root/target/test-records"
     status=0
     skipped=()
     while IFS= read -r argument; do skipped+=("$argument"); done < <(skip nextest)

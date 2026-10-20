@@ -27,11 +27,11 @@ const CEILING: u64 = 1_000;
 /// Where the coverage job stops (ADR 0072).
 const COVERAGE_CEILING: u64 = 550;
 
-/// The workflows whose hosted jobs count toward the ceiling. The coverage
-/// job's workflow joins them with ADR 0072's ticket.
-const COUNTED_WORKFLOWS: [&str; 2] = [
+/// The workflows whose hosted jobs count toward the ceiling.
+const COUNTED_WORKFLOWS: [&str; 3] = [
     ".github/workflows/test-health.yml",
     ".github/workflows/diagnostic.yml",
+    ".github/workflows/coverage.yml",
 ];
 
 /// The runs the ceiling admits or skips.
@@ -97,12 +97,19 @@ pub(crate) fn check(
         let next_month = today
             .first_of_month()
             .checked_add(jiff::Span::new().months(1))?;
+        let reason = match run {
+            Run::Coverage => format!(
+                "This month's test-health and coverage jobs have used {used} included minutes, \
+                 and the {run} starts only below {COVERAGE_CEILING} (ADR 0072)."
+            ),
+            Run::Constrained | Run::Diagnostic => format!(
+                "This month's test-health jobs have used {used} of their {CEILING} included minutes (ADR 0064), \
+                 which leaves no room for the {run}'s {jobs} hosted jobs."
+            ),
+        };
         output::append(
             summary,
-            &format!(
-                "### Skipped: the {run}\n\nThis month's test-health jobs have used {used} of their {CEILING} included minutes (ADR 0064), \
-                 which leaves no room for the {run}'s {jobs} hosted jobs. It runs again from {next_month}.\n"
-            ),
+            &format!("### Skipped: the {run}\n\n{reason} It runs again from {next_month}.\n"),
         )?;
     }
     Ok(())

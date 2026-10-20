@@ -21,6 +21,7 @@ fn uploads_behind_a_passing_scan_of_their_paths_pass() {
 #[case::no_scan("no-scan.yml", "unscanned-upload")]
 #[case::scan_after_the_upload("scan-after-upload.yml", "unscanned-upload")]
 #[case::path_the_scan_misses("path-not-scanned.yml", "unscanned-upload")]
+#[case::step_after_the_scan("step-after-scan.yml", "unscanned-upload")]
 #[case::upload_ignores_the_scan("upload-ignores-scan.yml", "upload-ignores-scan")]
 #[case::scan_skipped_when_a_test_fails("scan-skipped-on-failure.yml", "scan-skipped-on-failure")]
 fn upload_not_guarded_by_its_scan_fails(#[case] workflow: &str, #[case] kind: &str) {

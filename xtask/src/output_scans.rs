@@ -3,7 +3,8 @@
 //! upload, and a hit keeps them from uploading. For every
 //! `actions/upload-artifact` step it requires:
 //! - an earlier step that runs `ci/leaks.sh` over each path the upload takes,
-//!   or over a folder holding it;
+//!   or over a folder holding it, with no step between them but other
+//!   uploads and scans, since any other step may write what uploads;
 //! - that the scan runs whatever happened before it (`if: always()`), since
 //!   a job's JUnit files upload pass or fail (TESTING.md);
 //! - that the upload's `if:` requires the scan's success
@@ -31,11 +32,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         for job in &workflow.jobs {
             let subject = format!("{}#{}", workflow.file, job.id);
             for (index, step) in job.steps.iter().enumerate() {
-                if !step
-                    .uses
-                    .as_deref()
-                    .is_some_and(|uses| uses.starts_with(UPLOAD))
-                {
+                if !is_upload(step) {
                     continue;
                 }
                 if let Some(finding) = upload(&job.steps[..index], step, &subject) {
@@ -45,6 +42,12 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         }
     }
     Ok(findings)
+}
+
+fn is_upload(step: &Step) -> bool {
+    step.uses
+        .as_deref()
+        .is_some_and(|uses| uses.starts_with(UPLOAD))
 }
 
 /// The finding for one upload step, given the steps before it.
@@ -60,7 +63,13 @@ fn upload(before: &[Step], step: &Step, subject: &str) -> Option<Finding> {
                 .collect()
         })
         .unwrap_or_default();
-    let scans: Vec<(&Step, Vec<&str>)> = before
+    // A scan counts only after the last step that may write what uploads:
+    // any step but another upload or scan.
+    let fresh = before
+        .iter()
+        .rposition(|step| !is_upload(step) && scanned(step).is_none())
+        .map_or(0, |index| index + 1);
+    let scans: Vec<(&Step, Vec<&str>)> = before[fresh..]
         .iter()
         .filter_map(|step| scanned(step).map(|paths| (step, paths)))
         .collect();

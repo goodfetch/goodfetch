@@ -70,7 +70,7 @@ fn a_run_whose_settings_an_operator_policy_locked_is_refused_before_it_begins() 
 
 /// Covers: story:3-89, story:3-92, setting:tls.accept_invalid_certs
 #[test]
-fn a_run_report_names_the_operator_policys_version_and_the_settings_that_weaken() {
+fn a_run_report_names_the_operator_policy_version_and_the_settings_that_weaken() {
     let env = TestEnv::new();
     write(
         &env,
@@ -172,7 +172,7 @@ fn a_user_configuration_that_does_not_read_refuses_the_run_with_its_error_code()
     write(
         &env,
         "configuration.toml",
-        "version = \"0.1\"\n\n[settings.timeout]\nnavigaton = 1000\n",
+        "version = \"0.1\"\n\n[settings.timeout]\nnavigation_ = 1000\n",
     );
 
     let (started, _) = start_and_finish(&env, Product::Collie, json!({ "run_id": "set" }));

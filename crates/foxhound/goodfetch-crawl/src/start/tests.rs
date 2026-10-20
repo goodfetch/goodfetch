@@ -660,7 +660,7 @@ fn a_crawls_settings_shape_its_attempts() {
 ///
 /// Covers: story:3-88, setting:crawl.retry.max, setting:crawl.handler.concurrency, setting:crawl.retry.handler_failed, setting:timeout.handler
 #[test]
-fn an_operator_policys_tightened_cap_reaches_a_crawl_already_going() {
+fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
     let env = TestEnv::new();
     let policy = env.home().join("1").join("operator-policy.toml");
 

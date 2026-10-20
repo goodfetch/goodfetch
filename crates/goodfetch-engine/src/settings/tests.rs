@@ -192,7 +192,7 @@ fn offline_is_off_unless_a_layer_turns_it_on(#[case] set: Option<bool>, #[case] 
 #[case::project_configuration(SettingsLayer::ProjectConfiguration)]
 #[case::the_recipe(SettingsLayer::Recipe)]
 #[case::the_run(SettingsLayer::Run)]
-fn an_operator_policys_lock_refuses_every_higher_layers_value(#[case] layer: SettingsLayer) {
+fn an_operator_policy_lock_refuses_every_higher_layers_value(#[case] layer: SettingsLayer) {
     let mut layers = only(layer, "timeout.navigation", &json!(9_000));
     layers.operator_policy = policy(
         json!({}),
@@ -577,7 +577,7 @@ fn browser_cache_max_unused_age_is_set_only_by_the_machines_own_layers(
 
 /// Covers: story:3-88, setting:crawl.handler.concurrency
 #[test]
-fn a_value_above_an_operator_policys_cap_is_refused() {
+fn a_value_above_an_operator_policy_cap_is_refused() {
     let mut layers = only(SettingsLayer::Run, "crawl.handler.concurrency", &json!(64));
     layers.operator_policy = policy(
         json!({}),
@@ -598,7 +598,7 @@ fn a_value_above_an_operator_policys_cap_is_refused() {
 
 /// Covers: story:3-88, setting:crawl.handler.concurrency
 #[test]
-fn a_default_above_an_operator_policys_cap_takes_the_cap() {
+fn a_default_above_an_operator_policy_cap_takes_the_cap() {
     let layers = Layers {
         operator_policy: policy(
             json!({}),
@@ -658,14 +658,14 @@ fn a_setting_that_weakens_a_guarantee_is_marked_on_the_results() {
 fn an_unknown_key_names_the_closest_known_one() {
     let read = Values::read(
         SettingsLayer::Run,
-        &nested(json!({ "timeout": { "navigaton": 1_000 } })),
+        &nested(json!({ "timeout": { "navigation_": 1_000 } })),
         Product::Collie,
     );
 
     assert_eq!(
         read,
         Err(SettingsError::Unknown {
-            key: "timeout.navigaton".to_owned(),
+            key: "timeout.navigation_".to_owned(),
             layer: Some(SettingsLayer::Run),
             closest: Some("timeout.navigation".to_owned()),
         })
@@ -836,7 +836,7 @@ fn an_operator_policy_of_a_version_this_engine_cannot_read_is_invalid(#[case] te
 }
 
 #[test]
-fn an_operator_policys_cap_is_on_a_count_or_a_duration() {
+fn an_operator_policy_cap_is_on_a_count_or_a_duration() {
     let text = "version = \"0.1\"\n[cap.network]\noffline = true\n";
 
     let read = operator_policy(text, Product::Collie);
@@ -845,7 +845,7 @@ fn an_operator_policys_cap_is_on_a_count_or_a_duration() {
 }
 
 #[test]
-fn an_operator_policys_version_is_its_digest() {
+fn an_operator_policy_version_is_its_digest() {
     let read = operator_policy("version = \"0.1\"\n", Product::Collie).unwrap();
 
     assert_eq!(read.version.as_deref(), Some("sha256:0227dc879fda140d"));

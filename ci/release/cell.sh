@@ -93,9 +93,10 @@ case "$part" in
       --save "target/release-suite/size-report-$tree-$target.json"
     ;;
   rust)
-    # Each test leaves its exercise record here, which `just features-audit
-    # all` reads after this step (ADR 0072).
-    rm -rf target/test-records
+    # Each test leaves its exercise record here, which `just features-audit`
+    # reads after this step with nextest's JUnit file (ADR 0072), so it
+    # judges the tests this run ran; a run starts with neither.
+    rm -rf target/test-records target/nextest/ci/junit.xml
     export GOODFETCH_TEST_RECORDS="$root/target/test-records"
     status=0
     skipped=()

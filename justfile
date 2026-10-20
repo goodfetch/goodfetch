@@ -125,10 +125,12 @@ clients-tests: journeys-tests
 # ADR 0072's exercise audit, after `just test pre-merge` or `release`: each
 # Rust test that declares an `operation:`, `error:`, `event:`, `command:` or
 # `exit:` Feature must have reached it, as the exercise record test support
-# wrote for it shows. It reads the tests the run's JUnit file shows ran, or
-# every declaring test with `all` (the Release suite). The suites run it
-# with the verdict `exercise_audit` gives; `gate` fails on a finding,
-# `report` lists the findings and passes.
+# wrote for it shows. It reads the tests the run's JUnit file shows ran,
+# which both suites run (the Release suite runs every test but the
+# quarantined ones and those its host cannot run), or, for a local look,
+# every declaring test with `all`, where a test that did not run is
+# `record-missing`. The suites run it with the verdict `exercise_audit`
+# gives; `gate` fails on a finding, `report` lists the findings and passes.
 # Runs the exercise audit: `just features-audit [ran|all] [gate|report]`.
 features-audit scope="ran" verdict=exercise_audit:
     #!/usr/bin/env bash
@@ -696,7 +698,7 @@ release:
     "$just" lint
     "$just" test quick
     "$just" test release
-    "$just" features-audit all
+    "$just" features-audit
     "$just" _tlc all
     "$just" proofs
     "$just" rss

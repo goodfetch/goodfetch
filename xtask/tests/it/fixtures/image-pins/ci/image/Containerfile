@@ -1,9 +1,13 @@
-# A base pinned by digest, a later stage built on an earlier one, and scratch.
+# A base pinned by digest, later stages built on earlier ones (the last one
+# reused with no name of its own), and scratch.
 FROM --platform=linux/amd64 docker.io/library/rust:1.99.0-slim-trixie@sha256:458b145eb2406e832adc9c9536d487c5d264401a4ce63adbeced3fe91292616c AS build
 RUN cargo build --release
 
 FROM build AS test
 RUN cargo test
+
+FROM test
+RUN cargo test --doc
 
 FROM scratch
 COPY --from=build /work/target/release/tool /tool

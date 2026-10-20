@@ -212,11 +212,13 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test: with the
-      # justfile's `exercise_audit` at `gate`, a declaring test that never
-      # reached its Feature fails it, so it is a test step (ADR 0064).
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
-        run: ci/egress/under-deny.sh just features-audit all
+        run: ci/egress/under-deny.sh just features-audit
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -341,11 +343,13 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test: with the
-      # justfile's `exercise_audit` at `gate`, a declaring test that never
-      # reached its Feature fails it, so it is a test step (ADR 0064).
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
-        run: ci/egress/under-deny.sh just features-audit all
+        run: ci/egress/under-deny.sh just features-audit
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -430,11 +434,13 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test: with the
-      # justfile's `exercise_audit` at `gate`, a declaring test that never
-      # reached its Feature fails it, so it is a test step (ADR 0064).
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
-        run: ci/egress/under-deny.sh just features-audit all
+        run: ci/egress/under-deny.sh just features-audit
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -518,11 +524,13 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test: with the
-      # justfile's `exercise_audit` at `gate`, a declaring test that never
-      # reached its Feature fails it, so it is a test step (ADR 0064).
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
-        run: ci/egress/under-deny.sh just features-audit all
+        run: ci/egress/under-deny.sh just features-audit
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -606,11 +614,13 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test: with the
-      # justfile's `exercise_audit` at `gate`, a declaring test that never
-      # reached its Feature fails it, so it is a test step (ADR 0064).
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
-        run: ci/egress/under-deny.sh just features-audit all
+        run: ci/egress/under-deny.sh just features-audit
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
@@ -676,6 +686,9 @@ jobs:
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: "Test: the visual projects in the pinned image"
+        # Firefox's and WebKit's visual projects run in the Release suite only.
+        env:
+          GOODFETCH_TEST_SUITE: release
         run: ci/vm/visual.sh test
       - name: Check that every Reference screenshot was read
         run: ci/vm/exec.sh cargo run --quiet --locked -p xtask -- screenshots orphans

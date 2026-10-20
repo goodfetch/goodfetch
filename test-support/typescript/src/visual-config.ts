@@ -55,6 +55,65 @@ export interface VitestVisualConfig {
   readonly projects: TestProjectInlineConfiguration[];
 }
 
+/** The browsers the pinned image ships. */
+export const VISUAL_BROWSERS = ["chromium", "firefox", "webkit"] as const;
+
+/** A browser the pinned image ships. */
+export type VisualBrowser = (typeof VISUAL_BROWSERS)[number];
+
+/** Playwright's `visual` project on `browser`: `visual` on Chromium, `visual-<browser>` on another. */
+export function visualProject(browser: VisualBrowser): string {
+  return browser === "chromium" ? "visual" : `visual-${browser}`;
+}
+
+/** What `just visual-repeatability` found on a browser in the pinned image (ADR 0073). */
+export type Repeatability =
+  /** Every run of every visual case gave the same pixels: the browser is in the `visual` projects. */
+  | { readonly verdict: "repeats"; readonly runs: string }
+  /** A run gave other pixels: the browser stays out until 20 runs repeat, `tracking` says where that is followed. */
+  | { readonly verdict: "differs"; readonly runs: string; readonly tracking: string };
+
+/** The measurement every browser's verdict rests on. */
+const MEASURED =
+  "2026-10-20, `just visual-repeatability` on 7504f560: every Playwright visual case (1, the pinned image's fixture page) " +
+  "repeated its pixels in 20 of 20 runs, in the pinned image on an Apple M3 Max through Docker Desktop's Rosetta for Linux";
+
+/**
+ * Each browser's screenshot repeatability in the pinned image, with the runs
+ * it rests on (ADR 0073). A browser is in the `visual` projects only when its
+ * verdict is `repeats`: Chromium in every suite, another browser in the
+ * Release suite, where ADR 0073 screenshots Firefox and WebKit. Rerun the
+ * measurement with `just visual-repeatability` and record what it prints.
+ */
+export const REPEATABILITY: Readonly<Record<VisualBrowser, Repeatability>> = {
+  chromium: { verdict: "repeats", runs: `${MEASURED}.` },
+  firefox: { verdict: "repeats", runs: `${MEASURED}.` },
+  webkit: {
+    verdict: "repeats",
+    runs:
+      `${MEASURED}. A probe of a page served under the production CSP also gave the same pixels in 20 of 20 runs, ` +
+      "but each run failed `failOnErrors`: before a WebKit screenshot Playwright adds an inline <style>, which " +
+      "style-src refuses (csp_violation style-src-elem; #381's report). A served visual case on WebKit fails until that changes.",
+  },
+};
+
+/**
+ * The browsers `list` names, comma-separated, in VISUAL_BROWSERS' order;
+ * `visual_browser_unknown` for a name the pinned image does not ship, or none.
+ */
+export function parseVisualBrowsers(list: string): readonly VisualBrowser[] {
+  const names = list.split(",").map((name) => name.trim());
+  const browsers = VISUAL_BROWSERS.filter((browser) => names.includes(browser));
+  const unknown = names.filter((name) => !VISUAL_BROWSERS.some((browser) => browser === name));
+  if (unknown.length > 0 || browsers.length === 0) {
+    throw new TestSupportError(
+      "visual_browser_unknown",
+      `the browsers are ${JSON.stringify(list)}: name one or more of ${VISUAL_BROWSERS.join(", ")}, separated by commas`,
+    );
+  }
+  return browsers;
+}
+
 /** Where a project's visual tests are not. */
 export interface VisualFiles {
   readonly ignore?: Array<string | RegExp>;
@@ -63,11 +122,14 @@ export interface VisualFiles {
 /** The shared visual config of both runners' root configs. */
 export const visualConfig = {
   playwright(environment: Environment, files: VisualFiles = {}): PlaywrightVisualConfig {
-    const project: Project = {
-      name: "visual",
+    if (!inPinnedImage(environment)) {
+      return { updateSnapshots: "none", projects: [] };
+    }
+    const projects = visualBrowsers(environment).map((browserName): Project => ({
+      name: visualProject(browserName),
       testMatch: PLAYWRIGHT_VISUAL_TESTS,
       ...(files.ignore === undefined ? {} : { testIgnore: files.ignore }),
-      use: { browserName: "chromium", viewport: VISUAL_VIEWPORT, ...FIXED_SETTINGS },
+      use: { browserName, viewport: VISUAL_VIEWPORT, ...FIXED_SETTINGS },
       expect: {
         toHaveScreenshot: {
           maxDiffPixels: 0,
@@ -75,8 +137,8 @@ export const visualConfig = {
             "{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{-projectName}{ext}",
         },
       },
-    };
-    return { updateSnapshots: "none", projects: inPinnedImage(environment) ? [project] : [] };
+    }));
+    return { updateSnapshots: "none", projects };
   },
 
   /** `provider` is `@vitest/browser-playwright`'s, which only Vitest's config process loads. */
@@ -134,6 +196,25 @@ export function recordReference(root: string, path: string, runner: "vitest" | "
   mkdirSync(folder, { recursive: true });
   const line = relative(root, path).split(sep).join("/");
   appendFileSync(join(folder, `${runner}-${process.pid}.txt`), `${line}\n`);
+}
+
+/**
+ * The browsers Playwright's `visual` projects run on: those
+ * GOODFETCH_VISUAL_BROWSERS names (comma-separated), which the repeatability
+ * measurement sets, whatever their verdict; otherwise each browser whose
+ * screenshots repeat, Chromium in every suite and another browser in the
+ * Release suite.
+ */
+function visualBrowsers(environment: Environment): readonly VisualBrowser[] {
+  const measured = environment["GOODFETCH_VISUAL_BROWSERS"];
+  if (measured !== undefined) {
+    return parseVisualBrowsers(measured);
+  }
+  const release = environment["GOODFETCH_TEST_SUITE"] === "release";
+  return VISUAL_BROWSERS.filter(
+    (browser) =>
+      REPEATABILITY[browser].verdict === "repeats" && (browser === "chromium" || release),
+  );
 }
 
 /** Whether this process runs in the pinned image; another image is refused. */

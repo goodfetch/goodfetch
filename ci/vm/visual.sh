@@ -27,6 +27,11 @@ if [[ "$mode" == install ]]; then
 fi
 
 environment=(--env CI=true)
+# The Release suite's job and the update-screenshots workflow set it to
+# `release`, so the visual projects of Firefox and WebKit run as well (ADR 0073).
+if [[ -n "${GOODFETCH_TEST_SUITE:-}" ]]; then
+  environment+=(--env "GOODFETCH_TEST_SUITE=$GOODFETCH_TEST_SUITE")
+fi
 if [[ -f "$EGRESS_STATE" ]]; then
   environment+=(--env npm_config_offline=true)
 fi

@@ -22,6 +22,7 @@ fn images_pinned_by_digest_pass() {
 #[case::service_container("service-by-tag.yml")]
 #[case::docker_step("docker-step-by-tag.yml")]
 #[case::run_script("run-by-tag.yml")]
+#[case::run_script_docker_hub_short_name("run-docker-hub-by-tag.yml")]
 #[case::digest_too_short("short-digest.yml")]
 fn workflow_image_referenced_by_tag_fails(#[case] workflow: &str) {
     let workspace = Workspace::from_fixture("image-pins");
@@ -44,6 +45,7 @@ fn workflow_image_referenced_by_tag_fails(#[case] workflow: &str) {
 #[case::containerfile_base("Containerfile-by-tag", "ci/image/Containerfile")]
 #[case::pin_file_without_digest("image-toml-without-digest.toml", "ci/zap/image.toml")]
 #[case::script("script-by-tag.sh", "ci/scan.sh")]
+#[case::script_docker_hub_short_name("script-docker-hub-by-tag.sh", "ci/scan.sh")]
 fn image_a_workflow_runs_through_its_files_by_tag_fails(#[case] case: &str, #[case] file: &str) {
     let workspace = Workspace::from_fixture("image-pins");
     workspace.add_fixture_file(&format!("image-pins-cases/{case}"), file);

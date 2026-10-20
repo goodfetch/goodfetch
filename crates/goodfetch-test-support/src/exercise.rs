@@ -3,8 +3,8 @@
 //! `GOODFETCH_TEST_RECORDS`, each test nextest runs has one JSON-lines file
 //! there: a first line `{"test": "<binary id> <test name>"}`, then the
 //! engine's JSON log lines that `TestEnv` copies from its Goodfetch home when
-//! it drops, the dispatch records the test `tracing` subscriber writes
-//! for an in-process test, and the lines of the test's command record,
+//! it drops, the dispatch and outcome records the test `tracing` subscriber
+//! writes for an in-process test, and the lines of the test's command record,
 //! which the CLI helper writes. A test run by hand, or by any runner but nextest,
 //! has none.
 #![expect(
@@ -21,6 +21,11 @@ use crate::variables::{BINARY_ID_VARIABLE, RECORDS_VARIABLE, TEST_NAME_VARIABLE,
 /// The `tracing` target of `rpc`'s dispatch records, which the test
 /// subscriber writes into the record.
 pub const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
+
+/// The `tracing` target of the engine's outcome records: each Error code a
+/// Run recorded and no reply carries, such as a work item's `handler_lost`,
+/// which the subscriber writes into the record beside the dispatch records.
+pub const OUTCOME_TARGET: &str = "goodfetch::run::outcome";
 
 /// The target of the CLI helper's command records, which the exercise
 /// audit reads beside the dispatch records.

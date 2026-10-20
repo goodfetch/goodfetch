@@ -40,6 +40,10 @@ jobs:
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: Rewrite the changed Reference screenshots in the pinned image
+        # With the Release suite's projects, so Firefox's and WebKit's
+        # References are rewritten too.
+        env:
+          GOODFETCH_TEST_SUITE: release
         run: ci/vm/visual.sh update
       - name: Check that the deny refused nothing else
         if: always()

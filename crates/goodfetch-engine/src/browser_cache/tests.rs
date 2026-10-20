@@ -236,11 +236,11 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
     };
     assert_eq!(details.artifact, id);
     assert_eq!(details.pinned_by, pinned_by());
-    assert_eq!(details.limit.key, "offline");
+    assert_eq!(details.limit.key, "egress.offline");
     assert_eq!(details.limit.layer, SettingsLayer::UserConfiguration);
     assert_eq!(
         details.fix,
-        "Run `goodfetch-collie browsers install` beforehand where the Browser cache is writable, or lift `offline` where it was set"
+        "Run `goodfetch-collie browsers install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
     );
 }
 

@@ -34,7 +34,7 @@ use goodfetch_protocol::browser_cache::{
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{EGRESS_OFFLINE, SettingLimit, SettingsLayer};
 
 pub use artifact::{BuildPlatform, Digest, MalformedDigest, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
@@ -567,7 +567,7 @@ impl BrowserCache {
     ) -> CacheError {
         let cache = self.root.display().to_string();
         let message = format!(
-            "{} is not in the Browser cache at {cache}, and `offline` refuses its download",
+            "{} is not in the Browser cache at {cache}, and `egress.offline` refuses its download",
             describe(&artifact.id, pinned_by),
         );
         CacheError::Offline {
@@ -577,13 +577,14 @@ impl BrowserCache {
                 pinned_by: pinned_by.clone(),
                 cache,
                 limit: SettingLimit {
-                    key: "offline".to_owned(),
+                    key: EGRESS_OFFLINE.name.to_owned(),
                     value: serde_json::Value::Bool(true),
                     layer,
                 },
                 fix: format!(
-                    "Run `{}` beforehand where the Browser cache is writable, or lift `offline` where it was set",
+                    "Run `{}` beforehand where the Browser cache is writable, or lift `{}` where it was set",
                     install_command(pinned_by.product),
+                    EGRESS_OFFLINE.name,
                 ),
             }),
         }

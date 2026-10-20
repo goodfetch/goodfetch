@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use crate::browser_cache::BrowserCacheEntry;
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, ValueKind, schema_of};
 use crate::entries::MODULES;
+use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
 use crate::run::{RunIndexRow, RunStateRow};
 
@@ -40,13 +41,16 @@ impl Storage {
 }
 
 /// A rule of ADR 0030 by which a reader treats another version of its
-/// format. Each later rule (the frozen-major family of the Usage ledger, the
-/// Response cache's, the Clean-up rules') joins with the first format that
-/// follows it.
+/// format. Each later rule (the Response cache's, the Clean-up rules') joins
+/// with the first format that follows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
     /// A reader reads its own major up to its own minor.
     Default,
+    /// The Usage ledger's family (ADRs 0030 and 0098): the major never
+    /// changes and newer minors only add, so a reader reads every minor of
+    /// its major, keeping what it does not know.
+    FrozenMajor,
 }
 
 impl Rule {
@@ -54,6 +58,7 @@ impl Rule {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Default => "default",
+            Self::FrozenMajor => "frozen_major",
         }
     }
 
@@ -72,6 +77,11 @@ impl Rule {
                     Compatibility::Compatible
                 }
             }
+            Self::FrozenMajor => match found.major.cmp(&reader.major) {
+                std::cmp::Ordering::Less => Compatibility::OlderMajor,
+                std::cmp::Ordering::Greater => Compatibility::NewerMajor,
+                std::cmp::Ordering::Equal => Compatibility::Compatible,
+            },
         }
     }
 }
@@ -166,12 +176,26 @@ pub const USER_CONFIGURATION: Format = Format {
     schema: configuration_schema,
 };
 
+/// The per-user list of installed executables in Goodfetch home (ADR
+/// 0098), outside the per-major folders: which executable runs each major's
+/// Daemon, and which Pinned artifacts are still needed. Engines of every
+/// major and of both Products read it, so it is of the Usage ledger's
+/// family.
+pub const INSTALLED_EXECUTABLES: Format = Format {
+    name: "installed-executables",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::FrozenMajor,
+    schema: schema_of::<InstalledExecutables>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
     &BROWSER_CACHE,
     &RUN_INDEX,
     &RUN_STATE,
+    &INSTALLED_EXECUTABLES,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
 ];

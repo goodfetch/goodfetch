@@ -36,7 +36,7 @@ impl Home {
     /// The per-major folder of the Product version `version`: `1` for any
     /// `1.x.y`, `0.4` for any `0.4.y`.
     pub fn per_major(&self, version: &ProductVersion) -> PathBuf {
-        self.root.join(major_folder(version))
+        self.root.join(major_name(version))
     }
 
     /// The per-major data folder's run folders, the default
@@ -51,8 +51,10 @@ impl Home {
     }
 }
 
-/// The name of a version's per-major folder.
-fn major_folder(version: &ProductVersion) -> String {
+/// The name of a version's major, which names its per-major folder: `1`
+/// for any `1.x.y`, `0.4` for any `0.4.y`, since during `0.y` previews each
+/// minor counts as a major (ADR 0030).
+pub fn major_name(version: &ProductVersion) -> String {
     let text = version.to_string();
     let mut numbers = text.split(['.', '-']);
     let major = numbers.next().unwrap_or("0");

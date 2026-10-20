@@ -9,4 +9,5 @@
 
 mod attached;
 mod crawl;
+mod daemon;
 mod journeys;

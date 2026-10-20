@@ -19,6 +19,27 @@ export type ArtifactKind =
  */
 export type Completeness = "complete" | "incomplete" | "unverified";
 /**
+ * Where a run-layer value came from (ADR 0083).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunOrigin".
+ */
+export type RunOrigin = "argument" | "settings" | "flag" | "form";
+/**
+ * Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
+ * Linux, loopback TCP on Windows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonEndpoint".
+ */
+export type DaemonEndpoint =
+  | {
+      unix: string;
+    }
+  | {
+      tcp: string;
+    };
+/**
  * An event's position among every event of one engine, which only goes up.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -33,13 +54,6 @@ export type Position = number;
  */
 export type SettingsLayer =
   "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
-/**
- * Where a run-layer value came from (ADR 0083).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RunOrigin".
- */
-export type RunOrigin = "argument" | "settings" | "flag" | "form";
 /**
  * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
  * writes it.
@@ -227,6 +241,11 @@ export interface ConfigExplainParams {
    */
   keys?: string[];
   /**
+   * Where those run values come from: a scope's `settings` option by
+   * default, or the CLI's flags when the CLI asks a Daemon.
+   */
+  origin?: RunOrigin | null;
+  /**
    * The project configuration to explain with.
    */
   project?: ProjectSettings | null;
@@ -272,6 +291,72 @@ export interface CreditParams {
    * The streaming call's id.
    */
   id: number | string;
+}
+/**
+ * What `daemon.status` and `daemon.stop` take: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonParams".
+ */
+export interface DaemonParams {}
+/**
+ * What `daemon.status` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonStatus".
+ */
+export interface DaemonStatus {
+  /**
+   * How many Clients are connected, the caller and Consoles included.
+   */
+  clients: number;
+  /**
+   * Where it listens.
+   */
+  endpoint:
+    | {
+        unix: string;
+      }
+    | {
+        tcp: string;
+      };
+  /**
+   * Its `daemon.idle_timeout`, in milliseconds.
+   */
+  idle_timeout: number;
+  /**
+   * Whether it never stops idle: `--keep-alive`, a held Schedule or an
+   * installed service.
+   */
+  kept_alive: boolean;
+  /**
+   * How many of its Runs are live.
+   */
+  live_runs: number;
+  /**
+   * Its process ID.
+   */
+  pid: number;
+  /**
+   * The Product the Daemon runs as.
+   */
+  product: "collie" | "foxhound";
+  /**
+   * Its Product version.
+   */
+  product_version: string;
+}
+/**
+ * What `daemon.stop` answers, before the Daemon stops.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonStopping".
+ */
+export interface DaemonStopping {
+  /**
+   * How many live Runs it stops, each resumable from its own state.
+   */
+  live_runs: number;
 }
 /**
  * What `browser_cache.download_progress` reports.

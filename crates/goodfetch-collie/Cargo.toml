@@ -14,7 +14,7 @@ autobenches = false
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:dirs", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:serde_json", "dep:tracing", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+executable = ["dep:clap", "dep:dirs", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:tracing", "dep:tracing-subscriber", "tokio/io-util", "tokio/rt-multi-thread"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
@@ -26,6 +26,8 @@ jiff = { workspace = true, optional = true }
 mimalloc = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+# The Browser cache's write check before a Daemon's copy goes in it.
+tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "json"] }

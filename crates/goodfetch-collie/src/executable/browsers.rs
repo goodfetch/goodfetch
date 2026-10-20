@@ -10,22 +10,25 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{
     BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, MaxUnusedAge, Pins,
-    Platform,
+    Platform, kept_artifacts,
 };
 use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
+use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowsersCleanOutput, BrowsersInstallOutput, InstallOutcome, InstalledArtifact,
     MAX_UNUSED_AGE, NotCleaned, PinnedBy,
 };
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{EGRESS_OFFLINE, NETWORK_RESOLVE};
 
 use super::output;
@@ -50,10 +53,14 @@ fn location(environment: &BTreeMap<OsString, OsString>) -> Option<(Home, CacheLo
 }
 
 /// The machine's settings: the Operator policy and user configuration of
-/// `home`'s major, as the engine resolves them before any Run.
-fn machine_settings(home: &Home, pinned_by: &PinnedBy) -> Result<Resolved, SettingsError> {
-    let product = pinned_by.product;
-    let machine = SettingsFiles::of(home, &pinned_by.product_version).load(product)?;
+/// the major of `version` in `home`, as the engine resolves them before
+/// any Run.
+pub(super) fn machine_settings(
+    home: &Home,
+    product: Product,
+    version: &ProductVersion,
+) -> Result<Resolved, SettingsError> {
+    let machine = SettingsFiles::of(home, version).load(product)?;
     let layers = Layers {
         operator_policy: machine.operator_policy,
         user_configuration: machine.user_configuration,
@@ -139,7 +146,7 @@ pub(super) fn install(
     let Some((home, location)) = location(environment) else {
         return no_home();
     };
-    let settings = match machine_settings(&home, &pinned_by) {
+    let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
         Ok(settings) => settings,
         Err(error) => return refused(&error),
     };
@@ -173,7 +180,11 @@ pub(super) fn install(
             .any(|(_, outcome)| *outcome == InstallOutcome::Installed)
         {
             cache
-                .clean_up_daily(kept(&pins), now, max_unused_age)
+                .clean_up_daily(
+                    kept(&pins, &home, cache.root(), now, max_unused_age),
+                    now,
+                    max_unused_age,
+                )
                 .await?;
         }
         Ok::<_, CacheError>(outcomes)
@@ -220,7 +231,7 @@ pub(super) fn clean(
     let Some((home, location)) = location(environment) else {
         return no_home();
     };
-    let settings = match machine_settings(&home, &pinned_by) {
+    let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
         Ok(settings) => settings,
         Err(error) => return refused(&error),
     };
@@ -229,11 +240,13 @@ pub(super) fn clean(
         pinned_by,
         artifacts: crate::pinned_artifacts(),
     };
+    let now = now();
+    let max_unused_age = max_unused_age(&settings);
     let request = CleanUp {
-        kept: kept(&pins),
-        now: now(),
+        kept: kept(&pins, &home, cache.root(), now, max_unused_age),
+        now,
         // `browsers clean` uses the default while the setting is `null`.
-        max_unused_age: max_unused_age(&settings).counting(),
+        max_unused_age: max_unused_age.counting(),
         dry_run,
     };
     let report = match runtime().block_on(cache.clean_up(&request)) {
@@ -262,14 +275,28 @@ pub(super) fn clean(
     ExitCode::SUCCESS
 }
 
-/// What nothing may delete: the builds this executable pins, since it runs
-/// and so counts as installed. The list of installed executables (#220)
-/// adds every other executable that counts.
-fn kept(pins: &Pins) -> BTreeSet<ArtifactId> {
-    pins.artifacts
+/// What nothing may delete (ADR 0098): the builds this executable pins,
+/// since it runs and so counts as installed, and those of every entry of
+/// the list of installed executables that counts, linked programs and
+/// versioned copies included.
+fn kept(
+    pins: &Pins,
+    home: &Home,
+    cache: &Path,
+    now: jiff::Timestamp,
+    max_unused_age: MaxUnusedAge,
+) -> BTreeSet<ArtifactId> {
+    let entries = InstalledList::of(home).read().unwrap_or_else(|error| {
+        tracing::warn!(%error, "the list of installed executables cannot be read; only this executable's builds are kept");
+        Vec::new()
+    });
+    let seen: Vec<Seen<'_>> = entries
         .iter()
-        .map(|artifact| artifact.id.clone())
-        .collect()
+        .map(|entry| Seen::look(entry, cache))
+        .collect();
+    let mut kept = kept_artifacts(&kept_inputs(&seen), &[], now, max_unused_age);
+    kept.extend(pins.artifacts.iter().map(|artifact| artifact.id.clone()));
+    kept
 }
 
 fn describe(artifact: &ArtifactId) -> String {

@@ -131,6 +131,33 @@ number = 3
 kind = "format"
 prefix = "browser-cache"
 
+# Area 3's Daemon (#220): `daemon.*`, its Error code and idle timeout, and
+# the list of installed executables.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "daemon."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "not_a_daemon"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "daemon."
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "installed-executables"
+
+[[area]]
+number = 3
+kind = "command"
+prefix = "daemon."
+
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
 # runtime itself waits on or resolves (ADR 0059).

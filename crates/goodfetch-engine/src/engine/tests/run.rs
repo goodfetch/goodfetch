@@ -89,7 +89,7 @@ fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
     env.home().join("1").join("runs").join(run_id)
 }
 
-fn index_row(env: &TestEnv, run_id: &str) -> Value {
+pub(super) fn index_row(env: &TestEnv, run_id: &str) -> Value {
     let index = Connection::open(env.home().join("1").join("run-index.sqlite")).unwrap();
     let row: String = index
         .query_row(

@@ -136,6 +136,25 @@ pub fn load_project(path: &Path, engine: Product) -> Result<Values, SettingsErro
     }
 }
 
+/// The settings of the project configuration at `path`, nested as the
+/// file nests them, as a Client sends them to a Daemon's `config.explain`;
+/// `None` when there is no such file. Blocking.
+///
+/// # Errors
+///
+/// `setting_invalid` for a file that is no project configuration.
+pub fn project_settings(path: &Path) -> Result<Option<Map<String, Value>>, SettingsError> {
+    let layer = SettingsLayer::ProjectConfiguration;
+    match read(path, layer)? {
+        Some(text) => Ok(
+            file_tables(layer, &text, &USER_CONFIGURATION, &["settings"])?
+                .into_iter()
+                .next(),
+        ),
+        None => Ok(None),
+    }
+}
+
 fn read(path: &Path, layer: SettingsLayer) -> Result<Option<String>, SettingsError> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),

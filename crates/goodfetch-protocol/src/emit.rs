@@ -12,8 +12,9 @@
 //! document and the case log's entry (ADRs 0063 and 0069). What later
 //! decisions put in the bundle
 //! joins here once its types exist, through the same `xtask codegen`: the
-//! format registry (ADR 0066), the `--json` output types and the exit-code
-//! table (ADR 0069), and the Feature inventory schemas (ADR 0072). The
+//! exit-code table (ADR 0069) and the Feature inventory schemas (ADR 0072).
+//! The bundle's `outputs` maps each command's path, such as `daemon.start`,
+//! to the type of its `--json` output (ADR 0069). The
 //! format registry is the bundle's `formats`, which `xtask compat` reads: an
 //! array of `{name, version, storage, rule, schema}`, where `storage` is
 //! `json`, `sqlite` or `transcript`. The bundle's `connection` holds the
@@ -28,12 +29,14 @@ use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
+use crate::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
 use crate::case_log::CaseLogEntry;
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
     Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
 use crate::connection::{CancelParams, HelloParams, HelloResult};
+use crate::daemon::{DaemonStartOutput, DaemonStatusOutput, DaemonStopOutput};
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
@@ -41,6 +44,7 @@ use crate::journey::{Journey, JourneyCatalog};
 use crate::page::Chunk;
 use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
+use crate::settings::SettingsExplanation;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
 pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
@@ -85,6 +89,15 @@ pub fn emit() -> Emitted {
         "events": { "params": generator.subschema_for::<EventBatch>() },
         "chunk": { "params": generator.subschema_for::<Chunk>() },
     });
+    let outputs = json!({
+        "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
+        "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
+        "config.explain": generator.subschema_for::<SettingsExplanation>(),
+        "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),
+        "daemon.start": generator.subschema_for::<DaemonStartOutput>(),
+        "daemon.status": generator.subschema_for::<DaemonStatusOutput>(),
+        "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
+    });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
@@ -100,6 +113,7 @@ pub fn emit() -> Emitted {
             },
             "formats": formats,
             "connection": connection,
+            "outputs": outputs,
             "documents": {
                 "result_document": result_document,
                 "case_log_entry": case_log_entry,

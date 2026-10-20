@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import ConfigExplainParams, EngineInfo, EngineInfoParams, EventsSubscribeParams, PageBodyParams, PageBodyRead, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, PageBodyParams, PageBodyRead, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -44,6 +44,14 @@ class AsyncCollieOperations:
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
         return SettingsExplanation.model_construct(**_fields(await self._caller.call("config.explain", params)))
+
+    async def daemon_status(self, params: DaemonParams) -> DaemonStatus:
+        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""
+        return DaemonStatus.model_construct(**_fields(await self._caller.call("daemon.status", params)))
+
+    async def daemon_stop(self, params: DaemonParams) -> DaemonStopping:
+        """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
+        return DaemonStopping.model_construct(**_fields(await self._caller.call("daemon.stop", params)))
 
     async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
@@ -105,6 +113,14 @@ class CollieOperations:
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
         return SettingsExplanation.model_construct(**_fields(self._caller.call("config.explain", params)))
+
+    def daemon_status(self, params: DaemonParams) -> DaemonStatus:
+        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""
+        return DaemonStatus.model_construct(**_fields(self._caller.call("daemon.status", params)))
+
+    def daemon_stop(self, params: DaemonParams) -> DaemonStopping:
+        """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
+        return DaemonStopping.model_construct(**_fields(self._caller.call("daemon.stop", params)))
 
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""

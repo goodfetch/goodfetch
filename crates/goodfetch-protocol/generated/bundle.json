@@ -150,6 +150,70 @@
       ],
       "type": "object"
     },
+    "BrowsersCleanOutput": {
+      "description": "What `browsers clean --json` prints.",
+      "properties": {
+        "cache": {
+          "arrived_in": "0.1",
+          "description": "The Browser cache's path.",
+          "type": "string"
+        },
+        "deleted": {
+          "arrived_in": "0.1",
+          "description": "What it deleted, or would delete under `--dry-run`.",
+          "items": {
+            "$ref": "#/$defs/ArtifactId"
+          },
+          "type": "array"
+        },
+        "dry_run": {
+          "arrived_in": "0.1",
+          "description": "Whether it only listed what it would delete.",
+          "type": "boolean"
+        },
+        "not_cleaned": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotCleaned"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it cleaned nothing, when it did not run."
+        }
+      },
+      "required": [
+        "cache",
+        "dry_run",
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "BrowsersInstallOutput": {
+      "description": "What `browsers install --json` prints.",
+      "properties": {
+        "artifacts": {
+          "arrived_in": "0.1",
+          "description": "Each Pinned artifact of the Product version, and what installing it\ndid.",
+          "items": {
+            "$ref": "#/$defs/InstalledArtifact"
+          },
+          "type": "array"
+        },
+        "cache": {
+          "arrived_in": "0.1",
+          "description": "The Browser cache's path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cache",
+        "artifacts"
+      ],
+      "type": "object"
+    },
     "CancelParams": {
       "additionalProperties": false,
       "description": "What `$/cancel` names: the call to stop.",
@@ -498,6 +562,18 @@
           },
           "type": "array"
         },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where those run values come from: a scope's `settings` option by\ndefault, or the CLI's flags when the CLI asks a Daemon."
+        },
         "project": {
           "anyOf": [
             {
@@ -713,6 +789,186 @@
       "required": [
         "id",
         "credits"
+      ],
+      "type": "object"
+    },
+    "DaemonEndpoint": {
+      "description": "Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and\nLinux, loopback TCP on Windows.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A Unix socket's path.",
+          "properties": {
+            "unix": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "unix"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A loopback address and port.",
+          "properties": {
+            "tcp": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tcp"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DaemonParams": {
+      "additionalProperties": false,
+      "description": "What `daemon.status` and `daemon.stop` take: nothing.",
+      "type": "object"
+    },
+    "DaemonStartOutput": {
+      "description": "What `daemon start --json` and `daemon restart --json` print.",
+      "properties": {
+        "daemon": {
+          "$ref": "#/$defs/DaemonStatus",
+          "arrived_in": "0.1",
+          "description": "The running Daemon."
+        },
+        "started": {
+          "arrived_in": "0.1",
+          "description": "Whether this command started it, rather than finding it running.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "started",
+        "daemon"
+      ],
+      "type": "object"
+    },
+    "DaemonStatus": {
+      "description": "What `daemon.status` answers.",
+      "properties": {
+        "clients": {
+          "arrived_in": "0.1",
+          "description": "How many Clients are connected, the caller and Consoles included.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "endpoint": {
+          "$ref": "#/$defs/DaemonEndpoint",
+          "arrived_in": "0.1",
+          "description": "Where it listens."
+        },
+        "idle_timeout": {
+          "arrived_in": "0.1",
+          "description": "Its `daemon.idle_timeout`, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kept_alive": {
+          "arrived_in": "0.1",
+          "description": "Whether it never stops idle: `--keep-alive`, a held Schedule or an\ninstalled service.",
+          "type": "boolean"
+        },
+        "live_runs": {
+          "arrived_in": "0.1",
+          "description": "How many of its Runs are live.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pid": {
+          "arrived_in": "0.1",
+          "description": "Its process ID.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product the Daemon runs as."
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "Its Product version."
+        }
+      },
+      "required": [
+        "product",
+        "product_version",
+        "pid",
+        "endpoint",
+        "clients",
+        "live_runs",
+        "kept_alive",
+        "idle_timeout"
+      ],
+      "type": "object"
+    },
+    "DaemonStatusOutput": {
+      "description": "What `daemon status --json` prints.",
+      "properties": {
+        "daemon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The running Daemon, or `None` when none runs."
+        },
+        "runtime_file": {
+          "arrived_in": "0.1",
+          "description": "The runtime file of the executable's major.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime_file"
+      ],
+      "type": "object"
+    },
+    "DaemonStopOutput": {
+      "description": "What `daemon stop --json` prints.",
+      "properties": {
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStopping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the stopped Daemon answered, or `None` when none ran."
+        }
+      },
+      "type": "object"
+    },
+    "DaemonStopping": {
+      "description": "What `daemon.stop` answers, before the Daemon stops.",
+      "properties": {
+        "live_runs": {
+          "arrived_in": "0.1",
+          "description": "How many live Runs it stops, each resumable from its own state.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "live_runs"
       ],
       "type": "object"
     },
@@ -986,6 +1242,21 @@
       ],
       "type": "object"
     },
+    "ExecutableKind": {
+      "description": "What an installed executable is (ADR 0098).",
+      "oneOf": [
+        {
+          "const": "product_executable",
+          "description": "A Product's executable, which can run its major's Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "linked_program",
+          "description": "A program that links the engine through a Product's Rust crate: its\nbuilds are kept, but it never runs the Daemon.",
+          "type": "string"
+        }
+      ]
+    },
     "ExplainedSetting": {
       "description": "One setting as `config explain` shows it.",
       "properties": {
@@ -1147,6 +1418,139 @@
       "description": "An https:// URL with a host.",
       "pattern": "^https://[^/?#\\s]+[^\\s]*$",
       "type": "string"
+    },
+    "InstallOutcome": {
+      "description": "What installing an artifact did.",
+      "oneOf": [
+        {
+          "const": "installed",
+          "description": "It was downloaded and checked now.",
+          "type": "string"
+        },
+        {
+          "const": "already_installed",
+          "description": "It was already there, with its pinned digest.",
+          "type": "string"
+        }
+      ]
+    },
+    "InstalledArtifact": {
+      "description": "One artifact `browsers install` made sure of.",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactId",
+          "arrived_in": "0.1",
+          "description": "The artifact."
+        },
+        "outcome": {
+          "$ref": "#/$defs/InstallOutcome",
+          "arrived_in": "0.1",
+          "description": "Whether it was downloaded now or already there."
+        }
+      },
+      "required": [
+        "artifact",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "InstalledExecutable": {
+      "description": "One executable that ran on this machine (ADR 0098).",
+      "properties": {
+        "copy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its versioned copy in the Browser cache, from which a Daemon runs\n(ADR 0024), once one was made."
+        },
+        "kind": {
+          "$ref": "#/$defs/ExecutableKind",
+          "arrived_in": "0.1",
+          "description": "What it is."
+        },
+        "last_seen": {
+          "arrived_in": "0.1",
+          "description": "When it last ran, in RFC 3339.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "modified_at": {
+          "arrived_in": "0.1",
+          "description": "When its file was last modified then, in RFC 3339.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Its absolute path when it last ran.",
+          "type": "string"
+        },
+        "pins": {
+          "arrived_in": "0.1",
+          "description": "The browser builds and other cache downloads its version pins, its\nversioned copy included once a Daemon runs from it.",
+          "items": {
+            "$ref": "#/$defs/ArtifactId"
+          },
+          "type": "array"
+        },
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product it is, or whose Rust crate it links."
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "Its Product version."
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The size of its file in bytes then, which with `modified_at` tells\nwhether the file at `path` is still this executable.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "product",
+        "product_version",
+        "path",
+        "size",
+        "modified_at",
+        "pins",
+        "last_seen"
+      ],
+      "type": "object"
+    },
+    "InstalledExecutables": {
+      "description": "The list of installed executables, `installed-executables.json` in\nGoodfetch home (ADR 0098). Newer versions of the format only add, so an\nengine keeps every entry and field it does not know when it rewrites the\nlist.",
+      "properties": {
+        "executables": {
+          "arrived_in": "0.1",
+          "description": "One entry per executable, at one path and one Product version.",
+          "items": {
+            "$ref": "#/$defs/InstalledExecutable"
+          },
+          "type": "array"
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of this format the list was written in."
+        }
+      },
+      "required": [
+        "format_version",
+        "executables"
+      ],
+      "type": "object"
     },
     "Journey": {
       "additionalProperties": false,
@@ -1437,6 +1841,16 @@
         {
           "const": "M4",
           "description": "The fourth milestone.",
+          "type": "string"
+        }
+      ]
+    },
+    "NotCleaned": {
+      "description": "Why the clean-up did not run.",
+      "oneOf": [
+        {
+          "const": "cache_not_writable",
+          "description": "The engine cannot write the cache, such as a read-only\n`GOODFETCH_BROWSERS_PATH` (ADR 0098).",
           "type": "string"
         }
       ]
@@ -3159,6 +3573,15 @@
       "version": "0.1"
     },
     {
+      "name": "installed-executables",
+      "rule": "frozen_major",
+      "schema": {
+        "$ref": "#/$defs/InstalledExecutables"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
       "name": "operator-policy",
       "rule": "default",
       "schema": {
@@ -3215,6 +3638,17 @@
                   },
                   "sample_pages": {
                     "description": "How many pages the sample crawl visits.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "daemon": {
+                "additionalProperties": false,
+                "properties": {
+                  "idle_timeout": {
+                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -3337,6 +3771,17 @@
                   },
                   "sample_pages": {
                     "description": "How many pages the sample crawl visits.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "daemon": {
+                "additionalProperties": false,
+                "properties": {
+                  "idle_timeout": {
+                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -3663,6 +4108,17 @@
                   },
                   "sample_pages": {
                     "description": "How many pages the sample crawl visits.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "daemon": {
+                "additionalProperties": false,
+                "properties": {
+                  "idle_timeout": {
+                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -4019,6 +4475,17 @@
                 },
                 "type": "object"
               },
+              "daemon": {
+                "additionalProperties": false,
+                "properties": {
+                  "idle_timeout": {
+                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "delivery": {
                 "additionalProperties": false,
                 "properties": {
@@ -4290,6 +4757,29 @@
       "version": "0.1"
     }
   ],
+  "outputs": {
+    "browsers.clean": {
+      "$ref": "#/$defs/BrowsersCleanOutput"
+    },
+    "browsers.install": {
+      "$ref": "#/$defs/BrowsersInstallOutput"
+    },
+    "config.explain": {
+      "$ref": "#/$defs/SettingsExplanation"
+    },
+    "daemon.restart": {
+      "$ref": "#/$defs/DaemonStartOutput"
+    },
+    "daemon.start": {
+      "$ref": "#/$defs/DaemonStartOutput"
+    },
+    "daemon.status": {
+      "$ref": "#/$defs/DaemonStatusOutput"
+    },
+    "daemon.stop": {
+      "$ref": "#/$defs/DaemonStopOutput"
+    }
+  },
   "protocol_version": "0.1",
   "title": "Goodfetch protocol"
 }

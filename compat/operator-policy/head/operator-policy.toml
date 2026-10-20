@@ -1,5 +1,8 @@
 version = "0.1"
 
+[settings.daemon]
+idle_timeout = 30000
+
 [settings.browser_cache]
 max_unused_age = 30000
 
@@ -65,6 +68,9 @@ chain_rpc_endpoints = { "example.test" = "example" }
 write_ids_and_epochs = true
 report_guarantee_class = true
 
+[lock.daemon]
+idle_timeout = 30000
+
 [lock.browser_cache]
 max_unused_age = 30000
 
@@ -129,6 +135,9 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [lock.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[cap.daemon]
+idle_timeout = 30000
 
 [cap.browser_cache]
 max_unused_age = 30000

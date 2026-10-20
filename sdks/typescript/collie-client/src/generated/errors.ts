@@ -213,6 +213,15 @@ export class NameNotResolvedError extends UnavailableError {
 }
 
 /**
+ * The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.
+ */
+export class NotADaemonError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "not_a_daemon", group: "program", retryable: false });
+  }
+}
+
+/**
  * The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.
  */
 export class NotInProductError extends UnavailableError {
@@ -334,6 +343,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
+  not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   run_conflict: RunConflictError,

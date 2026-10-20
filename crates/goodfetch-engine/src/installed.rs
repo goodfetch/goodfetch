@@ -1,0 +1,385 @@
+//! The list of installed executables (ADR 0098): one per-user file in
+//! Goodfetch home, outside the per-major folders, in which each Product's
+//! executable, and each program linking the engine through a Product's Rust
+//! crate, records itself when it runs. It answers which executable runs
+//! each major's Daemon, its pick, and which Pinned artifacts the Browser
+//! cache must keep. The list is of the Usage ledger's family: a rewrite
+//! keeps every entry and field this engine does not know, and a list of
+//! another major is read as empty and never rewritten.
+//!
+//! Its file is read and written on the tasks module's blocking policy, or
+//! by an executable before its runtime starts, under a lock beside it.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the list's file is read and written on the tasks module's blocking policy or before any runtime starts, never on an async worker"
+)]
+
+use std::cmp::Ordering;
+use std::fs::{self, File};
+use std::io::{self, Write as _};
+use std::path::{Path, PathBuf};
+
+use goodfetch_protocol::catalog::{Product, ProtocolVersion};
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
+use goodfetch_protocol::formats::{Compatibility, INSTALLED_EXECUTABLES};
+use serde_json::{Map, Value};
+
+use crate::browser_cache::{self, MaxUnusedAge};
+use crate::home::{Home, major_name};
+
+/// The list's file in Goodfetch home.
+const FILE: &str = "installed-executables.json";
+
+/// The lock that every rewrite of the list holds.
+const LOCK: &str = "installed-executables.lock";
+
+/// The list of installed executables of one Goodfetch home.
+#[derive(Clone, Debug)]
+pub struct InstalledList {
+    path: PathBuf,
+    lock: PathBuf,
+}
+
+impl InstalledList {
+    /// The list of `home`.
+    pub fn of(home: &Home) -> Self {
+        Self {
+            path: home.root().join(FILE),
+            lock: home.root().join(LOCK),
+        }
+    }
+
+    /// Its file.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Records `executable`, replacing the entry of the same kind, path and
+    /// Product version, and keeping every other entry and every field this
+    /// engine does not know. An entry whose file changed loses its
+    /// versioned copy, which is of the earlier file, unless `executable`
+    /// names one.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be read or written, or it is of another major,
+    /// which this engine never rewrites.
+    pub fn record(&self, executable: &InstalledExecutable) -> io::Result<()> {
+        fs::create_dir_all(self.path.parent().unwrap_or(Path::new(".")))?;
+        let lock = File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&self.lock)?;
+        lock.lock()?;
+        let mut document = match self.document()? {
+            Some(Document::Readable(document)) => document,
+            Some(Document::OtherMajor) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "{} is of another major than {}, and is never rewritten",
+                        self.path.display(),
+                        INSTALLED_EXECUTABLES.version
+                    ),
+                ));
+            }
+            None => Map::from_iter([(
+                "format_version".to_owned(),
+                Value::String(INSTALLED_EXECUTABLES.version.to_string()),
+            )]),
+        };
+        let entries = document
+            .entry("executables")
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if !entries.is_array() {
+            *entries = Value::Array(Vec::new());
+        }
+        let entries = entries
+            .as_array_mut()
+            .expect("invariant: `executables` was just made an array");
+        let mut recorded = serde_json::to_value(executable)
+            .expect("invariant: an entry serializes")
+            .as_object()
+            .cloned()
+            .expect("invariant: an entry is an object");
+        let found = entries
+            .iter_mut()
+            .find(|stored| same_executable(stored, executable));
+        match found {
+            Some(Value::Object(stored)) => {
+                let same_file = stored.get("size") == recorded.get("size")
+                    && stored.get("modified_at") == recorded.get("modified_at");
+                if executable.copy.is_none() {
+                    match stored.get("copy") {
+                        Some(copy) if same_file => {
+                            recorded.insert("copy".to_owned(), copy.clone());
+                        }
+                        _ => {
+                            stored.remove("copy");
+                        }
+                    }
+                }
+                stored.extend(recorded);
+            }
+            _ => entries.push(Value::Object(recorded)),
+        }
+        let text = serde_json::to_vec_pretty(&Value::Object(document))
+            .expect("invariant: the list serializes");
+        let partial = self.path.with_extension("json.partial");
+        let mut file = File::create(&partial)?;
+        file.write_all(&text)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&partial, &self.path)?;
+        drop(lock);
+        Ok(())
+    }
+
+    /// Every entry this engine can read; none from a list of another major
+    /// or a missing one.
+    ///
+    /// # Errors
+    ///
+    /// When the file exists but cannot be read.
+    pub fn read(&self) -> io::Result<Vec<InstalledExecutable>> {
+        Ok(match self.document()? {
+            Some(Document::Readable(mut document)) => match document.remove("executables") {
+                Some(Value::Array(entries)) => entries
+                    .into_iter()
+                    .filter_map(|entry| serde_json::from_value(entry).ok())
+                    .collect(),
+                _ => Vec::new(),
+            },
+            Some(Document::OtherMajor) | None => Vec::new(),
+        })
+    }
+
+    fn document(&self) -> io::Result<Option<Document>> {
+        let bytes = match fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let Ok(Value::Object(document)) = serde_json::from_slice::<Value>(&bytes) else {
+            // A list no engine can read is no list: it is replaced.
+            return Ok(None);
+        };
+        let version = document
+            .get("format_version")
+            .and_then(Value::as_str)
+            .and_then(|version| version.parse::<ProtocolVersion>().ok());
+        let Some(version) = version else {
+            return Ok(None);
+        };
+        Ok(Some(
+            match INSTALLED_EXECUTABLES
+                .rule
+                .compatibility(INSTALLED_EXECUTABLES.version, version)
+            {
+                Compatibility::Compatible => Document::Readable(document),
+                Compatibility::NewerMinor
+                | Compatibility::OlderMajor
+                | Compatibility::NewerMajor => Document::OtherMajor,
+            },
+        ))
+    }
+}
+
+enum Document {
+    Readable(Map<String, Value>),
+    OtherMajor,
+}
+
+/// Whether `stored` is the entry of `executable`: the same kind, path and
+/// Product version.
+fn same_executable(stored: &Value, executable: &InstalledExecutable) -> bool {
+    let recorded = serde_json::to_value(executable).expect("invariant: an entry serializes");
+    ["kind", "path", "product_version"]
+        .iter()
+        .all(|field| stored.get(field) == recorded.get(field))
+}
+
+/// The size and the modification time of the file at `path`, which tell
+/// whether it is still the executable an entry recorded.
+///
+/// # Errors
+///
+/// When the file's metadata cannot be read.
+pub fn fingerprint(path: &Path) -> io::Result<(u64, jiff::Timestamp)> {
+    let metadata = fs::metadata(path)?;
+    let modified = jiff::Timestamp::try_from(metadata.modified()?)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    // Whole seconds, so a file system with coarser times reads the same.
+    let modified = jiff::Timestamp::from_second(modified.as_second())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    Ok((metadata.len(), modified))
+}
+
+/// Whether the file at the entry's path is still the executable it
+/// recorded, at its size and modification time.
+pub fn still_at_path(entry: &InstalledExecutable) -> bool {
+    fingerprint(Path::new(&entry.path)).is_ok_and(|found| found == (entry.size, entry.modified_at))
+}
+
+/// Whether an entry counts as installed (ADR 0098): its executable is still
+/// at its path at its version, or it was seen within `max_unused_age`.
+pub fn counts_as_installed(
+    still_at_path: bool,
+    last_seen: jiff::Timestamp,
+    now: jiff::Timestamp,
+    max_unused_age: MaxUnusedAge,
+) -> bool {
+    if still_at_path {
+        return true;
+    }
+    let elapsed = now.duration_since(last_seen);
+    elapsed.is_negative() || elapsed.unsigned_abs() < max_unused_age.counting()
+}
+
+/// One entry of the list as the machine shows it now.
+#[derive(Clone, Copy, Debug)]
+pub struct Seen<'a> {
+    /// The entry.
+    pub entry: &'a InstalledExecutable,
+    /// Whether its executable is still at its path, at its version.
+    pub still_at_path: bool,
+    /// Whether its versioned copy is in the Browser cache.
+    pub copy_present: bool,
+}
+
+impl<'a> Seen<'a> {
+    /// `entry`, looked at on the machine: at its path, and its copy in the
+    /// Browser cache at `cache`.
+    pub fn look(entry: &'a InstalledExecutable, cache: &Path) -> Self {
+        Self {
+            entry,
+            still_at_path: still_at_path(entry),
+            copy_present: entry
+                .copy
+                .as_ref()
+                .is_some_and(|copy| browser_cache::entry_present(cache, copy)),
+        }
+    }
+}
+
+/// The pick of the major of `version` (ADR 0098): among the Products'
+/// executables of that major that count as installed, can be started (at
+/// their path, or from their versioned copy) and are of at least the
+/// shared stores' lowest minor, Foxhound before Collie, then the newest
+/// version. `None` when no executable can be the pick.
+pub fn pick<'a>(
+    seen: &[Seen<'a>],
+    version: &ProductVersion,
+    lowest_minor: Option<ProtocolVersion>,
+    now: jiff::Timestamp,
+    max_unused_age: MaxUnusedAge,
+) -> Option<&'a InstalledExecutable> {
+    let major = major_name(version);
+    seen.iter()
+        .filter(|seen| {
+            let entry = seen.entry;
+            entry.kind == ExecutableKind::ProductExecutable
+                && major_name(&entry.product_version) == major
+                && counts_as_installed(seen.still_at_path, entry.last_seen, now, max_unused_age)
+                && (seen.still_at_path || seen.copy_present)
+                && lowest_minor.is_none_or(|floor| at_least(&entry.product_version, floor))
+        })
+        .map(|seen| seen.entry)
+        .max_by(|left, right| {
+            rank(left.product)
+                .cmp(&rank(right.product))
+                .then_with(|| newer(&left.product_version, &right.product_version))
+        })
+}
+
+/// What the Browser cache's clean-up reads of each entry (ADR 0098): every
+/// entry that counts keeps its pins and its versioned copy.
+pub fn kept_inputs(seen: &[Seen<'_>]) -> Vec<browser_cache::InstalledExecutable> {
+    seen.iter()
+        .map(|seen| browser_cache::InstalledExecutable {
+            still_at_path: seen.still_at_path,
+            last_seen: seen.entry.last_seen,
+            pins: seen
+                .entry
+                .pins
+                .iter()
+                .chain(&seen.entry.copy)
+                .cloned()
+                .collect(),
+        })
+        .collect()
+}
+
+fn rank(product: Product) -> u8 {
+    match product {
+        Product::Collie => 0,
+        Product::Foxhound => 1,
+    }
+}
+
+/// A Product version's numbers and pre-release, for ordering only: the
+/// pick takes the newest (ADR 0098), Product versions being otherwise
+/// reported, never compared (ADR 0095).
+fn parts(version: &ProductVersion) -> (Vec<u64>, Option<String>) {
+    let text = version.to_string();
+    let (core, pre_release) = match text.split_once('-') {
+        Some((core, pre_release)) => (core.to_owned(), Some(pre_release.to_owned())),
+        None => (text, None),
+    };
+    let numbers = core
+        .split('.')
+        .map(|number| number.parse().unwrap_or(0))
+        .collect();
+    (numbers, pre_release)
+}
+
+/// Semantic Versioning's precedence of `left` over `right`.
+fn newer(left: &ProductVersion, right: &ProductVersion) -> Ordering {
+    let ((left_numbers, left_pre), (right_numbers, right_pre)) = (parts(left), parts(right));
+    left_numbers
+        .cmp(&right_numbers)
+        .then_with(|| match (left_pre, right_pre) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (Some(left), Some(right)) => pre_release_order(&left, &right),
+        })
+}
+
+fn pre_release_order(left: &str, right: &str) -> Ordering {
+    let mut left_parts = left.split('.');
+    let mut right_parts = right.split('.');
+    loop {
+        match (left_parts.next(), right_parts.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(left), Some(right)) => {
+                let order = match (left.parse::<u64>(), right.parse::<u64>()) {
+                    (Ok(left), Ok(right)) => left.cmp(&right),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => left.cmp(right),
+                };
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+        }
+    }
+}
+
+/// Whether `version` is at least the minor `floor`.
+fn at_least(version: &ProductVersion, floor: ProtocolVersion) -> bool {
+    let (numbers, _) = parts(version);
+    let (major, minor) = (
+        numbers.first().copied().unwrap_or(0),
+        numbers.get(1).copied().unwrap_or(0),
+    );
+    (major, minor) >= (u64::from(floor.major), u64::from(floor.minor))
+}
+
+#[cfg(test)]
+mod tests;

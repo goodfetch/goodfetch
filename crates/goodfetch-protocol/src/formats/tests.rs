@@ -24,8 +24,28 @@ fn the_default_rule_reads_its_major_up_to_its_own_minor(
     assert_eq!(Rule::Default.compatibility(reader, found), compatibility);
 }
 
+/// The Usage ledger family's rule, case by case (ADRs 0030 and 0098): its
+/// major never changes, and newer minors only add, so a reader reads every
+/// minor of its major and refuses another major.
+#[rstest]
+#[case::same_version(version(0, 1), version(0, 1), Compatibility::Compatible)]
+#[case::older_minor(version(1, 4), version(1, 0), Compatibility::Compatible)]
+#[case::newer_minor(version(1, 4), version(1, 9), Compatibility::Compatible)]
+#[case::older_major(version(2, 0), version(1, 9), Compatibility::OlderMajor)]
+#[case::newer_major(version(1, 9), version(2, 0), Compatibility::NewerMajor)]
+fn the_frozen_major_rule_reads_every_minor_of_its_major(
+    #[case] reader: ProtocolVersion,
+    #[case] found: ProtocolVersion,
+    #[case] compatibility: Compatibility,
+) {
+    assert_eq!(
+        Rule::FrozenMajor.compatibility(reader, found),
+        compatibility
+    );
+}
+
 #[test]
-fn the_registry_lists_every_format_under_the_default_rule() {
+fn the_registry_lists_every_format_under_its_rule() {
     let names: Vec<(&str, Rule)> = FORMATS
         .iter()
         .map(|format| (format.name, format.rule))
@@ -38,6 +58,7 @@ fn the_registry_lists_every_format_under_the_default_rule() {
             ("browser-cache", Rule::Default),
             ("run-index", Rule::Default),
             ("run-state", Rule::Default),
+            ("installed-executables", Rule::FrozenMajor),
             ("operator-policy", Rule::Default),
             ("user-configuration", Rule::Default)
         ]

@@ -19,6 +19,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
+use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::daemon::{DaemonStatus, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -145,13 +147,35 @@ pub struct CallContext {
 }
 
 /// What every call of one Connection is given: the engine's identity, the
-/// Connection's Client, and the engine's Runs and event stream. The
-/// protocol server builds it once per Connection.
+/// Connection's Client, the engine's Runs and event stream, and on a
+/// Daemon the Daemon itself. The protocol server builds it once per
+/// Connection.
 pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
+    pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
+}
+
+/// A boxed future of a [`DaemonSide`]'s answer.
+pub(crate) type Answering<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// What a Daemon gives each of its Connections (ADRs 0024 and 0098): the
+/// token every `hello` carries, the count of its Clients, whether it hands
+/// over on a refusal, and its answers to `daemon.*`.
+pub(crate) trait DaemonSide: Send + Sync {
+    /// The per-launch token.
+    fn token(&self) -> &str;
+    /// A Client of `surface` opened; it counts until the value drops.
+    fn opened(&self, surface: Surface) -> Box<dyn Send + Sync>;
+    /// A `hello` is being refused by Product or version: whether the Daemon
+    /// hands over to its major's pick on it, which it has then begun.
+    fn refusing(&self) -> Answering<'_, bool>;
+    /// What `daemon.status` answers.
+    fn status(&self) -> Answering<'_, DaemonStatus>;
+    /// Stops the Daemon once `daemon.stop` has answered what it says.
+    fn stop(&self) -> Answering<'_, DaemonStopping>;
 }
 
 /// What a streaming call sends its notifications with: its id, the credits
@@ -208,6 +232,12 @@ impl CallContext {
     /// The running engine's Product and version.
     pub fn identity(&self) -> &Identity {
         &self.connection.identity
+    }
+
+    /// The Daemon the call's Connection reaches, or `None` on an Attached
+    /// engine.
+    pub(crate) fn daemon(&self) -> Option<&Arc<dyn DaemonSide>> {
+        self.connection.daemon.as_ref()
     }
 
     /// Cancelled when the call is: a handler that waits watches it at each

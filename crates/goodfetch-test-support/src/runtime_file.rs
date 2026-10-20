@@ -25,6 +25,10 @@ pub const RUNTIME_FILE: &str = "daemon.json";
 /// the OS's limit.
 pub const DAEMON_SOCKET: &str = "daemon.sock";
 
+/// The lock a live Daemon holds beside its runtime file: a runtime file
+/// whose lock nobody holds is a dead Daemon's.
+pub const DAEMON_SERVING_LOCK: &str = "daemon.lock";
+
 /// The token `goodfetch-scripted-engine --mode socket` writes unless
 /// `--token` names another, which the corpus's Daemon scripts expect in
 /// `hello`.

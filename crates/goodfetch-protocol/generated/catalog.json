@@ -142,6 +142,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "not_a_daemon",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
       "exit_code": 10,
       "group": "unavailable",
@@ -467,6 +477,40 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
+      "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
+      "events": [],
+      "name": "daemon.status",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/DaemonStatus"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed.",
+      "events": [],
+      "name": "daemon.stop",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/DaemonStopping"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
       "description": "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
       "events": [],
       "name": "engine.info",
@@ -752,6 +796,25 @@
         "foxhound"
       ],
       "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 600000,
+      "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+      "name": "daemon.idle_timeout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
       },

@@ -11,7 +11,11 @@
 //!
 //! A Run's driver, such as Foxhound's crawl, holds a [`Run`]: its run
 //! state's writer, its clock, its cancellation, its tasks and its page
-//! bodies.
+//! bodies. On a Daemon, each Run belongs to the Connection that started it,
+//! whose end stops it (ADR 0078).
+//!
+//! Size: one registry actor, its handles and the commands it answers, kept
+//! whole so every change to a Run's state passes through one loop.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -192,7 +196,11 @@ enum End {
 }
 
 enum Command {
-    Start(Start, oneshot::Sender<Result<Started, StartError>>),
+    Start(
+        Start,
+        Option<ConnectionId>,
+        oneshot::Sender<Result<Started, StartError>>,
+    ),
     Finish(
         RunId,
         oneshot::Sender<Result<watch::Receiver<Option<RunReport>>, RunError>>,
@@ -206,14 +214,24 @@ enum Command {
     Uses(RunId, Product),
     Ended(RunId, RunReport),
     StopAll(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
+    StopConnection(
+        ConnectionId,
+        oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>,
+    ),
+    LiveCount(oneshot::Sender<usize>),
     Folder(RunId, oneshot::Sender<PathBuf>),
 }
+
+/// The Connection of a Daemon a Run belongs to (ADR 0078): its end stops
+/// the Runs it started.
+pub(crate) type ConnectionId = u64;
 
 /// The engine's Runs: a handle to its registry, which any task may clone.
 #[derive(Clone, Debug)]
 pub struct Runs {
     commands: mpsc::Sender<Command>,
     settings: Settings,
+    connection: Option<ConnectionId>,
 }
 
 /// A live Run, as its driver holds it.
@@ -339,6 +357,7 @@ impl Runs {
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
+            connection: None,
         };
         let registry = Registry {
             setup,
@@ -373,7 +392,7 @@ impl Runs {
     pub async fn start(&self, start: Start) -> Result<Started, StartError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Start(start, answer))
+            .send(Command::Start(start, self.connection, answer))
             .await
             .map_err(|_| StartError::Stopped)?;
         answered.await.map_err(|_| StartError::Stopped)?
@@ -439,6 +458,55 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)
     }
 
+    /// The same Runs, each Run started through them belonging to the
+    /// Daemon's Connection `connection`.
+    pub(crate) fn on_connection(&self, connection: ConnectionId) -> Self {
+        Self {
+            connection: Some(connection),
+            ..self.clone()
+        }
+    }
+
+    /// Stops every live Run the Connection `connection` started, as aborted
+    /// by its Client (ADR 0078), and waits for their ends; the other
+    /// Connections' Runs go on.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent still stops them.
+    pub(crate) async fn stop_connection(&self, connection: ConnectionId) {
+        let (answer, answered) = oneshot::channel();
+        if self
+            .commands
+            .send(Command::StopConnection(connection, answer))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        for report in answered.await.unwrap_or_default() {
+            let _ = wait_for(report).await;
+        }
+    }
+
+    /// How many Runs are live; none once the registry has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub(crate) async fn live_count(&self) -> usize {
+        let (answer, answered) = oneshot::channel();
+        if self
+            .commands
+            .send(Command::LiveCount(answer))
+            .await
+            .is_err()
+        {
+            return 0;
+        }
+        answered.await.unwrap_or(0)
+    }
+
     /// Stops every live Run as aborted by its Client, as an Attached engine
     /// does when its Connection ends (ADR 0078), and waits for their ends.
     ///
@@ -481,6 +549,7 @@ struct Live {
     report: watch::Sender<Option<RunReport>>,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
+    connection: Option<ConnectionId>,
 }
 
 struct Registry {
@@ -496,8 +565,8 @@ impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         while let Some(command) = mailbox.recv().await {
             match command {
-                Command::Start(start, answer) => {
-                    let started = self.start(start).await;
+                Command::Start(start, connection, answer) => {
+                    let started = self.start(start, connection).await;
                     let _ = answer.send(started);
                 }
                 Command::Finish(run_id, answer) => {
@@ -529,16 +598,19 @@ impl Registry {
                 }
                 Command::StopAll(answer) => {
                     let ids: Vec<RunId> = self.live.keys().cloned().collect();
-                    let mut reports = Vec::new();
-                    for run_id in ids {
-                        let end = End::Stopped(StopReason::Abort {
-                            by: StoppedBy::Client,
-                        });
-                        if let Ok(report) = self.end_or_report(&run_id, end).await {
-                            reports.push(report);
-                        }
-                    }
-                    let _ = answer.send(reports);
+                    let _ = answer.send(self.stop_by_client(ids).await);
+                }
+                Command::StopConnection(connection, answer) => {
+                    let ids: Vec<RunId> = self
+                        .live
+                        .values()
+                        .filter(|live| live.connection == Some(connection))
+                        .map(|live| live.id.clone())
+                        .collect();
+                    let _ = answer.send(self.stop_by_client(ids).await);
+                }
+                Command::LiveCount(answer) => {
+                    let _ = answer.send(self.live.len());
                 }
                 Command::Folder(run_id, answer) => {
                     let _ = answer.send(self.folder(&run_id));
@@ -547,6 +619,21 @@ impl Registry {
         }
         self.ending_owner.wait().await;
         self.owner.wait().await;
+    }
+
+    /// Stops each of `ids` as aborted by its Client, and answers the waits
+    /// for their reports.
+    async fn stop_by_client(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<RunReport>>> {
+        let mut reports = Vec::new();
+        for run_id in ids {
+            let end = End::Stopped(StopReason::Abort {
+                by: StoppedBy::Client,
+            });
+            if let Ok(report) = self.end_or_report(&run_id, end).await {
+                reports.push(report);
+            }
+        }
+        reports
     }
 
     fn folder(&self, run_id: &RunId) -> PathBuf {
@@ -590,7 +677,11 @@ impl Registry {
             .expect("invariant: a lowercase ULID is a Run ID")
     }
 
-    async fn start(&mut self, start: Start) -> Result<Started, StartError> {
+    async fn start(
+        &mut self,
+        start: Start,
+        connection: Option<ConnectionId>,
+    ) -> Result<Started, StartError> {
         let run_id = match &start.run_id {
             Some(run_id) => run_id.clone(),
             None => self.generated_id(),
@@ -621,7 +712,7 @@ impl Registry {
                 needs: found.needs,
             }));
         }
-        self.begin(run_id, start, inputs).await
+        self.begin(run_id, start, inputs, connection).await
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its
@@ -675,6 +766,7 @@ impl Registry {
         run_id: RunId,
         start: Start,
         inputs: String,
+        connection: Option<ConnectionId>,
     ) -> Result<Started, StartError> {
         let folder = self.folder(&run_id);
         let unavailable = |error: String| StartError::Unavailable {
@@ -736,6 +828,7 @@ impl Registry {
                         .upgrade()
                         .expect("invariant: the registry runs while a handle sends to it"),
                     settings: self.setup.settings.clone(),
+                    connection,
                 },
             }),
             folder,
@@ -750,6 +843,7 @@ impl Registry {
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
+            connection,
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;

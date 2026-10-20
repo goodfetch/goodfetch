@@ -304,6 +304,11 @@ pub struct ConfigExplainParams {
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: Map<String, Value>,
+    /// Where those run values come from: a scope's `settings` option by
+    /// default, or the CLI's flags when the CLI asks a Daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub origin: Option<RunOrigin>,
 }
 
 /// `config.explain`.

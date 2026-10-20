@@ -10,6 +10,11 @@
 //! `crawl_request.handle`, each under an id of its own, and routes each
 //! reply back to its sender; the Connection's end fails those still
 //! waiting. A `$/credit` adds credits to the streaming call it names.
+//!
+//! A Daemon's Connection must open with a `hello` carrying the Daemon's
+//! token: anything else is closed without an answer, so a stranger learns
+//! nothing (ADR 0024). Each refusal is logged under [`REFUSAL_TARGET`],
+//! with its reason, until the Audit log records it (area 4).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -31,7 +36,9 @@ use tokio_util::sync::CancellationToken;
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::{failure_line, handshake, line, not_in_product, record, success_line};
 use crate::client::{Client, Outgoing};
-use crate::composition::{CallContext, CallError, CallStream, ConnectionContext, Handler};
+use crate::composition::{
+    CallContext, CallError, CallStream, ConnectionContext, DaemonSide, Handler,
+};
 use crate::events::{Credits, Events};
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
@@ -46,6 +53,9 @@ const MAX_IN_FLIGHT: usize = 256;
 
 /// How many lines wait for the writer before their senders wait.
 const OUTGOING_LINES: usize = 64;
+
+/// The `tracing` target of a Daemon's refusals of a Connection.
+pub const REFUSAL_TARGET: &str = "goodfetch::daemon::refusal";
 
 /// What every Connection of an engine dispatches to.
 pub(crate) struct Dispatch {
@@ -65,6 +75,7 @@ pub(crate) async fn serve(
     owner: &TaskOwner,
     runs: Runs,
     events: Events,
+    daemon: Option<Arc<dyn DaemonSide>>,
 ) {
     let (mut reader, writer) = connection.split();
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
@@ -76,6 +87,7 @@ pub(crate) async fn serve(
         client,
         runs,
         events,
+        daemon,
     });
     let mut session = Session {
         dispatch,
@@ -90,6 +102,7 @@ pub(crate) async fn serve(
         requests,
         pending: BTreeMap::new(),
         next_request: 0,
+        opened_client: None,
     };
     session.run(&mut reader).await;
     session.cancel_in_flight();
@@ -137,6 +150,8 @@ struct Session<'owner> {
     requests: mpsc::Receiver<Outgoing>,
     pending: BTreeMap<RequestId, Pending>,
     next_request: i64,
+    /// On a Daemon, the count of this Client, held while it is open.
+    opened_client: Option<Box<dyn Send + Sync>>,
 }
 
 /// A handler request the engine sent, waiting for its reply.
@@ -198,6 +213,13 @@ impl Session<'_> {
             Frame::TooLarge => Err(DecodeError::too_large()),
             Frame::Line(line) => decode(&line),
         };
+        if !self.opened && self.connection.daemon.is_some() {
+            if let Ok(Incoming::Request(request)) = incoming {
+                return self.open(request).await;
+            }
+            refused("hello_not_first");
+            return Flow::Close;
+        }
         match (incoming, self.opened) {
             (Err(error), opened) => {
                 let failure = CallError::protocol(error.failure, error.detail);
@@ -266,9 +288,15 @@ impl Session<'_> {
         let _ = pending.reply.send(answer);
     }
 
-    /// The first request, which must be `hello`.
+    /// The first request, which must be `hello`, carrying the token on a
+    /// Daemon.
     async fn open(&mut self, request: Request) -> Flow {
+        let daemon = self.connection.daemon.clone();
         if request.method != HELLO {
+            if daemon.is_some() {
+                refused("hello_not_first");
+                return Flow::Close;
+            }
             let error = CallError::protocol(
                 ProtocolFailure::InvalidRequest,
                 "a Connection opens with `hello`",
@@ -277,13 +305,44 @@ impl Session<'_> {
             self.send(failure_line(Some(request.id), &error)).await;
             return Flow::Close;
         }
-        let answered = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null))
-            .map_err(|error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()))
-            .and_then(|hello| handshake::answer(&self.dispatch.identity, &hello));
+        let hello = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null));
+        if let Some(daemon) = &daemon {
+            let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
+            match token {
+                None => {
+                    refused("token_missing");
+                    return Flow::Close;
+                }
+                Some(token) if !same_token(token, daemon.token()) => {
+                    refused("token_wrong");
+                    return Flow::Close;
+                }
+                Some(_) => {}
+            }
+        }
+        let answered = match hello {
+            Ok(hello) => handshake::answer(&self.dispatch.identity, &hello)
+                .map(|accepted| (accepted, hello.surface)),
+            Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                error.to_string(),
+            ))),
+        };
+        let answered = match answered {
+            Ok(accepted) => Ok(accepted),
+            Err(refusal) => {
+                let handover = match &daemon {
+                    Some(daemon) if refusal.by_product_or_version() => daemon.refusing().await,
+                    _ => false,
+                };
+                Err(refusal.into_error(handover))
+            }
+        };
         match answered {
-            Ok(accepted) => {
+            Ok((accepted, surface)) => {
                 record(HELLO, None);
                 self.opened = true;
+                self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
@@ -444,4 +503,23 @@ impl Session<'_> {
     async fn send(&self, line: Vec<u8>) -> bool {
         self.outgoing.send(line).await.is_ok()
     }
+}
+
+/// Logs a Daemon's refusal of a Connection, with its reason.
+fn refused(reason: &'static str) {
+    tracing::warn!(target: REFUSAL_TARGET, reason, "the Daemon closed a Connection that did not open with `hello` and its token");
+}
+
+/// Whether two tokens are equal, in time that depends only on their
+/// lengths, so a Client cannot guess one byte at a time.
+fn same_token(given: &str, expected: &str) -> bool {
+    let (given, expected) = (given.as_bytes(), expected.as_bytes());
+    given.len() == expected.len()
+        && given
+            .iter()
+            .zip(expected)
+            .fold(0_u8, |difference, (left, right)| {
+                difference | (left ^ right)
+            })
+            == 0
 }

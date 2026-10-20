@@ -1,0 +1,244 @@
+//! Both Products' executables of one commit in one Goodfetch home (spec
+//! #213's Seam 1, TESTING.md's "Two Products on one machine"): one Daemon
+//! per major runs its pick, Foxhound once it counts as installed; a Collie
+//! Daemon that is idle hands over to it when a Foxhound Client meets it; a
+//! busy one fails the Client with a `fix` whose `daemon restart` makes
+//! Foxhound the pick; and Clients of the two Products alternating restart
+//! the Daemon at most once (ADR 0098). Collie's executable comes from the
+//! test tool manifest.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tests start processes and write the Daemon's configuration themselves"
+)]
+#![expect(
+    clippy::disallowed_types,
+    reason = "a test's own Client reaches the Daemon's socket from outside the engine (ADR 0060)"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use std::io::{BufRead as _, BufReader, Write as _};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+
+use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_test_support::{
+    DaemonEndpoint, RuntimeFile, SnapshotValues, TestEnv, Tool, cli, engine_script,
+    reported_address, snapshot_settings, tools,
+};
+use serde_json::{Value, json};
+
+const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn collie() -> PathBuf {
+    tools().unwrap().path(Tool::Collie).unwrap().to_owned()
+}
+
+/// A user configuration whose `daemon.idle_timeout` bounds a Daemon a test
+/// forgets.
+fn short_idle(env: &TestEnv) {
+    let major = env.home().join("0.0");
+    std::fs::create_dir_all(&major).unwrap();
+    std::fs::write(
+        major.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings]\ndaemon.idle_timeout = 60000\n",
+    )
+    .unwrap();
+}
+
+/// Stops the test home's Daemon when the test ends.
+struct StopsTheDaemon<'env>(&'env TestEnv);
+
+impl Drop for StopsTheDaemon<'_> {
+    fn drop(&mut self) {
+        let _ = cli(self.0, FOXHOUND).args(["daemon", "stop"]).run();
+    }
+}
+
+fn json_of(executable: &Path, env: &TestEnv, arguments: &[&str]) -> Value {
+    let output = cli(env, executable).args(arguments).run().unwrap();
+    assert_eq!(output.exit, Some(0), "{}", output.stderr);
+    serde_json::from_str(&output.stdout).unwrap()
+}
+
+/// The running Daemon's Product and PID, as `daemon status` says.
+fn running(env: &TestEnv) -> (Value, Value) {
+    let status = json_of(FOXHOUND.as_ref(), env, &["daemon", "status", "--json"]);
+    (
+        status["daemon"]["product"].clone(),
+        status["daemon"]["pid"].clone(),
+    )
+}
+
+fn explain(executable: &Path, env: &TestEnv) -> goodfetch_test_support::CliOutput {
+    cli(env, executable)
+        .args(["config", "explain", "daemon", "--daemon", "--json"])
+        .run()
+        .unwrap()
+}
+
+/// A test's own Client of the Daemon, which keeps it busy while it is
+/// connected.
+struct Busy {
+    _writer: Box<dyn std::io::Write>,
+    _reader: BufReader<Box<dyn std::io::Read>>,
+}
+
+impl Busy {
+    fn on(env: &TestEnv) -> Self {
+        let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
+        let (reader, mut writer): (Box<dyn std::io::Read>, Box<dyn std::io::Write>) =
+            match &found.endpoint {
+                #[cfg(unix)]
+                DaemonEndpoint::Unix(path) => {
+                    let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
+                    (Box::new(stream.try_clone().unwrap()), Box::new(stream))
+                }
+                #[cfg(not(unix))]
+                DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
+                DaemonEndpoint::Tcp(address) => {
+                    let stream = std::net::TcpStream::connect(address).unwrap();
+                    (Box::new(stream.try_clone().unwrap()), Box::new(stream))
+                }
+            };
+        let hello = json!({
+            "jsonrpc": "2.0", "id": 0, "method": "hello",
+            "params": {
+                "protocol_version": PROTOCOL_VERSION.to_string(), "surface": "sdk_typescript",
+                "token": found.token, "needs": "collie", "product_version": VERSION,
+            },
+        });
+        writeln!(writer, "{hello}").unwrap();
+        writer.flush().unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut answer = String::new();
+        reader.read_line(&mut answer).unwrap();
+        assert!(answer.contains("\"result\""), "{answer}");
+        Self {
+            _writer: writer,
+            _reader: reader,
+        }
+    }
+}
+
+/// Covers: story:3-5, story:3-137, story:3-138
+#[test]
+fn a_foxhound_client_meeting_an_idle_collie_daemon_gets_a_foxhound_daemon() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    json_of(&collie(), &env, &["daemon", "start", "--json"]);
+    let before = running(&env);
+
+    let explained = explain(FOXHOUND.as_ref(), &env);
+    let after = running(&env);
+
+    assert_eq!(explained.exit, Some(0), "{}", explained.stderr);
+    assert_eq!(
+        (before.0, after.0, before.1 == after.1),
+        (json!("collie"), json!("foxhound"), false)
+    );
+}
+
+/// Covers: story:3-5, story:3-137, story:3-138, error:not_in_product
+#[test]
+fn a_foxhound_installed_but_never_run_becomes_the_pick_when_the_fixs_daemon_restart_runs() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    json_of(&collie(), &env, &["daemon", "start", "--json"]);
+    let busy = Busy::on(&env);
+
+    let refused = explain(FOXHOUND.as_ref(), &env);
+    let restarted = json_of(FOXHOUND.as_ref(), &env, &["daemon", "restart", "--json"]);
+    drop(busy);
+
+    assert_eq!(
+        (refused.exit, restarted["daemon"]["product"].clone()),
+        (Some(10), json!("foxhound")),
+        "{}",
+        refused.stderr
+    );
+    let mut settings = snapshot_settings(&SnapshotValues::of(&env));
+    settings.add_filter(&regex_escape(FOXHOUND), "[FOXHOUND]");
+    settings.bind(|| {
+        insta::assert_snapshot!("busy_collie_daemon_refuses_foxhound", refused.stderr.trim());
+    });
+}
+
+/// Covers: story:3-137
+#[test]
+fn clients_of_the_two_products_alternating_restart_the_daemon_at_most_once() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+
+    let pids: Vec<Value> = [collie(), FOXHOUND.into(), collie(), FOXHOUND.into()]
+        .iter()
+        .map(|executable| {
+            let explained = explain(executable, &env);
+            assert_eq!(explained.exit, Some(0), "{}", explained.stderr);
+            running(&env).1
+        })
+        .collect();
+
+    let changes = pids.windows(2).filter(|pair| pair[0] != pair[1]).count();
+    assert_eq!((changes, running(&env).0), (1, json!("foxhound")));
+}
+
+/// A Collie Client a Daemon refuses by version is told to install Foxhound
+/// too, since a Foxhound of the major counts as installed and its own
+/// executable would still not be the pick (ADR 0098).
+///
+/// Covers: story:3-5, error:protocol_version_unsupported
+#[test]
+fn a_refused_collie_client_is_told_to_install_foxhound_while_a_foxhound_is_the_pick() {
+    let env = TestEnv::new();
+    let recorded = cli(&env, FOXHOUND)
+        .args(["config", "explain", "daemon"])
+        .run()
+        .unwrap();
+    assert_eq!(recorded.exit, Some(0), "{}", recorded.stderr);
+    let scripted = tools()
+        .unwrap()
+        .path(Tool::ScriptedEngine)
+        .unwrap()
+        .to_owned();
+    let mut command = env.process_command(scripted);
+    command
+        .arg("--script")
+        .arg(engine_script("daemon/cli-hello-refused.json"))
+        .args(["--mode", "socket"])
+        .stderr(Stdio::null());
+    let daemon = env.spawn(&mut command).unwrap();
+    reported_address(&mut daemon.child()).unwrap();
+
+    let refused = cli(&env, collie())
+        .args(["config", "explain", "daemon", "--daemon"])
+        .run()
+        .unwrap();
+    daemon.child().wait().unwrap();
+
+    assert_eq!(refused.exit, Some(11), "{}", refused.stderr);
+    let mut settings = snapshot_settings(&SnapshotValues::of(&env));
+    settings.add_filter(&regex_escape(&collie().display().to_string()), "[COLLIE]");
+    settings.bind(|| {
+        insta::assert_snapshot!(
+            "refused_collie_told_to_install_foxhound",
+            refused.stderr.trim()
+        );
+    });
+}
+
+fn regex_escape(text: &str) -> String {
+    text.chars()
+        .flat_map(|character| {
+            let escaped = "\\.+*?()|[]{}^$".contains(character);
+            escaped.then_some('\\').into_iter().chain([character])
+        })
+        .collect()
+}

@@ -23,7 +23,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
     let mut formats = emitted.bundle["formats"].as_array().unwrap().clone();
     let settings_files: Vec<serde_json::Value> = formats
-        .drain(4..)
+        .drain(5..)
         .map(|format| {
             json!({
                 "name": format["name"],
@@ -84,6 +84,13 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "storage": "sqlite",
                 "rule": "default",
                 "schema": { "$ref": "#/$defs/RunStateRow" },
+            },
+            {
+                "name": "installed-executables",
+                "version": "0.1",
+                "storage": "json",
+                "rule": "frozen_major",
+                "schema": { "$ref": "#/$defs/InstalledExecutables" },
             },
         ])
     );
@@ -212,5 +219,25 @@ fn a_settings_files_schema_nests_each_key_by_its_segments() {
             &json!("object"),
             &json!({ "type": "string", "format": "ip" })
         )
+    );
+}
+
+/// Each command's `--json` output is a type of the bundle (ADR 0069),
+/// under the command's path.
+#[test]
+fn the_bundle_holds_each_commands_json_output() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["outputs"],
+        json!({
+            "browsers.clean": { "$ref": "#/$defs/BrowsersCleanOutput" },
+            "browsers.install": { "$ref": "#/$defs/BrowsersInstallOutput" },
+            "config.explain": { "$ref": "#/$defs/SettingsExplanation" },
+            "daemon.restart": { "$ref": "#/$defs/DaemonStartOutput" },
+            "daemon.start": { "$ref": "#/$defs/DaemonStartOutput" },
+            "daemon.status": { "$ref": "#/$defs/DaemonStatusOutput" },
+            "daemon.stop": { "$ref": "#/$defs/DaemonStopOutput" },
+        })
     );
 }

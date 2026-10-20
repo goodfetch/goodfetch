@@ -1,0 +1,314 @@
+// Collie's Connection on the Scripted engine (ADR 0069): each test plays a
+// script of the shared corpus over the in-memory transport, as an Attached
+// engine's stdio would carry it, so the hand-written runtime runs with no
+// process. The script fails the test on a message it does not expect,
+// `hello` included, and on a step left unused.
+import { MessageChannel } from "node:worker_threads";
+import { playScript, test } from "@goodfetch/test-support";
+import { describe, expect } from "vitest";
+import { startAndFinish } from "../tests/programs/tracer.ts";
+import { NotInProductError } from "@goodfetch/collie-client";
+import { Collie, connectOver } from "./collie.ts";
+
+/** The Scripted engine playing `script`, and a Collie Connection opened over it. */
+async function collieOn(
+  script: string,
+): Promise<{ collie: Collie; played: ReturnType<typeof playScript> }> {
+  const played = playScript(script);
+  const collie = await connectOver(played.transport);
+  return { collie, played };
+}
+
+/** The error `promise` rejects with. */
+async function failure(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("the call succeeded");
+}
+
+describe("a Collie Connection", () => {
+  test(
+    "starts a Run, finishes it and answers its Run report",
+    { tags: ["story:11-2"] },
+    async () => {
+      const { collie, played } = await collieOn("run/started-and-finished.json");
+
+      const traced = await startAndFinish(collie);
+
+      expect(traced).toEqual({
+        startedAs: "new",
+        runId: "01ke6p4ym0j8x3v5wq2rtbn7hc",
+        report: {
+          run_id: "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          lifecycle: "finished",
+          verdict: "verified",
+          completeness: "complete",
+          started_at: "2026-01-01T00:00:00Z",
+          ended_at: "2026-01-01T00:00:00Z",
+        },
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "reports the engine it reached, of either Product",
+    { tags: ["client_case/collie-accepted-by-foxhound", "attached"] },
+    async ({ clientCase }) => {
+      const { collie, played } = await collieOn("connect/accepted-by-foxhound.json");
+
+      const engine = collie.engine();
+      await collie.close();
+
+      await clientCase.check("the engine names its Product and Product version", () =>
+        expect(engine).toEqual({
+          kind: "attached",
+          product: "foxhound",
+          version: "0.0.0",
+          protocolVersion: "0.1",
+          enginePath: null,
+        }),
+      );
+      await clientCase.check("the script played to its end", () =>
+        expect(played.done()).toEqual({ kind: "finished" }),
+      );
+    },
+  );
+
+  test(
+    "fails connect() when the engine refuses its Product, naming the fix",
+    { tags: ["story:11-2", "error:not_in_product"] },
+    async () => {
+      const played = playScript("connect/refused-not-in-product.json");
+
+      const error = await failure(connectOver(played.transport));
+
+      expect(error).toBeInstanceOf(NotInProductError);
+      expect(error).toMatchObject({
+        code: "not_in_product",
+        group: "unavailable",
+        fix: "Install @goodfetch/collie and connect to its engine.",
+        details: { needs: "collie", product: "foxhound", product_version: "0.0.0" },
+      });
+      expect(played.done()).toEqual({ kind: "closed" });
+    },
+  );
+
+  test(
+    "fails connect() when the engine refuses its protocol version, naming the fix",
+    { tags: ["story:11-2", "error:protocol_version_unsupported"] },
+    async () => {
+      const played = playScript("connect/refused-protocol-version-unsupported.json");
+
+      const error = await failure(connectOver(played.transport));
+
+      expect(error).toMatchObject({
+        code: "protocol_version_unsupported",
+        fix: "Upgrade the engine to a version that speaks protocol 0.1, or use a Client of the engine's own version.",
+      });
+      expect(played.done()).toEqual({ kind: "closed" });
+    },
+  );
+
+  test(
+    "refuses an engine that answers with another protocol major, naming the fix",
+    { tags: ["error:protocol_version_unsupported"] },
+    async () => {
+      const played = playScript("connect/answered-with-another-major.json");
+
+      const error = await failure(connectOver(played.transport));
+
+      expect(error).toMatchObject({
+        code: "protocol_version_unsupported",
+        details: { client_protocol_version: "0.1", engine_protocol_version: "1.0" },
+        fix: "Use the engine and the SDK of one Product version: this SDK 0.0.0 speaks protocol 0.1, and the engine 1.0.0 speaks 1.0.",
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "closes a Run still running by aborting it, and refuses every later call with closed",
+    { tags: ["client_case/closed-after-close", "attached", "error:closed"] },
+    async ({ clientCase }) => {
+      const { collie, played } = await collieOn("run/closed-while-running.json");
+      const run = await collie.start({ runId: "nightly", tags: ["shop"] });
+
+      await run.close();
+      await run.close();
+      await collie.close();
+      await collie.close();
+
+      await clientCase.check("the Run's finish fails with closed", async () =>
+        expect(await failure(run.finish())).toMatchObject({ code: "closed", group: "program" }),
+      );
+      await clientCase.check("a start fails with closed", async () =>
+        expect(await failure(collie.start())).toMatchObject({ code: "closed", group: "program" }),
+      );
+      await clientCase.check("the close aborted the Run once", () =>
+        expect(played.done()).toEqual({ kind: "finished" }),
+      );
+    },
+  );
+
+  test(
+    "runs beside another Connection in the same process",
+    { tags: ["client_case/two-connections-at-once", "attached"] },
+    async ({ clientCase }) => {
+      const [first, second] = await Promise.all([
+        collieOn("run/started-and-finished.json"),
+        collieOn("run/started-and-finished.json"),
+      ]);
+
+      const traced = await Promise.all([
+        startAndFinish(first.collie),
+        startAndFinish(second.collie),
+      ]);
+
+      await clientCase.check("each Connection's Run finished", () =>
+        expect(traced.map(({ report }) => report.lifecycle)).toEqual(["finished", "finished"]),
+      );
+      await clientCase.check("each script played to its end", () =>
+        expect([first.played.done(), second.played.done()]).toEqual([
+          { kind: "finished" },
+          { kind: "finished" },
+        ]),
+      );
+    },
+  );
+
+  test(
+    "connects again after a close",
+    { tags: ["client_case/connect-after-close", "attached"] },
+    async ({ clientCase }) => {
+      const first = await collieOn("connect/accepted-by-foxhound.json");
+      await first.collie.close();
+
+      const second = await collieOn("run/started-and-finished.json");
+      const traced = await startAndFinish(second.collie);
+
+      await clientCase.check("the second Connection's Run finished", () =>
+        expect(traced.report.lifecycle).toBe("finished"),
+      );
+      await clientCase.check("both scripts played to their end", () =>
+        expect([first.played.done(), second.played.done()]).toEqual([
+          { kind: "finished" },
+          { kind: "finished" },
+        ]),
+      );
+    },
+  );
+
+  test(
+    "ends when the engine writes a line that is not JSON-RPC, failing the call",
+    { tags: ["error:engine_output_invalid"] },
+    async () => {
+      const { collie, played } = await collieOn("connect/garbage-during-a-call.json");
+
+      const error = await failure(collie.start());
+      await collie.close();
+
+      expect(error).toMatchObject({
+        code: "engine_output_invalid",
+        group: "internal",
+        details: { line: "INFO engine started" },
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "fails the call in flight when the engine ends before the Connection closes",
+    { tags: ["error:engine_exited"] },
+    async () => {
+      const { collie, played } = await collieOn("connect/exit-during-a-call.json");
+
+      const error = await failure(collie.start());
+      await collie.close();
+
+      expect(error).toMatchObject({
+        code: "engine_exited",
+        group: "unavailable",
+        retryable: false,
+        details: { exit_code: null, signal: null, stderr_tail: "" },
+      });
+      expect(played.done()).toEqual({ kind: "exit", code: 101 });
+    },
+  );
+});
+
+describe("a Connection's values", () => {
+  test("are refused when passed to another realm", { tags: ["story:11-53"] }, async () => {
+    const { collie, played } = await collieOn("run/started-and-finished.json");
+    const run = await collie.start();
+    const { port1, port2 } = new MessageChannel();
+
+    const refused = [collie, run].map((value) => {
+      try {
+        port1.postMessage(value);
+        return "sent";
+      } catch (error) {
+        return error instanceof Error ? error.name : "thrown";
+      }
+    });
+    port1.close();
+    port2.close();
+    await run.finish();
+    await collie.close();
+
+    expect(refused).toEqual(["DataCloneError", "DataCloneError"]);
+    expect(played.done()).toEqual({ kind: "finished" });
+  });
+});
+
+describe("Collie.connect()", () => {
+  test(
+    "fails when its engine-path variable names no executable, naming the variable",
+    { tags: ["story:11-2", "error:engine_not_found"] },
+    async () => {
+      const path = "/nonexistent/goodfetch-collie";
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_COLLIE_ENGINE_PATH: path } }));
+
+      expect(error).toMatchObject({
+        code: "engine_not_found",
+        group: "unavailable",
+        details: { path },
+        fix: `GOODFETCH_COLLIE_ENGINE_PATH names ${path}, which is no executable file: point it at Collie's executable, goodfetch-collie, or leave it unset to use the one @goodfetch/collie installed.`,
+      });
+    },
+  );
+
+  test(
+    "fails when no platform package is installed and no variable is set, naming the package",
+    { tags: ["story:11-2", "error:engine_not_found"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: {} }));
+
+      const platformPackage = `@goodfetch/collie-${process.platform}-${process.arch}`;
+      expect(error).toMatchObject({
+        code: "engine_not_found",
+        details: { package: platformPackage },
+        fix: `Install @goodfetch/collie with its optional dependencies, which hold its engine in ${platformPackage}, or set GOODFETCH_COLLIE_ENGINE_PATH to Collie's executable.`,
+      });
+    },
+  );
+
+  test(
+    "reads only Collie's engine-path variable, never Foxhound's",
+    { tags: ["story:11-2"] },
+    async () => {
+      const error = await failure(
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        Collie.connect({ env: { GOODFETCH_FOXHOUND_ENGINE_PATH: process.execPath } }),
+      );
+
+      expect(error).toMatchObject({ code: "engine_not_found" });
+    },
+  );
+});

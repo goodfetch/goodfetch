@@ -44,7 +44,7 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
         }
     }
     let client = hello.protocol_version;
-    let hint = match formats::PROTOCOL
+    let fix = match formats::PROTOCOL
         .rule
         .compatibility(PROTOCOL_VERSION, client)
     {
@@ -75,7 +75,7 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
         &ProtocolVersionUnsupportedDetails {
             engine_protocol_version: PROTOCOL_VERSION,
             client_protocol_version: client,
-            hint,
+            fix,
         },
     ))
 }

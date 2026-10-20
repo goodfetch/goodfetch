@@ -82,6 +82,8 @@ pub(super) struct Event {
 pub(super) struct ErrorGroup {
     pub(super) name: String,
     pub(super) description: String,
+    /// The JSON-RPC error code the wire carries for the group's codes.
+    pub(super) json_rpc_class: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +116,7 @@ pub(super) struct PluginKind {
 /// is no SDK's (metrics, for instance).
 #[derive(Deserialize)]
 struct Projection {
+    protocol_version: String,
     operations: Vec<Operation>,
     events: Vec<Event>,
     error_groups: Vec<ErrorGroup>,
@@ -126,6 +129,8 @@ struct Projection {
 /// One SDK package's layer.
 pub(super) struct Layer {
     pub(super) product: Product,
+    /// The protocol version `major.minor` the catalog speaks.
+    pub(super) protocol_version: String,
     pub(super) operations: Vec<Operation>,
     pub(super) events: Vec<Event>,
     /// The seven groups, generated once, in Collie's client package.
@@ -140,21 +145,43 @@ pub(super) struct Layer {
 
 impl Layer {
     /// The layer of `product`'s package: Collie's entries for Collie's client
-    /// package, Foxhound's own for Foxhound's, which builds on it.
-    pub(super) fn new(collie: &Value, foxhound: &Value, product: Product) -> Result<Self> {
+    /// package, with the types of the bundle's `connection` section, which
+    /// every engine speaks and the client package's runtime sends; Foxhound's
+    /// own for Foxhound's, which builds on it.
+    pub(super) fn new(
+        bundle: &Value,
+        collie: &Value,
+        foxhound: &Value,
+        product: Product,
+    ) -> Result<Self> {
         let collie: Projection =
             Projection::deserialize(collie).context("reading Collie's projection")?;
         match product {
-            Product::Collie => Ok(Self {
-                product,
-                operations: collie.operations,
-                events: collie.events,
-                error_groups: collie.error_groups,
-                error_codes: collie.error_codes,
-                plugin_kinds: collie.plugin_kinds,
-                definitions: collie.definitions,
-                collie_types: BTreeSet::new(),
-            }),
+            Product::Collie => {
+                let mut definitions = collie.definitions;
+                let bundle_definitions = bundle
+                    .get("$defs")
+                    .and_then(Value::as_object)
+                    .context("the bundle has no `$defs`")?;
+                let connection = bundle.get("connection").cloned().unwrap_or(Value::Null);
+                for name in projection::reached(&connection, bundle_definitions)? {
+                    if let Some(schema) = bundle_definitions.get(&name) {
+                        definitions.insert(name, schema.clone());
+                    }
+                }
+                definitions.sort_keys();
+                Ok(Self {
+                    product,
+                    protocol_version: collie.protocol_version,
+                    operations: collie.operations,
+                    events: collie.events,
+                    error_groups: collie.error_groups,
+                    error_codes: collie.error_codes,
+                    plugin_kinds: collie.plugin_kinds,
+                    definitions,
+                    collie_types: BTreeSet::new(),
+                })
+            }
             Product::Foxhound => {
                 let all: Projection =
                     Projection::deserialize(foxhound).context("reading Foxhound's projection")?;
@@ -186,6 +213,7 @@ impl Layer {
                     .partition(|name| collie.definitions.contains_key(name));
                 Ok(Self {
                     product,
+                    protocol_version: all.protocol_version,
                     operations,
                     events,
                     error_groups: Vec::new(),

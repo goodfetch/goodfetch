@@ -5,7 +5,9 @@
   "description": "The Collie client package both Products' TypeScript SDKs build on (ADR 0095).",
   "type": "module",
   "exports": {
-    "./generated": "./src/generated/index.ts"
+    ".": "./src/index.ts",
+    "./generated": "./src/generated/index.ts",
+    "./runtime": "./src/runtime.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
@@ -13,5 +15,8 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

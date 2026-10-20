@@ -22,7 +22,7 @@
             "retryable": false,
             "client_protocol_version": "0.2",
             "engine_protocol_version": "0.1",
-            "hint": "Upgrade the engine to a version that speaks protocol 0.2, or use a Client of the engine's own version."
+            "fix": "Upgrade the engine to a version that speaks protocol 0.2, or use a Client of the engine's own version."
           }
         }
       }

@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlStartParams, SampleCrawlParams, SampleCrawlResult } from "./types.js";
+import type { CrawlStartParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {

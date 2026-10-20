@@ -3,6 +3,16 @@
 /** The seven groups of Error codes, named for their remedy (ADR 0079). */
 export type ErrorGroup = "program" | "refused" | "page" | "model" | "deadline_exceeded" | "unavailable" | "internal";
 
+/** What an error carries beyond its code, group and retryable flag (ADR 0079). */
+export interface ErrorFields {
+  /** What to do about it, when the engine or the runtime knows. */
+  readonly fix?: string | undefined;
+  /** The code's details, as the engine sent them, in wire names. */
+  readonly details?: Readonly<Record<string, unknown>> | undefined;
+  /** The error that caused it, in this process. */
+  readonly cause?: unknown;
+}
+
 /** The base of every error a Goodfetch SDK raises (ADR 0079). */
 export class GoodfetchError extends Error {
   /** The Error code, as the engine sent it. */
@@ -11,18 +21,31 @@ export class GoodfetchError extends Error {
   readonly group: ErrorGroup;
   /** Whether the same call may succeed when made again. */
   readonly retryable: boolean;
+  /** What to do about it, when known. */
+  readonly fix: string | undefined;
+  /** The code's details, in wire names; empty when it has none. */
+  readonly details: Readonly<Record<string, unknown>>;
 
   constructor(
     message: string,
-    init: { readonly code: string; readonly group: ErrorGroup; readonly retryable: boolean },
+    init: ErrorFields & {
+      readonly code: string;
+      readonly group: ErrorGroup;
+      readonly retryable: boolean;
+    },
   ) {
-    super(message);
+    super(message, init.cause === undefined ? undefined : { cause: init.cause });
     this.name = new.target.name;
     this.code = init.code;
     this.group = init.group;
     this.retryable = init.retryable;
+    this.fix = init.fix;
+    this.details = init.details ?? {};
   }
 }
+
+/** The class of one Error code: its message, then what it carries. */
+export type ErrorClass = new (message: string, fields?: ErrorFields) => GoodfetchError;
 
 /**
  * The program is wrong: its call, its settings or its own handler code. Fix the program.
@@ -59,12 +82,34 @@ export class UnavailableError extends GoodfetchError {}
  */
 export class InternalError extends GoodfetchError {}
 
+/** The group of each JSON-RPC error code the engine answers with, its wire class (ADR 0038). */
+export const errorGroupOfWireClass: Readonly<Record<number, ErrorGroup>> = {
+  [-32001]: "program",
+  [-32002]: "refused",
+  [-32003]: "page",
+  [-32004]: "model",
+  [-32005]: "deadline_exceeded",
+  [-32006]: "unavailable",
+  [-32007]: "internal",
+};
+
+/** The class of each group, which raises a code the SDK does not know, keeping the code (ADR 0079). */
+export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchError>> = {
+  program: ProgramError,
+  refused: RefusedError,
+  page: PageError,
+  model: ModelError,
+  deadline_exceeded: DeadlineExceededError,
+  unavailable: UnavailableError,
+  internal: InternalError,
+};
+
 /**
  * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
  */
 export class ArtifactDownloadFailedError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "artifact_download_failed", group: "unavailable", retryable: true });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "artifact_download_failed", group: "unavailable", retryable: true });
   }
 }
 
@@ -72,8 +117,8 @@ export class ArtifactDownloadFailedError extends UnavailableError {
  * The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.
  */
 export class ArtifactUnavailableOfflineError extends RefusedError {
-  constructor(message: string) {
-    super(message, { code: "artifact_unavailable_offline", group: "refused", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "artifact_unavailable_offline", group: "refused", retryable: false });
   }
 }
 
@@ -81,8 +126,8 @@ export class ArtifactUnavailableOfflineError extends RefusedError {
  * The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.
  */
 export class BodyNotFoundError extends ProgramError {
-  constructor(message: string) {
-    super(message, { code: "body_not_found", group: "program", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "body_not_found", group: "program", retryable: false });
   }
 }
 
@@ -90,8 +135,8 @@ export class BodyNotFoundError extends ProgramError {
  * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.
  */
 export class BrowserNotInstalledError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "browser_not_installed", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_not_installed", group: "unavailable", retryable: false });
   }
 }
 
@@ -99,8 +144,44 @@ export class BrowserNotInstalledError extends UnavailableError {
  * The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.
  */
 export class CallCancelledError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "call_cancelled", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "call_cancelled", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.
+ */
+export class ClosedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "closed", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
+ */
+export class EngineExitedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "engine_exited", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * `connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package.
+ */
+export class EngineNotFoundError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "engine_not_found", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry.
+ */
+export class EngineOutputInvalidError extends InternalError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "engine_output_invalid", group: "internal", retryable: false });
   }
 }
 
@@ -108,8 +189,8 @@ export class CallCancelledError extends UnavailableError {
  * Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.
  */
 export class ExecutableBlockedBySmartAppControlError extends RefusedError {
-  constructor(message: string) {
-    super(message, { code: "executable_blocked_by_smart_app_control", group: "refused", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "executable_blocked_by_smart_app_control", group: "refused", retryable: false });
   }
 }
 
@@ -117,8 +198,8 @@ export class ExecutableBlockedBySmartAppControlError extends RefusedError {
  * The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.
  */
 export class NameLookupFailedError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "name_lookup_failed", group: "unavailable", retryable: true });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "name_lookup_failed", group: "unavailable", retryable: true });
   }
 }
 
@@ -126,8 +207,8 @@ export class NameLookupFailedError extends UnavailableError {
  * The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name.
  */
 export class NameNotResolvedError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "name_not_resolved", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "name_not_resolved", group: "unavailable", retryable: false });
   }
 }
 
@@ -135,8 +216,8 @@ export class NameNotResolvedError extends UnavailableError {
  * The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.
  */
 export class NotInProductError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "not_in_product", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "not_in_product", group: "unavailable", retryable: false });
   }
 }
 
@@ -144,8 +225,8 @@ export class NotInProductError extends UnavailableError {
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "protocol_version_unsupported", group: "unavailable", retryable: false });
   }
 }
 
@@ -153,8 +234,8 @@ export class ProtocolVersionUnsupportedError extends UnavailableError {
  * The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.
  */
 export class RunConflictError extends ProgramError {
-  constructor(message: string) {
-    super(message, { code: "run_conflict", group: "program", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_conflict", group: "program", retryable: false });
   }
 }
 
@@ -162,8 +243,8 @@ export class RunConflictError extends ProgramError {
  * The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  */
 export class RunIdInvalidError extends ProgramError {
-  constructor(message: string) {
-    super(message, { code: "run_id_invalid", group: "program", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_id_invalid", group: "program", retryable: false });
   }
 }
 
@@ -171,8 +252,8 @@ export class RunIdInvalidError extends ProgramError {
  * Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.
  */
 export class RunInUseError extends RefusedError {
-  constructor(message: string) {
-    super(message, { code: "run_in_use", group: "refused", retryable: true });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_in_use", group: "refused", retryable: true });
   }
 }
 
@@ -180,8 +261,8 @@ export class RunInUseError extends RefusedError {
  * No Run has this Run ID: the Run index does not list it.
  */
 export class RunNotFoundError extends ProgramError {
-  constructor(message: string) {
-    super(message, { code: "run_not_found", group: "program", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_not_found", group: "program", retryable: false });
   }
 }
 
@@ -189,8 +270,8 @@ export class RunNotFoundError extends ProgramError {
  * The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.
  */
 export class RunStateUnavailableError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "run_state_unavailable", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_state_unavailable", group: "unavailable", retryable: false });
   }
 }
 
@@ -198,8 +279,8 @@ export class RunStateUnavailableError extends UnavailableError {
  * The sample operation refused the text.
  */
 export class SampleRefusedError extends RefusedError {
-  constructor(message: string) {
-    super(message, { code: "sample_refused", group: "refused", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "sample_refused", group: "refused", retryable: false });
   }
 }
 
@@ -207,8 +288,8 @@ export class SampleRefusedError extends RefusedError {
  * A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.
  */
 export class SettingInvalidError extends ProgramError {
-  constructor(message: string) {
-    super(message, { code: "setting_invalid", group: "program", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_invalid", group: "program", retryable: false });
   }
 }
 
@@ -216,8 +297,8 @@ export class SettingInvalidError extends ProgramError {
  * A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.
  */
 export class SettingLockedError extends RefusedError {
-  constructor(message: string) {
-    super(message, { code: "setting_locked", group: "refused", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_locked", group: "refused", retryable: false });
   }
 }
 
@@ -225,8 +306,8 @@ export class SettingLockedError extends RefusedError {
  * A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.
  */
 export class SettingNotApplicableError extends ProgramError {
-  constructor(message: string) {
-    super(message, { code: "setting_not_applicable", group: "program", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_not_applicable", group: "program", retryable: false });
   }
 }
 
@@ -234,18 +315,22 @@ export class SettingNotApplicableError extends ProgramError {
  * A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.
  */
 export class SettingUnknownError extends ProgramError {
-  constructor(message: string) {
-    super(message, { code: "setting_unknown", group: "program", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_unknown", group: "program", retryable: false });
   }
 }
 
 /** The error class of each of Collie's Error codes. */
-export const collieErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {
+export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
   body_not_found: BodyNotFoundError,
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
+  closed: ClosedError,
+  engine_exited: EngineExitedError,
+  engine_not_found: EngineNotFoundError,
+  engine_output_invalid: EngineOutputInvalidError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,

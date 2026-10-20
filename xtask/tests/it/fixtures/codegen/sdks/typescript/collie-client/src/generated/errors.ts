@@ -3,6 +3,16 @@
 /** The seven groups of Error codes, named for their remedy (ADR 0079). */
 export type ErrorGroup = "program" | "refused" | "page" | "model" | "deadline_exceeded" | "unavailable" | "internal";
 
+/** What an error carries beyond its code, group and retryable flag (ADR 0079). */
+export interface ErrorFields {
+  /** What to do about it, when the engine or the runtime knows. */
+  readonly fix?: string | undefined;
+  /** The code's details, as the engine sent them, in wire names. */
+  readonly details?: Readonly<Record<string, unknown>> | undefined;
+  /** The error that caused it, in this process. */
+  readonly cause?: unknown;
+}
+
 /** The base of every error a Goodfetch SDK raises (ADR 0079). */
 export class GoodfetchError extends Error {
   /** The Error code, as the engine sent it. */
@@ -11,18 +21,31 @@ export class GoodfetchError extends Error {
   readonly group: ErrorGroup;
   /** Whether the same call may succeed when made again. */
   readonly retryable: boolean;
+  /** What to do about it, when known. */
+  readonly fix: string | undefined;
+  /** The code's details, in wire names; empty when it has none. */
+  readonly details: Readonly<Record<string, unknown>>;
 
   constructor(
     message: string,
-    init: { readonly code: string; readonly group: ErrorGroup; readonly retryable: boolean },
+    init: ErrorFields & {
+      readonly code: string;
+      readonly group: ErrorGroup;
+      readonly retryable: boolean;
+    },
   ) {
-    super(message);
+    super(message, init.cause === undefined ? undefined : { cause: init.cause });
     this.name = new.target.name;
     this.code = init.code;
     this.group = init.group;
     this.retryable = init.retryable;
+    this.fix = init.fix;
+    this.details = init.details ?? {};
   }
 }
+
+/** The class of one Error code: its message, then what it carries. */
+export type ErrorClass = new (message: string, fields?: ErrorFields) => GoodfetchError;
 
 /**
  * The program is wrong: its call, its settings or its own handler code. Fix the program.
@@ -59,16 +82,38 @@ export class UnavailableError extends GoodfetchError {}
  */
 export class InternalError extends GoodfetchError {}
 
+/** The group of each JSON-RPC error code the engine answers with, its wire class (ADR 0038). */
+export const errorGroupOfWireClass: Readonly<Record<number, ErrorGroup>> = {
+  [-32001]: "program",
+  [-32002]: "refused",
+  [-32003]: "page",
+  [-32004]: "model",
+  [-32005]: "deadline_exceeded",
+  [-32006]: "unavailable",
+  [-32007]: "internal",
+};
+
+/** The class of each group, which raises a code the SDK does not know, keeping the code (ADR 0079). */
+export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchError>> = {
+  program: ProgramError,
+  refused: RefusedError,
+  page: PageError,
+  model: ModelError,
+  deadline_exceeded: DeadlineExceededError,
+  unavailable: UnavailableError,
+  internal: InternalError,
+};
+
 /**
  * The sample operation refused the text.
  */
 export class SampleRefusedError extends RefusedError {
-  constructor(message: string) {
-    super(message, { code: "sample_refused", group: "refused", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "sample_refused", group: "refused", retryable: false });
   }
 }
 
 /** The error class of each of Collie's Error codes. */
-export const collieErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {
+export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   sample_refused: SampleRefusedError,
 };

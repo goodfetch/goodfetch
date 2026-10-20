@@ -16,6 +16,16 @@ class CollieTypes(BaseModel):
     )
 
 
+class HelloParams(BaseModel):
+    """What a `hello` says, the Connection's own message."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    protocol_version: str
+    """The protocol version the sender speaks."""
+
+
 class SampleEchoParams(BaseModel):
     """What `sample.echo` repeats."""
 

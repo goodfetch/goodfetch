@@ -77,6 +77,13 @@ export type ProductVersion = string;
  */
 export type ProtocolVersion = string;
 /**
+ * A request's id, which its reply carries back.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RequestId".
+ */
+export type RequestId = number | string;
+/**
  * Whether a Run's own checks prove what it committed (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -105,35 +112,18 @@ export type StopReason = {
   kind: "abort";
 };
 /**
- * The Run's opaque tags.
- *
- * @maxItems 16
- */
-export type Tags =
-  | []
-  | [Tag]
-  | [Tag, Tag]
-  | [Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag];
-/**
  * An opaque text a Run is tagged with (ADR 0036).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Tag".
  */
 export type Tag = string;
+/**
+ * The Run's opaque tags.
+ *
+ * @maxItems 16
+ */
+export type Tags = Tag[];
 /**
  * Whether a start began its Run or found it.
  *
@@ -149,6 +139,14 @@ export type StartedAs = "new" | "existing";
  */
 export type StoppedBy = "client";
 /**
+ * The surface a `hello` comes from (ADR 0024).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Surface".
+ */
+export type Surface =
+  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+/**
  * A Run's tags, in the order given.
  *
  * @maxItems 16
@@ -156,24 +154,7 @@ export type StoppedBy = "client";
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Tags".
  */
-export type Tags1 =
-  | []
-  | [Tag]
-  | [Tag, Tag]
-  | [Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
-  | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag];
+export type Tags1 = Tag[];
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -200,6 +181,38 @@ export interface ArtifactId {
    * Its name, such as `chrome-for-testing`.
    */
   name: string;
+}
+/**
+ * What `$/cancel` names: the call to stop.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CancelParams".
+ */
+export interface CancelParams {
+  /**
+   * The call's id.
+   */
+  id: number | string;
+}
+/**
+ * What `$/chunk` carries: the next bytes of the body a call reads.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Chunk".
+ */
+export interface Chunk {
+  /**
+   * Its bytes, in Base64 (RFC 4648, with padding).
+   */
+  data: string;
+  /**
+   * The id of the `page.body` call.
+   */
+  id: number | string;
+  /**
+   * Where its bytes start in the body.
+   */
+  offset: number;
 }
 /**
  * What `config.explain` takes.
@@ -243,6 +256,22 @@ export interface ProjectSettings {
   settings: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `$/credit` grants: more events, or chunks, for a streaming call.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CreditParams".
+ */
+export interface CreditParams {
+  /**
+   * How many more events, or chunks, the Client takes.
+   */
+  credits: number;
+  /**
+   * The streaming call's id.
+   */
+  id: number | string;
 }
 /**
  * What `browser_cache.download_progress` reports.
@@ -314,6 +343,50 @@ export interface EngineInfo {
  */
 export interface EngineInfoParams {}
 /**
+ * What `$/events` carries: a batch of one subscription's events, in the
+ * order of their positions.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EventBatch".
+ */
+export interface EventBatch {
+  /**
+   * Its events.
+   */
+  events: EventEnvelope[];
+  /**
+   * The id of the subscription's `events.subscribe` call.
+   */
+  id: number | string;
+}
+/**
+ * One event of a batch.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EventEnvelope".
+ */
+export interface EventEnvelope {
+  /**
+   * Its payload, of the type the catalog gives the event.
+   */
+  data: {
+    [k: string]: unknown;
+  };
+  /**
+   * For a telemetry event, how many of the same kind and scope it
+   * replaced unsent.
+   */
+  dropped?: number;
+  /**
+   * The catalog's name of the event.
+   */
+  event: string;
+  /**
+   * Its position.
+   */
+  position: number;
+}
+/**
  * What `events.subscribe` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -379,6 +452,56 @@ export interface ExplainedSetting {
    * control, which the results it touches are marked with (ADR 0028).
    */
   weakens: boolean;
+}
+/**
+ * What a `hello` says.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HelloParams".
+ */
+export interface HelloParams {
+  /**
+   * The Product the Client needs, which every surface but a Browser
+   * host's must name (ADR 0095).
+   */
+  needs?: Product | null;
+  /**
+   * The sender's own Product version.
+   */
+  product_version: string;
+  /**
+   * The protocol version the sender speaks.
+   */
+  protocol_version: string;
+  /**
+   * The surface it comes from.
+   */
+  surface: "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+  /**
+   * The Daemon's token; an Attached engine needs none.
+   */
+  token?: string | null;
+}
+/**
+ * What an engine answers to a `hello` it accepts.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HelloResult".
+ */
+export interface HelloResult {
+  /**
+   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
+   * writes it.
+   */
+  product: "collie" | "foxhound";
+  /**
+   * The engine's Product version.
+   */
+  product_version: string;
+  /**
+   * The protocol version the engine speaks.
+   */
+  protocol_version: string;
 }
 /**
  * What `page.body` takes: the body to read.

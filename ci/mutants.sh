@@ -19,8 +19,10 @@
 set -euo pipefail
 
 # Mutants per 15-minute shard: each builds the mutated crate and runs its
-# package's tests. Raise or lower it from the jobs' recorded durations.
-MUTANTS_PER_SHARD=12
+# package's tests, about 2 minutes for xtask's on the owner's machine
+# natively (11 in 21 minutes, #321), which leaves the VM's start and the
+# baseline room. Raise or lower it from the jobs' recorded durations.
+MUTANTS_PER_SHARD=4
 
 mode=${1:?usage: ci/mutants.sh plan|run <base> [<k>/<n>]}
 base=${2:?usage: ci/mutants.sh plan|run <base> [<k>/<n>]}

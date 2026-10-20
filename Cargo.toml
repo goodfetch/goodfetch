@@ -96,6 +96,9 @@ insta = { version = "1.49.0", default-features = false }
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
+# goodfetch-test-support's `NoExec` installs its seccomp filter and starts
+# its child with raw system calls on Linux (ADR 0067).
+libc = { version = "0.2.191", default-features = false }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the
 # test-env description against its committed schema; no remote or file

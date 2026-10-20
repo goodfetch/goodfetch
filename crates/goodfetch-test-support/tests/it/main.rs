@@ -13,6 +13,11 @@
 
 mod endpoints;
 mod hostile_tables;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod no_exec;
 mod observation_log;
 mod probe;
 mod proving_ground;

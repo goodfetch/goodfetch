@@ -41,7 +41,9 @@
 //!
 //! Each variant of an active Journey that no test carries is reported as a
 //! `note[untested-variant]` line, which fails nothing. `select` prints the
-//! runners' filters for chosen variants (see [`select`]).
+//! runners' filters for chosen variants (see [`select`]). `report` prints
+//! each variant's outcome on `main`'s latest Release run, and an owner
+//! test's "Journeys to try" (see [`report`]).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"

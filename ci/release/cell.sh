@@ -52,6 +52,10 @@ export NEXTEST_NO_TESTS=pass INSTA_UPDATE=no
 # (ADRs 0062 and 0094).
 export GOODFETCH_TEST_SUITE=release
 export GOODFETCH_TEST_TOOLS="$root/target/release-suite/test-tools.json"
+# Each Journey variant writes its result document, `<id>@<surface>.json`,
+# into the JUnit folder, so the results store keeps it with the cell's
+# JUnit files and `xtask journeys report` reads it (ADR 0063).
+export GOODFETCH_TEST_RESULT_DOCUMENTS="$root/target/junit/result-documents"
 
 # Vitest, Playwright and pytest order their tests by the tree under test's
 # seed, as `just test` does (TESTING.md, Before merge).

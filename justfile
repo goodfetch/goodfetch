@@ -354,24 +354,20 @@ test suite *packages:
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
     # Each runner skips the tests on the test quarantine list through its own
     # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
+    # nextest's arguments, which also skip the tests of an OS service a local
+    # host lacks, come from ci/nextest-skips.sh, as for ci/mutants.sh and
+    # ci/asan.sh.
     skip_nextest=() skip_vitest=() skip_playwright=() skip_pytest=()
     exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
     while IFS=$'\t' read -r runner argument; do
       case "$runner" in
-        nextest) skip_nextest+=("$argument") ;;
         vitest) skip_vitest+=("$argument") ;;
         playwright) skip_playwright+=("$argument") ;;
         pytest) skip_pytest+=("$argument") ;;
       esac
     done <<< "$exclusions"
-    # A local host without an OS service the tests use (an extra loopback
-    # address, the Secret Service) lists it as skipped, and nextest skips the
-    # tests that need it; in CI a missing one fails (ci/os-services.sh).
-    services=$(ci/os-services.sh skipped target/skipped.txt)
-    if [[ -n "$services" ]]; then
-      [[ ${#skip_nextest[@]} -gt 0 ]] || skip_nextest=(--)
-      while read -r pattern; do skip_nextest+=(--skip "$pattern"); done <<< "$services"
-    fi
+    skips=$(ci/nextest-skips.sh)
+    while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
     case "{{ suite }}" in

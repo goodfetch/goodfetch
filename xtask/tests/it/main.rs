@@ -34,6 +34,7 @@ mod evict_caches;
 mod exercise_audit;
 mod feature_generators;
 mod features;
+mod features_report;
 mod fixture_size;
 mod ingest;
 mod journey_selection;

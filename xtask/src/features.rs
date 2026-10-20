@@ -2,7 +2,12 @@
 //! generators, which `xtask codegen` runs, the scanner that reads what each
 //! test declares in its runner's idiom, the Feature check: in the Quick
 //! suite without the runners' listings, in the Pre-merge suite with them,
-//! and the exercise audit of what each declaring test reached.
+//! the exercise audit of what each declaring test reached, and the Feature
+//! report, which the daily test-health job publishes.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+)]
 
 mod audit;
 mod block_cause;
@@ -15,6 +20,8 @@ mod files;
 mod format;
 mod inventory;
 mod listed;
+mod page;
+mod report;
 mod row;
 mod scan;
 mod screen;
@@ -25,15 +32,20 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
+use goodfetch_protocol::journey::Milestone;
 
 use crate::environment::Environment;
-use crate::output;
+use crate::{journeys, output};
 
 pub(crate) use command::{CommandLines, CommandTree, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
 pub(crate) use scan::tests;
+
+/// The report's files in its folder.
+const REPORT_JSON: &str = "features.json";
+const REPORT_HTML: &str = "features.html";
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
@@ -74,14 +86,38 @@ pub(crate) enum Command {
         #[arg(long)]
         junit: Vec<PathBuf>,
     },
+    /// Writes `features.json` and `features.html` into `--out`: each active
+    /// Feature tested, untested with its cause, excepted with its evidence
+    /// kind, or planned, at the milestone's gate, from `main`'s latest
+    /// Release run in the results store and the quarantine list; and each
+    /// Product's view, by area and by the milestone each Feature is due.
+    /// Prints each Product's counts. It fails no gate.
+    Report {
+        /// The milestone whose gate it judges, `M1` to `M4`.
+        #[arg(long, value_parser = parse_milestone)]
+        milestone: Milestone,
+        /// The results store's checkout; without it, no test has run.
+        #[arg(long)]
+        store: Option<PathBuf>,
+        #[command(flatten)]
+        listings: Listings,
+        /// The folder to write the report to.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 #[derive(clap::Args)]
 pub(crate) struct Listings {
     /// The folder of the runners' listings `xtask journeys listings` writes,
-    /// whose Vitest, Playwright and pytest declarations are read too.
+    /// whose Vitest, Playwright and pytest declarations are read too, and,
+    /// for the report, the tests that carry each Journey variant.
     #[arg(long = "listings")]
     folder: Option<PathBuf>,
+}
+
+fn parse_milestone(text: &str) -> Result<Milestone, String> {
+    report::milestone_of(text).ok_or_else(|| format!("`{text}` is not M1, M2, M3 or M4"))
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -125,6 +161,41 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let findings = audit::audit(root, &declarations, &root.join(records), ran.as_ref())?;
             Ok(crate::check::report(&findings))
         }
+        Command::Report {
+            milestone,
+            store,
+            listings,
+            out,
+        } => {
+            let (declarations, _) = declarations(cargo, root, &listings)?;
+            let variant_tests = listings
+                .folder
+                .as_ref()
+                .map(|folder| journeys::variant_tests(root, &root.join(folder)))
+                .transpose()?;
+            let store = store.map(|store| environment.path(&store));
+            let built = report::build(&report::Sources {
+                root,
+                gate: milestone,
+                declarations: &declarations,
+                variants: &journeys::active_variants(root)?,
+                variant_tests: variant_tests.as_ref(),
+                store: store.as_deref(),
+            })?;
+            write_report(&environment.path(&out), &built)?;
+            for view in &built.views {
+                output::line(&format!(
+                    "{}: {} tested, {} untested, {} excepted, {} planned at the {:?} gate",
+                    view.product.as_str(),
+                    view.summary.tested,
+                    view.summary.untested_count(),
+                    view.summary.excepted_count(),
+                    view.summary.planned,
+                    built.milestone,
+                ));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -147,6 +218,17 @@ fn declarations(
     declarations.sort();
     declarations.dedup();
     Ok((declarations, read))
+}
+
+fn write_report(out: &Path, built: &report::Report) -> Result<()> {
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+    let mut json = serde_json::to_string_pretty(built)?;
+    json.push('\n');
+    for (name, contents) in [(REPORT_JSON, json), (REPORT_HTML, page::render(built))] {
+        let path = out.join(name);
+        std::fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// The inventory as `xtask codegen` writes it: pretty JSON with a final

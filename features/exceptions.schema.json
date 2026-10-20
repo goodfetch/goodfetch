@@ -27,7 +27,7 @@
     },
     "Exception": {
       "additionalProperties": false,
-      "description": "One excepted Feature. The check reads its Feature; the other fields are\nrequired by its schema, for the report and the release pull request.",
+      "description": "One excepted Feature. The check reads its Feature; the report lists it\nby its evidence, with its reason and link.",
       "properties": {
         "evidence": {
           "$ref": "#/$defs/Evidence",

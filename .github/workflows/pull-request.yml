@@ -516,6 +516,7 @@ jobs:
         if: always()
         run: ci/vm/exec.sh ci/leaks.sh target/mutants/
       - name: Attach the mutation report
+        id: report
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -523,10 +524,19 @@ jobs:
           path: target/mutants/
           if-no-files-found: ignore
       # The summary page is an output too: it is written only once the scan
-      # of target/mutants/, which holds summary.md, passed.
+      # of target/mutants/, which holds summary.md, passed. It links the
+      # report, for the pull request's Evidence section.
       - name: Write the surviving mutants to the job's summary page
         if: always() && steps.leaks.outcome == 'success'
-        run: if [[ -f target/mutants/summary.md ]]; then cat target/mutants/summary.md >>"$GITHUB_STEP_SUMMARY"; fi
+        env:
+          URL: ${{ steps.report.outputs.artifact-url }}
+        run: |
+          if [[ -f target/mutants/summary.md ]]; then
+            {
+              cat target/mutants/summary.md
+              [[ -z "$URL" ]] || { echo; echo "Report: $URL"; }
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

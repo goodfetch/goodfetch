@@ -220,17 +220,27 @@ jobs:
       # Published beside the Allure report once the repository is public;
       # attached to the run until then.
       - name: Attach the Feature report
+        id: features-report
         if: always() && steps.features-leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: features-report
           path: target/features-report/
           if-no-files-found: ignore
+      # With the report's link, which each milestone's gate issue carries
+      # (ADR 0072).
       - name: Write the Feature report's lines to the job summary
         if: always() && steps.features-leaks.outcome == 'success'
+        env:
+          URL: ${{ steps.features-report.outputs.artifact-url }}
         run: |
           if [[ -f target/features-report.txt ]]; then
-            { echo "### Feature report"; echo; sed 's/$/  /' target/features-report.txt; } >>"$GITHUB_STEP_SUMMARY"
+            {
+              echo "### Feature report"
+              echo
+              sed 's/$/  /' target/features-report.txt
+              [[ -z "$URL" ]] || { echo; echo "Report: $URL"; }
+            } >>"$GITHUB_STEP_SUMMARY"
           fi
       # ADRs 0058, 0063 and 0094: each Journey variant's outcome on main's
       # latest Release run, from the result documents its cells kept in the

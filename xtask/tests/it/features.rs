@@ -110,7 +110,7 @@ fn check_passes_on_a_clean_workspace() {
     let outcome = workspace.xtask(&["features", "check", "--listings", LISTINGS]);
 
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
-    assert_eq!(notes(&outcome.stdout), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
@@ -122,7 +122,7 @@ fn check_without_listings_notes_a_feature_only_a_runner_listing_declares() {
 
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        notes(&outcome.stdout),
+        outcome.notes(),
         vec![finding("untested", "event:sample.crawled")]
     );
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
@@ -185,19 +185,6 @@ fn vitest_tag_the_inventory_does_not_list_fails_the_listing() {
     let listed = workspace.xtask(&["journeys", "listings", "--out", LISTINGS]);
 
     assert_ne!(listed.code, 0, "{}", listed.stderr);
-}
-
-/// The `note[<kind>] <subject>: …` lines of a check's output.
-fn notes(stdout: &str) -> Vec<Finding> {
-    stdout
-        .lines()
-        .filter_map(|line| {
-            let rest = line.strip_prefix("note[")?;
-            let (kind, rest) = rest.split_once("] ")?;
-            let (subject, _message) = rest.split_once(": ")?;
-            Some(finding(kind, subject))
-        })
-        .collect()
 }
 
 const STORIES: &str = "features/stories/1.toml";

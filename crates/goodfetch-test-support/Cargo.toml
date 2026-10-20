@@ -15,7 +15,11 @@ chacha20.workspace = true
 clap.workspace = true
 insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
+# Protocol fuzzing checks each generated call and each answer against the
+# committed JSON Schema bundle (ADR 0067).
+jsonschema.workspace = true
 proptest.workspace = true
+proptest-state-machine.workspace = true
 regex.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
@@ -55,7 +59,6 @@ runs = ["goodfetch-collie", "goodfetch-proving-ground"]
 ignored = ["bindgen"]
 
 [dev-dependencies]
-jsonschema.workspace = true
 rstest.workspace = true
 
 [lints]

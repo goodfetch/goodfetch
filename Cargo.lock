@@ -1282,6 +1282,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "proptest",
+ "proptest-state-machine",
  "regex",
  "rstest",
  "rusqlite",

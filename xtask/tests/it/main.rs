@@ -18,6 +18,7 @@ mod all_green;
 mod allure;
 mod axe_exceptions;
 mod budgets;
+mod clients;
 mod codegen;
 mod commit_messages;
 mod compat;

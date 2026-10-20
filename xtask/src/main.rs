@@ -16,6 +16,7 @@ mod axe_exceptions;
 mod budgets;
 mod ceiling;
 mod check;
+mod clients;
 mod codegen;
 mod commit_messages;
 mod compat;
@@ -92,6 +93,12 @@ enum Command {
     /// tier, read from the results store, is past its budget in TESTING.md;
     /// never fails.
     Budgets(budgets::Arguments),
+    /// The Client conformance case list under `conformance/clients/` (ADR
+    /// 0069).
+    Clients {
+        #[command(subcommand)]
+        command: clients::Command,
+    },
     /// Regenerates every file generated from `goodfetch-protocol`'s types:
     /// the JSON Schema bundle and catalog file, each Product's projection,
     /// the names only Foxhound carries, the cargo-deny `wrappers` list and
@@ -374,6 +381,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
         Command::AxeExceptions { command } => axe_exceptions::run(command, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
+        Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,

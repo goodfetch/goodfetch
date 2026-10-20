@@ -1,0 +1,40 @@
+[suite]
+name = "clients"
+version = "1"
+
+[[capability]]
+name = "hello"
+
+[[capability.case]]
+id = "hello-refused"
+covers = ["story:1-1"]
+surfaces = ["cli", "sdk-rust"]
+script = "hello/refused.json"
+
+[[capability]]
+name = "attached.lifecycle"
+
+[[capability.case]]
+id = "attached-engine-stops"
+covers = ["story:1-2"]
+surfaces = ["cli"]
+modes = ["attached"]
+script = "lifecycle/stops.json"
+
+[[capability]]
+name = "crawls.resume"
+
+[[capability.case]]
+id = "crawl-resumes"
+covers = ["story:1-3"]
+surfaces = ["cli"]
+task = "catalog/1"
+
+[[capability]]
+name = "runs.start"
+
+[[capability.case]]
+id = "start-a-run"
+covers = ["story:1-4"]
+surfaces = ["sdk-typescript"]
+task = "catalog/1"

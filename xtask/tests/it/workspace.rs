@@ -28,10 +28,20 @@ pub(crate) struct Outcome {
 
 impl Outcome {
     pub(crate) fn findings(&self) -> Vec<Finding> {
+        self.reported("error[")
+    }
+
+    /// The `note[<kind>] <subject>: <message>` lines a check printed beside
+    /// its findings.
+    pub(crate) fn notes(&self) -> Vec<Finding> {
+        self.reported("note[")
+    }
+
+    fn reported(&self, prefix: &str) -> Vec<Finding> {
         self.stdout
             .lines()
             .filter_map(|line| {
-                let rest = line.strip_prefix("error[")?;
+                let rest = line.strip_prefix(prefix)?;
                 let (kind, rest) = rest.split_once("] ")?;
                 let (subject, _message) = rest.split_once(": ")?;
                 Some(Finding {

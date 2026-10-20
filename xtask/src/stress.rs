@@ -305,8 +305,9 @@ fn module_file(root_file: &Path, modules: &[&str]) -> PathBuf {
     file
 }
 
-/// A checkout of a commit in a temporary folder, with the workspace's
-/// installed packages linked in, so its runners list its tests.
+/// A checkout of a commit in a temporary folder, with its own npm packages
+/// installed and the workspace's Python environment linked in, so its
+/// runners list its tests.
 struct Checkout<'a> {
     root: &'a Path,
     _folder: tempfile::TempDir,
@@ -327,15 +328,41 @@ impl<'a> Checkout<'a> {
             _folder: folder,
             path,
         };
-        // A link resolves a relative original from its own folder.
-        let installed_root = canonical(root)?;
-        for installed in installed_folders(root)? {
-            let target = checkout.path.join(&installed);
-            if target.parent().is_some_and(Path::is_dir) && !target.exists() {
-                link(&installed_root.join(&installed), &target)?;
+        match checkout.install(root) {
+            Ok(()) => Ok(checkout),
+            Err(error) => {
+                checkout.remove()?;
+                Err(error)
             }
         }
-        Ok(checkout)
+    }
+
+    /// Installs the commit's npm packages from its own lockfile, as `just
+    /// fetch` does, from the package store where it can. The head's
+    /// `node_modules` would not do: pnpm links each workspace package from
+    /// them to the head's sources, so the commit's Vitest and Playwright
+    /// configs would import the head's test support, and fail to load where
+    /// it lacks what they import. The Python environment is the head's,
+    /// linked in.
+    fn install(&self, root: &Path) -> Result<()> {
+        let output = Process::new("pnpm")
+            .args(["install", "--frozen-lockfile", "--prefer-offline"])
+            .current_dir(&self.path)
+            .output()
+            .context("running pnpm")?;
+        if !output.status.success() {
+            bail!(
+                "pnpm install in the checkout of the base failed: {}{}",
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let venv = root.join(".venv");
+        if venv.is_dir() {
+            // A link resolves a relative original from its own folder.
+            link(&canonical(&venv)?, &self.path.join(".venv"))?;
+        }
+        Ok(())
     }
 
     fn path(&self) -> &Path {
@@ -350,37 +377,6 @@ impl<'a> Checkout<'a> {
         )?;
         Ok(())
     }
-}
-
-/// The workspace's installed packages: its `.venv` and each `node_modules`
-/// folder, as paths from its folder; never inside one of them, version
-/// control, the build output or the frozen `rnd/` archive.
-fn installed_folders(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut found = Vec::new();
-    if root.join(".venv").is_dir() {
-        found.push(PathBuf::from(".venv"));
-    }
-    let mut folders = vec![PathBuf::new()];
-    while let Some(folder) = folders.pop() {
-        let path = root.join(&folder);
-        for entry in
-            std::fs::read_dir(&path).with_context(|| format!("reading {}", path.display()))?
-        {
-            let entry = entry.with_context(|| format!("reading {}", path.display()))?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let relative = folder.join(&*name);
-            if name == "node_modules" {
-                found.push(relative);
-            } else if entry.file_type()?.is_dir()
-                && !name.starts_with('.')
-                && !(folder.as_os_str().is_empty() && (name == "target" || name == "rnd"))
-            {
-                folders.push(relative);
-            }
-        }
-    }
-    Ok(found)
 }
 
 #[cfg(unix)]

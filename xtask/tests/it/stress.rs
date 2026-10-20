@@ -71,7 +71,7 @@ fn order_seed_script_prints_the_seed_xtask_prints() {
 /// The base: the fixture committed, with each runner's installed packages.
 fn base() -> (Workspace, String) {
     let workspace = Workspace::from_fixture("stress");
-    workspace.link_installed_runners();
+    workspace.install_runners();
     let base = workspace.commit_all();
     (workspace, base)
 }
@@ -251,4 +251,36 @@ fn runner_with_no_test_lists_none() {
     let mut expected = change_selection();
     expected.retain(|(_, runner, _)| runner != "playwright");
     assert_eq!(selection, expected);
+}
+
+/// A branch behind its base, as one that has not merged its target lately:
+/// the base's Vitest config imports an entry of a workspace package that the
+/// head does not have. The base is listed with its own packages, so its
+/// config loads, and the test the change edits is chosen.
+#[test]
+fn changed_vitest_test_is_selected_when_the_base_config_imports_what_the_head_lacks() {
+    let (workspace, base) = base();
+    workspace.edit(
+        "web-support/package.json",
+        r#""./include": "./include.mjs""#,
+        r#""./tests": "./include.mjs""#,
+    );
+    workspace.edit(
+        "vitest.config.mjs",
+        r#""web-support/include""#,
+        r#""web-support/tests""#,
+    );
+    workspace.edit(
+        "web/changed.test.ts",
+        r#"test("kept""#,
+        "test(\"added\", () => {\n    expect(1).toBe(1);\n  });\n\n  test(\"kept\"",
+    );
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base]);
+
+    assert!(
+        selection.contains(&selected(CHANGED, "vitest", "changed > added")),
+        "{selection:?}"
+    );
 }

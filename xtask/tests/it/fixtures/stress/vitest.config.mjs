@@ -1,1 +1,3 @@
-export default { test: { include: ["web/**/*.test.ts"] } };
+import { include } from "web-support/include";
+
+export default { test: { include } };

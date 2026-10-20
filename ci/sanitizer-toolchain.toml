@@ -1,0 +1,9 @@
+# The nightly toolchain that fuzzing and the AddressSanitizer run share, pinned
+# in its own file apart from rust-toolchain.toml, since both need
+# `-Zsanitizer` (ADR 0067; TESTING.md, Fuzzing); and the cargo-fuzz that
+# builds the fuzz targets. ci/image/Containerfile installs both at these
+# versions, ci/tool-versions.sh checks they agree, and ci/fuzz-check.sh,
+# ci/asan.sh and the Release suite's linux-x64-gnu cell read them. The
+# private fuzzing repository builds with the same pair (ADR 0135).
+toolchain = "nightly-2026-10-05"
+cargo-fuzz = "0.13.2"

@@ -62,7 +62,17 @@ export type TestSupportErrorCode =
   /** `GOODFETCH_VISUAL_IMAGE` names another image than ci/visual/image.toml pins (ADR 0073). */
   | "visual_image_not_pinned"
   /** A screenshot's page lacks a fixed setting: instant, locale, time zone, viewport, scale or motion (ADR 0073). */
-  | "screenshot_unsettled";
+  | "screenshot_unsettled"
+  /** The Console called an operation the test set no answer for (ADR 0068). */
+  | "call_unanswered"
+  /** The Console sent a message the committed bundle refuses, or one no engine of the Product takes (ADR 0068). */
+  | "request_invalid"
+  /** A test's answer to a call is not one the engine could send: it breaks the bundle, or names an Error code the catalog lacks (ADR 0068). */
+  | "answer_invalid"
+  /** A test pushed an event the engine could never send: unknown, breaking its payload's schema, or at a position that does not go up (ADR 0068). */
+  | "event_invalid"
+  /** The Console fetched a body by a handle the test never served (ADR 0068). */
+  | "body_unserved";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

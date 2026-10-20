@@ -123,7 +123,7 @@ export type Target1 =
     };
 
 /**
- * The root of the result document's types, which holds no value of its own.
+ * The root of the result document's and the case log entry's types, which holds no value of its own.
  */
 export interface ResultDocumentTypes {
   [k: string]: unknown;
@@ -240,6 +240,55 @@ export interface OracleAnswer {
   [k: string]: unknown;
 }
 /**
+ * One time a case ran.
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "CaseLogEntry".
+ */
+export interface CaseLogEntry {
+  /**
+   * The capability the case belongs to.
+   */
+  capability: string;
+  /**
+   * The case's ID in the declared case list.
+   */
+  case: string;
+  /**
+   * Each check's result.
+   */
+  checks: CaseCheck[];
+  /**
+   * What it saw: the oracle's answers, the scripted messages.
+   */
+  evidence?: Evidence;
+  /**
+   * The mode it ran in, such as `attached` or `daemon`, when the case
+   * runs in several.
+   */
+  mode?: string | null;
+  platform: Platform;
+  /**
+   * The runtime it ran on, such as `node-24` or `cpython-3.14`.
+   */
+  runtime: string;
+}
+/**
+ * Where it ran.
+ */
+export interface Platform {
+  /**
+   * The architecture, as Rust's `std::env::consts::ARCH` names it
+   * (`x86_64`, `aarch64`).
+   */
+  arch: string;
+  /**
+   * The operating system, as Rust's `std::env::consts::OS` names it
+   * (`linux`, `macos`, `windows`).
+   */
+  os: string;
+}
+/**
  * One check's outcome.
  *
  * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
@@ -273,7 +322,7 @@ export interface ConformanceDocument {
    * and never block a release.
    */
   online: boolean;
-  platform: Platform;
+  platform: Platform1;
   proving_ground: ProvingGroundCopy;
   /**
    * The runtime the cases ran on, such as `rust`, `node-24` or
@@ -286,7 +335,7 @@ export interface ConformanceDocument {
 /**
  * Where it ran.
  */
-export interface Platform {
+export interface Platform1 {
   /**
    * The architecture, as Rust's `std::env::consts::ARCH` names it
    * (`x86_64`, `aarch64`).
@@ -360,7 +409,7 @@ export interface JourneyDocument {
    */
   journey_id: string;
   outcome: JourneyOutcome;
-  platform: Platform1;
+  platform: Platform2;
   /**
    * The Proving ground it started, for a Journey whose goal touches a
    * page.
@@ -407,7 +456,7 @@ export interface Executable1 {
 /**
  * Where it ran.
  */
-export interface Platform1 {
+export interface Platform2 {
   /**
    * The architecture, as Rust's `std::env::consts::ARCH` names it
    * (`x86_64`, `aarch64`).
@@ -495,7 +544,7 @@ export interface TaskResult {
  * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
  * via the `definition` "Platform".
  */
-export interface Platform2 {
+export interface Platform3 {
   /**
    * The architecture, as Rust's `std::env::consts::ARCH` names it
    * (`x86_64`, `aarch64`).

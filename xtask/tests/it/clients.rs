@@ -134,3 +134,104 @@ fn check_fails_on_each_cause(
     assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
     assert_eq!(outcome.code, 1);
 }
+
+/// Where the fixture's runner listings sit, as `xtask journeys listings`
+/// writes them; the check reads the `sdk-typescript` surface's tests from
+/// Vitest's.
+const LISTINGS: &str = "listings";
+const VITEST: &str = "listings/vitest.json";
+
+#[test]
+fn check_with_listings_passes_on_a_clean_workspace() {
+    let workspace = Workspace::from_fixture("clients");
+
+    let outcome = workspace.xtask(&["clients", "check", "--listings", LISTINGS]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+#[test]
+fn check_with_listings_notes_only_the_surfaces_whose_tests_it_does_not_read_yet() {
+    let workspace = Workspace::from_fixture("clients");
+
+    let outcome = workspace.xtask(&["clients", "check", "--listings", LISTINGS]);
+
+    assert_eq!(
+        outcome.notes(),
+        vec![finding("unread-surface", "hello-refused sdk-rust")]
+    );
+}
+
+#[rstest]
+#[case::case_listing_sdk_typescript_with_no_vitest_test(
+    CASES,
+    "surfaces = [\"cli\", \"sdk-rust\"]",
+    "surfaces = [\"cli\", \"sdk-rust\", \"sdk-typescript\"]",
+    vec![
+        finding("missing", "hello-refused sdk-typescript attached"),
+        finding("missing", "hello-refused sdk-typescript daemon"),
+    ],
+)]
+#[case::case_missing_in_one_mode(
+    VITEST,
+    "\"tags\": [\"client_case/start-a-run\", \"daemon\"]",
+    "\"tags\": [\"story:1-4\"]",
+    vec![finding("missing", "start-a-run sdk-typescript daemon")],
+)]
+#[case::case_carried_only_by_a_test_outside_the_sdk_packages(
+    VITEST,
+    "\"name\": \"runs > starts a run attached\",\n    \"file\": \"sdks/typescript/collie-client/tests/runs.test.ts\",\n    \"tags\": [\"client_case/start-a-run\", \"attached\"]",
+    "\"name\": \"runs > starts a run attached\",\n    \"file\": \"sdks/typescript/collie-client/tests/runs.test.ts\",\n    \"tags\": []",
+    vec![finding("missing", "start-a-run sdk-typescript attached")],
+)]
+#[case::test_carrying_an_unknown_case(
+    VITEST,
+    "\"tags\": [\"story:1-4\"]",
+    "\"tags\": [\"client_case/gone-case\", \"attached\"]",
+    vec![finding(
+        "unknown-case",
+        "vitest sdks/typescript/collie-client/src/framing.test.ts > frames a message",
+    )],
+)]
+#[case::test_on_a_surface_the_case_does_not_list(
+    VITEST,
+    "\"tags\": [\"story:1-4\"]",
+    "\"tags\": [\"client_case/hello-refused\", \"attached\"]",
+    vec![finding(
+        "unlisted",
+        "vitest sdks/typescript/collie-client/src/framing.test.ts > frames a message",
+    )],
+)]
+#[case::test_carrying_no_mode(
+    VITEST,
+    "\"tags\": [\"story:1-4\"]",
+    "\"tags\": [\"client_case/start-a-run\"]",
+    vec![finding(
+        "no-mode",
+        "vitest sdks/typescript/collie-client/src/framing.test.ts > frames a message",
+    )],
+)]
+#[case::test_carrying_two_modes(
+    VITEST,
+    "\"tags\": [\"story:1-4\"]",
+    "\"tags\": [\"client_case/start-a-run\", \"attached\", \"daemon\"]",
+    vec![finding(
+        "no-mode",
+        "vitest sdks/typescript/collie-client/src/framing.test.ts > frames a message",
+    )],
+)]
+fn check_with_listings_fails_on_each_vitest_cause(
+    #[case] file: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("clients");
+    workspace.edit(file, from, to);
+
+    let outcome = workspace.xtask(&["clients", "check", "--listings", LISTINGS]);
+
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}

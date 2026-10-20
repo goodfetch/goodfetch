@@ -12,11 +12,15 @@
 // - `provingGround`: the Proving ground `goodfetch-test-env` started on
 //   `provingGroundSeed`, with its `resolve` mapping, certificate authority
 //   and network fixtures; it stops when the setup is torn down.
+// - `clientCase`: the record of the Client conformance case the test's
+//   `client_case/<id>` tag names, whose checks and evidence the case-log
+//   reporter writes (ADR 0069).
 //
 // Options a test overrides with `test.override`: `product` (Collie's unless
 // the test needs Foxhound), `provingGroundSeed`, `toolManifest` and
 // `testEnvProgram`.
 import { test as base, type TestAPI } from "vitest";
+import { clientCaseRecord, type ClientCaseRecord } from "./case-log.ts";
 import { ProcessRecord } from "./process-record.ts";
 import { productEnv, type Product } from "./product-env.ts";
 import { provingGroundOf, type ProvingGroundDescription } from "./proving-ground.ts";
@@ -40,6 +44,8 @@ export interface TestSupportFixtures {
   env: Readonly<Record<string, string>>;
   /** The Proving ground started on `provingGroundSeed`; `proving_ground_unseeded` without one. */
   provingGround: ProvingGroundDescription;
+  /** The record of the test's Client conformance case; `client_case_untagged` without a `client_case/` tag. */
+  clientCase: ClientCaseRecord;
 }
 
 /** Vitest's `test` with test support's fixtures. */
@@ -70,5 +76,8 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   },
   provingGround: async ({ testEnv }, use) => {
     await use(provingGroundOf(testEnv));
+  },
+  clientCase: async ({ task }, use) => {
+    await use(clientCaseRecord(task));
   },
 });

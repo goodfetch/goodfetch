@@ -16,7 +16,7 @@
 use std::fs;
 
 use goodfetch_protocol::foxhound_names;
-use goodfetch_test_support::{SnapshotValues, TestEnv, command, snapshot_settings};
+use goodfetch_test_support::{SnapshotValues, TestEnv, cli, command, snapshot_settings};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -59,16 +59,11 @@ fn lay_out(env: &TestEnv) {
 }
 
 fn explain(env: &TestEnv, mode: Mode, arguments: &[&str]) -> (String, String, bool) {
-    let mut command = command(env, COLLIE);
-    match mode {
-        Mode::Attached => command.args(["config", "explain"]).args(arguments),
+    let command = match mode {
+        Mode::Attached => cli(env, COLLIE).args(["config", "explain"]).args(arguments),
     };
-    let output = command.output().unwrap();
-    (
-        String::from_utf8(output.stdout).unwrap(),
-        String::from_utf8(output.stderr).unwrap(),
-        output.status.success(),
-    )
+    let output = command.run().unwrap();
+    (output.stdout, output.stderr, output.exit == Some(0))
 }
 
 /// The shared snapshot filters, and one for the working folder as the OS

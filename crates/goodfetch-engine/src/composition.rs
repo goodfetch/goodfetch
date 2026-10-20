@@ -132,81 +132,82 @@ impl fmt::Display for CallError {
 
 impl std::error::Error for CallError {}
 
-/// What a handler is given beside its params.
+/// What a handler is given beside its params: its Connection's handles,
+/// shared by every call of that Connection, its cancellation, and for a
+/// streaming call its own stream of notifications. A call clones one handle
+/// of its Connection, so its boxed answer stays small (ADR 0134's figures
+/// per dispatched message).
 #[derive(Clone)]
 pub struct CallContext {
-    identity: Arc<Identity>,
+    connection: Arc<ConnectionContext>,
     token: CancellationToken,
-    client: Client,
-    runs: Runs,
-    events: Events,
-    stream: CallStream,
+    stream: Option<Arc<CallStream>>,
+}
+
+/// What every call of one Connection is given: the engine's identity, the
+/// Connection's Client, and the engine's Runs and event stream. The
+/// protocol server builds it once per Connection.
+pub(crate) struct ConnectionContext {
+    pub(crate) identity: Arc<Identity>,
+    pub(crate) client: Client,
+    pub(crate) runs: Runs,
+    pub(crate) events: Events,
 }
 
 /// What a streaming call sends its notifications with: its id, the credits
 /// its Client grants it and the Connection's writer.
-#[derive(Clone)]
 pub(crate) struct CallStream {
     pub(crate) id: RequestId,
     pub(crate) credits: Credits,
     pub(crate) outgoing: mpsc::Sender<Vec<u8>>,
 }
 
-/// Where a call runs: its Connection's Client, the engine's Runs and event
-/// stream, and its own stream of notifications.
-pub(crate) struct CallSetup {
-    pub(crate) identity: Arc<Identity>,
-    pub(crate) token: CancellationToken,
-    pub(crate) client: Client,
-    pub(crate) runs: Runs,
-    pub(crate) events: Events,
-    pub(crate) stream: CallStream,
-}
-
 impl CallContext {
-    pub(crate) fn new(setup: CallSetup) -> Self {
-        let CallSetup {
-            identity,
-            token,
-            client,
-            runs,
-            events,
-            stream,
-        } = setup;
+    /// A call on `connection`, cancelled through `token`, with `stream`
+    /// when its handler streams.
+    pub(crate) fn new(
+        connection: Arc<ConnectionContext>,
+        token: CancellationToken,
+        stream: Option<CallStream>,
+    ) -> Self {
         Self {
-            identity,
+            connection,
             token,
-            client,
-            runs,
-            events,
-            stream,
+            stream: stream.map(Arc::new),
         }
     }
 
     /// The engine's event stream, on which a handler publishes its events.
     pub fn events(&self) -> &Events {
-        &self.events
+        &self.connection.events
     }
 
-    /// The call's own stream of notifications.
+    /// The call's own stream of notifications, which only a handler built
+    /// with [`Handler::streaming`] reads.
+    ///
+    /// # Panics
+    ///
+    /// When the handler does not stream: its calls carry no stream.
     pub(crate) fn stream(&self) -> &CallStream {
-        &self.stream
+        self.stream
+            .as_deref()
+            .expect("invariant: a streaming handler's calls carry their stream")
     }
 
     /// The Client of the call's Connection, to which a Run started by the
     /// call sends its handler requests.
     pub fn client(&self) -> &Client {
-        &self.client
+        &self.connection.client
     }
 
     /// The engine's Runs.
     pub fn runs(&self) -> &Runs {
-        &self.runs
+        &self.connection.runs
     }
 
     /// The running engine's Product and version.
     pub fn identity(&self) -> &Identity {
-        &self.identity
+        &self.connection.identity
     }
 
     /// Cancelled when the call is: a handler that waits watches it at each
@@ -223,6 +224,7 @@ type Answer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
 pub struct Handler {
     operation: &'static Operation,
     call: Arc<dyn Fn(Value, CallContext) -> Answer + Send + Sync>,
+    streams: bool,
 }
 
 impl Handler {
@@ -253,7 +255,21 @@ impl Handler {
         Self {
             operation,
             call: Arc::new(call),
+            streams: false,
         }
+    }
+
+    /// The same handler, whose calls stream notifications under the credits
+    /// their Client grants; only its calls get credits and a stream.
+    #[must_use]
+    pub(crate) fn streaming(mut self) -> Self {
+        self.streams = true;
+        self
+    }
+
+    /// Whether its calls stream notifications.
+    pub(crate) fn streams(&self) -> bool {
+        self.streams
     }
 
     /// The operation it handles.

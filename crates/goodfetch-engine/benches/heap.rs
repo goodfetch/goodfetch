@@ -19,9 +19,15 @@ fn framing(lines: Vec<u8>) -> usize {
 }
 
 #[library_benchmark]
-#[bench::hundred_calls(scenarios::engine_info_lines(100))]
-fn dispatch(lines: Vec<u8>) -> usize {
-    black_box(scenarios::dispatch(black_box(&lines)))
+#[bench::hundred_calls(
+    args = (100),
+    setup = scenarios::dispatch_input,
+    teardown = scenarios::dispatch_done
+)]
+fn dispatch(input: (Vec<u8>, tempfile::TempDir)) -> (usize, tempfile::TempDir) {
+    let (lines, home) = input;
+    let replies = black_box(scenarios::dispatch(black_box(&lines), home.path()));
+    (replies, home)
 }
 
 #[library_benchmark]

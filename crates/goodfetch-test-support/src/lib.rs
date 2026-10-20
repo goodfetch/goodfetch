@@ -13,18 +13,24 @@
 //! crashers, `ProtocolFuzz`, the protocol fuzzing generated from the
 //! committed JSON Schema bundle over the caller's transport, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
-//! its runner and the Scripted resolver, the hostile-input case tables, and
-//! `NoExec`, which starts a child that may start no other program on Linux
-//! (ADR 0067); the shared snapshot
+//! its runner and the Scripted resolver, the hostile-input case tables,
+//! `NoExec`, which starts a child that may start no other program on Linux,
+//! and the Secret canaries, planted and searched for in every encoding
+//! with their `gitleaks` rule (ADR 0067); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
 //! (ADRs 0062 and 0073); the Scripted engine's script format and its
-//! player (ADR 0069); `goodfetch-test-env`, which gives the same setup to
-//! TypeScript and Python as one JSON description; and
-//! `goodfetch-scripted-engine`, which plays a script over its stdio. It
+//! player, and the Daemon's runtime file (ADRs 0024 and 0069);
+//! `goodfetch-test-env`, which gives the same setup to TypeScript and
+//! Python as one JSON description; the CLI helper, `cli`, which runs a
+//! Product's executable and records each command it ran; and
+//! `goodfetch-scripted-engine`, which plays a script over its stdio, as a
+//! Daemon found through the runtime file, or on loopback TCP. It
 //! works on values only: it depends on no Goodfetch crate and is only ever
 //! a dev-dependency.
 
+mod canaries;
+mod cli;
 mod crash_dumps;
 mod crash_vfs;
 mod description;
@@ -49,6 +55,7 @@ mod protocol_fuzz;
 mod proving_ground;
 mod resolver;
 mod runtime;
+mod runtime_file;
 mod script;
 mod snapshot;
 mod special_purpose;
@@ -60,6 +67,11 @@ mod trace;
 mod unicode;
 mod variables;
 
+pub use canaries::{
+    Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
+    Sighting, gitleaks_rule,
+};
+pub use cli::{Cli, CliError, CliOutput, Stream, cli, record_command};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
@@ -70,7 +82,7 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
-pub use exercise::DISPATCH_TARGET;
+pub use exercise::{COMMAND_RECORD, COMMAND_TARGET, DISPATCH_TARGET};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
@@ -78,6 +90,9 @@ pub use hostile::{
     PathName, PathTarget, RefKeyword, ResourceLimit, Schedule, SchemaRef, SchemaUse,
     SecretPlacement, SecretRedirect, ServedBy, TableGap, TableGaps,
 };
+/// insta, for [`assert_cli_snapshot!`], whose expansion names it.
+#[doc(hidden)]
+pub use insta as __insta;
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use journey_run::{
     BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,
@@ -107,6 +122,10 @@ pub use proving_ground::{
 };
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use runtime_file::{
+    DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile, RuntimeFileError,
+    SCRIPTED_DAEMON_TOKEN,
+};
 pub use script::{
     Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
     engine_script,

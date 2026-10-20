@@ -12,7 +12,7 @@ use crate::catalog::{
     PROTOCOL_VERSION, PluginKind, Product,
 };
 use crate::journey::Journey;
-use crate::result_document::ResultDocument;
+use crate::result_document::{CaseLogEntry, ResultDocument};
 use crate::{foxhound, sample};
 
 /// Every module that defines entries.
@@ -35,6 +35,7 @@ pub fn emit() -> Emitted {
     }
     let journey = generator.subschema_for::<Journey>();
     let result_document = generator.subschema_for::<ResultDocument>();
+    let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
     Emitted {
         bundle: json!({
@@ -42,7 +43,10 @@ pub fn emit() -> Emitted {
             "title": "Goodfetch protocol",
             "protocol_version": PROTOCOL_VERSION.to_string(),
             "files": { "journeys/J-*.toml": journey },
-            "documents": { "result_document": result_document },
+            "documents": {
+                "result_document": result_document,
+                "case_log_entry": case_log_entry,
+            },
             "$defs": definitions,
         }),
         catalog: sections.into_catalog(),

@@ -4,7 +4,8 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "lib": ["es2024", "dom"],
-    "types": ["node"]
+    "types": ["node"],
+    "resolveJsonModule": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx"]
 }

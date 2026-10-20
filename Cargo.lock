@@ -1277,6 +1277,7 @@ dependencies = [
  "bindgen",
  "chacha20",
  "clap",
+ "data-encoding",
  "insta",
  "jiff",
  "jsonschema",

@@ -4,6 +4,16 @@ Its fixtures reach the setup `goodfetch-test-env` prepares, as Rust tests get
 it from `TestEnv::new()`; nothing of that setup is rewritten in Python.
 """
 
+from goodfetch_test_support.canaries import (
+    Canary,
+    CanaryHit,
+    CanaryOutputUnreadable,
+    Encoding,
+    NamedOutput,
+    Placement,
+    SecretKind,
+    search_canaries,
+)
 from goodfetch_test_support.environment import (
     ProcessesAlive,
     Product,
@@ -28,6 +38,12 @@ from goodfetch_test_support.unicode_record import (
 )
 
 __all__ = [
+    "Canary",
+    "CanaryHit",
+    "CanaryOutputUnreadable",
+    "Encoding",
+    "NamedOutput",
+    "Placement",
     "ProcessesAlive",
     "Product",
     "ProvingGround",
@@ -35,6 +51,7 @@ __all__ = [
     "ProvingGroundUnseeded",
     "ProxyCredentials",
     "SchemaError",
+    "SecretKind",
     "TestEnv",
     "TestEnvError",
     "TimeZoneCase",
@@ -45,6 +62,7 @@ __all__ = [
     "UnicodeRecord",
     "locales",
     "redact",
+    "search_canaries",
     "time_zones",
     "unicode_record",
     "write_journey_document",

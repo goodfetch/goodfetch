@@ -266,6 +266,41 @@ fn a_script_calls_the_clients_handler_and_sends_an_event_during_a_call() {
 }
 
 #[test]
+fn a_script_sends_events_once_the_client_grants_credits_then_closes() {
+    let env = TestEnv::new();
+    let map = engine_map(&env, "collie", "self-test/events-on-credit.json");
+    let mut client = TinyClient::connect(&env, "collie", &map);
+    client.hello("0.1", "0.1.0");
+    client.next().unwrap().unwrap();
+    let subscription = client.request("events.subscribe", &json!({}));
+
+    client.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "$/credit",
+        "params": { "id": subscription, "credits": 1 },
+    }));
+    let batch = client.next().unwrap().unwrap();
+    let after = client.next().unwrap();
+
+    assert_eq!(
+        (batch, after),
+        (
+            json!({
+                "jsonrpc": "2.0",
+                "method": "$/events",
+                "params": {
+                    "id": 1,
+                    "events": [{ "position": 1, "event": "sample.echoed", "data": { "text": "hello" } }],
+                },
+            }),
+            None
+        )
+    );
+    let (status, stderr) = client.close();
+    assert!(status.success(), "{stderr}");
+}
+
+#[test]
 fn a_stalled_script_answers_nothing_until_the_client_gives_up() {
     let env = TestEnv::new();
     let map = engine_map(&env, "collie", "self-test/stall.json");

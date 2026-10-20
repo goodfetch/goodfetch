@@ -17,6 +17,7 @@ mod journey_run;
 mod proving_ground;
 mod read_command;
 mod self_test;
+mod write_command;
 
 use std::path::Path;
 

@@ -11,24 +11,26 @@ use std::io::Write as _;
 use std::process::{ChildStdin, Command, Stdio};
 
 use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{Process, StrictStdout, TestEnv};
+use goodfetch_test_support::{Process, StrictStdout, TestEnv, record_command};
 use serde_json::{Value, json};
 
-/// A running Attached engine of Collie's executable.
-pub(crate) struct Attached {
+/// A running Attached engine of Collie's executable, started in a test's
+/// setup.
+pub(crate) struct Attached<'env> {
+    env: &'env TestEnv,
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
 }
 
-impl Attached {
-    pub(crate) fn start(env: &TestEnv) -> Self {
+impl<'env> Attached<'env> {
+    pub(crate) fn start(env: &'env TestEnv) -> Self {
         Self::start_with(env, |_| {})
     }
 
     /// Starts it after `configure` changed its command, such as its
     /// environment.
-    pub(crate) fn start_with(env: &TestEnv, configure: impl FnOnce(&mut Command)) -> Self {
+    pub(crate) fn start_with(env: &'env TestEnv, configure: impl FnOnce(&mut Command)) -> Self {
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
         command
             .arg("attached-engine")
@@ -39,6 +41,7 @@ impl Attached {
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap();
         Self {
+            env,
             process,
             stdin,
             stdout,
@@ -68,6 +71,8 @@ impl Attached {
 
     /// Ends the input and waits for the engine to exit, returning whatever
     /// it still sent.
+    /// Records `attached-engine` and its exit code in the test's command
+    /// record, for the exercise audit (ADR 0072).
     pub(crate) fn finish(mut self) -> (Vec<Value>, bool) {
         drop(self.stdin.take());
         let mut rest = Vec::new();
@@ -75,6 +80,7 @@ impl Attached {
             rest.push(message);
         }
         let status = self.process.child().wait().unwrap();
+        record_command(self.env, &["attached-engine"], status.code()).unwrap();
         (rest, status.success())
     }
 }

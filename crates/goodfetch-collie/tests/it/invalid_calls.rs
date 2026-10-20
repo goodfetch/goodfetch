@@ -33,13 +33,13 @@ const ANSWERING_AT_ONCE: [&str; 6] = [
 ];
 
 /// An Attached engine that answered `hello`, with its Goodfetch home.
-struct Fuzzed {
-    engine: Option<Attached>,
+struct Fuzzed<'env> {
+    engine: Option<Attached<'env>>,
     home: PathBuf,
 }
 
-impl Fuzzed {
-    fn start(env: &TestEnv) -> Self {
+impl<'env> Fuzzed<'env> {
+    fn start(env: &'env TestEnv) -> Self {
         let home = env.folder().join(env.unique_name("home"));
         let mut engine = Attached::start_with(env, |command| {
             command.env("GOODFETCH_HOME", &home);
@@ -54,7 +54,7 @@ impl Fuzzed {
     }
 }
 
-impl ProtocolTransport for Fuzzed {
+impl ProtocolTransport for Fuzzed<'_> {
     fn call(&mut self, request: &Value) -> Result<Value, TransportFailure> {
         let engine = self.engine.as_mut().unwrap();
         engine.send(request);
@@ -69,7 +69,7 @@ impl ProtocolTransport for Fuzzed {
     }
 }
 
-impl Drop for Fuzzed {
+impl Drop for Fuzzed<'_> {
     fn drop(&mut self) {
         if let Some(engine) = self.engine.take() {
             let _ = engine.finish();

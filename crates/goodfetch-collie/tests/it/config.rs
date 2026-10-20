@@ -146,6 +146,57 @@ fn config_explain_shows_one_line_per_key_with_its_origin(#[case] mode: Mode) {
     });
 }
 
+/// ADR 0118's two Happy Eyeballs delays are settings of both Products,
+/// RFC 8305's values built in, which a layer may change.
+///
+/// Covers: story:3-148, command:config.explain, setting:resolver.resolution_delay, setting:resolver.attempt_delay
+#[test]
+fn config_explain_shows_the_happy_eyeballs_delays() {
+    let env = TestEnv::new();
+    let major = env.home().join("0.0");
+    fs::create_dir_all(&major).unwrap();
+    fs::write(
+        major.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings.resolver]\nattempt_delay = 100\n",
+    )
+    .unwrap();
+
+    let (stdout, _, succeeded) = explain(&env, Mode::Attached, &["resolver", "--json"]);
+
+    assert!(succeeded);
+    let output: Value = serde_json::from_str(&stdout).unwrap();
+    let delays: Vec<Value> = output["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|setting| {
+            json!([
+                setting["key"],
+                setting["value"],
+                setting["layer"],
+                setting["products"]
+            ])
+        })
+        .collect();
+    assert_eq!(
+        delays,
+        [
+            json!([
+                "resolver.attempt_delay",
+                100,
+                "user_configuration",
+                ["collie", "foxhound"]
+            ]),
+            json!([
+                "resolver.resolution_delay",
+                50,
+                "default",
+                ["collie", "foxhound"]
+            ]),
+        ]
+    );
+}
+
 /// Covers: story:3-142, error:not_in_product
 #[test]
 fn a_foxhound_key_given_as_a_flag_is_not_in_product() {

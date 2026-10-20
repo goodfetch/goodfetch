@@ -1,8 +1,10 @@
 //! What opens and governs a Connection: `hello`, with the protocol's
 //! `major.minor`, the surface, the token and the Product the Client needs
 //! with its Product version (ADRs 0024, 0066 and 0095); `$/cancel` (ADR
-//! 0038); and the Error codes they answer with. Neither is an operation of
-//! the catalog: every Product's engine speaks both.
+//! 0038); the Error codes they answer with; and those a Client's own runtime
+//! raises about its Connection, which no engine sends (ADRs 0078 and 0079).
+//! Neither `hello` nor `$/cancel` is an operation of the catalog: every
+//! Product's engine speaks both.
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
@@ -225,9 +227,9 @@ pub struct ProtocolVersionUnsupportedDetails {
     /// The protocol version the Client's `hello` named.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub client_protocol_version: ProtocolVersion,
-    /// What to upgrade.
+    /// What to upgrade: the error's `fix` (ADR 0079).
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub hint: String,
+    pub fix: String,
 }
 
 /// A request for what the running Product lacks (ADRs 0087 and 0095).
@@ -288,13 +290,80 @@ pub struct CallCancelledDetails {
     pub by: StoppedBy,
 }
 
+/// A call on a value its program already closed (ADR 0078), raised by the
+/// SDK runtime itself.
+pub const CLOSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "closed",
+    description: "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// No engine executable to start, raised by an SDK's `connect()` (ADRs
+/// 0024, 0078 and 0090).
+pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "engine_not_found",
+    description: "`connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// An Attached engine that ended before its Connection was closed (ADRs
+/// 0078 and 0079), raised by the SDK runtime.
+pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "engine_exited",
+    description: "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `engine_exited` details.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct EngineExitedDetails {
+    /// The engine's exit code; `None` when a signal ended it or the
+    /// Connection's transport has none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exit_code: Option<i32>,
+    /// The signal that ended it, by name, such as `SIGKILL`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signal: Option<String>,
+    /// The last 64 KiB of its stderr.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stderr_tail: String,
+}
+
+/// An engine that wrote what is no JSON-RPC message on the Connection
+/// (ADRs 0024 and 0078), raised by the SDK runtime.
+pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "engine_output_invalid",
+    description: "The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry.",
+    group: ErrorGroup::Internal,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[PROTOCOL_VERSION_UNSUPPORTED, NOT_IN_PRODUCT, CALL_CANCELLED],
+    error_codes: &[
+        PROTOCOL_VERSION_UNSUPPORTED,
+        NOT_IN_PRODUCT,
+        CALL_CANCELLED,
+        CLOSED,
+        ENGINE_NOT_FOUND,
+        ENGINE_EXITED,
+        ENGINE_OUTPUT_INVALID,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

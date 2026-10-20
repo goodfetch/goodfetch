@@ -529,6 +529,36 @@ fn inventory_records_the_products_that_carry_each_feature() {
     );
 }
 
+/// The Connection's own messages (`hello`, `$/cancel`), which every engine
+/// speaks, are types of Collie's client package, whose hand-written runtime
+/// sends them, and never of Foxhound's layer.
+#[rstest]
+#[case::typescript_collie_client("sdks/typescript/collie-client/src/generated/types.ts", true)]
+#[case::typescript_foxhound("sdks/typescript/foxhound/src/generated/types.ts", false)]
+#[case::python_collie_client(
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py",
+    true
+)]
+#[case::python_foxhound(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py",
+    false
+)]
+fn the_connections_messages_are_types_of_the_collie_client_package_only(
+    #[case] path: &str,
+    #[case] holds: bool,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+
+    codegen(&workspace);
+
+    let types = workspace.read_text(path);
+    assert_eq!(
+        types.contains("class HelloParams") || types.contains("interface HelloParams"),
+        holds,
+        "{types}"
+    );
+}
+
 #[rstest]
 #[case::typescript_collie_client(
     "sdks/typescript/collie-client/src/generated/operations.ts",
@@ -586,6 +616,7 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
     for name in [
         "index",
         "__init__",
+        "connection",
         "operations",
         "events",
         "errors",

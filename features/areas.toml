@@ -266,3 +266,15 @@ prefix = "body_"
 number = 3
 kind = "command"
 prefix = "config."
+
+# Area 11, the Client surfaces (spec #606): the Error codes an SDK's own
+# runtime raises about its Connection (#1216).
+[[area]]
+number = 11
+kind = "error"
+prefix = "closed"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "engine_"

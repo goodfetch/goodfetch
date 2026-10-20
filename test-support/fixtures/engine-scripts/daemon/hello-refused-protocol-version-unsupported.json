@@ -23,7 +23,7 @@
             "retryable": false,
             "client_protocol_version": "0.2",
             "engine_protocol_version": "0.1",
-            "hint": "Restart the Daemon with `goodfetch-collie daemon restart`, or use a Client of the Daemon's own version."
+            "fix": "Restart the Daemon with `goodfetch-collie daemon restart`, or use a Client of the Daemon's own version."
           }
         }
       }

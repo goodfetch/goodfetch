@@ -34,6 +34,7 @@ mod issues;
 mod journeys;
 mod junit;
 mod junit_summary;
+mod lazyfs;
 mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
@@ -44,6 +45,7 @@ mod os_services;
 mod output;
 mod package_dependencies;
 mod perf;
+mod pinned;
 mod quarantine;
 mod rate;
 mod release_suite;
@@ -165,6 +167,12 @@ enum Command {
     /// each with its failure's first lines and its seeds; fails on a JUnit
     /// file it cannot read (ADR 0061).
     JunitSummary(junit_summary::Arguments),
+    /// LazyFS, built from pinned source archives, which power-cuts a real
+    /// executable on Linux (ADR 0060).
+    Lazyfs {
+        #[command(subcommand)]
+        command: lazyfs::Command,
+    },
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -407,6 +415,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             journeys::run(&command, environment, features::manual_exceptions)
         }
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
+        Command::Lazyfs { command } => lazyfs::run(command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),

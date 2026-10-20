@@ -42,6 +42,7 @@ mod journey_variants;
 mod journeys;
 mod journeys_report;
 mod junit_summary;
+mod lazyfs;
 mod minute_ceiling;
 mod mocking_lockfile;
 mod modules;

@@ -395,16 +395,27 @@ fn runs_of(
                 .collect()
         }
         "pytest" => {
-            let suffix = format!("-{count}]");
-            let test = case
-                .test
-                .strip_suffix(&suffix)
-                .and_then(|rest| rest.rsplit_once('['))
-                .filter(|(_, run)| !run.is_empty() && run.bytes().all(|byte| byte.is_ascii_digit()))
-                .map_or(case.test.clone(), |(test, _)| test.to_owned());
+            let test = pytest_case(&case.test, count).unwrap_or_else(|| case.test.clone());
             vec![(test, outcome, case.duration_seconds)]
         }
         _ => vec![(case.test, outcome, case.duration_seconds)],
+    }
+}
+
+/// The test one run of `count` was of, from the name pytest-repeat gave it:
+/// `test_x[<run>-<count>]` is `test_x`'s, and a parameterized case's
+/// `test_x[a-<run>-<count>]` is `test_x[a]`'s. `None` for another name.
+fn pytest_case(name: &str, count: NonZeroU32) -> Option<String> {
+    let rest = name.strip_suffix(&format!("-{count}]"))?;
+    let before_run = rest.trim_end_matches(|character: char| character.is_ascii_digit());
+    if before_run.len() == rest.len() {
+        return None;
+    }
+    if let Some(test) = before_run.strip_suffix('[') {
+        Some(test.to_owned())
+    } else {
+        let case = before_run.strip_suffix('-')?;
+        case.contains('[').then(|| format!("{case}]"))
     }
 }
 

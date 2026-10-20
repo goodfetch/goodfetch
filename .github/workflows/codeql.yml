@@ -1,0 +1,54 @@
+# CodeQL on Rust, TypeScript, Python and the workflows (ADR 0067), part of
+# the Pre-merge suite once the repository is public. Code scanning is free
+# only on a public repository, and GitHub's paid Code Security on a private
+# one is declined while there is no revenue (ADR 0076), so until then every
+# job here is skipped by its `if:` and uses no minute; `gitleaks` over each
+# pull request's commits stands in meanwhile (pull-request.yml's
+# supply-chain job). A high or critical alert blocks the merge through
+# code-scanning merge protection, a repository setting the owner turns on
+# when the repository becomes public (.github/security-settings.md), not
+# through "all green". The push to `main` gives pull requests their
+# baseline.
+#
+# The job runs none of the product (ci/egress/endpoints.toml): CodeQL reads
+# the sources without building them (`build-mode: none`).
+name: codeql
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: codeql (${{ matrix.language }})
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [rust, javascript-typescript, python, actions]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up CodeQL
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - name: Analyze
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: /language:${{ matrix.language }}

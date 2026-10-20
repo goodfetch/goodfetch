@@ -152,3 +152,7 @@ reason = "It reads and writes the Release runs' records through GitHub's API to 
 [[outside]]
 job = "release-suite.yml#caches"
 reason = "It lists and deletes the repository's caches through GitHub's API (ADR 0061), and runs none of the product."
+
+[[outside]]
+job = "codeql.yml#analyze"
+reason = "CodeQL reads the sources without building them (`build-mode: none`) and runs none of the product (ADR 0067); it is skipped while the repository is private."

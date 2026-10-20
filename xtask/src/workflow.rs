@@ -5,7 +5,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
@@ -34,11 +34,18 @@ pub(crate) struct Job {
     pub(crate) id: String,
     pub(crate) condition: Option<String>,
     pub(crate) runner: Runner,
+    /// The images of its job container and its service containers, as written.
+    pub(crate) images: Vec<String>,
     pub(crate) steps: Vec<Step>,
 }
 
 pub(crate) struct Step {
+    pub(crate) id: Option<String>,
     pub(crate) name: Option<String>,
+    /// The Action the step runs, such as `actions/upload-artifact@<sha>`.
+    pub(crate) uses: Option<String>,
+    /// The Action's scalar inputs.
+    pub(crate) with: BTreeMap<String, String>,
     /// The step's `run:` script; nothing for a step that `uses:` an Action.
     pub(crate) run: Option<String>,
     pub(crate) condition: Option<String>,
@@ -104,6 +111,7 @@ fn parse(file: String, document: &Value) -> Result<Workflow> {
                 id: id.clone(),
                 condition: job.get("if").map(scalar).transpose()?,
                 runner: runner(job)?,
+                images: images(job)?,
                 steps: steps(job)?,
             });
         }
@@ -118,13 +126,41 @@ fn steps(job: &Value) -> Result<Vec<Step>> {
     steps
         .iter()
         .map(|step| {
+            let mut with = BTreeMap::new();
+            if let Some(Value::Object(inputs)) = step.get("with") {
+                for (input, value) in inputs {
+                    with.insert(input.clone(), scalar(value)?);
+                }
+            }
             Ok(Step {
+                id: step.get("id").map(scalar).transpose()?,
                 name: step.get("name").map(scalar).transpose()?,
+                uses: step.get("uses").map(scalar).transpose()?,
+                with,
                 run: step.get("run").map(scalar).transpose()?,
                 condition: step.get("if").map(scalar).transpose()?,
             })
         })
         .collect()
+}
+
+/// A job container's image (`container: <image>` or `container: { image }`)
+/// and each service container's.
+fn images(job: &Value) -> Result<Vec<String>> {
+    let image = |container: &Value| match container {
+        Value::Object(fields) => fields.get("image").map(scalar).transpose(),
+        other => scalar(other).map(Some),
+    };
+    let mut images = Vec::new();
+    if let Some(container) = job.get("container") {
+        images.extend(image(container)?);
+    }
+    if let Some(Value::Object(services)) = job.get("services") {
+        for service in services.values() {
+            images.extend(image(service)?);
+        }
+    }
+    Ok(images)
 }
 
 fn scalar(value: &Value) -> Result<String> {

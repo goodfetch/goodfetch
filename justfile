@@ -56,6 +56,8 @@ lint: fmt-check
     cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- os-services workflows
     cargo run --quiet -p xtask -- fixture-size
+    cargo run --quiet -p xtask -- image-pins
+    cargo run --quiet -p xtask -- output-scans
     cargo run --quiet -p xtask -- screenshots check
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- package-dependencies
@@ -268,6 +270,7 @@ mutants base="":
 # Makes every download the pull-request tier needs, before the egress deny.
 fetch:
     cargo fetch --locked
+    ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
 
@@ -655,6 +658,8 @@ pre-merge *all:
     "$just" lint
     "$just" feature-combinations
     "$just" audit
+    "$just" commit-leaks
+    "$just" fuzz-check
     "$just" proofs
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
@@ -691,6 +696,9 @@ release:
     "$just" _tlc all
     "$just" proofs
     "$just" rss
+    "$just" asan
+    "$just" v8-corruption
+    "$just" zap
     "$just" _visual-elsewhere
     echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
@@ -835,10 +843,61 @@ screenshots-fetch run:
 
 # The pull-request tier's supply-chain job (#133), each part also a recipe:
 # the advisories of every lockfile, the MSRV build, cargo-hack over each
-# Product's SDK crate, Miri and the notice inventory's license check. The
-# audits read public advisory databases, so CI runs this before any egress
-# deny. `pre-merge` runs the same parts, cheapest first.
-supply-chain: audit msrv feature-combinations miri notices
+# Product's SDK crate, Miri and the notice inventory's license check, and the
+# security parts it carries (ADR 0067): `gitleaks` over the change's commits
+# and `cargo fuzz check`. The audits read public advisory databases, so CI
+# runs this before any egress deny. `pre-merge` runs the same parts,
+# cheapest first.
+supply-chain: audit commit-leaks fuzz-check msrv feature-combinations miri notices
+
+# Scans paths a job uploads (its logs, test reports, snapshots and
+# artifacts) for secrets with gitleaks' rules and the Secret canaries' rule
+# (ADR 0067). CI runs `ci/leaks.sh` itself before each upload.
+leaks +paths:
+    ci/tool.sh gitleaks ci/leaks.sh {{ paths }}
+
+# Scans every commit from `base` to `head` for secrets, while the repository
+# is private (ADR 0067). Locally: since the merge base with `origin/main`.
+commit-leaks base="" head="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
+    ci/tool.sh gitleaks ci/commit-leaks.sh "$base" "{{ head }}"
+
+# `cargo fuzz check` of every fuzz target on the pinned nightly of
+# ci/sanitizer-toolchain.toml (ADR 0067); no fuzzing runs. A no-op while no
+# fuzz crate exists.
+fuzz-check:
+    ci/tool.sh cargo-fuzz ci/fuzz-check.sh check
+
+# The Release suite's AddressSanitizer run of the tests of every crate that
+# opts into `unsafe` (ADR 0067), on the pinned nightly; CI runs it on Linux
+# glibc. `build` builds them (before the deny in CI), `test` builds and runs
+# them with the test tool manifest.
+asan phase="test":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ phase }}" in
+      build) ci/asan.sh build ;;
+      test)
+        export GOODFETCH_TEST_SUITE=release
+        {{ just_executable() }} _test-tools
+        export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+        ci/asan.sh test
+        ;;
+      *) echo "error: the phase is build or test, not {{ phase }}" >&2; exit 2 ;;
+    esac
+
+# The Release suite's V8 memory-corruption scripts on the test V8 build
+# (ADR 0067), a slot until that build exists (#210): `fetch` or `test`.
+v8-corruption phase="test":
+    ci/v8-corruption.sh {{ phase }}
+
+# The Release suite's ZAP baseline scan of the Console (ADR 0067), a slot
+# until the Console is built: `fetch` or `scan`.
+zap phase="scan":
+    ci/zap.sh {{ phase }}
 
 # The third-party notice inventory (ADRs 0018 and 0047): fails on a
 # dependency of any ecosystem, or an input a `third-party.toml` declares, whose

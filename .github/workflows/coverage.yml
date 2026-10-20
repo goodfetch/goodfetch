@@ -103,15 +103,19 @@ jobs:
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/coverage/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-coverage-weekly-linux-x64-instrumented-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Attach the coverage reports
-        if: always()
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report

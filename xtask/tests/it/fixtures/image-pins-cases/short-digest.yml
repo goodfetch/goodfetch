@@ -1,0 +1,15 @@
+# A digest too short to be a SHA-256.
+name: extra
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: docker.io/library/node:24@sha256:1234
+    steps:
+      - name: Test
+        run: just test

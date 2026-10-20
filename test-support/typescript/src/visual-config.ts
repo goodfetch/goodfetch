@@ -73,6 +73,11 @@ export type Repeatability =
   /** A run gave other pixels: the browser stays out until 20 runs repeat, `tracking` says where that is followed. */
   | { readonly verdict: "differs"; readonly runs: string; readonly tracking: string };
 
+/** The measurement every browser's verdict rests on. */
+const MEASURED =
+  "2026-10-20, `just visual-repeatability` on 7504f560: every Playwright visual case (1, the pinned image's fixture page) " +
+  "repeated its pixels in 20 of 20 runs, in the pinned image on an Apple M3 Max through Docker Desktop's Rosetta for Linux";
+
 /**
  * Each browser's screenshot repeatability in the pinned image, with the runs
  * it rests on (ADR 0073). A browser is in the `visual` projects only when its
@@ -81,9 +86,15 @@ export type Repeatability =
  * measurement with `just visual-repeatability` and record what it prints.
  */
 export const REPEATABILITY: Readonly<Record<VisualBrowser, Repeatability>> = {
-  chromium: { verdict: "repeats", runs: "MEASUREMENT PENDING" },
-  firefox: { verdict: "repeats", runs: "MEASUREMENT PENDING" },
-  webkit: { verdict: "repeats", runs: "MEASUREMENT PENDING" },
+  chromium: { verdict: "repeats", runs: `${MEASURED}.` },
+  firefox: { verdict: "repeats", runs: `${MEASURED}.` },
+  webkit: {
+    verdict: "repeats",
+    runs:
+      `${MEASURED}. A probe of a page served under the production CSP also gave the same pixels in 20 of 20 runs, ` +
+      "but each run failed `failOnErrors`: before a WebKit screenshot Playwright adds an inline <style>, which " +
+      "style-src refuses (csp_violation style-src-elem; #381's report). A served visual case on WebKit fails until that changes.",
+  },
 };
 
 /**

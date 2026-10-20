@@ -38,7 +38,7 @@ writeFileSync(join(folder, "repeatability.json"), `${JSON.stringify(verdicts, nu
 for (const verdict of verdicts) {
   const summary = verdict.repeats ? "repeats" : "differs";
   process.stdout.write(
-    `${verdict.browser}: ${summary}, ${verdict.cases.length} visual cases, ${runs} runs each\n`,
+    `${verdict.browser}: ${summary}, visual cases: ${verdict.cases.length}, runs of each: ${runs}\n`,
   );
   for (const runsOfCase of verdict.cases) {
     process.stdout.write(

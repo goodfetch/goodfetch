@@ -139,11 +139,15 @@ features-audit scope="ran" verdict=exercise_audit:
     esac
     case "{{ scope }}" in
       ran)
-        # nextest writes its JUnit file into the target folder, which CI's
-        # VM keeps outside the workspace.
-        target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
-        junit="$target/nextest/ci/junit.xml"
+        # nextest writes its JUnit file under the workspace's own
+        # target/nextest/, even when CARGO_TARGET_DIR (CI's VM) puts the
+        # build elsewhere.
+        junit=target/nextest/ci/junit.xml
         if [[ ! -f "$junit" ]]; then
+          if [[ -n "$(ls -A target/test-records 2>/dev/null)" ]]; then
+            echo "error: target/test-records holds exercise records, so tests ran, but no $junit names them: the audit cannot tell which tests to judge" >&2
+            exit 1
+          fi
           echo "The exercise audit has nothing to read: no nextest run of the suite left $junit."
           exit 0
         fi
@@ -587,12 +591,12 @@ stress base="":
       done <<< "$selection"
       echo "Stress run: $(( ${#tests[@]} / 2 )) test(s), $count times each"
       [[ ${#tests[@]} -gt 0 ]] || continue
-      rm -f "$target"/nextest/*/junit.xml
+      rm -f target/nextest/*/junit.xml
       {{ just_executable() }} repeat "$count" "${tests[@]}" || status=$?
       folder="target/junit/repeat-$count"
       mkdir -p "$folder"
       find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;
-      for report in "$target"/nextest/*/junit.xml; do
+      for report in target/nextest/*/junit.xml; do
         [[ -f "$report" ]] || continue
         mv "$report" "$folder/nextest-$(basename "$(dirname "$report")").xml"
       done
@@ -1015,7 +1019,7 @@ _test-tools:
 # Removes the exercise records and the nextest JUnit file of an earlier
 # Pre-merge or Release run, which `just features-audit` would read.
 _clear-exercise-records:
-    rm -rf target/test-records "$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/nextest/ci/junit.xml"
+    rm -rf target/test-records target/nextest/ci/junit.xml
 
 # One suite's tests over the whole workspace with `all`, else over what changed.
 _suite suite all:

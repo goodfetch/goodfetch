@@ -218,10 +218,23 @@ fn audit_over_the_tests_that_ran_still_reports_one_that_ran_without_a_record() {
 /// The suites' audit step: the repository's `just features-audit`, with the
 /// verdict its `exercise_audit` switch names, run in the fixture once its
 /// records and JUnit file are where `just test pre-merge` leaves them. A
-/// `cargo` first on the path answers `cargo metadata` with the fixture's
-/// target folder and runs this xtask for `cargo run -p xtask`.
+/// `cargo` first on the path runs this xtask for `cargo run -p xtask`, and
+/// answers `cargo metadata` with a target folder outside the workspace, as
+/// CI's VM sets `CARGO_TARGET_DIR`: nextest still writes its JUnit file
+/// under the workspace's own `target/nextest/`.
 #[cfg(unix)]
 fn suite_step(workspace: &Workspace, args: &[&str]) -> Outcome {
+    suite_step_with(workspace, args, |_| {})
+}
+
+/// [`suite_step`], with `arrange` run on the workspace's root once the
+/// records and the JUnit file are in place.
+#[cfg(unix)]
+fn suite_step_with(
+    workspace: &Workspace,
+    args: &[&str],
+    arrange: impl FnOnce(&std::path::Path),
+) -> Outcome {
     use std::os::unix::fs::PermissionsExt as _;
 
     let root = workspace.path();
@@ -232,6 +245,7 @@ fn suite_step(workspace: &Workspace, args: &[&str]) -> Outcome {
         root.join("target/nextest/ci/junit.xml"),
     )
     .unwrap();
+    arrange(root);
     let shims = root.join("shims");
     std::fs::create_dir_all(&shims).unwrap();
     let real_cargo = std::env::var_os("CARGO").expect("nextest runs the test under Cargo");
@@ -242,7 +256,7 @@ fn suite_step(workspace: &Workspace, args: &[&str]) -> Outcome {
             concat!(
                 "#!/bin/sh\n",
                 "case \"$1\" in\n",
-                "  metadata) printf '{{\"target_directory\":\"%s/target\"}}\\n' \"$PWD\" ;;\n",
+                "  metadata) printf '{{\"target_directory\":\"%s/elsewhere/target\"}}\\n' \"$PWD\" ;;\n",
                 "  run) while [ \"$1\" != -- ]; do shift; done; shift; CARGO='{cargo}' exec '{xtask}' \"$@\" ;;\n",
                 "  *) exit 2 ;;\n",
                 "esac\n",
@@ -313,4 +327,42 @@ fn the_suites_audit_step_passes_when_every_test_that_ran_reached_what_it_declare
 
     assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
     assert_eq!(outcome.findings(), vec![]);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_suites_audit_step_fails_when_tests_left_records_but_no_junit_file() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+
+    let outcome = suite_step_with(&workspace, &[], |root| {
+        std::fs::remove_file(root.join("target/nextest/ci/junit.xml")).unwrap();
+    });
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome
+            .stderr
+            .contains("target/test-records holds exercise records"),
+        "{}{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_suites_audit_step_passes_when_no_test_ran() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+
+    let outcome = suite_step_with(&workspace, &[], |root| {
+        std::fs::remove_file(root.join("target/nextest/ci/junit.xml")).unwrap();
+        std::fs::remove_dir_all(root.join("target/test-records")).unwrap();
+    });
+
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome.stdout.contains("nothing to read"),
+        "{}",
+        outcome.stdout
+    );
 }

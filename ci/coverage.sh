@@ -51,11 +51,12 @@ else
   "$just" test-affected pre-merge "$@" || status=$?
 fi
 
-# nextest's JUnit file sits in the instrumented build's target folder; the
-# job uploads it with the other runners' (ci/junit-context.sh).
+# nextest writes its JUnit file under the workspace's own target/nextest/,
+# not the instrumented build's target folder; the job uploads it with the
+# other runners' (ci/junit-context.sh).
 mkdir -p target/junit
-if [[ -f "$CARGO_TARGET_DIR/nextest/ci/junit.xml" ]]; then
-  cp "$CARGO_TARGET_DIR/nextest/ci/junit.xml" target/junit/nextest-ci.xml
+if [[ -f target/nextest/ci/junit.xml ]]; then
+  cp target/nextest/ci/junit.xml target/junit/nextest-ci.xml
 fi
 
 # Each report covers what ran; a run that built no Rust test reports none.

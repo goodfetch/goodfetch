@@ -187,17 +187,20 @@ jobs:
       # evidence kind or planned at the gate of GATE, the milestone whose
       # owner test comes next, from main's latest Release run in the store.
       # Without the listings it says so, and counts no Vitest, Playwright or
-      # pytest declaration and no Journey variant as proved.
+      # pytest declaration and no Journey variant as proved. Its last line,
+      # the milestone gate's state, goes to the job summary.
       - name: Build the Feature report
         if: always()
         env:
           GATE: M1
           LISTED: ${{ steps.listings.outcome }}
         run: |
+          set -o pipefail
           listings=()
           [[ $LISTED == success ]] && listings=(--listings target/journey-listings)
           cargo run --quiet --locked -p xtask -- features report --milestone "$GATE" \
-            --store test-results "${listings[@]}" --out target/features-report
+            --store test-results "${listings[@]}" --out target/features-report | tee target/features-report.txt
+          { echo "### Feature report"; echo; sed 's/$/  /' target/features-report.txt; } >>"$GITHUB_STEP_SUMMARY"
       # Published beside the Allure report once the repository is public;
       # attached to the run until then.
       - name: Attach the Feature report

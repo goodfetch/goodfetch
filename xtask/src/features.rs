@@ -194,6 +194,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     built.milestone,
                 ));
             }
+            output::line(&built.gate_line());
             Ok(ExitCode::SUCCESS)
         }
     }

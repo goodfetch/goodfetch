@@ -34,6 +34,11 @@ pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";
 /// The name of the test nextest runs, within its binary.
 pub(crate) const TEST_NAME_VARIABLE: &str = "NEXTEST_TEST_NAME";
 
+/// Where an executable built for coverage writes its profile: cargo-llvm-cov
+/// sets it under `just coverage` (ADR 0072), and each executable a test
+/// starts gets it.
+pub(crate) const COVERAGE_VARIABLE: &str = "LLVM_PROFILE_FILE";
+
 /// What Windows needs in a child's environment to start a process.
 pub(crate) const WINDOWS_VARIABLES: [&str; 3] = ["SystemRoot", "ComSpec", "PATHEXT"];
 
@@ -60,6 +65,7 @@ impl Variables {
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,
             TEST_NAME_VARIABLE,
+            COVERAGE_VARIABLE,
         ]
         .into_iter()
         .chain(WINDOWS_VARIABLES)

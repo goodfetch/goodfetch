@@ -157,9 +157,10 @@ jobs:
       - name: "Test: just test-affected pre-merge"
         run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
       # ADR 0072's exercise audit over the Rust tests that just ran, before
-      # the stress run replaces their JUnit file. It lists its findings and
-      # fails nothing while the justfile's `exercise_audit` is `report`.
-      - name: Audit what each declaring test reached
+      # the stress run replaces their JUnit file. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
         run: ci/vm/exec.sh just features-audit
       # ADR 0064's stress run: each new or changed test 20 times, and each
       # test the change takes off the quarantine list 200 times, in the

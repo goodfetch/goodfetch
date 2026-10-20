@@ -185,6 +185,11 @@ prefix = "tls."
 [[area]]
 number = 4
 kind = "setting"
+prefix = "egress."
+
+[[area]]
+number = 4
+kind = "setting"
 prefix = "secrets."
 
 [[area]]

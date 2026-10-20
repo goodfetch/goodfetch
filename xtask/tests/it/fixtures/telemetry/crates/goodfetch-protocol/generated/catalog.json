@@ -1,0 +1,6 @@
+{
+  "settings": [
+    { "name": "egress.offline", "description": "Whether the engine opens no connection nobody configured." },
+    { "name": "network.resolve", "description": "Host names mapped to addresses before any lookup." }
+  ]
+}

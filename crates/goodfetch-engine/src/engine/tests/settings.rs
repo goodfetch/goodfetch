@@ -161,7 +161,7 @@ fn browser_cache_max_unused_age_in_a_runs_settings_is_not_applicable() {
     );
 }
 
-/// Covers: story:3-86, error:setting_unknown, error:setting_invalid
+/// Covers: story:3-86, error:setting_unknown
 #[test]
 fn a_user_configuration_that_does_not_read_refuses_the_run_with_its_error_code() {
     let env = TestEnv::new();
@@ -242,5 +242,40 @@ fn config_explain_shows_each_value_with_the_layer_that_set_it_and_the_layer_that
                 "weakens": false,
             },
         ])
+    );
+}
+
+/// An air-gapped Operator policy locks `egress.offline` on: a run that
+/// turns it off is refused before it begins, and one that leaves it alone
+/// starts (ADRs 0043 and 0083).
+///
+/// Covers: story:4-82, setting:egress.offline
+#[test]
+fn an_operator_policy_locking_egress_offline_refuses_a_run_turning_it_off() {
+    let env = TestEnv::new();
+    write(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[lock.egress]\noffline = true\n",
+    );
+
+    let (refused, _) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({ "run_id": "set", "settings": { "egress": { "offline": false } } }),
+    );
+    let (started, _) = start_and_finish(&env, Product::Collie, json!({ "run_id": "set" }));
+
+    assert_eq!(
+        (
+            &refused["error"]["data"]["code"],
+            &refused["error"]["data"]["limit"],
+            &started["error"],
+        ),
+        (
+            &json!("setting_locked"),
+            &json!({ "key": "egress.offline", "value": true, "layer": "operator_policy" }),
+            &Value::Null,
+        )
     );
 }

@@ -1,0 +1,9 @@
+{
+  "settings": [
+    {
+      "name": "egress.offline",
+      "description": "Whether the engine opens no connection nobody configured."
+    },
+    { "name": "telemetry.enabled", "description": "Whether the engine reports how it is used." }
+  ]
+}

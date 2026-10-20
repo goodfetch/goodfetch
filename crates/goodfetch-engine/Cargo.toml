@@ -19,7 +19,7 @@ flate2.workspace = true
 getrandom.workspace = true
 goodfetch-protocol.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
-# The Browser cache's pinned downloads (ADR 0043): HTTPS GETs over HTTP/1.1.
+# The engine's own HTTP client (ADRs 0043 and 0060): HTTPS over HTTP/1.1.
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }

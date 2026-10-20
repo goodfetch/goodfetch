@@ -10,6 +10,13 @@ removes or changes one record to show the failure it catches.
 
 - The unit test that asserts `error:sample_refused` without `rpc` has no
   record, which the audit allows (ADR 0072).
+- The unit test `loses_an_attempt_in_process` reaches `rpc` and declares
+  `error:sample_lost`, an Error code the Run records and no reply carries,
+  which a unit test asserts itself (ADR 0072).
+- The integration test `refuses_a_text_the_stand_in_rejects` asserts
+  `error:sample_refused` and `event:sample.echoed` itself and never reaches
+  `rpc`: its record holds no dispatch record, which the audit allows. Unlike
+  a unit test, it must still leave a record.
 - `crates/goodfetch-protocol/generated/catalog.json` holds the exit code of
   `exit:not_installed`.
 - `junit/nextest.xml` lists the tests that ran: all but

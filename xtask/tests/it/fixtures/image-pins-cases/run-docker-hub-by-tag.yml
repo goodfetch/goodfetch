@@ -1,0 +1,14 @@
+# A run script that pulls a Docker Hub image by its short name and tag.
+name: extra
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Pull
+        run: podman pull --quiet node:22

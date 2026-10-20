@@ -119,8 +119,15 @@ jobs:
           cat target/affected.txt
           cat target/affected.txt >> "$GITHUB_OUTPUT"
       # The in-diff mutation job's shards: listing the mutants builds nothing.
+      # The mutation job is outside "all green" (ADR 0072), so a listing
+      # that fails, such as cargo-mutants refusing new syntax, warns and
+      # plans no shard instead of failing this job, which "all green" needs.
       - name: Count the shards of the change's mutants
-        run: ci/vm/exec.sh bash -c "ci/mutants.sh plan HEAD^1 > target/mutants-plan.txt"
+        run: |
+          if ! ci/vm/exec.sh bash -c "ci/mutants.sh plan HEAD^1 > target/mutants-plan.txt"; then
+            echo "::warning title=Mutation testing::listing the change's mutants failed, so the in-diff mutation job does not run; the pull request's Verification section says so"
+            echo 'mutants-shards=[]' > target/mutants-plan.txt
+          fi
       - name: Write the shards to the job's outputs
         id: mutants
         run: |
@@ -253,16 +260,13 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Write the table to the job's summary page
-        if: always()
-        run: if [[ -f target/perf-summary.md ]]; then cat target/perf-summary.md >>"$GITHUB_STEP_SUMMARY"; fi
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/junit/
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/perf-summary.md
       # gungraun's and size-limit's reports (target/junit/perf/) and the
       # head's figures (perf-figures.json) go with the JUnit files.
       - name: Upload the JUnit files and the performance reports
@@ -272,6 +276,11 @@ jobs:
           name: junit-perf-pull-request-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
+      # The summary page is an output too: the table goes to it only once
+      # the scan passed.
+      - name: Write the table to the job's summary page
+        if: always() && steps.leaks.outcome == 'success'
+        run: if [[ -f target/perf-summary.md ]]; then cat target/perf-summary.md >>"$GITHUB_STEP_SUMMARY"; fi
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
@@ -502,20 +511,32 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Write the surviving mutants to the job's summary page
-        if: always()
-        run: if [[ -f target/mutants/summary.md ]]; then cat target/mutants/summary.md >>"$GITHUB_STEP_SUMMARY"; fi
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/vm/exec.sh ci/leaks.sh target/mutants/
       - name: Attach the mutation report
+        id: report
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutants-${{ matrix.shard }}
           path: target/mutants/
           if-no-files-found: ignore
+      # The summary page is an output too: it is written only once the scan
+      # of target/mutants/, which holds summary.md, passed. It links the
+      # report, for the pull request's Evidence section.
+      - name: Write the surviving mutants to the job's summary page
+        if: always() && steps.leaks.outcome == 'success'
+        env:
+          URL: ${{ steps.report.outputs.artifact-url }}
+        run: |
+          if [[ -f target/mutants/summary.md ]]; then
+            {
+              cat target/mutants/summary.md
+              [[ -z "$URL" ]] || { echo; echo "Report: $URL"; }
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

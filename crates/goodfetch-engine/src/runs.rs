@@ -1223,6 +1223,7 @@ impl Closing {
 }
 
 mod folder;
+pub mod outcome;
 mod reindex;
 mod takeover;
 mod writer;

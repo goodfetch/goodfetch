@@ -75,8 +75,8 @@ pub(crate) enum Command {
     /// The exercise audit: fails a Rust test that declares an `operation:`,
     /// `error:`, `event:`, `command:` or `exit:` Feature its exercise record
     /// never shows it reached, or that left no record. With `--junit`, over
-    /// the tests those files show ran (the Pre-merge suite); without it,
-    /// over every declaring test (the Release suite).
+    /// the tests those files show ran (the Pre-merge and Release suites);
+    /// without it, over every declaring test, run or not.
     Audit {
         /// The folder of the exercise records `just test` has test support
         /// write, one file per test.

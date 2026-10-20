@@ -103,6 +103,20 @@ journeys-tests:
 features-tests: journeys-tests
     cargo run --quiet -p xtask -- features check --listings target/journey-listings
 
+# ADR 0072's exercise audit, after `just test pre-merge` or `release`: each
+# Rust test that declares an `operation:`, `error:`, `event:`, `command:` or
+# `exit:` Feature must have reached it, as the exercise record test support
+# wrote for it shows. It reads the tests the run's JUnit file shows ran, or
+# every declaring test with `all` (the Release suite).
+features-audit scope="ran":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ scope }}" in
+      ran) cargo run --quiet -p xtask -- features audit --junit target/nextest/ci/junit.xml ;;
+      all) cargo run --quiet -p xtask -- features audit ;;
+      *) echo "error: the scope is ran or all, not {{ scope }}" >&2; exit 2 ;;
+    esac
+
 # Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
 # 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
 # repeatable; values of one flag add variants, different flags intersect.
@@ -302,6 +316,10 @@ test suite *packages:
         fi
         ;;
       pre-merge|release)
+        # Each test nextest runs leaves its exercise record here, which
+        # `just features-audit` reads (ADR 0072); a run starts with none.
+        rm -rf target/test-records
+        export GOODFETCH_TEST_RECORDS="$PWD/target/test-records"
         # A quarantined test that owns an insta snapshot does not run, so its
         # snapshot looks unreferenced: while nextest skips any quarantined
         # test, unreferenced snapshots warn instead of failing (TESTING.md,

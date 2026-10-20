@@ -1,0 +1,17 @@
+# The repository's installed pytest, in the fixture's environment: the `.pth`
+# file each test writes into `site/` adds the repository's site-packages, and
+# the `pytest` script runs it.
+[project]
+name = "pytoolchain"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[project.scripts]
+pytest = "pytest:main"
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+data = { purelib = "site" }

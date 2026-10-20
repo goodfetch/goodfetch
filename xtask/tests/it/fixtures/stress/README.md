@@ -6,7 +6,10 @@ for Vitest and Playwright, a file whose import the change edits (`imports`).
 `quarantine.toml` lists each runner's `flaky` test. Each test commits this as
 the base, then makes its change.
 
-It is a pnpm workspace, as the repository is. Its runners are the
-repository's installed packages, reached through `.toolchain`, a link each
-test makes and commits. The Vitest config imports the workspace package
-`web-support`, so a base listed with the head's packages fails to load it.
+It is a pnpm workspace and a uv workspace, as the repository is. Its runners
+are the repository's installed ones, so it installs offline: Vitest and
+Playwright through `.toolchain`, a link each test makes and commits; pytest
+through the member `.pytoolchain`, whose `.pth` file and the interpreter in
+`.python-version` each test writes and commits. The Vitest config imports the
+workspace package `web-support`, and `tests/conftest.py` the member
+`py-support`, so a base listed with the head's packages fails to load them.

@@ -306,8 +306,7 @@ fn module_file(root_file: &Path, modules: &[&str]) -> PathBuf {
 }
 
 /// A checkout of a commit in a temporary folder, with its own npm packages
-/// installed and the workspace's Python environment linked in, so its
-/// runners list its tests.
+/// and Python environment installed, so its runners list its tests.
 struct Checkout<'a> {
     root: &'a Path,
     _folder: tempfile::TempDir,
@@ -328,7 +327,7 @@ impl<'a> Checkout<'a> {
             _folder: folder,
             path,
         };
-        match checkout.install(root) {
+        match checkout.install() {
             Ok(()) => Ok(checkout),
             Err(error) => {
                 checkout.remove()?;
@@ -337,30 +336,39 @@ impl<'a> Checkout<'a> {
         }
     }
 
-    /// Installs the commit's npm packages from its own lockfile, as `just
-    /// fetch` does, from the package store where it can. The head's
-    /// `node_modules` would not do: pnpm links each workspace package from
-    /// them to the head's sources, so the commit's Vitest and Playwright
-    /// configs would import the head's test support, and fail to load where
-    /// it lacks what they import. The Python environment is the head's,
-    /// linked in.
-    fn install(&self, root: &Path) -> Result<()> {
-        let output = Process::new("pnpm")
-            .args(["install", "--frozen-lockfile", "--prefer-offline"])
+    /// Installs the commit's npm packages and Python environment from its
+    /// own lockfiles, as `just fetch` does, from the package store and uv's
+    /// cache where it can. The head's would not do: pnpm links each
+    /// workspace package to the head's sources, and uv installs each
+    /// workspace member editable from them, so the commit's Vitest and
+    /// Playwright configs and its pytest tests would import the head's test
+    /// support and SDKs, and fail to load where they lack what is imported.
+    fn install(&self) -> Result<()> {
+        self.run_install(
+            Process::new("pnpm").args(["install", "--frozen-lockfile", "--prefer-offline"]),
+            "pnpm install",
+        )?;
+        // A project environment set for the head would be synced to the
+        // base's lockfile; the checkout's runners use its own `.venv`.
+        self.run_install(
+            Process::new("uv")
+                .args(["sync", "--frozen", "--all-extras"])
+                .env_remove("UV_PROJECT_ENVIRONMENT"),
+            "uv sync",
+        )
+    }
+
+    fn run_install(&self, command: &mut Process, name: &str) -> Result<()> {
+        let output = command
             .current_dir(&self.path)
             .output()
-            .context("running pnpm")?;
+            .with_context(|| format!("running {name}"))?;
         if !output.status.success() {
             bail!(
-                "pnpm install in the checkout of the base failed: {}{}",
+                "{name} in the checkout of the base failed: {}{}",
                 String::from_utf8_lossy(&output.stdout).trim(),
                 String::from_utf8_lossy(&output.stderr).trim()
             );
-        }
-        let venv = root.join(".venv");
-        if venv.is_dir() {
-            // A link resolves a relative original from its own folder.
-            link(&canonical(&venv)?, &self.path.join(".venv"))?;
         }
         Ok(())
     }
@@ -377,18 +385,6 @@ impl<'a> Checkout<'a> {
         )?;
         Ok(())
     }
-}
-
-#[cfg(unix)]
-fn link(original: &Path, link: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(original, link)
-        .with_context(|| format!("linking {} to {}", link.display(), original.display()))
-}
-
-#[cfg(windows)]
-fn link(original: &Path, link: &Path) -> Result<()> {
-    std::os::windows::fs::symlink_dir(original, link)
-        .with_context(|| format!("linking {} to {}", link.display(), original.display()))
 }
 
 /// Writes the four listings of the workspace at `root` into

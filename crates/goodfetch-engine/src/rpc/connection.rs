@@ -31,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::{failure_line, handshake, line, not_in_product, record, success_line};
 use crate::client::{Client, Outgoing};
-use crate::composition::{CallContext, CallError, CallSetup, CallStream, Handler};
+use crate::composition::{CallContext, CallError, CallStream, ConnectionContext, Handler};
 use crate::events::{Credits, Events};
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
@@ -71,6 +71,12 @@ pub(crate) async fn serve(
     owner.spawn(write_lines(writer, lines));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
     let (client, requests) = Client::new();
+    let connection = Arc::new(ConnectionContext {
+        identity: Arc::clone(&dispatch.identity),
+        client,
+        runs,
+        events,
+    });
     let mut session = Session {
         dispatch,
         owner,
@@ -80,9 +86,7 @@ pub(crate) async fn serve(
         in_flight: BTreeMap::new(),
         behind_gateway: false,
         opened: false,
-        client,
-        runs,
-        events,
+        connection,
         requests,
         pending: BTreeMap::new(),
         next_request: 0,
@@ -111,7 +115,7 @@ async fn write_lines(mut writer: ConnectionWriter, mut lines: mpsc::Receiver<Vec
 struct InFlight {
     token: CancellationToken,
     cancellable: bool,
-    credits: Credits,
+    credits: Option<Credits>,
 }
 
 /// Whether the Connection goes on after a message.
@@ -129,9 +133,7 @@ struct Session<'owner> {
     in_flight: BTreeMap<RequestId, InFlight>,
     behind_gateway: bool,
     opened: bool,
-    client: Client,
-    runs: Runs,
-    events: Events,
+    connection: Arc<ConnectionContext>,
     requests: mpsc::Receiver<Outgoing>,
     pending: BTreeMap<RequestId, Pending>,
     next_request: i64,
@@ -352,19 +354,13 @@ impl Session<'_> {
     fn call(&mut self, id: RequestId, handler: &Handler, params: Option<Value>) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
-        let credits = Credits::new();
-        let context = CallContext::new(CallSetup {
-            identity: Arc::clone(&self.dispatch.identity),
-            token: token.clone(),
-            client: self.client.clone(),
-            runs: self.runs.clone(),
-            events: self.events.clone(),
-            stream: CallStream {
-                id: id.clone(),
-                credits: credits.clone(),
-                outgoing: self.outgoing.clone(),
-            },
+        let credits = handler.streams().then(Credits::new);
+        let stream = credits.clone().map(|credits| CallStream {
+            id: id.clone(),
+            credits,
+            outgoing: self.outgoing.clone(),
         });
+        let context = CallContext::new(Arc::clone(&self.connection), token.clone(), stream);
         let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
         self.in_flight.insert(
             id.clone(),
@@ -427,13 +423,17 @@ impl Session<'_> {
     }
 
     /// Adds a `$/credit`'s credits to the call it names; one for a call no
-    /// longer in flight is ignored.
+    /// longer in flight, or for one that does not stream, is ignored.
     fn credit(&self, notification: &Notification) {
         let params = notification.params.clone().unwrap_or(Value::Null);
         match serde_json::from_value::<CreditParams>(params) {
             Ok(CreditParams { id, credits }) => {
-                if let Some(call) = self.in_flight.get(&id) {
-                    call.credits.grant(credits);
+                if let Some(call_credits) = self
+                    .in_flight
+                    .get(&id)
+                    .and_then(|call| call.credits.as_ref())
+                {
+                    call_credits.grant(credits);
                 }
             }
             Err(error) => tracing::debug!(%error, "a `$/credit` that is not one is ignored"),

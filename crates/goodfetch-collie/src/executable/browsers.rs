@@ -15,10 +15,12 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{
-    BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, Fetching,
-    MaxUnusedAge, Pins, Platform, Resolve,
+    BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, MaxUnusedAge, Pins,
+    Platform,
 };
 use goodfetch_engine::home::Home;
+use goodfetch_engine::http_client::Resolve;
+use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowsersCleanOutput, BrowsersInstallOutput, InstallOutcome, InstalledArtifact,

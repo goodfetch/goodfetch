@@ -29,11 +29,12 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::json;
 
+use crate::pinned_download::{Digest, Fetching};
+
 use super::{
     Arch, BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_FOR_TESTING,
-    CacheError, CacheLocation, CleanUp, Digest, Fetching, InstalledExecutable, MaxUnusedAge, Os,
-    PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest, installed_browser,
-    kept_artifacts,
+    CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge, Os, PinnedArtifact,
+    Platform, PlatformNotice, browser_source, content_digest, installed_browser, kept_artifacts,
 };
 
 /// The digest of [`build_files`]'s tree, worked out by hand from the rule

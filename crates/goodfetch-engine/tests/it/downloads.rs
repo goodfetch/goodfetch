@@ -10,9 +10,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use goodfetch_engine::browser_cache::{
-    BrowserCache, BuildPlatform, CHROME_FOR_TESTING, CacheError, CacheLocation, Digest, Fetching,
-    MaxUnusedAge, PinnedArtifact, Pins, Resolve, content_digest,
+    BrowserCache, BuildPlatform, CHROME_FOR_TESTING, CacheError, CacheLocation, MaxUnusedAge,
+    PinnedArtifact, Pins, content_digest,
 };
+use goodfetch_engine::http_client::Resolve;
+use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, ArtifactKind, DownloadFailure, DownloadProgress, InstallOutcome, PinnedBy,
 };
@@ -284,7 +286,7 @@ fn first_use_downloads_a_missing_build_with_a_plain_get_and_reports_its_progress
             stand_in.requests(),
             [Received {
                 path: "/chrome-a.zip".to_owned(),
-                headers: vec!["host".to_owned()],
+                headers: vec!["host".to_owned(), "user-agent".to_owned()],
             }]
         );
         let total = u64::try_from(build.archive.len()).unwrap();

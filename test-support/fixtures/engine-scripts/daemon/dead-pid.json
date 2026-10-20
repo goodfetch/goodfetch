@@ -1,0 +1,10 @@
+{
+  "description": "The Daemon's process dies once its runtime file is written, before any Client connects, leaving the file naming a PID that no longer runs.",
+  "steps": [
+    {
+      "exit": {
+        "code": 101
+      }
+    }
+  ]
+}

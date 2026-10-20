@@ -53,9 +53,10 @@ fi
 status=$?
 
 # Every runner's JUnit XML reaches target/junit/ in the workspace, which the
-# host uploads pass or fail.
+# host uploads pass or fail. nextest writes its own under the workspace's
+# target/nextest/, never under CARGO_TARGET_DIR.
 mkdir -p target/junit
-for report in "$CARGO_TARGET_DIR"/nextest/*/junit.xml; do
+for report in target/nextest/*/junit.xml; do
   [[ -f "$report" ]] || continue
   profile=$(basename "$(dirname "$report")")
   cp "$report" "target/junit/nextest-$profile.xml"

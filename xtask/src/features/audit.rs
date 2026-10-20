@@ -9,6 +9,9 @@
 //!   engine's JSON log in the test's Goodfetch home or written by the test
 //!   `tracing` subscriber of an in-process test: each request's `method`, its
 //!   reply's `error_code`, and each `event` sent to a Client;
+//! - the engine's outcome records (target [`OUTCOME_TARGET`]), written the
+//!   same two ways: each `error_code` a Run recorded and no reply carries,
+//!   such as a work item's `handler_lost`;
 //! - the command records of test support's CLI helper (target
 //!   [`COMMAND_TARGET`]): each `command`, named as its `command:` Feature
 //!   names it (`browsers.install`), and its `exit_code`, which the catalog's
@@ -17,10 +20,11 @@
 //!
 //! A command run with arguments that match no `command:` Feature is
 //! reported, since no declaration can claim it. A declaring test with no
-//! record is reported, never passed. The one
-//! exception is ADR 0072's: a unit test, or a test above that level whose
-//! record shows it never reached `rpc`, may declare the `error:` or `event:`
-//! Feature it asserts itself, which no record need show.
+//! record is reported, never passed. The one exception is ADR 0072's: a test
+//! that never reached `rpc` (its record holds no dispatch record, or it is a
+//! unit test with no record) may declare the `error:` or `event:` Feature it
+//! asserts itself, which no record need show. A test whose record shows it
+//! dispatched is judged on every declaration, unit test or not.
 
 #![expect(
     clippy::disallowed_methods,
@@ -42,6 +46,10 @@ pub(crate) const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
 
 /// The target of test support's command records.
 pub(crate) const COMMAND_TARGET: &str = "goodfetch::test::command";
+
+/// The `tracing` target of the engine's records of an Error code a Run
+/// recorded and no reply carries, such as a work item's `handler_lost`.
+pub(crate) const OUTCOME_TARGET: &str = "goodfetch::run::outcome";
 
 /// The catalog file `xtask codegen` emits, whose `exit_codes` name each
 /// exit code.
@@ -97,6 +105,7 @@ impl Reached {
                 self.error_codes.extend(text("error_code"));
                 self.events.extend(text("event"));
             }
+            Some(OUTCOME_TARGET) => self.error_codes.extend(text("error_code")),
             Some(COMMAND_TARGET) => {
                 self.commands.extend(text("command"));
                 self.unmatched.extend(text("unmatched"));
@@ -151,14 +160,16 @@ pub(crate) fn audit(
             continue;
         };
         let record = reached.get(declaration.test.as_str());
-        // ADR 0072: a test that asserts a module's own Error code or event
-        // through its interface, which only the review sees: a unit test,
-        // whose Error code may be one a Run records rather than a reply
-        // carries, or a test above that level whose record shows it never
-        // reached `rpc`, such as a module's test on a loopback stand-in.
+        // ADR 0072: a test that never reaches `rpc` and asserts a module's
+        // own Error code or event through its interface, which only the
+        // review sees: one whose record holds no dispatch record, such as a
+        // module's test on a loopback stand-in, or a unit test that left no
+        // record. A test whose record shows it dispatched is judged at every
+        // level.
         let own = matches!(kind, Kind::Error | Kind::Event)
-            && (declaration.level == Level::Unit
-                || record.is_some_and(|record| !record.dispatched));
+            && record.map_or(declaration.level == Level::Unit, |record| {
+                !record.dispatched
+            });
         if !own {
             by_test
                 .entry(declaration.test.as_str())

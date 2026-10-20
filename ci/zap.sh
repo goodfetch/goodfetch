@@ -27,7 +27,8 @@ case "${1:-}" in
     ;;
 esac
 
-if ! git ls-files --error-unmatch -- 'console/*/package.json' >/dev/null 2>&1; then
+# A Console package at console/ itself or in a folder below it.
+if [[ -z "$(git ls-files -- 'console/package.json' 'console/*/package.json')" ]]; then
   echo "ZAP baseline: no Console is built yet (console/ holds no package), so there is nothing to scan."
   exit 0
 fi

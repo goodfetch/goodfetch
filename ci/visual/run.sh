@@ -12,11 +12,16 @@
 #                   exclude`: the image has no Rust to run it
 #   run.sh update   rewrites the Reference screenshots that changed or are
 #                   missing (the `update-screenshots` workflow only)
+#   run.sh measure <browser,…>
+#                   the repeatability measurement (ADR 0073): every
+#                   Playwright visual case 20 times on each browser, against
+#                   a Reference it writes first. It rewrites References, so
+#                   it runs only on the copy ci/visual/repeatability.sh makes
 # Each Reference screenshot a test reads is recorded under target/visual/read/
 # for the orphan check (`xtask screenshots orphans`).
 set -uo pipefail
 
-mode=${1:?usage: ci/visual/run.sh install|test|update}
+mode=${1:?usage: ci/visual/run.sh install|test|update|measure}
 cd "$(dirname "$0")/../.." || exit 2
 
 pinned=$(sed -n 's/^digest = "\(.*\)"$/\1/p' ci/visual/image.toml)
@@ -43,8 +48,11 @@ case "$mode" in
     vitest_flags=(--update)
     playwright_flags=(--update-snapshots=changed)
     ;;
+  measure)
+    browsers=${2:?usage: ci/visual/run.sh measure <browser,…>}
+    ;;
   *)
-    echo "error: the mode is install, test or update, not $mode" >&2
+    echo "error: the mode is install, test, update or measure, not $mode" >&2
     exit 2
     ;;
 esac
@@ -67,7 +75,14 @@ fi
 rm -rf target/visual/read
 mkdir -p target/visual/read
 
+if [[ "$mode" == measure ]]; then
+  exec node test-support/typescript/src/repeatability-main.ts 20 "$browsers"
+fi
+
 status=0
 pnpm exec vitest run --project visual ${vitest_flags[@]+"${vitest_flags[@]}"} || status=1
-pnpm exec playwright test --project visual ${playwright_flags[@]+"${playwright_flags[@]}"} || status=1
+# `visual*`: Chromium's `visual` project, and in the Release suite
+# (GOODFETCH_TEST_SUITE=release) each other browser whose screenshots repeat
+# (`visual-firefox`, `visual-webkit`; the shared visual config's REPEATABILITY).
+pnpm exec playwright test --project 'visual*' ${playwright_flags[@]+"${playwright_flags[@]}"} || status=1
 exit "$status"

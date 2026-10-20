@@ -96,18 +96,10 @@ case "${1:-}" in
   test)
     echo "AddressSanitizer: testing ${crates[*]} on $host: $filter"
     # As `just test` does: quarantined tests (ADR 0064) and, on a local host,
-    # the tests of an OS service it lacks are skipped (ci/os-services.sh).
+    # the tests of an OS service it lacks are skipped (ci/nextest-skips.sh).
     skips=()
-    while IFS=$'\t' read -r runner argument; do
-      case "$runner" in
-        nextest) skips+=("$argument") ;;
-      esac
-    done < <(cargo run --quiet -p xtask -- quarantine exclude)
-    services=$(ci/os-services.sh skipped target/skipped.txt)
-    if [[ -n "$services" ]]; then
-      [[ ${#skips[@]} -gt 0 ]] || skips=(--)
-      while read -r pattern; do skips+=(--skip "$pattern"); done <<<"$services"
-    fi
+    listed=$(ci/nextest-skips.sh)
+    while IFS= read -r argument; do [[ -z "$argument" ]] || skips+=("$argument"); done <<<"$listed"
     mkdir -p target/junit
     # nextest writes its JUnit file under the workspace's target folder,
     # where the suite's own run left one, which this run replaces.

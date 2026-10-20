@@ -8,7 +8,8 @@
 //! - that the scan runs whatever happened before it (`if: always()`), since
 //!   a job's JUnit files upload pass or fail (TESTING.md);
 //! - that the upload's `if:` requires the scan's success
-//!   (`steps.<id>.outcome == 'success'`), so a found secret never uploads.
+//!   (`always() && steps.<id>.outcome == 'success'`, a conjunction with no
+//!   `||`), so a found secret never uploads.
 //!
 //! A job that uploads nothing has nothing to scan. Its log, which GitHub
 //! receives while each step runs, cannot be scanned before it uploads; the
@@ -164,9 +165,18 @@ fn runs_always(step: &Step) -> bool {
         .is_some_and(|condition| condition.contains("always()"))
 }
 
-/// Whether `condition` requires the step `id`'s success.
+/// Whether `condition` requires the step `id`'s success: a conjunction, with
+/// no `||` anywhere, one of whose terms is `steps.<id>.outcome == 'success'`,
+/// as in `always() && steps.<id>.outcome == 'success'`.
 fn requires_success(condition: &str, id: &str) -> bool {
     let compact: String = condition.split_whitespace().collect();
-    compact.contains(&format!("steps.{id}.outcome=='success'"))
-        || compact.contains(&format!("steps.{id}.outcome==\"success\""))
+    let compact = compact
+        .strip_prefix("${{")
+        .and_then(|inner| inner.strip_suffix("}}"))
+        .unwrap_or(&compact);
+    !compact.contains("||")
+        && compact.split("&&").any(|term| {
+            term == format!("steps.{id}.outcome=='success'")
+                || term == format!("steps.{id}.outcome==\"success\"")
+        })
 }

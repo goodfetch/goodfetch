@@ -11,8 +11,10 @@
 //!   from (`repository`, `tag`, `digest`);
 //! - each literal image a script under `ci/` names.
 //!
-//! In scripts, an image is recognised by its registry host, so an image held
-//! in a variable is checked where the variable's value is written: a pin file.
+//! In scripts, an image is recognised by its registry host, or as the image
+//! argument of `docker` or `podman`'s `run`, `pull` or `create`, so a Docker
+//! Hub short name (`postgres:16`) is checked too; an image held in a variable
+//! is checked where the variable's value is written: a pin file.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -185,6 +187,7 @@ fn from_images(text: &str) -> Vec<String> {
         let Some(image) = words.next() else {
             continue;
         };
+        let earlier_stage = stages.iter().any(|stage| stage == image);
         if words
             .next()
             .is_some_and(|word| word.eq_ignore_ascii_case("AS"))
@@ -192,9 +195,6 @@ fn from_images(text: &str) -> Vec<String> {
         {
             stages.push(stage.to_owned());
         }
-        let earlier_stage = stages[..stages.len().saturating_sub(1)]
-            .iter()
-            .any(|stage| stage == image);
         if image != "scratch" && !earlier_stage && !is_pinned(image) {
             unpinned.push(image.to_owned());
         }
@@ -219,13 +219,61 @@ fn pin_file(text: &str, file: &str) -> Result<Vec<String>> {
     Ok(vec![repository.to_owned()])
 }
 
-/// Each literal image a script names, by its registry host, that is not
-/// pinned: a reference with no digest, or with a digest that is not a
-/// SHA-256 one. A digest from a variable (`<repository>@$digest`) is read
-/// from a pin file, which this check reads too. Comments and URLs
-/// (`https://ghcr.io/v2/…`) are not images.
+/// The container engines whose image argument a script's command names.
+const ENGINES: [&str; 2] = ["docker", "podman"];
+
+/// The engine subcommands that take an image.
+const IMAGE_COMMANDS: [&str; 3] = ["run", "pull", "create"];
+
+/// The options of those subcommands that take a value as the next word,
+/// which is no image; any other option is read as a flag, and a value written
+/// `--option=value` is one word.
+const VALUE_OPTIONS: [&str; 32] = [
+    "--add-host",
+    "--cap-add",
+    "--cap-drop",
+    "--cpus",
+    "--device",
+    "--dns",
+    "--entrypoint",
+    "-e",
+    "--env",
+    "--env-file",
+    "--gpus",
+    "-h",
+    "--hostname",
+    "-l",
+    "--label",
+    "-m",
+    "--memory",
+    "--mount",
+    "--name",
+    "--network",
+    "-p",
+    "--platform",
+    "--publish",
+    "--pull",
+    "--security-opt",
+    "--shm-size",
+    "--tmpfs",
+    "-u",
+    "--user",
+    "-v",
+    "--volume",
+    "--workdir",
+];
+
+/// Each literal image a script names that is not pinned: a reference with
+/// no digest, or with a digest that is not a SHA-256 one. An image is
+/// recognised by its registry host, or as the image argument of `docker` or
+/// `podman`'s `run`, `pull` or `create`, which may be a Docker Hub short
+/// name (`postgres:16`). A digest from a variable (`<repository>@$digest`),
+/// or an image argument that is a variable, is read from a pin file, which
+/// this check reads too. Comments and URLs (`https://ghcr.io/v2/…`) are not
+/// images.
 fn unpinned_in_script(script: &str) -> Vec<String> {
     let mut unpinned = Vec::new();
+    let script = script.replace("\\\n", " ");
     for line in script.lines() {
         let code = line.trim_start();
         if code.starts_with('#') {
@@ -244,6 +292,44 @@ fn unpinned_in_script(script: &str) -> Vec<String> {
                 unpinned.push(word.to_owned());
             }
         }
+        for image in engine_images(code) {
+            let named_by_registry = REGISTRIES
+                .iter()
+                .any(|registry| image.starts_with(registry));
+            if !named_by_registry && !image.starts_with('$') && !is_pinned(image) {
+                unpinned.push(image.to_owned());
+            }
+        }
     }
     unpinned
+}
+
+/// The image argument of each `docker` or `podman` `run`, `pull` or `create`
+/// on a line: the first word after the subcommand that is no option or
+/// option value.
+fn engine_images(code: &str) -> Vec<&str> {
+    let words: Vec<&str> = code
+        .split(|character: char| {
+            character.is_whitespace() || matches!(character, '"' | '\'' | '`' | '(' | ')' | ';')
+        })
+        .filter(|word| !word.is_empty())
+        .collect();
+    let mut images = Vec::new();
+    for (index, pair) in words.windows(2).enumerate() {
+        let engine = pair[0].rsplit('/').next().unwrap_or(pair[0]);
+        if !ENGINES.contains(&engine) || !IMAGE_COMMANDS.contains(&pair[1]) {
+            continue;
+        }
+        let mut rest = words[index + 2..].iter();
+        while let Some(word) = rest.next() {
+            if !word.starts_with('-') {
+                images.push(*word);
+                break;
+            }
+            if VALUE_OPTIONS.contains(word) {
+                rest.next();
+            }
+        }
+    }
+    images
 }

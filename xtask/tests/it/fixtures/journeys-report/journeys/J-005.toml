@@ -1,0 +1,16 @@
+id = "J-005"
+title = "Crawl from Python"
+goal = "A person crawls a site from Python."
+area = 6
+product = "foxhound"
+status = "active"
+covers = []
+
+[surfaces]
+sdk-python = "M2"
+
+[[steps]]
+text = "Crawl the site from Python"
+
+[[expect]]
+text = "The crawl's Records arrive"

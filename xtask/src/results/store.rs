@@ -312,6 +312,8 @@ pub(crate) struct Kept {
     pub(crate) configuration: artifact::Configuration,
     /// The commit the artifact's job tested, from its `context.json`.
     pub(crate) commit: String,
+    /// Its path in the artifact, such as `result-documents/J-001@cli.json`.
+    pub(crate) file: String,
     pub(crate) contents: Vec<u8>,
 }
 
@@ -321,9 +323,10 @@ struct KeptContext {
     commit: String,
 }
 
-/// Every file named `name` that an attempt of the store at `root` kept in
-/// one of its JUnit artifacts, in the order of the attempts' paths.
-pub(crate) fn read_kept(root: &Path, name: &str) -> Result<Vec<Kept>> {
+/// Every file that an attempt of the store at `root` kept in one of its
+/// JUnit artifacts and whose path in the artifact `wanted` accepts, in the
+/// order of the attempts' paths.
+pub(crate) fn read_kept(root: &Path, wanted: impl Fn(&str) -> bool) -> Result<Vec<Kept>> {
     let mut files = Vec::new();
     collect(&root.join("runs"), &mut files)?;
     files.sort();
@@ -355,17 +358,17 @@ pub(crate) fn read_kept(root: &Path, name: &str) -> Result<Vec<Kept>> {
                     let context: KeptContext =
                         serde_json::from_str(&text).with_context(|| context(path, &entry_path))?;
                     commits.insert(artifact_name.to_owned(), context.commit);
-                } else if file.rsplit('/').next() == Some(name) {
+                } else if wanted(file) {
                     let mut contents = Vec::new();
                     entry.read_to_end(&mut contents)?;
-                    found.push((artifact_name.to_owned(), contents));
+                    found.push((artifact_name.to_owned(), file.to_owned(), contents));
                 }
             }
         }
         let Some(run) = run else {
             bail!("{} lacks run.json", path.display());
         };
-        for (artifact_name, contents) in found {
+        for (artifact_name, file, contents) in found {
             let Some(commit) = commits.get(&artifact_name) else {
                 bail!(
                     "artifact `{artifact_name}` of {} lacks its context.json",
@@ -376,6 +379,7 @@ pub(crate) fn read_kept(root: &Path, name: &str) -> Result<Vec<Kept>> {
                 run: run.clone(),
                 configuration: artifact::parse(&artifact_name)?,
                 commit: commit.clone(),
+                file,
                 contents,
             });
         }

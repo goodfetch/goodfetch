@@ -172,6 +172,7 @@ fn each_products_view_lists_only_the_features_it_carries() {
         vec![
             "collie: 2 tested, 6 untested, 2 excepted, 2 planned at the M1 gate",
             "foxhound: 3 tested, 6 untested, 2 excepted, 2 planned at the M1 gate",
+            "M1 gate: not ready, 6 Features untested on main's latest Release run, of c1",
         ]
     );
 }
@@ -269,6 +270,76 @@ fn the_page_lists_each_untested_feature_with_its_cause() {
     }
     assert!(page.contains("&lt;b&gt;it&lt;/b&gt;"));
     assert!(!page.contains("<b>it</b>"));
+}
+
+#[test]
+fn the_gate_is_not_ready_while_a_due_feature_is_untested() {
+    let workspace = Workspace::from_fixture("features-report");
+    fixture_store(&workspace);
+
+    let (_, report) = report(&workspace, "M1");
+
+    assert_eq!(
+        report["gate"],
+        json!({
+            "ready": false,
+            "untested": [
+                "operation:sample.failed",
+                "operation:sample.quarantined",
+                "operation:sample.unrun",
+                "operation:sample.untested",
+                "story:1-2",
+                "story:1-3",
+            ],
+        })
+    );
+}
+
+#[test]
+fn the_gate_is_ready_once_every_due_feature_is_tested_or_excepted() {
+    let workspace = Workspace::from_fixture("features-report");
+    fixture_store(&workspace);
+    for feature in [
+        "operation:sample.failed",
+        "operation:sample.quarantined",
+        "operation:sample.unrun",
+        "operation:sample.untested",
+        "story:1-2",
+        "story:1-3",
+    ] {
+        workspace.append(
+            "features/exceptions.toml",
+            &format!(
+                "\n[[exception]]\nfeature = \"{feature}\"\nevidence = \"manual\"\nreason = \"A person checks it.\"\nlink = \"https://example.invalid/owner-test\"\n"
+            ),
+        );
+    }
+
+    let (outcome, report) = report(&workspace, "M1");
+
+    assert_eq!(report["gate"], json!({ "ready": true, "untested": [] }));
+    assert_eq!(
+        outcome.stdout.lines().last(),
+        Some("M1 gate: ready on main's latest Release run, of c1")
+    );
+}
+
+#[test]
+fn without_a_release_run_the_gate_is_not_ready() {
+    let workspace = Workspace::from_fixture("features-report");
+    workspace.write("features/exceptions.toml", b"");
+    workspace.write("features/inventory.json", br#"{"features": []}"#);
+
+    let outcome = workspace.xtask(&["features", "report", "--milestone", "M1", "--out", OUT]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report: Value =
+        serde_json::from_str(&workspace.read_text(&format!("{OUT}/features.json"))).unwrap();
+    assert_eq!(report["gate"], json!({ "ready": false, "untested": [] }));
+    assert_eq!(
+        outcome.stdout.lines().last(),
+        Some("M1 gate: not ready, since the store holds no Release run of main")
+    );
 }
 
 #[test]

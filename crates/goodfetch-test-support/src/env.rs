@@ -19,7 +19,9 @@ use std::time::{Duration, SystemTime};
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
 use crate::exercise::{DISPATCH_TARGET, ExerciseRecord};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
-use crate::variables::{SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test};
+use crate::variables::{
+    COVERAGE_VARIABLE, SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test,
+};
 
 /// Every test's start time, 2026-01-05T09:00:00Z: a Monday outside any DST
 /// change in the shared time zones. A test that needs another passes its own.
@@ -119,6 +121,9 @@ impl TestEnv {
         let record = ExerciseRecord::of(variables);
         if let Some(record) = &record {
             record.open()?;
+        }
+        if let Some(profile) = variables.get(COVERAGE_VARIABLE) {
+            env.insert(COVERAGE_VARIABLE.to_owned(), profile.to_owned());
         }
         if cfg!(windows) {
             for name in WINDOWS_VARIABLES {

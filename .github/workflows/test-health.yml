@@ -5,8 +5,9 @@
 #   oldest quarantined tests 50 times each (`quarantined`), which then lists
 #   every runner's tests on the build it made, then the scan of the results
 #   store, the drift check of `xtask perf` (ADR 0071), the Allure Report 3
-#   build from it and the Feature report (ADR 0072) from the store, the
-#   quarantine list and those listings (`report`).
+#   build from it, the Feature report (ADR 0072) from the store, the
+#   quarantine list and those listings, and the Journey report (ADR 0063)
+#   with the next owner test's "Journeys to try" (`report`).
 # - the constrained test-health run, weekly and after each manual-dispatch
 #   Release run: the Pre-merge suite under a cgroup that halves the runner's
 #   CPU and memory, with a fresh order seed and Vitest's `detectAsyncLeaks`,
@@ -127,6 +128,10 @@ jobs:
       # The scan opens and reopens flaky-test and live-check issues, and the
       # drift check needs-triage ones.
       issues: write
+    env:
+      # The milestone whose owner test comes next: the Feature report judges
+      # its gate, and the Journey report lists its "Journeys to try".
+      GATE: M1
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -187,17 +192,19 @@ jobs:
       # evidence kind or planned at the gate of GATE, the milestone whose
       # owner test comes next, from main's latest Release run in the store.
       # Without the listings it says so, and counts no Vitest, Playwright or
-      # pytest declaration and no Journey variant as proved.
+      # pytest declaration and no Journey variant as proved. Its last line,
+      # the milestone gate's state, goes to the job summary.
       - name: Build the Feature report
         if: always()
         env:
-          GATE: M1
           LISTED: ${{ steps.listings.outcome }}
         run: |
+          set -o pipefail
           listings=()
           [[ $LISTED == success ]] && listings=(--listings target/journey-listings)
           cargo run --quiet --locked -p xtask -- features report --milestone "$GATE" \
-            --store test-results "${listings[@]}" --out target/features-report
+            --store test-results "${listings[@]}" --out target/features-report | tee target/features-report.txt
+          { echo "### Feature report"; echo; sed 's/$/  /' target/features-report.txt; } >>"$GITHUB_STEP_SUMMARY"
       # Published beside the Allure report once the repository is public;
       # attached to the run until then.
       - name: Attach the Feature report
@@ -206,6 +213,27 @@ jobs:
         with:
           name: features-report
           path: target/features-report/
+          if-no-files-found: ignore
+      # ADRs 0058, 0063 and 0094: each Journey variant's outcome on main's
+      # latest Release run, from the result documents its cells kept in the
+      # store, by milestone, area and Product, shown in the job summary; and
+      # the "Journeys to try" of GATE's owner test, from the catalog and the
+      # milestone's `manual` exceptions.
+      - name: Build the Journey report
+        if: always()
+        run: |
+          cargo run --quiet --locked -p xtask -- journeys report --store test-results \
+            --out target/journeys-report >>"$GITHUB_STEP_SUMMARY"
+          cargo run --quiet --locked -p xtask -- journeys report --owner-test "$GATE" \
+            >target/journeys-report/journeys-to-try.md
+      # Published beside the Feature report once the repository is public;
+      # attached to the run until then.
+      - name: Attach the Journey report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: journeys-report
+          path: target/journeys-report/
           if-no-files-found: ignore
 
   budget:

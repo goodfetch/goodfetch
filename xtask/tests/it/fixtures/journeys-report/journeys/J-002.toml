@@ -1,0 +1,17 @@
+id = "J-002"
+title = "Crawl a site to Markdown"
+goal = "A person crawls a site to Markdown."
+area = 6
+product = "foxhound"
+status = "active"
+covers = []
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+
+[[steps]]
+text = "Crawl the site"
+
+[[expect]]
+text = "Each Record holds its page's Markdown"

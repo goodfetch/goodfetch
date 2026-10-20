@@ -26,7 +26,8 @@ pub(crate) fn render(report: &Report) -> String {
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
          <title>Feature report</title>\n<style>{STYLE}</style>\n</head>\n<body>\n\
-         <h1>Feature report at the {milestone} gate</h1>\n<p class=\"muted\">{}</p>\n",
+         <h1>Feature report at the {milestone} gate</h1>\n<p><strong>{}</strong></p>\n<p class=\"muted\">{}</p>\n",
+        escape(&report.gate_line()),
         escape(&source_line(report))
     );
     for view in &report.views {

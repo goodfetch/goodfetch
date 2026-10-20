@@ -109,9 +109,25 @@ const featureTags = readFeatureIds(import.meta.dirname).map((name) => ({ name })
 const caseList = join(import.meta.dirname, "conformance", "clients", "cases.toml");
 const caseTags = clientCaseTags(readClientCases(caseList));
 
+// `just coverage` (ADR 0072; TESTING.md, Code coverage) names the folder its
+// reports go to: Vitest's `v8` provider then measures every project, in Node
+// and in Browser Mode, with no threshold.
+const coverageFolder = process.env["GOODFETCH_COVERAGE"];
+
 const config: ViteUserConfig = defineConfig({
   test: {
     ...(visual.update === undefined ? {} : { update: visual.update }),
+    ...(coverageFolder === undefined
+      ? {}
+      : {
+          coverage: {
+            enabled: true,
+            provider: "v8",
+            reporter: ["text-summary", "html", "lcov"],
+            reportsDirectory: join(coverageFolder, "vitest"),
+            exclude: [...outside, "**/generated/**"],
+          },
+        }),
     retry: 0,
     restoreMocks: true,
     unstubEnvs: true,

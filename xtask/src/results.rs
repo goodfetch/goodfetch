@@ -6,10 +6,12 @@
 
 mod artifact;
 mod ingest;
+mod release;
 mod store;
 
 pub(crate) use artifact::{Arch, Os};
 pub(crate) use ingest::{Platform, Source, failed, ingest, pending, tested_commit};
+pub(crate) use release::{MAIN, RELEASE_SUITE, latest_on_main};
 pub(crate) use store::{
     JobRun, Kept, Outcome, RunAttempt, TestRun, read_all, read_kept, read_month_and_previous,
 };

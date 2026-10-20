@@ -73,14 +73,16 @@ pub(super) fn explain_through(machine: &Machine<'_>, request: &Explain) -> ExitC
             return ExitCode::FAILURE;
         }
     };
-    let explained = machine.connect(true).and_then(|connected| {
-        let mut connected = connected.ok_or_else(|| {
-            Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
-        })?;
-        let explanation = connected.call::<SettingsExplanation>("config.explain", &params);
-        connected.close();
-        explanation
-    });
+    let explained = machine
+        .connect(true, machine.identity.product)
+        .and_then(|connected| {
+            let mut connected = connected.ok_or_else(|| {
+                Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
+            })?;
+            let explanation = connected.call::<SettingsExplanation>("config.explain", &params);
+            connected.close();
+            explanation
+        });
     match explained {
         Ok(explanation) => {
             print(&explanation, request.json);

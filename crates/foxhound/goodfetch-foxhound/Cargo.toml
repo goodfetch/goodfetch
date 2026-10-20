@@ -28,6 +28,8 @@ mimalloc = { workspace = true, optional = true }
 goodfetch-foxhound = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# The refusals' messages through the executables (tests/it/daemon.rs).
+insta.workspace = true
 # The run-state corpus writer (examples/compat-run-state.rs): its runtime,
 # in-memory Client, home and SQL dump.
 rusqlite.workspace = true

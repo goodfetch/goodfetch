@@ -92,6 +92,23 @@ fn validate(output: &Value, definition: &str) {
     assert_eq!(errors, Vec::<String>::new());
 }
 
+/// The versioned copy of Collie's executable the Daemon runs from, in the
+/// Browser cache of the test's home (ADR 0098).
+fn installed_copy(env: &TestEnv) -> PathBuf {
+    let list: Value = serde_json::from_slice(
+        &std::fs::read(env.home().join("installed-executables.json")).unwrap(),
+    )
+    .unwrap();
+    let copy = &list["executables"][0]["copy"];
+    env.home()
+        .join("browsers")
+        .join("executable_copy")
+        .join(copy["name"].as_str().unwrap())
+        .join(copy["build"].as_str().unwrap())
+        .join("files")
+        .join(Path::new(COLLIE).file_name().unwrap())
+}
+
 fn runtime_file(env: &TestEnv) -> PathBuf {
     RuntimeFile::path(env.home(), VERSION)
 }
@@ -124,6 +141,24 @@ impl RawClient {
     /// Connects to the Daemon `found` names, and says `hello` needing
     /// `product`.
     pub(crate) fn opened(found: &RuntimeFile, product: &str) -> Self {
+        let mut client = Self::connected(found);
+        let answer = client.call(
+            0,
+            "hello",
+            &json!({
+                "protocol_version": PROTOCOL_VERSION.to_string(),
+                "surface": "sdk_typescript",
+                "token": found.token,
+                "needs": product,
+                "product_version": VERSION,
+            }),
+        );
+        assert!(answer.get("result").is_some(), "{answer}");
+        client
+    }
+
+    /// Connects to the Daemon `found` names, without a word.
+    fn connected(found: &RuntimeFile) -> Self {
         let (reader, writer): (Box<dyn std::io::Read>, Box<dyn std::io::Write>) =
             match &found.endpoint {
                 #[cfg(unix)]
@@ -138,23 +173,22 @@ impl RawClient {
                     (Box::new(stream.try_clone().unwrap()), Box::new(stream))
                 }
             };
-        let mut client = Self {
+        Self {
             reader: BufReader::new(reader),
             writer,
-        };
-        let answer = client.call(
-            0,
-            "hello",
-            &json!({
-                "protocol_version": PROTOCOL_VERSION.to_string(),
-                "surface": "sdk_typescript",
-                "token": found.token,
-                "needs": product,
-                "product_version": VERSION,
-            }),
-        );
-        assert!(answer.get("result").is_some(), "{answer}");
-        client
+        }
+    }
+
+    fn send(&mut self, message: &Value) {
+        writeln!(self.writer, "{message}").unwrap();
+        self.writer.flush().unwrap();
+    }
+
+    /// The next message, or `None` once the Daemon closed the Connection.
+    fn next(&mut self) -> Option<Value> {
+        let mut line = String::new();
+        (self.reader.read_line(&mut line).unwrap() > 0)
+            .then(|| serde_json::from_str(&line).unwrap())
     }
 
     pub(crate) fn call(&mut self, id: i64, method: &str, params: &Value) -> Value {
@@ -175,7 +209,7 @@ impl RawClient {
     }
 }
 
-/// Covers: story:3-11, story:3-12, story:3-22, story:3-139, command:daemon.start, command:daemon.status, command:daemon.stop, operation:daemon.status, operation:daemon.stop
+/// Covers: story:3-11, story:3-12, story:3-20, story:3-22, story:3-139, command:daemon.start, command:daemon.status, command:daemon.stop, operation:daemon.status, operation:daemon.stop
 #[test]
 fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home() {
     let env = TestEnv::new();
@@ -191,6 +225,7 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
     validate(&started, "DaemonStartOutput");
     validate(&status, "DaemonStatusOutput");
     validate(&stopped, "DaemonStopOutput");
+    let copy = &installed_copy(&env);
     let installed: Value = serde_json::from_slice(
         &std::fs::read(env.home().join("installed-executables.json")).unwrap(),
     )
@@ -202,6 +237,7 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
             status["daemon"]["pid"].clone(),
             found.version.as_str(),
             installed["executables"][0]["copy"]["kind"].clone(),
+            copy.is_file(),
             stopped,
             after["daemon"].clone(),
         ),
@@ -211,6 +247,7 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
             json!(found.pid),
             VERSION,
             json!("executable_copy"),
+            true,
             json!({ "stopped": { "live_runs": 0 } }),
             Value::Null,
         )
@@ -500,4 +537,45 @@ fn a_connection_dropped_mid_command_fails_the_command() {
         "{}",
         output.stderr
     );
+}
+
+/// The protocol's Compatibility corpus, recorded against an Attached
+/// engine.
+const CLIENT_TRANSCRIPT: &str = include_str!("../../../../compat/protocol/head/client.jsonl");
+const ENGINE_TRANSCRIPT: &str = include_str!("../../../../compat/protocol/head/engine.jsonl");
+
+/// A Client's transcript of the protocol's `head/` set, its `hello` given
+/// the Daemon's token, replays against the current Daemon, each response
+/// the one recorded (ADR 0066).
+///
+/// Covers: format:protocol, story:3-4
+#[test]
+fn the_protocols_client_transcript_replays_against_the_daemon() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
+    let mut client = RawClient::connected(&found);
+    let expected: Vec<Value> = ENGINE_TRANSCRIPT
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+
+    for line in CLIENT_TRANSCRIPT.lines() {
+        let mut message: Value = serde_json::from_str(line).unwrap();
+        if message["method"] == json!("hello") {
+            message["params"]["token"] = json!(found.token);
+        }
+        client.send(&message);
+    }
+    let mut received: Vec<Value> = (0..expected.len())
+        .map(|_| client.next().unwrap())
+        .collect();
+
+    let by_id = |message: &Value| message["id"].to_string();
+    let mut expected = expected;
+    expected.sort_by_key(by_id);
+    received.sort_by_key(by_id);
+    assert_eq!(received, expected);
 }

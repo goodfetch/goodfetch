@@ -111,6 +111,67 @@ fn browsers_clean_deletes_what_nothing_pins_or_used_within_the_age() {
     assert!(recent.join("entry.json").exists());
 }
 
+/// Writes the list of installed executables of the test's home: a linked
+/// program seen in 2100, gone from its path, and a Foxhound executable
+/// last seen in 2020, gone too, each pinning one build.
+fn install_two_executables(env: &TestEnv) {
+    let entry = |kind: &str, build: &str, last_seen: &str| {
+        json!({
+            "kind": kind, "product": "foxhound", "product_version": "9.9.9",
+            "path": env.folder().join(build).display().to_string(),
+            "size": 1, "modified_at": "2020-01-01T00:00:00Z",
+            "pins": [{ "kind": "browser", "name": "chrome-for-testing", "build": build }],
+            "last_seen": last_seen,
+        })
+    };
+    let list = json!({
+        "format_version": "0.1",
+        "executables": [
+            entry("linked_program", "pinned-by-a-program", "2100-01-01T00:00:00Z"),
+            entry("product_executable", "pinned-by-a-removed-foxhound", "2020-01-01T00:00:00Z"),
+        ],
+    });
+    fs::create_dir_all(env.home()).unwrap();
+    fs::write(
+        env.home().join("installed-executables.json"),
+        list.to_string(),
+    )
+    .unwrap();
+}
+
+/// A build is kept while an executable that counts as installed pins it,
+/// even one only linking the engine, and deleted once that executable's
+/// entry stops counting (ADR 0098).
+///
+/// Covers: story:3-139, story:3-140
+#[test]
+fn browsers_clean_keeps_what_an_installed_executable_pins() {
+    let env = TestEnv::new();
+    let cache = env.home().join("browsers");
+    let kept = lay_out(&cache, "pinned-by-a-program", "2020-01-01T00:00:00Z");
+    lay_out(
+        &cache,
+        "pinned-by-a-removed-foxhound",
+        "2020-01-01T00:00:00Z",
+    );
+    install_two_executables(&env);
+
+    let output = run(&env, &["browsers", "clean", "--json"], &[]);
+
+    let output: BrowsersCleanOutput = serde_json::from_value(output).unwrap();
+    assert_eq!(
+        (
+            output
+                .deleted
+                .iter()
+                .map(|id| id.build.as_str())
+                .collect::<Vec<_>>(),
+            kept.join("entry.json").exists(),
+        ),
+        (vec!["pinned-by-a-removed-foxhound"], true)
+    );
+}
+
 /// `browser_cache.max_unused_age` set in user configuration reaches the
 /// clean-up: a build unused since 2020 is kept under an age of about 300
 /// years (ADR 0098).

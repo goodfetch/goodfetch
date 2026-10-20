@@ -1,0 +1,5 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/daemon.rs
+expression: refused.stderr.trim()
+---
+[INSTANT] ERROR goodfetch_collie::executable::daemon: This Client needs Foxhound, and this engine is Collie 0.0.0. Connect to a Foxhound engine, or run with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`). Run `[FOXHOUND] daemon restart` to restart the Daemon on its major's pick. code="not_in_product"

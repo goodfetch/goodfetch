@@ -223,15 +223,21 @@ fn a_daemon_stops_once_no_client_was_connected_for_its_idle_timeout() {
     );
 }
 
-/// Covers: story:3-18
-#[test]
-fn a_connected_client_keeps_the_daemon_past_its_idle_timeout() {
+/// A Client keeps the Daemon past its idle timeout while it is connected,
+/// a visible Console tab as much as a script (ADR 0024).
+///
+/// Covers: story:3-18, story:3-19
+#[rstest]
+#[case::the_cli("cli")]
+#[case::a_console_tab("console")]
+fn a_connected_client_keeps_the_daemon_past_its_idle_timeout(#[case] surface: &str) {
     let (end, info) = daemon(
         &engine(Product::Collie),
         &TestEnv::new(),
         the_pick(),
         |dialer| async move {
-            let mut client = opened(&dialer, cli_hello()).await;
+            let mut client =
+                opened(&dialer, hello_with("collie", "0.1", surface, Some(TOKEN))).await;
             tokio::time::sleep(60 * MINUTE).await;
             let info = call(&mut client, 1, "engine.info", json!({})).await;
             client.close().await;

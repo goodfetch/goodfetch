@@ -12,6 +12,10 @@
 //! token; a refusal marked as a handover makes it wait for the pick, and
 //! any other refusal fails with a `fix` naming this executable's
 //! `daemon restart`. A Daemon that hands over starts the pick itself.
+//!
+//! The `daemon` commands need Collie, which carries `daemon.*`, so either
+//! executable stops or asks a Daemon of either Product; a command that
+//! runs the engine needs its executable's own Product (spec #213).
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI reads the machine's files, starts the Daemon's process and builds its runtime before and outside any async worker (ADR 0060)"
@@ -258,10 +262,13 @@ impl Machine<'_> {
         )
     }
 
-    /// A Connection to the Daemon that `hello` opened, this executable's
-    /// Product needed: the running Daemon, or the pick this starts when
-    /// `start` and none runs.
-    pub(super) fn connect(&self, start: bool) -> Result<Option<Connected>, Failure> {
+    /// A Connection to the Daemon that `hello` opened, needing `needs`: the
+    /// running Daemon, or the pick this starts when `start` and none runs.
+    pub(super) fn connect(
+        &self,
+        start: bool,
+        needs: Product,
+    ) -> Result<Option<Connected>, Failure> {
         let runtime = runtime();
         for _ in 0..ATTEMPTS {
             let found = if start {
@@ -274,7 +281,7 @@ impl Machine<'_> {
             let Some(found) = found else {
                 return Ok(None);
             };
-            match runtime.block_on(self.open(&found)) {
+            match runtime.block_on(self.open(&found, needs)) {
                 Ok(connection) => {
                     return Ok(Some(Connected {
                         runtime,
@@ -283,8 +290,14 @@ impl Machine<'_> {
                         next: 1,
                     }));
                 }
-                // It handed over, or went away in between: look again.
-                Err(Opening::HandOver | Opening::Gone) => {}
+                // It hands over: once the start lock is free, the pick runs.
+                Err(Opening::HandOver) => drop(
+                    self.files()
+                        .start_lock()
+                        .map_err(unavailable("the Daemon's start lock cannot be taken"))?,
+                ),
+                // It went away in between: look again.
+                Err(Opening::Gone) => {}
                 Err(Opening::Refused(error)) => return Err(self.refused(&error)),
             }
         }
@@ -294,7 +307,7 @@ impl Machine<'_> {
         )))
     }
 
-    async fn open(&self, found: &DaemonRuntimeFile) -> Result<Opened, Opening> {
+    async fn open(&self, found: &DaemonRuntimeFile, needs: Product) -> Result<Opened, Opening> {
         let connection = transport::connect_daemon(&found.endpoint)
             .await
             .map_err(|_| Opening::Gone)?;
@@ -303,7 +316,7 @@ impl Machine<'_> {
             protocol_version: PROTOCOL_VERSION,
             surface: Surface::Cli,
             token: Some(found.token.clone()),
-            needs: Some(self.identity.product),
+            needs: Some(needs),
             product_version: self.identity.product_version.clone(),
         };
         match opened.call(0, "hello", &hello).await {
@@ -378,7 +391,7 @@ impl Machine<'_> {
     /// Asks the running Daemon to stop and waits until it has; `None` when
     /// none runs.
     fn stop(&self) -> Result<Option<DaemonStopping>, Failure> {
-        let Some(mut connected) = self.connect(false)? else {
+        let Some(mut connected) = self.connect(false, Product::Collie)? else {
             return Ok(None);
         };
         let stopping: DaemonStopping = connected.call("daemon.stop", &serde_json::json!({}))?;
@@ -395,7 +408,7 @@ impl Machine<'_> {
     /// Starts the Daemon unless it runs, and answers its status.
     fn start(&self, keep_alive: bool) -> Result<DaemonStartOutput, Failure> {
         let (_, started) = self.running_or_started(keep_alive)?;
-        let mut connected = self.connect(true)?.ok_or_else(|| {
+        let mut connected = self.connect(true, Product::Collie)?.ok_or_else(|| {
             Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
         })?;
         let daemon: DaemonStatus = connected.call("daemon.status", &serde_json::json!({}))?;
@@ -787,7 +800,7 @@ pub(super) fn restart(machine: &Machine<'_>, keep_alive: bool, json: bool) -> Ex
 
 /// `daemon status`.
 pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
-    let daemon = match machine.connect(false) {
+    let daemon = match machine.connect(false, Product::Collie) {
         Ok(Some(mut connected)) => {
             let status = connected.call::<DaemonStatus>("daemon.status", &serde_json::json!({}));
             connected.close();

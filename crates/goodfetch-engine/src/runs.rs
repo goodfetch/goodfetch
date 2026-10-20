@@ -58,11 +58,6 @@ const CALLER: &str = "os_user";
 /// How many commands wait for the registry before their senders wait.
 const COMMANDS: usize = 256;
 
-/// The `tracing` target of the outcome records: one per Error code a Run
-/// records and no reply carries, such as a work item's `handler_lost`, which
-/// ADR 0072's exercise audit reads beside `rpc`'s dispatch records.
-pub const OUTCOME_TARGET: &str = "goodfetch::run::outcome";
-
 /// What the registry starts from.
 pub(crate) struct RunsSetup {
     /// The Goodfetch home.
@@ -250,12 +245,6 @@ impl Run {
     /// Its run state's writer.
     pub fn state(&self) -> &RunState {
         &self.state
-    }
-
-    /// Records, under [`OUTCOME_TARGET`], that its driver recorded
-    /// `error_code` in its run state, which no reply carries.
-    pub fn record_outcome(&self, error_code: &str) {
-        tracing::trace!(target: OUTCOME_TARGET, run_id = %self.id, error_code, "the run recorded an error code");
     }
 
     /// The engine's clock.
@@ -1007,3 +996,4 @@ impl Closing {
 }
 
 mod folder;
+pub mod outcome;

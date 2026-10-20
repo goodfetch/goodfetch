@@ -10,7 +10,9 @@
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
-//! its runner and the Scripted resolver (ADR 0067); the shared snapshot
+//! its runner and the Scripted resolver, and the Secret canaries, planted
+//! and searched for in every encoding with their `gitleaks` rule (ADR
+//! 0067); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
 //! (ADRs 0062 and 0073); and `goodfetch-test-env`,

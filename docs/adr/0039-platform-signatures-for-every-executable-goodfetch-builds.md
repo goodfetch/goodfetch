@@ -68,6 +68,8 @@ Changes:
 
 **Executables Windows refuses to start.** When Smart App Control blocks an executable Goodfetch starts but did not build (a browser, a third-party process Plugin, an interpreter from the runtime cache), the start fails with a typed error that names the file and Smart App Control. For a browser it gives the three fixes: the Goodfetch Chromium, an installed Chrome by channel, or turning Smart App Control off. The engine never re-signs such a file and never switches to another browser by itself.
 
+> Note (agent decision, pending owner review), 2026-10-20, [#260](https://github.com/goodfetch/goodfetch/issues/260): the typed error is `executable_blocked_by_smart_app_control` (Refused group, not retryable), whose details give the file. The engine reads it from the start's OS error: `ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION` (4551) and the code-integrity reputation refusals (4556 to 4559, 4580 to 4582). An App Control for Business policy an administrator sets gives the same codes, so the message names both; the codes for a broken or unsigned policy (4550, 4552 to 4555) refuse no file and keep the start's own failure.
+
 ## Consequences
 
 - A Goodfetch company must exist before the first public release, and its Apple and Azure accounts must be validated in time. Validation takes up to about four weeks: the D-U-N-S number takes about five business days, and Artifact Signing's identity check 1 to 20 business days. The owner approves the yearly Apple fee (99 USD), Artifact Signing (9.99 USD a month) and, if needed, the fallback certificate.

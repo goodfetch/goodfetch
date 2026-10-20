@@ -2,7 +2,8 @@
 //! Daemon started in the test's own Goodfetch home, from the tool
 //! manifest's Collie executable, or Foxhound's with `--daemon=foxhound`,
 //! whose socket and token the description names, and which stops, leaving
-//! no runtime file, when `goodfetch-test-env`'s stdin closes.
+//! no runtime file, when `goodfetch-test-env`'s stdin closes; and the
+//! `Daemon` type behind it, whose stop checks the home it leaves.
 #![expect(
     clippy::disallowed_types,
     reason = "the tiny Client connects to the described Daemon from outside it, never inside the Simulation (ADRs 0060 and 0069)"
@@ -12,7 +13,10 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use goodfetch_test_support::{Process, TOOLS_VARIABLE, TestEnv, Tool, tools};
+use goodfetch_test_support::{
+    DAEMON_DEADLINE, Daemon, DaemonError, Process, Product, RuntimeFile, TOOLS_VARIABLE, TestEnv,
+    Tool, command, tools,
+};
 use serde_json::{Value, json};
 
 use crate::TEST_ENV;
@@ -144,3 +148,202 @@ fn daemon_describes_a_collie_daemon_a_client_reaches_with_the_described_token() 
         "{answer:?}"
     );
 }
+
+#[test]
+fn two_test_envs_get_two_daemons_in_two_homes_each_with_its_own_token() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("collie", &commit_tool(Tool::Collie))]);
+    let first = start(&env, &["--daemon"], &manifest);
+    let second = start(&env, &["--daemon"], &manifest);
+    let (one, two) = (description(&first), description(&second));
+    let ((socket_one, token_one), (socket_two, token_two)) =
+        (socket_and_token(&one), socket_and_token(&two));
+
+    let answered = |socket: &str, token: &str| {
+        hello(socket, token, "collie").is_some_and(|answer| answer.get("result").is_some())
+    };
+    let answers = [
+        answered(&socket_one, &token_one),
+        answered(&socket_two, &token_two),
+        answered(&socket_one, &token_two),
+    ];
+
+    first.close_stdin_and_wait().unwrap();
+    second.close_stdin_and_wait().unwrap();
+    assert_ne!(one["home"], two["home"]);
+    assert_ne!((&socket_one, &token_one), (&socket_two, &token_two));
+    assert_eq!(answers, [true, true, false]);
+}
+
+#[test]
+fn daemon_foxhound_describes_a_daemon_foxhounds_executable_runs() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("foxhound", &commit_tool(Tool::Foxhound))]);
+    let process = start(&env, &["--daemon=foxhound"], &manifest);
+    let description = description(&process);
+    let (socket, token) = socket_and_token(&description);
+
+    let answer = hello(&socket, &token, "foxhound");
+
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(
+        answer.as_ref().map(|answer| &answer["result"]["product"]),
+        Some(&json!("foxhound")),
+        "{answer:?}"
+    );
+}
+
+#[test]
+fn closing_stdin_stops_the_daemon() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("collie", &commit_tool(Tool::Collie))]);
+    let process = start(&env, &["--daemon"], &manifest);
+    let (socket, _) = socket_and_token(&description(&process));
+
+    let status = process.close_stdin_and_wait().unwrap();
+
+    assert!(status.success());
+    assert!(connect(&socket).is_err(), "{socket} still accepts");
+}
+
+#[test]
+fn a_description_without_daemon_has_no_such_field() {
+    let env = TestEnv::new();
+    let process = start(&env, &[], &manifest_with(&env, &[]));
+
+    let description = description(&process);
+
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(description.get("daemon"), None);
+}
+
+#[test]
+fn a_daemon_without_its_token_fails_validation() {
+    let description = json!({
+        "folder": "/tmp/x é 1", "home": "/tmp/x é 1/home", "env": {}, "seed": 1,
+        "start_time": "2026-01-05T09:00:00Z", "tools": {},
+        "daemon": { "socket": "/tmp/x é 1/home/0.0/daemon.sock" }
+    });
+    let mut complete = description.clone();
+    complete["daemon"]["token"] = json!("0f1e");
+
+    let valid = (
+        schema_errors(&description).is_empty(),
+        schema_errors(&complete).is_empty(),
+    );
+
+    assert_eq!(valid, (false, true));
+}
+
+#[test]
+fn a_daemon_that_fails_to_start_fails_the_start_with_its_message_on_stderr() {
+    let env = TestEnv::new();
+    let program = stand_in(
+        &env,
+        "failing-daemon",
+        "#!/bin/sh\necho 'the Daemon cannot listen: stand-in refusal' >&2\nexit 1\n",
+        "@echo the Daemon cannot listen: stand-in refusal 1>&2\r\n@exit /b 1\r\n",
+    );
+
+    let output = command(&env, TEST_ENV)
+        .arg("--daemon")
+        .env(TOOLS_VARIABLE, manifest_with(&env, &[("collie", &program)]))
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(output.stdout, b"");
+    assert!(
+        stderr.contains("the Daemon cannot listen: stand-in refusal"),
+        "{stderr}"
+    );
+}
+
+/// A stand-in Daemon that publishes and prints a runtime file, and whose
+/// `daemon stop` kills it, leaving that file in the home, as a crashed
+/// Daemon does.
+#[cfg(unix)]
+const LEAVES_ITS_RUNTIME_FILE: &str = r#"#!/bin/sh
+case "$2" in
+launched)
+  /bin/mkdir -p "$GOODFETCH_HOME/0.0"
+  line="{\"endpoint\":{\"unix\":\"$GOODFETCH_HOME/0.0/daemon.sock\"},\"token\":\"stand-in\",\"version\":\"0.0.0\",\"pid\":$$}"
+  printf '%s' "$line" > "$GOODFETCH_HOME/0.0/daemon.json"
+  printf '%s\n' "$line"
+  read -r _ ;;
+stop)
+  read -r line < "$GOODFETCH_HOME/0.0/daemon.json"
+  pid=${line##*\"pid\":}
+  kill "${pid%\}}" ;;
+esac
+"#;
+
+#[cfg(unix)]
+#[test]
+fn a_daemon_that_leaves_its_runtime_file_fails_the_teardown() {
+    let env = TestEnv::new();
+    let program = stand_in(&env, "leaving-daemon", LEAVES_ITS_RUNTIME_FILE, "");
+    let process = start(
+        &env,
+        &["--daemon"],
+        &manifest_with(&env, &[("collie", &program)]),
+    );
+    socket_and_token(&description(&process));
+
+    let status = process.close_stdin_and_wait().unwrap();
+
+    assert_eq!(status.code(), Some(1));
+}
+
+#[test]
+fn a_stopped_daemon_leaves_no_runtime_file_in_the_home() {
+    let env = TestEnv::new();
+    let daemon = Daemon::start(&env, Product::Collie).unwrap();
+    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+    let published = runtime_file.is_file();
+
+    daemon.stop(&env).unwrap();
+
+    assert_eq!((published, runtime_file.exists()), (true, false));
+}
+
+#[cfg(unix)]
+#[test]
+fn stopping_a_daemon_that_leaves_its_runtime_file_fails() {
+    let env = TestEnv::new();
+    let program = stand_in(&env, "leaving-daemon", LEAVES_ITS_RUNTIME_FILE, "");
+    let daemon = Daemon::start_program(&env, &program, DAEMON_DEADLINE).unwrap();
+    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+
+    let stopped = daemon.stop(&env);
+
+    assert!(
+        matches!(&stopped, Err(DaemonError::RuntimeFileLeft(path)) if *path == runtime_file),
+        "{stopped:?}"
+    );
+}
+
+/// A stand-in executable in the test's folder: a shell script on Unix, a
+/// batch file on Windows.
+fn stand_in(env: &TestEnv, name: &str, unix: &str, windows: &str) -> PathBuf {
+    if cfg!(windows) {
+        let path = env.folder().join(format!("{name}.cmd"));
+        std::fs::write(&path, windows).unwrap();
+        path
+    } else {
+        let path = env.folder().join(name);
+        std::fs::write(&path, unix).unwrap();
+        make_executable(&path);
+        path
+    }
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) {}

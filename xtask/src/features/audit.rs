@@ -18,8 +18,9 @@
 //! A command run with arguments that match no `command:` Feature is
 //! reported, since no declaration can claim it. A declaring test with no
 //! record is reported, never passed. The one
-//! exception is ADR 0072's: a unit test that never reaches `rpc` may declare
-//! the `error:` or `event:` Feature it asserts itself, which no record shows.
+//! exception is ADR 0072's: a unit test, or a test above that level whose
+//! record shows it never reached `rpc`, may declare the `error:` or `event:`
+//! Feature it asserts itself, which no record need show.
 
 #![expect(
     clippy::disallowed_methods,
@@ -150,12 +151,15 @@ pub(crate) fn audit(
             continue;
         };
         let record = reached.get(declaration.test.as_str());
-        // ADR 0072: a unit test that never reaches `rpc` asserts its own
-        // Error code or event, which only the review sees.
-        let outside_rpc = declaration.level == Level::Unit
-            && matches!(kind, Kind::Error | Kind::Event)
-            && !record.is_some_and(|record| record.dispatched);
-        if !outside_rpc {
+        // ADR 0072: a test that asserts a module's own Error code or event
+        // through its interface, which only the review sees: a unit test,
+        // whose Error code may be one a Run records rather than a reply
+        // carries, or a test above that level whose record shows it never
+        // reached `rpc`, such as a module's test on a loopback stand-in.
+        let own = matches!(kind, Kind::Error | Kind::Event)
+            && (declaration.level == Level::Unit
+                || record.is_some_and(|record| !record.dispatched));
+        if !own {
             by_test
                 .entry(declaration.test.as_str())
                 .or_default()

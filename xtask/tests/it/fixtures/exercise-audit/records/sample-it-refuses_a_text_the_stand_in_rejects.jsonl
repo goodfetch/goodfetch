@@ -1,0 +1,2 @@
+{"test":"sample::it refuses_a_text_the_stand_in_rejects"}
+{"timestamp":"2026-01-05T09:00:00Z","level":"INFO","fields":{"message":"the stand-in refused the text"},"target":"sample::library"}

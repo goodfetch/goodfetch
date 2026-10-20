@@ -94,10 +94,63 @@ fn audit_reports_a_command_whose_arguments_match_no_command_feature() {
     );
 }
 
+#[test]
+fn audit_judges_the_error_code_and_event_of_a_test_once_it_reaches_rpc() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.append(
+        "records/sample-it-refuses_a_text_the_stand_in_rejects.jsonl",
+        "{\"fields\":{\"message\":\"request answered\",\"method\":\"hello\"},\"target\":\"goodfetch::rpc::dispatch\"}\n",
+    );
+
+    let outcome = audit(&workspace, &[]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding(
+                "unreached",
+                "error:sample_refused in sample::it refuses_a_text_the_stand_in_rejects"
+            ),
+            finding(
+                "unreached",
+                "event:sample.echoed in sample::it refuses_a_text_the_stand_in_rejects"
+            ),
+        ]
+    );
+}
+
+/// The Pre-merge gate's audit, `just test pre-merge`'s last step, reads the
+/// tests the run's JUnit file shows ran.
+#[test]
+fn the_gate_over_the_tests_that_ran_fails_one_that_never_reached_its_feature() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.edit(
+        "records/sample-it-calls_echo_then_crawl.jsonl",
+        r#""method":"sample.crawl""#,
+        r#""method":"sample.echo""#,
+    );
+
+    let outcome = audit(&workspace, &["--junit", "junit/nextest.xml"]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unreached",
+            "operation:sample.crawl in sample::it calls_echo_then_crawl"
+        )]
+    );
+}
+
 #[rstest]
 #[case::integration_test(
     "records/sample-it-gets_the_refusal.jsonl",
     "sample::it gets_the_refusal"
+)]
+#[case::integration_test_that_never_reaches_rpc(
+    "records/sample-it-refuses_a_text_the_stand_in_rejects.jsonl",
+    "sample::it refuses_a_text_the_stand_in_rejects"
 )]
 #[case::unit_test_declaring_an_operation(
     "records/sample-tests-echoes_in_process.jsonl",

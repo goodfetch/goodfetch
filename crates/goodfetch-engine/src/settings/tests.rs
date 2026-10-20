@@ -168,7 +168,7 @@ fn null_from_the_run_clears_a_lower_layers_value() {
     assert_eq!((&run.value, run.layer), (&Value::Null, SettingsLayer::Run));
 }
 
-/// Covers: story:3-86, setting:network.offline
+/// Covers: story:3-86, setting:egress.offline
 #[rstest]
 #[case::by_default(None, false)]
 #[case::from_user_configuration(Some(true), true)]
@@ -176,14 +176,14 @@ fn offline_is_off_unless_a_layer_turns_it_on(#[case] set: Option<bool>, #[case] 
     let layers = set.map_or_else(Layers::default, |value| {
         only(
             SettingsLayer::UserConfiguration,
-            "network.offline",
+            "egress.offline",
             &json!(value),
         )
     });
 
     let effective = resolved(&layers);
 
-    assert_eq!(effective.boolean("network.offline"), Some(offline));
+    assert_eq!(effective.boolean("egress.offline"), Some(offline));
 }
 
 /// Covers: story:3-86, story:3-88
@@ -858,7 +858,7 @@ fn an_operator_policy_of_a_version_this_engine_cannot_read_is_invalid(#[case] te
 
 #[test]
 fn an_operator_policy_cap_is_on_a_count_or_a_duration() {
-    let text = "version = \"0.1\"\n[cap.network]\noffline = true\n";
+    let text = "version = \"0.1\"\n[cap.egress]\noffline = true\n";
 
     let read = operator_policy(text, Product::Collie);
 

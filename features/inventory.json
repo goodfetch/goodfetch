@@ -2519,9 +2519,9 @@
       ]
     },
     {
-      "id": "setting:filter_lists.extra",
+      "id": "setting:egress.offline",
       "kind": "setting",
-      "area": 5,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2530,9 +2530,9 @@
       ]
     },
     {
-      "id": "setting:network.offline",
+      "id": "setting:filter_lists.extra",
       "kind": "setting",
-      "area": 3,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6785,6 +6785,39 @@
       "id": "story:3-99",
       "kind": "story",
       "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:4-80",
+      "kind": "story",
+      "area": 4,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:4-81",
+      "kind": "story",
+      "area": 4,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:4-82",
+      "kind": "story",
+      "area": 4,
       "milestone": "M1 Core",
       "status": "active",
       "products": [

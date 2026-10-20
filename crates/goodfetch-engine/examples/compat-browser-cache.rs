@@ -11,8 +11,9 @@
 use std::path::PathBuf;
 
 use goodfetch_engine::browser_cache::{
-    BrowserCache, CacheLocation, Digest, Fetching, PinnedArtifact, content_digest,
+    BrowserCache, CacheLocation, PinnedArtifact, content_digest,
 };
+use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;

@@ -1,0 +1,75 @@
+{
+  "error_codes": [
+    {
+      "arrived_in": "0.1",
+      "description": "The key is already kept.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "key_taken",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A bug in the fixture.",
+      "exit_code": null,
+      "group": "internal",
+      "json_rpc_class": -32007,
+      "name": "fixture_bug",
+      "product": "collie",
+      "retryable": false
+    }
+  ],
+  "error_groups": [
+    {
+      "description": "The program is wrong.",
+      "json_rpc_class": -32001,
+      "name": "program",
+      "product": "collie"
+    },
+    {
+      "description": "A bug.",
+      "json_rpc_class": -32007,
+      "name": "internal",
+      "product": "collie"
+    }
+  ],
+  "operations": [
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Counts the keys kept.",
+      "events": [],
+      "name": "fixture.count",
+      "params": {
+        "$ref": "#/$defs/FixtureCountParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/FixtureCountResult"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Keeps a value under a new key.",
+      "events": [],
+      "name": "fixture.put",
+      "params": {
+        "$ref": "#/$defs/FixturePutParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/FixturePutResult"
+      },
+      "stability": "stable"
+    }
+  ],
+  "protocol_version": "0.1"
+}

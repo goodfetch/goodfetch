@@ -3,8 +3,9 @@
 //! Product version asks for. A launch prepares its build here: the build is
 //! checked against its pinned digest every time and held under a shared
 //! lock; a build with the wrong digest is refused and removed; a missing one
-//! is downloaded on first use with its progress reported, unless `offline`
-//! refuses it or the engine cannot write the cache. `browsers install`
+//! is downloaded on first use through `pinned_download` with its progress
+//! reported, unless `egress.offline` refuses it or the engine cannot write
+//! the cache. `browsers install`
 //! prepares every pin ahead of time, and the clean-up deletes only what
 //! nothing installed pins, nothing used for `browser_cache.max_unused_age`
 //! and nothing holds.
@@ -14,7 +15,6 @@
 
 mod artifact;
 mod clean_up;
-mod download;
 mod extract;
 mod platform;
 mod store;
@@ -34,19 +34,17 @@ use goodfetch_protocol::browser_cache::{
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{EGRESS_OFFLINE, SettingLimit, SettingsLayer};
 
-pub use artifact::{BuildPlatform, Digest, MalformedDigest, PinnedArtifact, Pins, content_digest};
+pub use artifact::{BuildPlatform, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
-pub use download::Resolve;
 pub use platform::{
     Arch, BrowserChoice, BrowserSource, CHROME_FOR_TESTING, Os, Platform, PlatformNotice,
     browser_source,
 };
 
 use crate::composition::CallError;
-use download::{Failure, Target};
-use rustls::pki_types::CertificateDer;
+use crate::pinned_download::{self, Failure, Fetching, PinnedUrl};
 use store::{Locking, Read};
 
 /// The variable that points at a copy of the Browser cache, which wins over
@@ -71,19 +69,6 @@ impl CacheLocation {
     pub fn root(&self) -> &Path {
         &self.0
     }
-}
-
-/// What a download may do: whether `offline` refuses it, and what it may
-/// reach and trust.
-#[derive(Clone, Debug, Default)]
-pub struct Fetching {
-    /// The layer that set `offline` to `true`, or `None` when downloads are
-    /// allowed (ADR 0043).
-    pub offline: Option<SettingsLayer>,
-    /// The `resolve` setting (ADR 0059).
-    pub resolve: Resolve,
-    /// Certificate authorities trusted beside Mozilla's roots.
-    pub trusted_certificates: Vec<CertificateDer<'static>>,
 }
 
 /// A build in the cache with its pinned digest, held under a shared lock
@@ -450,12 +435,15 @@ impl BrowserCache {
         now: jiff::Timestamp,
         progress: &mut (dyn FnMut(DownloadProgress) + Send),
     ) -> Result<Option<HeldArtifact>, CacheError> {
-        let Some(target) = Target::parse(&artifact.url) else {
+        let Some(url) = PinnedUrl::parse(&artifact.url) else {
             return Err(CacheError::Cache {
                 path: self.root.clone(),
                 source: io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("the pinned URL of {} is no https URL", artifact.id.name),
+                    format!(
+                        "the pinned URL of {} is no https URL without a query",
+                        artifact.id.name
+                    ),
                 ),
             });
         };
@@ -463,11 +451,7 @@ impl BrowserCache {
             .await
             .map_err(CacheError::cache(&self.root))?;
         let archive = partial.path().join("archive.zip");
-        let network = download::Network {
-            resolve: fetching.resolve.clone(),
-            trusted_certificates: fetching.trusted_certificates.clone(),
-        };
-        let host = target.host().to_owned();
+        let host = url.host().to_owned();
         let mut report = |received_bytes, total_bytes| {
             progress(DownloadProgress {
                 artifact: artifact.id.clone(),
@@ -477,13 +461,21 @@ impl BrowserCache {
             });
         };
         tracing::info!(artifact = %artifact.id.name, build = %artifact.id.build, %host, "downloading into the Browser cache");
-        let received = download::download(&target, &network, &archive, &mut report).await;
+        let received = pinned_download::download(
+            &url,
+            artifact.archive_digest,
+            fetching,
+            &archive,
+            &mut report,
+        )
+        .await;
         let failure = match received {
-            Ok(digest) if digest == artifact.archive_digest => None,
-            Ok(_) => Some(DownloadFailure::DigestMismatch),
-            Err(Failure::Network | Failure::Url) => Some(DownloadFailure::Network),
+            Ok(()) => None,
+            Err(Failure::Offline(layer)) => return Err(self.offline(artifact, pinned_by, layer)),
+            Err(Failure::DigestMismatch) => Some(DownloadFailure::DigestMismatch),
+            Err(Failure::Network) => Some(DownloadFailure::Network),
             Err(Failure::Status(status)) => Some(DownloadFailure::HttpStatus { status }),
-            Err(Failure::Cache(source)) => {
+            Err(Failure::File(source)) => {
                 return Err(CacheError::Cache {
                     path: archive,
                     source,
@@ -567,7 +559,7 @@ impl BrowserCache {
     ) -> CacheError {
         let cache = self.root.display().to_string();
         let message = format!(
-            "{} is not in the Browser cache at {cache}, and `offline` refuses its download",
+            "{} is not in the Browser cache at {cache}, and `egress.offline` refuses its download",
             describe(&artifact.id, pinned_by),
         );
         CacheError::Offline {
@@ -577,13 +569,14 @@ impl BrowserCache {
                 pinned_by: pinned_by.clone(),
                 cache,
                 limit: SettingLimit {
-                    key: "offline".to_owned(),
+                    key: EGRESS_OFFLINE.name.to_owned(),
                     value: serde_json::Value::Bool(true),
                     layer,
                 },
                 fix: format!(
-                    "Run `{}` beforehand where the Browser cache is writable, or lift `offline` where it was set",
+                    "Run `{}` beforehand where the Browser cache is writable, or lift `{}` where it was set",
                     install_command(pinned_by.product),
+                    EGRESS_OFFLINE.name,
                 ),
             }),
         }

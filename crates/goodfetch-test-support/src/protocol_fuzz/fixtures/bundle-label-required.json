@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "ErrorData": {
+      "additionalProperties": true,
+      "description": "What a failure's `data` holds: its Error code, whether the same call may\nsucceed when made again, and the code's own details.",
+      "properties": {
+        "code": {
+          "description": "The Error code, or the name of the protocol failure.",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether the same call may succeed when made again.",
+          "type": "boolean"
+        }
+      },
+      "required": ["code", "retryable"],
+      "type": "object"
+    },
+    "ErrorObject": {
+      "additionalProperties": false,
+      "description": "A failure on the wire (ADR 0038).",
+      "properties": {
+        "code": {
+          "description": "One of JSON-RPC's predefined codes for a protocol failure; otherwise\nthe numeric class of the Error code's group, from \u221232000 to \u221232099.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "data": {
+          "$ref": "#/$defs/ErrorData",
+          "description": "The Error code and its details."
+        },
+        "message": {
+          "description": "What went wrong, for people; never matched on.",
+          "type": "string"
+        }
+      },
+      "required": ["code", "message", "data"],
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "description": "The reply to a call that failed.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorObject",
+          "description": "The failure."
+        },
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The call's id, or `null` when the engine could not read one."
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "Always `\"2.0\"`."
+        }
+      },
+      "required": ["jsonrpc", "error"],
+      "type": "object"
+    },
+    "FixtureCountParams": {
+      "additionalProperties": false,
+      "description": "What `fixture.count` takes: nothing.",
+      "type": "object"
+    },
+    "FixtureCountResult": {
+      "description": "What `fixture.count` answers.",
+      "properties": {
+        "count": {
+          "description": "How many keys are kept.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": ["count"],
+      "type": "object"
+    },
+    "FixturePutParams": {
+      "additionalProperties": false,
+      "description": "What `fixture.put` takes.",
+      "properties": {
+        "key": {
+          "description": "The key.",
+          "pattern": "^[a-z]{1,8}$",
+          "type": "string"
+        },
+        "label": {
+          "description": "The key's label.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": ["key", "value", "label"],
+      "type": "object"
+    },
+    "FixturePutResult": {
+      "description": "What `fixture.put` answers.",
+      "properties": {
+        "stored": {
+          "description": "Always `true`.",
+          "type": "boolean"
+        }
+      },
+      "required": ["stored"],
+      "type": "object"
+    },
+    "JsonRpcVersion": {
+      "const": "2.0",
+      "description": "JSON-RPC's version, always \"2.0\"."
+    },
+    "RequestId": {
+      "anyOf": [
+        {
+          "description": "A number the Client chose.",
+          "format": "int64",
+          "type": "integer"
+        },
+        {
+          "description": "A string the Client chose.",
+          "type": "string"
+        }
+      ],
+      "description": "A request's id, which its reply carries back."
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "protocol_version": "0.1",
+  "title": "Protocol fuzzing's fixture"
+}

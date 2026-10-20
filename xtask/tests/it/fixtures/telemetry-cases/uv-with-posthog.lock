@@ -1,0 +1,13 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "goodfetch-collie-client"
+version = "0.0.0"
+source = { editable = "sdks/python/collie-client" }
+
+[[package]]
+name = "posthog"
+version = "6.0.0"
+source = { registry = "https://pypi.org/simple" }

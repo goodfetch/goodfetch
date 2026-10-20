@@ -3,9 +3,9 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
-//! `config explain` and `daemon start|stop|restart|status`, with the hidden
-//! `daemon launched` a start runs; the CLI's other commands join with area
-//! 11. Every command but `daemon launched` first records the executable in
+//! `config explain`, `daemon start|stop|restart|status`, with the hidden
+//! `daemon launched` a start runs, and `runs reindex`; the CLI's other
+//! commands join with area 11. Every command but `daemon launched` first records the executable in
 //! the list of installed executables (ADR 0098).
 //!
 //! `main` reads the environment once and passes the map (ADR 0059); every
@@ -51,6 +51,7 @@ mod browsers;
 mod config;
 mod daemon;
 mod output;
+mod runs;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -94,6 +95,25 @@ enum Command {
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
+    },
+    /// Works on the runs of this executable's major, of both Products.
+    Runs {
+        #[command(subcommand)]
+        command: RunsCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum RunsCommand {
+    /// Rebuilds the Run index from the run folders: the configured
+    /// locations and the given paths. A run it does not find stays listed
+    /// as missing; a run discarded on purpose stays erased.
+    Reindex {
+        /// Run folders, or folders of run folders, to look in as well.
+        paths: Vec<std::path::PathBuf>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -362,6 +382,15 @@ fn run(
                 daemon::launched(engine, dependencies, &machine, copy.as_deref(), keep_alive)
             }
         },
+        Command::Runs {
+            command: RunsCommand::Reindex { paths, json },
+        } => {
+            let Ok(folder) = std::env::current_dir() else {
+                tracing::error!("the working folder cannot be read");
+                return ExitCode::FAILURE;
+            };
+            runs::reindex(engine.identity(), &home, &folder, paths, json)
+        }
     }
 }
 

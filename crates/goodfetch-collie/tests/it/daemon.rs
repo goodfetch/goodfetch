@@ -81,7 +81,7 @@ pub(crate) fn json_of(executable: &Path, env: &TestEnv, arguments: &[&str]) -> V
     serde_json::from_str(&output.stdout).unwrap()
 }
 
-fn validate(output: &Value, definition: &str) {
+pub(crate) fn validate(output: &Value, definition: &str) {
     let bundle: Value = serde_json::from_str(BUNDLE).unwrap();
     let schema = json!({ "$ref": format!("#/$defs/{definition}"), "$defs": bundle["$defs"] });
     let validator = jsonschema::validator_for(&schema).unwrap();

@@ -18,3 +18,4 @@ mod journeys;
 mod lazyfs;
 mod log;
 mod run;
+mod writer_lock;

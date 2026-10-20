@@ -3,7 +3,9 @@
 //! time), the processes a test starts and the addresses they report, the
 //! Proving ground started from a seed with its `resolve` mapping,
 //! certificate authority and network fixtures, the
-//! test tool manifest, the paused runtime, proptest's configuration, the
+//! test tool manifest, `JourneyRun`, which runs a Rust Journey variant and
+//! writes its result document through the constructor its test passes, the
+//! paused runtime, proptest's configuration, the
 //! test `tracing` subscriber, the Observation log with its fencing and
 //! Limits checkers, seeded kills of real processes and the crash VFS under
 //! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066), the strict reader of a child's JSON-RPC stdout
@@ -27,6 +29,7 @@ mod endpoints;
 mod env;
 mod fuzz;
 mod invariants;
+mod journey_run;
 mod kill;
 mod locales;
 mod observation;
@@ -58,6 +61,9 @@ pub use endpoints::{
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
+pub use journey_run::{
+    BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,
+};
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 pub use locales::{TimeZoneCase, locales, time_zones};
 pub use observation::{
@@ -94,6 +100,6 @@ pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use variables::{
-    MAX_SEED, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE,
-    Variables, current_test,
+    MAX_SEED, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
+    SuiteError, TOOLS_VARIABLE, Variables, current_test,
 };

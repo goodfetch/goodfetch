@@ -30,6 +30,7 @@ use crate::output;
 pub(crate) use command::{CommandLines, CommandTree, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
+pub(crate) use scan::tests;
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {

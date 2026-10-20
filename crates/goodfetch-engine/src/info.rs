@@ -1,15 +1,16 @@
-//! The engine's own operations, `engine.*` and `run.*`, which every
-//! Product's composition lists first.
+//! The engine's own operations, `engine.*`, `run.*` and the streaming
+//! calls `events.subscribe` and `page.body`, which every Product's
+//! composition lists first.
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
 
 use crate::composition::{CallContext, CallError, Contribution, Handler};
-use crate::run;
+use crate::{rpc, run};
 
 /// What the engine adds to every composition.
 pub fn contribution() -> Contribution {
-    run::handlers().into_iter().fold(
+    run::handlers().into_iter().chain(rpc::handlers()).fold(
         Contribution::new("goodfetch-engine").with_handler(Handler::new(&ENGINE_INFO, engine_info)),
         Contribution::with_handler,
     )

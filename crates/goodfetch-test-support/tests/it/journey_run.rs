@@ -1,0 +1,403 @@
+//! `JourneyRun`, the Rust Journey helper (ADRs 0063, 0066 and 0069): it reads
+//! a Journey file, starts the variant's Proving ground and home, records each
+//! step, check and oracle answer in the file's order, and writes the
+//! document a constructor it is given makes of them. These tests give it a
+//! stub constructor only, so test support depends on no Goodfetch crate,
+//! not even here; the document's own constructor and reader are tested with
+//! it in `goodfetch-conformance` (Seam C).
+
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::{Path, PathBuf};
+
+use goodfetch_test_support::{
+    JourneyRun, JourneyRunError, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, TOOLS_VARIABLE, TestEnv,
+    Tool, UnfinishedJourneyRun, Variables, VariantNotProved, tools,
+};
+use rstest::rstest;
+use serde_json::{Value, json};
+
+use crate::probe;
+
+/// The folder of the fixture Journeys: J-901, a Collie Journey that touches
+/// no page, and J-902, a Foxhound Journey on seed 902 naming `catalog/1`.
+fn journey(id: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/it/fixtures/journey-run")
+        .join(format!("{id}.toml"))
+}
+
+/// The commit's executable of a Product, from the test tool manifest.
+fn executable(tool: Tool) -> PathBuf {
+    tools().unwrap().path(tool).unwrap().to_owned()
+}
+
+/// A stub of `goodfetch-protocol`'s constructor: the facts it is handed,
+/// as a `journey` document whose outcome is `outcome`.
+fn stub(outcome: &'static str) -> impl FnOnce(Value) -> Value {
+    move |mut facts| {
+        facts["kind"] = json!("journey");
+        facts["outcome"] = json!(outcome);
+        facts
+    }
+}
+
+/// The document a finished run wrote, read back from its file.
+fn written(path: &Path) -> Value {
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+fn outcomes(document: &Value, list: &str) -> Vec<String> {
+    document[list]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| format!("{} {}", entry["outcome"].as_str().unwrap(), entry["text"]))
+        .collect()
+}
+
+#[test]
+fn steps_after_a_failed_step_are_not_reached_and_the_manual_step_stays_manual() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    )
+    .unwrap();
+    let mut ran_after_the_failure = false;
+
+    run.step("Ask the executable for its version", |run| {
+        run.command().arg("--version").assert().success();
+    });
+    run.step("Ask the executable for its help", |run| {
+        run.command().arg("--no-such-flag").assert().success();
+    });
+    run.step("Ask the executable for its version once more", |_| {
+        ran_after_the_failure = true;
+    });
+    run.check("The version names the Product", |_| {
+        ran_after_the_failure = true;
+    });
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert!(!ran_after_the_failure);
+    assert_eq!(
+        outcomes(&document, "steps"),
+        [
+            r#"passed "Ask the executable for its version""#,
+            r#"manual "Read the version aloud""#,
+            r#"failed "Ask the executable for its help""#,
+            r#"not_reached "Ask the executable for its version once more""#,
+        ]
+    );
+    assert_eq!(
+        outcomes(&document, "checks"),
+        [r#"not_reached "The version names the Product""#]
+    );
+}
+
+#[test]
+fn a_complete_run_records_every_step_and_check_in_the_journeys_order() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("proved"),
+    )
+    .unwrap();
+
+    for step in [
+        "Ask the executable for its version",
+        "Ask the executable for its help",
+        "Ask the executable for its version once more",
+    ] {
+        run.step(step, |run| {
+            run.command().arg("--help").assert().success();
+        });
+    }
+    run.check("The version names the Product", |_| Ok::<_, String>(()));
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert_eq!(
+        outcomes(&document, "steps"),
+        [
+            r#"passed "Ask the executable for its version""#,
+            r#"manual "Read the version aloud""#,
+            r#"passed "Ask the executable for its help""#,
+            r#"passed "Ask the executable for its version once more""#,
+        ]
+    );
+    assert_eq!(
+        outcomes(&document, "checks"),
+        [r#"passed "The version names the Product""#]
+    );
+    finished.assert_proved();
+}
+
+#[test]
+fn a_step_never_called_is_not_reached() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    )
+    .unwrap();
+
+    run.step("Ask the executable for its version", |_| ());
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert_eq!(
+        outcomes(&document, "steps"),
+        [
+            r#"passed "Ask the executable for its version""#,
+            r#"manual "Read the version aloud""#,
+            r#"not_reached "Ask the executable for its help""#,
+            r#"not_reached "Ask the executable for its version once more""#,
+        ]
+    );
+}
+
+#[test]
+fn a_step_called_out_of_the_journeys_order_fails_without_running() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    )
+    .unwrap();
+    let mut ran = false;
+
+    run.step("Ask the executable for its version", |_| ());
+    run.step("Ask the executable for its version once more", |_| {
+        ran = true;
+    });
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert!(!ran);
+    assert_eq!(
+        outcomes(&document, "steps"),
+        [
+            r#"passed "Ask the executable for its version""#,
+            r#"manual "Read the version aloud""#,
+            r#"failed "Ask the executable for its version once more""#,
+            r#"not_reached "Ask the executable for its help""#,
+        ]
+    );
+}
+
+#[test]
+fn a_journey_with_no_proving_ground_table_starts_none() {
+    let run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    )
+    .unwrap();
+
+    let started = run.proving_ground().is_some();
+    let finished = run.finish().unwrap();
+
+    assert!(!started);
+    assert_eq!(written(finished.path()).get("proving_ground"), None);
+}
+
+#[test]
+fn a_journey_with_a_proving_ground_table_starts_one_on_its_own_seed() {
+    let run = JourneyRun::start_file(
+        &journey("J-902"),
+        "cli",
+        &executable(Tool::Foxhound),
+        stub("failed"),
+    )
+    .unwrap();
+
+    let seed = run.proving_ground().unwrap().description().seed;
+    let version = run.proving_ground().unwrap().description().version.clone();
+    let finished = run.finish().unwrap();
+
+    assert_eq!(seed, 902);
+    assert_eq!(
+        written(finished.path())["proving_ground"],
+        json!({ "version": version, "seed": 902 })
+    );
+}
+
+#[test]
+fn the_test_seed_variable_does_not_change_the_journeys_seed() {
+    let env = TestEnv::new();
+    let variables = Variables::from_process();
+    let mut command = probe(&env, "probe::runs_journey_902");
+    command
+        .env(SEED_VARIABLE, "4242")
+        .env(TOOLS_VARIABLE, variables.get(TOOLS_VARIABLE).unwrap())
+        .env(RESULT_DOCUMENTS_VARIABLE, env.folder());
+
+    let status = env.spawn(&mut command).unwrap().close_stdin_and_wait();
+
+    assert!(status.unwrap().success());
+    let document = written(&env.folder().join("J-902@cli.json"));
+    assert_eq!(document["proving_ground"]["seed"], json!(902));
+}
+
+#[test]
+fn the_oracles_answer_to_a_submission_is_its_tasks_answer() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-902"),
+        "cli",
+        &executable(Tool::Foxhound),
+        stub("failed"),
+    )
+    .unwrap();
+
+    run.step("Read the catalog from its first listing page", |_| ());
+    let answer = run
+        .expect_task("catalog/1", &json!({ "status": "failure", "records": [] }))
+        .cloned();
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert_eq!(answer.unwrap()["outcome"], json!("failed"));
+    assert_eq!(document["tasks"][0]["id"], json!("catalog/1"));
+    assert_eq!(document["tasks"][0]["answer"]["outcome"], json!("failed"));
+    assert_eq!(
+        outcomes(&document, "checks"),
+        [r#"failed "The oracle verifies the catalog's Records""#]
+    );
+}
+
+#[test]
+fn a_run_records_the_executable_it_was_given_with_its_product_version() {
+    let run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    )
+    .unwrap();
+
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert_eq!(
+        (&document["journey_id"], &document["surface"]),
+        (&json!("J-901"), &json!("cli"))
+    );
+    assert_eq!(
+        document["executable"],
+        json!({ "product": "collie", "version": env!("CARGO_PKG_VERSION") })
+    );
+}
+
+#[test]
+fn a_collie_journeys_cli_steps_run_on_foxhounds_executable_as_its_foxhound_cli_variant() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-901"),
+        "foxhound-cli",
+        &executable(Tool::Foxhound),
+        stub("failed"),
+    )
+    .unwrap();
+    let mut reported = String::new();
+
+    run.step("Ask the executable for its version", |run| {
+        let output = run.command().arg("--version").output().unwrap();
+        reported = String::from_utf8(output.stdout).unwrap();
+    });
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert!(reported.starts_with("goodfetch-foxhound "), "{reported}");
+    assert_eq!(document["surface"], json!("foxhound-cli"));
+    assert_eq!(document["executable"]["product"], json!("foxhound"));
+    assert_eq!(
+        finished.path().file_name().unwrap().to_str(),
+        Some("J-901@foxhound-cli.json")
+    );
+}
+
+#[rstest]
+#[case::a_surface_the_journey_does_not_list("J-901", "sdk-python", false)]
+#[case::foxhound_cli_of_a_foxhound_journey("J-902", "foxhound-cli", false)]
+#[case::a_listed_surface("J-901", "sdk-rust", true)]
+#[case::foxhound_cli_of_a_collie_journey_with_cli("J-901", "foxhound-cli", true)]
+fn a_run_starts_only_on_a_surface_its_journey_lists(
+    #[case] id: &str,
+    #[case] surface: &str,
+    #[case] starts: bool,
+) {
+    let started = JourneyRun::start_file(
+        &journey(id),
+        surface,
+        &executable(Tool::Foxhound),
+        stub("failed"),
+    );
+
+    match started {
+        Ok(run) => {
+            assert!(starts, "{id}@{surface} started");
+            let _finished = run.finish().unwrap();
+        }
+        Err(error) => {
+            assert!(!starts, "{error}");
+            assert!(
+                matches!(error, JourneyRunError::UnlistedSurface { .. }),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_run_dropped_unfinished_fails_the_test() {
+    let run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    )
+    .unwrap();
+
+    let dropped = catch_unwind(AssertUnwindSafe(move || drop(run)));
+
+    let payload = dropped.unwrap_err();
+    let unfinished = payload.downcast_ref::<UnfinishedJourneyRun>();
+    assert_eq!(
+        unfinished.map(|unfinished| unfinished.variant.as_str()),
+        Some("J-901@cli")
+    );
+}
+
+#[rstest]
+#[case::proved("proved", None)]
+#[case::failed("failed", Some("failed"))]
+fn assert_proved_fails_on_a_variant_its_document_does_not_prove(
+    #[case] outcome: &'static str,
+    #[case] refused: Option<&str>,
+) {
+    let run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub(outcome),
+    )
+    .unwrap();
+    let finished = run.finish().unwrap();
+
+    let asserted = catch_unwind(AssertUnwindSafe(|| finished.assert_proved()));
+
+    let payload = asserted.err();
+    let not_proved = payload
+        .as_ref()
+        .and_then(|payload| payload.downcast_ref::<VariantNotProved>());
+    assert_eq!(
+        not_proved.map(|not_proved| not_proved.outcome.as_str()),
+        refused
+    );
+}

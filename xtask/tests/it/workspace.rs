@@ -68,10 +68,20 @@ pub(crate) struct Outcome {
 
 impl Outcome {
     pub(crate) fn findings(&self) -> Vec<Finding> {
+        self.reported("error[")
+    }
+
+    /// The `note[<kind>] <subject>: <message>` lines a check printed beside
+    /// its findings.
+    pub(crate) fn notes(&self) -> Vec<Finding> {
+        self.reported("note[")
+    }
+
+    fn reported(&self, prefix: &str) -> Vec<Finding> {
         self.stdout
             .lines()
             .filter_map(|line| {
-                let rest = line.strip_prefix("error[")?;
+                let rest = line.strip_prefix(prefix)?;
                 let (kind, rest) = rest.split_once("] ")?;
                 let (subject, _message) = rest.split_once(": ")?;
                 Some(Finding {
@@ -158,6 +168,43 @@ impl Workspace {
             #[cfg(windows)]
             std::os::windows::fs::symlink_dir(&target, self.path().join(folder)).unwrap();
         }
+    }
+
+    /// Installs the workspace's npm packages as a pnpm workspace, its
+    /// runners being the repository's installed ones through the
+    /// `.toolchain` link (committed with the workspace, so a checkout of it
+    /// installs the same), and links the repository's Python environment.
+    pub(crate) fn install_runners(&self) {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let node_modules = repository.join("node_modules");
+        assert!(
+            node_modules.is_dir(),
+            "{} is missing: run `pnpm install`",
+            node_modules.display()
+        );
+        let venv = repository.join(".venv");
+        assert!(
+            venv.is_dir(),
+            "{} is missing: run `uv sync`",
+            venv.display()
+        );
+        for (target, link) in [(&node_modules, ".toolchain"), (&venv, ".venv")] {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(target, self.path().join(link)).unwrap();
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(target, self.path().join(link)).unwrap();
+        }
+        let output = Command::new("pnpm")
+            .args(["install", "--offline"])
+            .current_dir(self.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "pnpm install failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     pub(crate) fn remove(&self, relative: &str) {

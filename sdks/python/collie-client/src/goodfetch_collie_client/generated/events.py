@@ -10,19 +10,25 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import DownloadProgress, SampleEchoed
+from .models import DownloadProgress, Resync, RunAxes, SampleEchoed
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
+    "events.resync": Resync,
+    "run.axes_changed": RunAxes,
     "sample.echoed": SampleEchoed,
 }
 """The payload type of each event:
 
 - `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
+- `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.
+- `run.axes_changed`: A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.
 - `sample.echoed`: A text was repeated.
 """
 
 EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
+    "events.resync",
+    "run.axes_changed",
     "sample.echoed",
 })
 """The events outside semver until they are promoted (ADR 0030)."""

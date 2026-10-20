@@ -74,6 +74,14 @@ class ArtifactUnavailableOfflineError(RefusedError):
         super().__init__(message, code="artifact_unavailable_offline", group="refused", retryable=False)
 
 
+class BodyNotFoundError(ProgramError):
+    """The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="body_not_found", group="program", retryable=False)
+
+
 class BrowserNotInstalledError(UnavailableError):
     """The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path."""
 
@@ -181,6 +189,7 @@ class SampleRefusedError(RefusedError):
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
+    "body_not_found": BodyNotFoundError,
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,

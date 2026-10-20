@@ -100,6 +100,17 @@
       ]
     },
     {
+      "id": "error:address_family_unavailable",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:artifact_download_failed",
       "kind": "error",
       "area": 3,
@@ -2698,6 +2709,28 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:resolver.attempt_delay",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:resolver.resolution_delay",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },

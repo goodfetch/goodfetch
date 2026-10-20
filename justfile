@@ -53,6 +53,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- package-dependencies
     cargo run --quiet -p xtask -- mocking-lockfile
+    cargo run --quiet -p xtask -- telemetry
     cargo run --quiet -p xtask -- no-retry
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}

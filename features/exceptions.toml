@@ -89,12 +89,6 @@ reason = "Not built yet: the Feature check and the in-diff mutation report are #
 link = "https://github.com/goodfetch/goodfetch/issues/321"
 
 [[exception]]
-feature = "story:1-112"
-evidence = "none"
-reason = "Not built yet: scanning logs, reports, artifacts and commits for secrets, and pinning every workflow's images by digest, are #317's."
-link = "https://github.com/goodfetch/goodfetch/issues/317"
-
-[[exception]]
 feature = "story:2-41"
 evidence = "manual"
 reason = "A review rule no test reaches: the pull request that adds a feature also adds the Proving ground page or task its test needs, which the review checklist's item 20 asks of every pull request (ADR 0032)."

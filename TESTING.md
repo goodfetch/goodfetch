@@ -1166,8 +1166,8 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 - **Run ClusterFuzzLite's images by digest** from Goodfetch's workflow, never through its action's `:v1` tag.
 - **Send every new crash to a private security advisory draft** on the main repository, never a public issue. Until the main repository is public, which advisories need, open an issue in the private fuzz repository instead. A crash that also crashes the previous continuous build joins its advisory, or opens one. Fix it from the advisory's private fork (before publication, an ordinary pull request), and commit the crasher, minimised with `cargo fuzz tmin`, as a regression input with the fix.
 - **An open fuzz crash blocks the promotion of the next minor** until it is fixed or triage closes it as not a vulnerability. Patches are not held. Never post a private result (the Private component run or fuzzing) on a public commit. The release pipeline reads them from the private repositories when each step starts, with the read-only private gates App: the Private component run for candidates and patches, and also open fuzz crashes for promotion to `x.y.0`. A promotion held while every public gate is green does reveal that a fuzz crash is open; this is accepted, since it shows neither the target nor the input (ADR 0067).
-- **Fuzz, and run the ASan tests, on one nightly toolchain pinned in its own file**, apart from `rust-toolchain.toml`.
-- **Run the tests of every crate that opts into `unsafe` under AddressSanitizer** in the Release suite, on Linux glibc.
+- **Fuzz, and run the ASan tests, on one nightly toolchain pinned in its own file**, apart from `rust-toolchain.toml`: [`ci/sanitizer-toolchain.toml`](ci/sanitizer-toolchain.toml), with the cargo-fuzz version. **`just fuzz-check`** runs `cargo fuzz check` of every target with it, in the Pre-merge suite's `supply-chain` job; a fuzz crate's `Cargo.lock` must be current.
+- **Run the tests of every crate that opts into `unsafe` under AddressSanitizer** in the Release suite, on Linux glibc: **`just asan`**, the standard library rebuilt with the sanitizer. It runs the crate's unit tests and its integration tests in a module named after a module on the opted-in file's path; the others drive the crate's own sanitized executables and compare their output byte for byte.
 
 ### Confinement
 
@@ -1214,16 +1214,16 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 
   _Why:_ redaction is best effort against arbitrary transforms, but Goodfetch's own encodings are known.
 - **Property-test redaction** with generated values that are hard to redact (quotes, backslashes, newlines, `%`, Unicode, very long, empty, common words, values that contain one another), through every formatter and serializer. Commit `proptest-regressions/`.
-- **Scan each CI job's logs, test reports, snapshots and artifacts with the `gitleaks` binary** (pinned by checksum, Secret canaries added as a rule) before they upload. A hit fails the job.
-- **Scan commits,** Model recordings included: with GitHub secret scanning and push protection once the repository is public; until then with `gitleaks` over each pull request's commits in the Pre-merge suite.
+- **Scan each CI job's logs, test reports, snapshots and artifacts with the `gitleaks` binary** (pinned by checksum, Secret canaries added as a rule) before they upload. A hit fails the job. Each job that uploads runs `ci/leaks.sh` over every path it uploads, with `if: always()`, and each upload waits for that step's success; `xtask output-scans` refuses an upload without it. The scan runs gitleaks' own rules ([`ci/gitleaks.toml`](ci/gitleaks.toml)) and the canaries' rule; `just leaks <path>…` runs it locally. A job's live log reaches GitHub as each step runs, so no step scans it first: the canary searches of the tests that write it stand there.
+- **Scan commits,** Model recordings included: with GitHub secret scanning and push protection once the repository is public ([`.github/security-settings.md`](.github/security-settings.md)); until then with `gitleaks` over each pull request's commits in the Pre-merge suite (`just commit-leaks`).
 
 ### Other rules
 
 - **Property-test the Audit log's hash chain:** an edit, deletion, reordering or truncation of entries or of the tail fails verification, a Daemon group's single chain included.
 - **Add one regression test per bypass** at the layer it slipped through, Goodfetch's own or a class a comparable project disclosed. Cite the advisory in a comment. A nightly watch job lists new advisories of comparable projects and opens an issue.
 - **Never skip a security test where it is scheduled.** The OSes in the boundary table are the schedule, and a test's absence from an OS its row does not give is not a skip. On a scheduled host, never `#[ignore]` it, return early or gate it at run time; where the host lacks a mechanism, assert the refusal (`confinement_unavailable`, `local_address_unavailable`). A missing tool fails the job.
-- **Pin every container image a workflow runs by digest.**
-- **Run CodeQL** on Rust, TypeScript, Python and the workflows in the Pre-merge suite once the repository is public. A high or critical alert blocks the merge.
+- **Pin every container image a workflow runs by digest.** `xtask image-pins`, in `just lint`, reads each job's and service's container, each `docker://` step and action, each Containerfile's `FROM`, each `image.toml` pin file under `ci/` and each literal image a `run:` script or `ci/` script names.
+- **Run CodeQL** on Rust, TypeScript, Python and the workflows in the Pre-merge suite once the repository is public. A high or critical alert blocks the merge. `.github/workflows/codeql.yml` skips its jobs while the repository is private; the owner's checklist turns the merge protection on.
 
 ### Manual security tests
 

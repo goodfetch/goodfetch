@@ -40,6 +40,44 @@ describe("visualConfig", () => {
     ).toEqual(["visual"]);
   });
 
+  // Firefox and WebKit repeated every run of `just visual-repeatability`
+  // (REPEATABILITY), so they join in the Release suite, where ADR 0073
+  // screenshots them.
+  test("gives Firefox's and WebKit's visual projects in the Release suite", () => {
+    const environment = { GOODFETCH_VISUAL_IMAGE: PINNED, GOODFETCH_TEST_SUITE: "release" };
+
+    const projects = visualConfig.playwright(environment).projects;
+
+    expect(projects.map((project) => [project.name, project.use?.browserName])).toEqual([
+      ["visual", "chromium"],
+      ["visual-firefox", "firefox"],
+      ["visual-webkit", "webkit"],
+    ]);
+  });
+
+  test("gives Playwright's visual project on each browser a measurement names", () => {
+    const environment = {
+      GOODFETCH_VISUAL_IMAGE: PINNED,
+      GOODFETCH_VISUAL_BROWSERS: "webkit,firefox",
+    };
+
+    const projects = visualConfig.playwright(environment).projects;
+
+    expect(projects.map((project) => [project.name, project.use?.browserName])).toEqual([
+      ["visual-firefox", "firefox"],
+      ["visual-webkit", "webkit"],
+    ]);
+  });
+
+  test.each([
+    ["a browser the pinned image does not ship", "safari"],
+    ["no browser", ""],
+  ])("refuses a measurement of %s", (_case, browsers) => {
+    const environment = { GOODFETCH_VISUAL_IMAGE: PINNED, GOODFETCH_VISUAL_BROWSERS: browsers };
+
+    expect(refusal(() => visualConfig.playwright(environment))).toBe("visual_browser_unknown");
+  });
+
   test("refuses an image that is not the pinned one", () => {
     const environment = { GOODFETCH_VISUAL_IMAGE: OTHER_IMAGE };
 

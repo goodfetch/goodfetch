@@ -20,12 +20,14 @@
 //! (ADRs 0062 and 0073); the Scripted engine's script format and its
 //! player, and the Daemon's runtime file (ADRs 0024 and 0069);
 //! `goodfetch-test-env`, which gives the same setup to TypeScript and
-//! Python as one JSON description; and `goodfetch-scripted-engine`, which
-//! plays a script over its stdio, as a Daemon found through the runtime
-//! file, or on loopback TCP. It
+//! Python as one JSON description; the CLI helper, `cli`, which runs a
+//! Product's executable and records each command it ran; and
+//! `goodfetch-scripted-engine`, which plays a script over its stdio, as a
+//! Daemon found through the runtime file, or on loopback TCP. It
 //! works on values only: it depends on no Goodfetch crate and is only ever
 //! a dev-dependency.
 
+mod cli;
 mod crash_dumps;
 mod crash_vfs;
 mod description;
@@ -61,6 +63,7 @@ mod trace;
 mod unicode;
 mod variables;
 
+pub use cli::{Cli, CliError, CliOutput, Stream, cli, record_command};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
@@ -71,7 +74,7 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
-pub use exercise::DISPATCH_TARGET;
+pub use exercise::{COMMAND_RECORD, COMMAND_TARGET, DISPATCH_TARGET};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
@@ -79,6 +82,9 @@ pub use hostile::{
     PathName, PathTarget, RefKeyword, ResourceLimit, Schedule, SchemaRef, SchemaUse,
     SecretPlacement, SecretRedirect, ServedBy, TableGap, TableGaps,
 };
+/// insta, for [`assert_cli_snapshot!`], whose expansion names it.
+#[doc(hidden)]
+pub use insta as __insta;
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use journey_run::{
     BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,

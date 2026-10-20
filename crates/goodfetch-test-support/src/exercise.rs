@@ -3,8 +3,9 @@
 //! `GOODFETCH_TEST_RECORDS`, each test nextest runs has one JSON-lines file
 //! there: a first line `{"test": "<binary id> <test name>"}`, then the
 //! engine's JSON log lines that `TestEnv` copies from its Goodfetch home when
-//! it drops, and the dispatch records the test `tracing` subscriber writes
-//! for an in-process test. A test run by hand, or by any runner but nextest,
+//! it drops, the dispatch records the test `tracing` subscriber writes
+//! for an in-process test, and the lines of the test's command record,
+//! which the CLI helper writes. A test run by hand, or by any runner but nextest,
 //! has none.
 #![expect(
     clippy::disallowed_methods,
@@ -20,6 +21,19 @@ use crate::variables::{BINARY_ID_VARIABLE, RECORDS_VARIABLE, TEST_NAME_VARIABLE,
 /// The `tracing` target of `rpc`'s dispatch records, which the test
 /// subscriber writes into the record.
 pub const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
+
+/// The target of the CLI helper's command records, which the exercise
+/// audit reads beside the dispatch records.
+pub const COMMAND_TARGET: &str = "goodfetch::test::command";
+
+/// The test's command record, in its folder: the CLI helper's lines, which
+/// teardown copies into the exercise record.
+pub const COMMAND_RECORD: &str = "commands.jsonl";
+
+/// The test's command record in `folder`.
+pub(crate) fn command_record(folder: &Path) -> PathBuf {
+    folder.join(COMMAND_RECORD)
+}
 
 /// The engine's log folder in the Goodfetch home (ADR 0122).
 pub(crate) const LOG_FOLDER: &str = "logs";
@@ -68,18 +82,21 @@ impl ExerciseRecord {
         }
     }
 
-    /// Appends every line of the engine's log files in `home`, in the
-    /// files' order.
-    pub(crate) fn append_logs(&self, home: &Path) -> io::Result<()> {
+    /// Appends every line of the test's command record in `folder`, then
+    /// of the engine's log files in `home`, in the files' order.
+    pub(crate) fn append_logs(&self, folder: &Path, home: &Path) -> io::Result<()> {
         let mut file = self.open()?;
-        let folder = home.join(LOG_FOLDER);
-        let Ok(entries) = std::fs::read_dir(&folder) else {
-            return Ok(());
+        let mut logs = match std::fs::read_dir(home.join(LOG_FOLDER)) {
+            Ok(entries) => entries
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect::<io::Result<Vec<_>>>()?,
+            Err(_) => Vec::new(),
         };
-        let mut logs = entries
-            .map(|entry| entry.map(|entry| entry.path()))
-            .collect::<io::Result<Vec<_>>>()?;
         logs.sort();
+        let commands = command_record(folder);
+        if commands.is_file() {
+            logs.insert(0, commands);
+        }
         for log in logs {
             let text = std::fs::read_to_string(&log)?;
             for line in text.lines().filter(|line| !line.trim().is_empty()) {

@@ -10,8 +10,6 @@
 
 use std::collections::BTreeMap;
 
-use crate::exercise::RECORDS_VARIABLE;
-
 /// Overrides every test's seed (ADR 0060).
 pub const SEED_VARIABLE: &str = "GOODFETCH_TEST_SEED";
 
@@ -20,6 +18,10 @@ pub const SUITE_VARIABLE: &str = "GOODFETCH_TEST_SUITE";
 
 /// The path of the test tool manifest, which `just test` writes.
 pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
+
+/// The folder of every test's exercise record, which `just test` sets
+/// (ADR 0072).
+pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
 
 /// The binary ID of the test nextest runs (`<package>::<target>`).
 pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";

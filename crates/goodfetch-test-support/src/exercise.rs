@@ -15,10 +15,7 @@ use std::fs::File;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
-use crate::variables::{BINARY_ID_VARIABLE, TEST_NAME_VARIABLE, Variables};
-
-/// The folder of every test's exercise record, which `just test` sets.
-pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
+use crate::variables::{BINARY_ID_VARIABLE, RECORDS_VARIABLE, TEST_NAME_VARIABLE, Variables};
 
 /// The `tracing` target of `rpc`'s dispatch records, which the test
 /// subscriber writes into the record.

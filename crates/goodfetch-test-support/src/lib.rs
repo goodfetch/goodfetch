@@ -54,7 +54,7 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
-pub use exercise::{DISPATCH_TARGET, RECORDS_VARIABLE};
+pub use exercise::DISPATCH_TARGET;
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
@@ -88,6 +88,6 @@ pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use variables::{
-    MAX_SEED, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE,
-    Variables, current_test,
+    MAX_SEED, RECORDS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError,
+    TOOLS_VARIABLE, Variables, current_test,
 };

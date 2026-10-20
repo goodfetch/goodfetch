@@ -3,9 +3,9 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
-//! `config explain` and `daemon start|stop|restart|status`, with the hidden
-//! `daemon launched` a start runs; the CLI's other commands join with area
-//! 11. Every command but `daemon launched` first records the executable in
+//! `config explain` and `daemon start|stop|restart|status|install|uninstall|rotate-token`,
+//! with the hidden `daemon launched` a start or the installed service
+//! runs; the CLI's other commands join with area 11. Every command but `daemon launched` first records the executable in
 //! the list of installed executables (ADR 0098).
 //!
 //! `main` reads the environment once and passes the map (ADR 0059); every
@@ -51,6 +51,7 @@ mod browsers;
 mod config;
 mod daemon;
 mod output;
+mod service;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -129,7 +130,30 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Runs as the Daemon a start launched, from a versioned copy.
+    /// Registers the major's Daemon as a per-user service, which starts
+    /// the major's pick: a launch agent on macOS and a systemd user unit on
+    /// Linux, each started by the first connection to its socket, and a
+    /// logon task on Windows.
+    Install {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Removes the major's per-user service, stopping its Daemon.
+    Uninstall {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Replaces the persistent token of the service's Daemon, which stops
+    /// with every Connection that opened with the old one.
+    RotateToken {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Runs as the Daemon a start or the installed service launched, from a
+    /// versioned copy.
     #[command(hide = true)]
     Launched {
         /// The build of the versioned copy it runs from.
@@ -138,6 +162,15 @@ enum DaemonCommand {
         /// Never stops it after `daemon.idle_timeout` with no Client.
         #[arg(long)]
         keep_alive: bool,
+        /// Started by the major's service: starts the pick in its place
+        /// when it is not the pick, and takes the socket its service
+        /// manager hands over.
+        #[arg(long)]
+        service: bool,
+        /// A deployment variable the service passes, as `NAME=VALUE`;
+        /// repeatable.
+        #[arg(long = "environment", value_name = "NAME=VALUE")]
+        environment: Vec<String>,
     },
 }
 
@@ -235,8 +268,9 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2));
         }
     };
-    let home = home(&start.environment);
-    let filter = start.environment.get(OsStr::new(LOG_VARIABLE));
+    let environment = with_passed_variables(&start.environment, &command_line.command);
+    let home = home(&environment);
+    let filter = environment.get(OsStr::new(LOG_VARIABLE));
     // A Daemon a start launched has no terminal: it logs to its file
     // (ADR 0122).
     let launched = matches!(
@@ -245,7 +279,7 @@ pub fn main(start: &Start) -> ExitCode {
             command: DaemonCommand::Launched { .. }
         }
     );
-    match log_file(&binary, &start.environment, home.as_ref(), launched) {
+    match log_file(&binary, &environment, home.as_ref(), launched) {
         Ok(file) => install_logs(filter, file),
         Err(problem) => {
             install_logs(filter, None);
@@ -253,7 +287,7 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    if let Err(error) = check_environment(&start.environment) {
+    if let Err(error) = check_environment(&environment) {
         tracing::error!(code = error.code(), "{error}");
         return ExitCode::FAILURE;
     }
@@ -306,8 +340,34 @@ pub fn main(start: &Start) -> ExitCode {
         &engine,
         dependencies,
         pinned_by,
-        start,
+        &environment,
     )
+}
+
+/// `start`'s environment with the deployment variables a service passes
+/// to `daemon launched` as arguments, since a logon task sets none; only
+/// those a service passes are taken.
+fn with_passed_variables(
+    environment: &BTreeMap<OsString, OsString>,
+    command: &Command,
+) -> BTreeMap<OsString, OsString> {
+    let mut environment = environment.clone();
+    if let Command::Daemon {
+        command: DaemonCommand::Launched {
+            environment: passed,
+            ..
+        },
+    } = command
+    {
+        for pair in passed {
+            if let Some((name, value)) = pair.split_once('=')
+                && goodfetch_engine::daemon::service::PASSED_VARIABLES.contains(&name)
+            {
+                environment.insert(name.into(), value.into());
+            }
+        }
+    }
+    environment
 }
 
 /// Runs `command` on `engine`, once the executable is set up.
@@ -316,13 +376,13 @@ fn run(
     engine: &Engine,
     dependencies: Dependencies,
     pinned_by: PinnedBy,
-    start: &Start,
+    environment: &BTreeMap<OsString, OsString>,
 ) -> ExitCode {
     let home = dependencies.home.clone();
     let machine = daemon::Machine {
         identity: engine.identity(),
         home: &home,
-        environment: &start.environment,
+        environment,
         executable: std::env::current_exe().ok(),
     };
     if !matches!(
@@ -337,10 +397,10 @@ fn run(
         Command::AttachedEngine => run_attached(engine, dependencies),
         Command::Browsers {
             command: BrowsersCommand::Install { json },
-        } => browsers::install(pinned_by, &start.environment, json),
+        } => browsers::install(pinned_by, environment, json),
         Command::Browsers {
             command: BrowsersCommand::Clean { dry_run, json },
-        } => browsers::clean(pinned_by, &start.environment, dry_run, json),
+        } => browsers::clean(pinned_by, environment, dry_run, json),
         Command::Config {
             command:
                 ConfigCommand::Explain {
@@ -358,9 +418,22 @@ fn run(
                 daemon::restart(&machine, keep_alive, json)
             }
             DaemonCommand::Status { json } => daemon::status(&machine, json),
-            DaemonCommand::Launched { copy, keep_alive } => {
-                daemon::launched(engine, dependencies, &machine, copy.as_deref(), keep_alive)
-            }
+            DaemonCommand::Install { json } => service::install(&machine, json),
+            DaemonCommand::Uninstall { json } => service::uninstall(&machine, json),
+            DaemonCommand::RotateToken { json } => service::rotate_token(&machine, json),
+            DaemonCommand::Launched {
+                copy,
+                keep_alive,
+                service,
+                environment: _,
+            } => daemon::launched(
+                engine,
+                dependencies,
+                &machine,
+                copy.as_deref(),
+                keep_alive,
+                service,
+            ),
         },
     }
 }

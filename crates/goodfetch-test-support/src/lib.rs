@@ -22,7 +22,9 @@
 //! player, and the Daemon's runtime file (ADRs 0024 and 0069);
 //! `goodfetch-test-env`, which gives the same setup to TypeScript and
 //! Python as one JSON description; the CLI helper, `cli`, which runs a
-//! Product's executable and records each command it ran; and
+//! Product's executable and records each command it ran, with the shared
+//! table's locale cases, and `pty`, which runs it on a pseudo-terminal, with
+//! the colour property cases; and
 //! `goodfetch-scripted-engine`, which plays a script over its stdio, as a
 //! Daemon found through the runtime file, or on loopback TCP. It
 //! works on values only: it depends on no Goodfetch crate and is only ever
@@ -30,6 +32,7 @@
 
 mod canaries;
 mod cli;
+mod colour;
 mod crash_dumps;
 mod crash_vfs;
 mod description;
@@ -51,6 +54,7 @@ mod observation;
 mod player;
 mod process;
 mod proving_ground;
+mod pty;
 mod resolver;
 mod runtime;
 mod runtime_file;
@@ -70,6 +74,7 @@ pub use canaries::{
     Sighting, gitleaks_rule,
 };
 pub use cli::{Cli, CliError, CliOutput, Stream, cli, record_command};
+pub use colour::{ColourError, ColourProperty};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
@@ -114,6 +119,7 @@ pub use proving_ground::{
     PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription, ProvingGroundError,
     ProvingGroundFixtures, ProxyCredentials,
 };
+pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{

@@ -2,8 +2,10 @@
 //! a run whose piped output holds an escape byte, gives one run's exit code,
 //! stdout and stderr as one snapshot, and records each command it ran by its
 //! `command:` Feature, or as unmatched, in the test's command record, which
-//! teardown copies into the test's exercise record.
+//! teardown copies into the test's exercise record; its locale cases set
+//! a locale and time zone of the shared table in the child's map only.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{
@@ -17,7 +19,7 @@ use crate::probe;
 
 /// The test's setup with no exercise record, so the commands these tests run
 /// on purpose, unmatched ones among them, never reach the real audit.
-fn unrecorded() -> TestEnv {
+pub(crate) fn unrecorded() -> TestEnv {
     let process = Variables::from_process();
     let variables: Variables = [
         SEED_VARIABLE,
@@ -159,5 +161,79 @@ fn teardown_copies_the_command_record_into_the_tests_exercise_record() {
                 "fields": { "command": "browsers.install", "exit_code": 0 },
             }),
         ]
+    );
+}
+
+#[test]
+fn a_locale_case_sets_lang_and_tz_only_for_the_child_it_runs() {
+    let env = unrecorded();
+    let own = (std::env::var_os("LANG"), std::env::var_os("TZ"));
+
+    let output = probe_cli(&env, "probe::prints_its_environment")
+        .with_locale("tr-TR")
+        .with_time_zone("Asia/Kathmandu")
+        .run()
+        .unwrap();
+
+    let child: BTreeMap<String, String> = output
+        .stdout
+        .lines()
+        .filter_map(|line| line.split_once("env:")?.1.split_once('='))
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .collect();
+    let mut expected = env.env().clone();
+    expected.extend(
+        [
+            ("NO_COLOR", "1"),
+            ("COLUMNS", "100"),
+            ("TERM", "dumb"),
+            ("LANG", "tr_TR.UTF-8"),
+            ("TZ", "Asia/Kathmandu"),
+        ]
+        .map(|(name, value)| (name.to_owned(), value.to_owned())),
+    );
+    assert_eq!(
+        (
+            child,
+            env.env()["LANG"].as_str(),
+            env.env()["TZ"].as_str(),
+            (std::env::var_os("LANG"), std::env::var_os("TZ")),
+        ),
+        (expected, "C.UTF-8", "UTC", own)
+    );
+}
+
+#[test]
+fn a_locale_outside_the_shared_table_fails_the_run_before_it_starts() {
+    let env = unrecorded();
+
+    // The table names locales by their BCP 47 tag, `tr-TR`.
+    let run = cli(&env, collie())
+        .args(["config", "explain", "timeout"])
+        .with_locale("tr_TR.UTF-8")
+        .run();
+
+    let error = run.unwrap_err();
+    assert!(
+        matches!(error, CliError::LocaleUnknown { .. })
+            && !env.folder().join(COMMAND_RECORD).exists(),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_time_zone_outside_the_shared_table_fails_the_run_before_it_starts() {
+    let env = unrecorded();
+
+    let run = cli(&env, collie())
+        .args(["config", "explain", "timeout"])
+        .with_time_zone("Europe/Berlin")
+        .run();
+
+    let error = run.unwrap_err();
+    assert!(
+        matches!(error, CliError::TimeZoneUnknown { .. })
+            && !env.folder().join(COMMAND_RECORD).exists(),
+        "{error}"
     );
 }

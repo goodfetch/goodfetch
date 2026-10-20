@@ -144,10 +144,7 @@ impl TestEnv {
     /// `tr_TR.UTF-8`).
     #[must_use]
     pub fn with_locale(mut self, tag: &str) -> Self {
-        self.env.insert(
-            "LANG".to_owned(),
-            format!("{}.UTF-8", tag.replace('-', "_")),
-        );
+        self.env.insert("LANG".to_owned(), posix_locale(tag));
         self
     }
 
@@ -296,6 +293,11 @@ impl Drop for TestEnv {
 /// applied, run in the test's folder.
 pub fn command(env: &TestEnv, program: impl AsRef<OsStr>) -> assert_cmd::Command {
     assert_cmd::Command::from_std(env.process_command(program))
+}
+
+/// The `LANG` value of a BCP 47 locale tag: `tr-TR` is `tr_TR.UTF-8`.
+pub(crate) fn posix_locale(tag: &str) -> String {
+    format!("{}.UTF-8", tag.replace('-', "_"))
 }
 
 /// The test's name as a folder name every OS accepts.

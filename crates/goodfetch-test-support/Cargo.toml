@@ -14,6 +14,7 @@ assert_cmd.workspace = true
 chacha20.workspace = true
 clap.workspace = true
 data-encoding.workspace = true
+expectrl.workspace = true
 insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
 proptest.workspace = true

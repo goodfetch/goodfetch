@@ -36,6 +36,9 @@ assert_cmd = { version = "2.2.2", default-features = false }
 # A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
+# The CLI helper's pseudo-terminal runs on every OS, ConPTY on Windows
+# (goodfetch-test-support, ADR 0069).
+expectrl = { version = "0.9.0", default-features = false }
 # The OS generator that seeds `Entropy` in production (ADR 0059).
 getrandom = { version = "0.3.4", default-features = false }
 goodfetch-collie = { path = "crates/goodfetch-collie" }

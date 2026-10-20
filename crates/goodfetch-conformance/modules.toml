@@ -2,6 +2,7 @@
 [modules]
 case_list = []
 host = []
+protocol = ["case_list", "host", "proving_ground", "writer"]
 proving_ground = []
 self_test = ["case_list", "host", "proving_ground", "writer"]
 writer = ["case_list"]

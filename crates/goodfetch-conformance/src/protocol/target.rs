@@ -1,0 +1,324 @@
+//! A target that speaks Goodfetch's JSON-RPC protocol, started from its
+//! executable taken by path (ADR 0096) the way its Clients start it: as an
+//! Attached engine, `<executable> attached-engine` over its stdio, or as a
+//! Daemon, `<executable> daemon launched`, whose runtime file it prints once
+//! ready and whose socket the harness then connects to. Every read waits at
+//! most [`DEADLINE`], so a target that stays silent fails its case instead of
+//! holding the harness.
+//!
+//! The harness is a Client of the target and runs outside any engine, so the
+//! Simulation never runs this module: it opens the Daemon's socket itself and
+//! reads each stream on a thread of its own, which ends when the stream does
+//! (ADR 0060's note for the conformance harness).
+#![expect(
+    clippy::disallowed_types,
+    reason = "the conformance harness connects to a Daemon's socket from outside the engine, never inside the Simulation (ADR 0060's note for the harness)"
+)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the synchronous harness starts its target's process and reads each of its streams on a thread that ends with the stream, outside any async worker (ADR 0060's note for the harness)"
+)]
+
+use std::collections::BTreeMap;
+use std::io::{self, BufRead as _, BufReader, Read, Write};
+use std::net::{Shutdown, TcpStream};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
+use std::process::{Child, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::time::Duration;
+
+use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+
+/// How long the harness waits for each line the target writes, for the
+/// Daemon to be ready and for the target to exit once the suite ends.
+pub(crate) const DEADLINE: Duration = Duration::from_secs(10);
+
+/// A target that speaks the protocol: an executable taken by path, started
+/// in a mode with exactly this environment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EngineTarget {
+    /// The executable: either Product's, or one that is started as they are,
+    /// such as the Scripted engine (ADR 0069).
+    pub executable: PathBuf,
+    /// How the harness reaches it.
+    pub mode: EngineMode,
+    /// The whole environment it runs with, its Goodfetch home among it.
+    pub environment: BTreeMap<String, String>,
+    /// The folder it runs in.
+    pub folder: PathBuf,
+}
+
+/// How the harness reaches a target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EngineMode {
+    /// An Attached engine over the target's stdio.
+    Attached,
+    /// A Daemon over the socket its runtime file names, with its token.
+    Daemon,
+}
+
+impl EngineMode {
+    /// The mode as the result document's case entries name it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Attached => "attached",
+            Self::Daemon => "daemon",
+        }
+    }
+}
+
+/// Why a target could not be reached.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum StartError {
+    /// Its process did not start.
+    #[error("{} did not start: {source}", executable.display())]
+    Spawn {
+        /// The executable.
+        executable: PathBuf,
+        /// Why.
+        source: io::Error,
+    },
+    /// The Daemon printed no runtime file before it exited or the deadline.
+    #[error("the Daemon printed no runtime file once ready: {reason}")]
+    NotReady {
+        /// What it did instead.
+        reason: String,
+    },
+    /// The Daemon's endpoint took no connection.
+    #[error("the Daemon at {endpoint} took no connection: {source}")]
+    Connect {
+        /// Its endpoint.
+        endpoint: String,
+        /// Why.
+        source: io::Error,
+    },
+}
+
+/// One line the target wrote, or why its stream ended in a failure.
+type Line = io::Result<String>;
+
+/// A started target and the one Connection the harness holds to it.
+pub(crate) struct Started {
+    child: Child,
+    link: Link,
+    /// The lines of the Connection.
+    lines: Receiver<Line>,
+    /// For a Daemon, the lines of its stdout after the ready one, which end
+    /// when its process does; an Attached engine's end shows on `lines`.
+    exited: Option<Receiver<Line>>,
+    /// The token the Daemon's runtime file names.
+    pub(crate) token: Option<String>,
+}
+
+/// Where the harness writes.
+enum Link {
+    Stdin(Option<std::process::ChildStdin>),
+    Tcp(TcpStream),
+    #[cfg(unix)]
+    Unix(UnixStream),
+}
+
+/// What waiting for a line gave.
+pub(crate) enum Next {
+    /// A line.
+    Line(String),
+    /// The target closed the Connection.
+    Closed,
+    /// Nothing came before the deadline.
+    Silent,
+    /// The stream failed.
+    Failed(io::Error),
+}
+
+impl Started {
+    /// Starts `target` and opens its Connection, before any `hello`.
+    pub(crate) fn start(target: &EngineTarget) -> Result<Self, StartError> {
+        let mut command = Command::new(&target.executable);
+        command
+            .env_clear()
+            .envs(&target.environment)
+            .current_dir(&target.folder)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        match target.mode {
+            EngineMode::Attached => command.arg("attached-engine").stdin(Stdio::piped()),
+            EngineMode::Daemon => command.args(["daemon", "launched"]).stdin(Stdio::null()),
+        };
+        let mut child = command.spawn().map_err(|source| StartError::Spawn {
+            executable: target.executable.clone(),
+            source,
+        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .expect("invariant: the target's stdout is piped");
+        match target.mode {
+            EngineMode::Attached => {
+                let stdin = child.stdin.take();
+                Ok(Self {
+                    child,
+                    link: Link::Stdin(stdin),
+                    lines: read_lines(stdout),
+                    exited: None,
+                    token: None,
+                })
+            }
+            EngineMode::Daemon => Self::connect_daemon(child, stdout),
+        }
+    }
+
+    /// Reads the runtime file the Daemon prints once ready and connects to
+    /// its endpoint.
+    fn connect_daemon(child: Child, stdout: ChildStdout) -> Result<Self, StartError> {
+        let mut started = Self {
+            child,
+            link: Link::Stdin(None),
+            lines: mpsc::channel().1,
+            exited: Some(read_lines(stdout)),
+            token: None,
+        };
+        let ready = started
+            .exited
+            .as_ref()
+            .expect("invariant: a Daemon's stdout is read")
+            .recv_timeout(DEADLINE);
+        let runtime: DaemonRuntimeFile = match ready {
+            Ok(Ok(line)) => serde_json::from_str(&line).map_err(|error| StartError::NotReady {
+                reason: format!("its first line is no runtime file ({error}): {line}"),
+            })?,
+            Ok(Err(error)) => {
+                return Err(StartError::NotReady {
+                    reason: format!("its stdout failed: {error}"),
+                });
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(StartError::NotReady {
+                    reason: format!("nothing came within {} s", DEADLINE.as_secs()),
+                });
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(StartError::NotReady {
+                    reason: "it exited first".to_owned(),
+                });
+            }
+        };
+        let connect_error = |source| StartError::Connect {
+            endpoint: runtime.endpoint.to_string(),
+            source,
+        };
+        let (link, reader): (Link, Box<dyn Read + Send>) = match &runtime.endpoint {
+            DaemonEndpoint::Tcp(address) => {
+                let stream =
+                    TcpStream::connect_timeout(address, DEADLINE).map_err(connect_error)?;
+                let reader = stream.try_clone().map_err(connect_error)?;
+                (Link::Tcp(stream), Box::new(reader))
+            }
+            #[cfg(unix)]
+            DaemonEndpoint::Unix(path) => {
+                let stream = UnixStream::connect(path).map_err(connect_error)?;
+                let reader = stream.try_clone().map_err(connect_error)?;
+                (Link::Unix(stream), Box::new(reader))
+            }
+            #[cfg(not(unix))]
+            DaemonEndpoint::Unix(_) => {
+                return Err(connect_error(io::Error::from(io::ErrorKind::Unsupported)));
+            }
+        };
+        started.link = link;
+        started.lines = read_lines(reader);
+        started.token = Some(runtime.token);
+        Ok(started)
+    }
+
+    /// Writes one line.
+    pub(crate) fn write_line(&mut self, line: &[u8]) -> io::Result<()> {
+        let mut framed = line.to_vec();
+        framed.push(b'\n');
+        let write = |writer: &mut dyn Write| {
+            writer.write_all(&framed)?;
+            writer.flush()
+        };
+        match &mut self.link {
+            Link::Stdin(Some(stdin)) => write(stdin),
+            Link::Stdin(None) => Err(io::Error::from(io::ErrorKind::BrokenPipe)),
+            Link::Tcp(stream) => write(stream),
+            #[cfg(unix)]
+            Link::Unix(stream) => write(stream),
+        }
+    }
+
+    /// The next line the target writes on the Connection.
+    pub(crate) fn next_line(&self) -> Next {
+        match self.lines.recv_timeout(DEADLINE) {
+            Ok(Ok(line)) => Next::Line(line),
+            Ok(Err(error)) => Next::Failed(error),
+            Err(RecvTimeoutError::Timeout) => Next::Silent,
+            Err(RecvTimeoutError::Disconnected) => Next::Closed,
+        }
+    }
+
+    /// Closes the Connection and waits for the target to exit, stopping it
+    /// when it has not by the deadline.
+    pub(crate) fn close(mut self) {
+        self.close_link();
+        let ends = self.exited.as_ref().unwrap_or(&self.lines);
+        let exited = loop {
+            match ends.recv_timeout(DEADLINE) {
+                Ok(_) => {}
+                Err(RecvTimeoutError::Disconnected) => break true,
+                Err(RecvTimeoutError::Timeout) => break false,
+            }
+        };
+        if !exited {
+            // A target that outlives the deadline is stopped, never left.
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
+    }
+
+    fn close_link(&mut self) {
+        // A target that already went leaves nothing to shut down.
+        match &mut self.link {
+            Link::Stdin(stdin) => drop(stdin.take()),
+            Link::Tcp(stream) => drop(stream.shutdown(Shutdown::Both)),
+            #[cfg(unix)]
+            Link::Unix(stream) => drop(stream.shutdown(Shutdown::Both)),
+        }
+    }
+}
+
+impl Drop for Started {
+    /// A target the harness gives up on early is stopped, never left.
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            self.close_link();
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+/// Starts the thread that reads `stream` a line at a time, until it ends
+/// or fails.
+fn read_lines(stream: impl Read + Send + 'static) -> Receiver<Line> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut stream = BufReader::new(stream);
+        loop {
+            let mut line = String::new();
+            let read = match stream.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => Ok(line.trim_end_matches(['\n', '\r']).to_owned()),
+                Err(error) => Err(error),
+            };
+            let failed = read.is_err();
+            if sender.send(read).is_err() || failed {
+                break;
+            }
+        }
+    });
+    receiver
+}

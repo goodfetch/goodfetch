@@ -125,10 +125,12 @@ clients-tests: journeys-tests
 # ADR 0072's exercise audit, after `just test pre-merge` or `release`: each
 # Rust test that declares an `operation:`, `error:`, `event:`, `command:` or
 # `exit:` Feature must have reached it, as the exercise record test support
-# wrote for it shows. It reads the tests the run's JUnit file shows ran, or
-# every declaring test with `all` (the Release suite). The suites run it
-# with the verdict `exercise_audit` gives; `gate` fails on a finding,
-# `report` lists the findings and passes.
+# wrote for it shows. It reads the tests the run's JUnit file shows ran,
+# which both suites run (the Release suite runs every test but the
+# quarantined ones and those its host cannot run), or, for a local look,
+# every declaring test with `all`, where a test that did not run is
+# `record-missing`. The suites run it with the verdict `exercise_audit`
+# gives; `gate` fails on a finding, `report` lists the findings and passes.
 # Runs the exercise audit: `just features-audit [ran|all] [gate|report]`.
 features-audit scope="ran" verdict=exercise_audit:
     #!/usr/bin/env bash
@@ -139,11 +141,15 @@ features-audit scope="ran" verdict=exercise_audit:
     esac
     case "{{ scope }}" in
       ran)
-        # nextest writes its JUnit file into the target folder, which CI's
-        # VM keeps outside the workspace.
-        target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
-        junit="$target/nextest/ci/junit.xml"
+        # nextest writes its JUnit file under the workspace's own
+        # target/nextest/, even when CARGO_TARGET_DIR (CI's VM) puts the
+        # build elsewhere.
+        junit=target/nextest/ci/junit.xml
         if [[ ! -f "$junit" ]]; then
+          if [[ -n "$(ls -A target/test-records 2>/dev/null)" ]]; then
+            echo "error: target/test-records holds exercise records, so tests ran, but no $junit names them: the audit cannot tell which tests to judge" >&2
+            exit 1
+          fi
           echo "The exercise audit has nothing to read: no nextest run of the suite left $junit."
           exit 0
         fi
@@ -348,24 +354,20 @@ test suite *packages:
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
     # Each runner skips the tests on the test quarantine list through its own
     # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
+    # nextest's arguments, which also skip the tests of an OS service a local
+    # host lacks, come from ci/nextest-skips.sh, as for ci/mutants.sh and
+    # ci/asan.sh.
     skip_nextest=() skip_vitest=() skip_playwright=() skip_pytest=()
     exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
     while IFS=$'\t' read -r runner argument; do
       case "$runner" in
-        nextest) skip_nextest+=("$argument") ;;
         vitest) skip_vitest+=("$argument") ;;
         playwright) skip_playwright+=("$argument") ;;
         pytest) skip_pytest+=("$argument") ;;
       esac
     done <<< "$exclusions"
-    # A local host without an OS service the tests use (an extra loopback
-    # address, the Secret Service) lists it as skipped, and nextest skips the
-    # tests that need it; in CI a missing one fails (ci/os-services.sh).
-    services=$(ci/os-services.sh skipped target/skipped.txt)
-    if [[ -n "$services" ]]; then
-      [[ ${#skip_nextest[@]} -gt 0 ]] || skip_nextest=(--)
-      while read -r pattern; do skip_nextest+=(--skip "$pattern"); done <<< "$services"
-    fi
+    skips=$(ci/nextest-skips.sh)
+    while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
     case "{{ suite }}" in
@@ -587,12 +589,12 @@ stress base="":
       done <<< "$selection"
       echo "Stress run: $(( ${#tests[@]} / 2 )) test(s), $count times each"
       [[ ${#tests[@]} -gt 0 ]] || continue
-      rm -f "$target"/nextest/*/junit.xml
+      rm -f target/nextest/*/junit.xml
       {{ just_executable() }} repeat "$count" "${tests[@]}" || status=$?
       folder="target/junit/repeat-$count"
       mkdir -p "$folder"
       find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;
-      for report in "$target"/nextest/*/junit.xml; do
+      for report in target/nextest/*/junit.xml; do
         [[ -f "$report" ]] || continue
         mv "$report" "$folder/nextest-$(basename "$(dirname "$report")").xml"
       done
@@ -692,7 +694,7 @@ release:
     "$just" lint
     "$just" test quick
     "$just" test release
-    "$just" features-audit all
+    "$just" features-audit
     "$just" _tlc all
     "$just" proofs
     "$just" rss
@@ -1044,7 +1046,7 @@ _test-tools:
 # Removes the exercise records and the nextest JUnit file of an earlier
 # Pre-merge or Release run, which `just features-audit` would read.
 _clear-exercise-records:
-    rm -rf target/test-records "$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/nextest/ci/junit.xml"
+    rm -rf target/test-records target/nextest/ci/junit.xml
 
 # One suite's tests over the whole workspace with `all`, else over what changed.
 _suite suite all:

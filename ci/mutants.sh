@@ -62,18 +62,10 @@ case "$mode" in
     "${JUST:-just}" _test-tools
     export GOODFETCH_TEST_TOOLS="$root/target/test-tools.json"
     # nextest skips what `just test` skips: the quarantined tests (ADR 0064)
-    # and those needing an OS service this host lacks (ci/os-services.sh).
+    # and those needing an OS service this host lacks (ci/nextest-skips.sh).
     skip=()
-    while IFS=$'\t' read -r runner argument; do
-      case "$runner" in
-        nextest) skip+=("$argument") ;;
-      esac
-    done < <(cargo run --quiet -p xtask -- quarantine exclude)
-    services=$(ci/os-services.sh skipped target/skipped.txt)
-    if [[ -n "$services" ]]; then
-      [[ ${#skip[@]} -gt 0 ]] || skip=(--)
-      while read -r pattern; do skip+=(--skip "$pattern"); done <<<"$services"
-    fi
+    skips=$(ci/nextest-skips.sh)
+    while IFS= read -r argument; do [[ -z "$argument" ]] || skip+=("$argument"); done <<<"$skips"
     status=0
     cargo mutants --in-diff "$out/change.diff" --test-tool nextest --shard "$shard" \
       --no-shuffle --in-place --output "$out" -- ${skip[@]+"${skip[@]}"} || status=$?

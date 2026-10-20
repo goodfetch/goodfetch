@@ -10,6 +10,8 @@
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
 
+mod params;
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
@@ -225,8 +227,8 @@ pub struct Handler {
 
 impl Handler {
     /// Handles `operation` with `handle`, which takes the operation's params
-    /// type and answers its result type; params that do not read as `P`
-    /// answer `invalid_params`.
+    /// type and answers its result type; params that do not read as `P`,
+    /// such as an array where a struct belongs, answer `invalid_params`.
     pub fn new<P, R, F, Fut>(operation: &'static Operation, handle: F) -> Self
     where
         P: DeserializeOwned + Send + 'static,
@@ -236,7 +238,7 @@ impl Handler {
     {
         let handle = Arc::new(handle);
         let call = move |params: Value, context: CallContext| -> Answer {
-            let read = serde_json::from_value::<P>(params);
+            let read = params::read::<P>(params);
             let handle = Arc::clone(&handle);
             Box::pin(async move {
                 let params = read.map_err(|error| {

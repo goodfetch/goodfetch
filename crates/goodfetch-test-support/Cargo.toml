@@ -31,6 +31,8 @@ toml.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "test-util"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# `JourneyRun` submits a tool's result to the Proving ground's oracle.
+ureq.workspace = true
 
 # Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
 # build script, so that script loads libclang where the OS keeps it (Xcode,

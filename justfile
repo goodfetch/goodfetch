@@ -227,9 +227,12 @@ test suite *packages:
     # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
     # the commit's executables through the test tool manifest (ADRs 0062 and
     # 0094): those the workspace has, built here with the tests' profile.
+    # Each Rust Journey variant writes its result document, `<id>@<surface>.json`,
+    # into target/result-documents/ (ADR 0063).
     export GOODFETCH_TEST_SUITE="{{ suite }}"
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
     if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
       manifest=$(jq --arg engine "$GOODFETCH_TEST_ENGINE" '.collie = $engine | .foxhound = $engine' target/test-tools.json)
       printf '%s\n' "$manifest" > target/test-tools.json

@@ -16,7 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
-use goodfetch_test_support::{TestEnv, command};
+use goodfetch_test_support::{TestEnv, cli};
 use serde_json::{Value, json};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -40,13 +40,13 @@ fn lay_out(root: &Path, build: &str, used_at: &str) -> PathBuf {
 }
 
 fn run(env: &TestEnv, arguments: &[&str], variables: &[(&str, &Path)]) -> Value {
-    let mut command = command(env, COLLIE);
-    command.args(arguments);
-    for (name, value) in variables {
-        command.env(name, value);
-    }
-    let output = command.assert().success().get_output().stdout.clone();
-    serde_json::from_slice(&output).unwrap()
+    let command = variables.iter().fold(
+        cli(env, COLLIE).args(arguments),
+        |command, (name, value)| command.env(name, value),
+    );
+    let output = command.run().unwrap();
+    assert_eq!(output.exit, Some(0), "{output}");
+    serde_json::from_str(&output.stdout).unwrap()
 }
 
 /// Covers: row:SDK-08, command:browsers.install

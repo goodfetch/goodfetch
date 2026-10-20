@@ -1073,6 +1073,7 @@ name = "goodfetch-engine"
 version = "0.0.0"
 dependencies = [
  "chacha20",
+ "data-encoding",
  "flate2",
  "getrandom 0.3.4",
  "goodfetch-protocol",

@@ -12,6 +12,8 @@ autobenches = false
 
 [dependencies]
 chacha20.workspace = true
+# The Base64 of the page-body chunks `page.body` sends.
+data-encoding.workspace = true
 # Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
 flate2.workspace = true
 getrandom.workspace = true

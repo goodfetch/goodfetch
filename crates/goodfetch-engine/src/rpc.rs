@@ -4,18 +4,21 @@
 //! place where a [`CallError`](crate::CallError) becomes the wire's
 //! `{code, message, data: {code, retryable, …}}`. Dispatch emits one
 //! `tracing` record per request, at `trace` under the target
-//! [`DISPATCH_TARGET`], with its method and its reply's Error code, which
-//! ADR 0072's exercise audit reads.
+//! [`DISPATCH_TARGET`], with its method and its reply's Error code, and one
+//! per event sent, with its name, which ADR 0072's exercise audit reads.
+//! The streaming calls, `events.subscribe` and `page.body`, send their
+//! events and chunks as the credits the Client grants with `$/credit` allow.
 
 pub mod framing;
 
 mod connection;
 mod handshake;
+mod stream;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, ErrorResponse, RequestId, Response, Version,
+    ErrorData, ErrorObject, ErrorResponse, Notification, RequestId, Response, Version,
 };
 use serde_json::Value;
 
@@ -23,6 +26,7 @@ use crate::composition::CallError;
 use crate::product::{Identity, Requested};
 
 pub(crate) use connection::{Dispatch, serve};
+pub(crate) use stream::handlers;
 
 /// The `tracing` target of dispatch's records.
 pub const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
@@ -35,6 +39,22 @@ fn record(method: &str, error_code: Option<&str>) {
             tracing::trace!(target: DISPATCH_TARGET, method, error_code, "request failed");
         }
     }
+}
+
+/// Records one event sent to a Client: its name.
+fn record_event(event: &str) {
+    tracing::trace!(target: DISPATCH_TARGET, event, "event sent");
+}
+
+/// The line of the notification `method` with `params`.
+fn notification_line(method: &str, params: &impl serde::Serialize) -> Vec<u8> {
+    line(&Notification {
+        jsonrpc: Version,
+        method: method.to_owned(),
+        params: Some(
+            serde_json::to_value(params).expect("invariant: a notification's params encode"),
+        ),
+    })
 }
 
 /// `not_in_product` for `requested`, which `needs` carries.

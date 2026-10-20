@@ -78,6 +78,15 @@ export class ArtifactUnavailableOfflineError extends RefusedError {
 }
 
 /**
+ * The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.
+ */
+export class BodyNotFoundError extends ProgramError {
+  constructor(message: string) {
+    super(message, { code: "body_not_found", group: "program", retryable: false });
+  }
+}
+
+/**
  * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.
  */
 export class BrowserNotInstalledError extends UnavailableError {
@@ -171,6 +180,7 @@ export class SampleRefusedError extends RefusedError {
 export const collieErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
+  body_not_found: BodyNotFoundError,
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   not_in_product: NotInProductError,

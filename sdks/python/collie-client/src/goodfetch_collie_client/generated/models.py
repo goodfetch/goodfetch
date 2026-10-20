@@ -78,9 +78,24 @@ class Lifecycle(StrEnum):
     """An error in the engine or the program's code ended it."""
 
 
+class PageBodyRead(BaseModel):
+    """What `page.body` answers once it sent the last chunk."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    size: Annotated[int, Field(ge=0)]
+    """The body's size in bytes."""
+
+
 class PointInTime(RootModel[AwareDatetime]):
     root: AwareDatetime
     """A point in time in UTC, as RFC 3339."""
+
+
+class Position(RootModel[int]):
+    root: Annotated[int, Field(ge=0)]
+    """An event's position among every event of one engine, which only goes up."""
 
 
 class Product(StrEnum):
@@ -196,6 +211,17 @@ class StoppedBy(StrEnum):
     """A Client, such as through `$/cancel`."""
 
 
+class SubscriptionEnded(BaseModel):
+    """
+    What `events.subscribe` answers when its subscription ends without the
+    Client cancelling it: the engine stopped.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class Tag(RootModel[str]):
     root: Annotated[str, Field(max_length=64)]
     """An opaque text a Run is tagged with (ADR 0036)."""
@@ -268,6 +294,51 @@ class EngineInfo(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class EventsSubscribeParams(BaseModel):
+    """What `events.subscribe` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Position | None = None
+    """
+    The position of the last event the Client read: the subscription
+    resumes after it, or starts with `events.resync` when the engine no
+    longer holds it. Absent, it starts with the next event.
+    """
+
+
+class PageBodyParams(BaseModel):
+    """What `page.body` takes: the body to read."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: Annotated[str, Field(pattern="^[0-9a-f]{64}$")]
+    """Its ID."""
+    run_id: RunId
+    """The Run whose folder holds it."""
+
+
+class RunAxes(BaseModel):
+    """
+    A Run's three axes as they are now (ADR 0029): what
+    `run.axes_changed` reports, and what a resync gives of each Run.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    completeness: Completeness | None = None
+    """Whether its results cover its scope, once it ended."""
+    lifecycle: Lifecycle
+    """Where it is."""
+    run_id: RunId
+    """The Run's ID."""
+    verdict: Verdict | None = None
+    """Whether its own checks prove what it committed, once it ended."""
+
+
 class RunStartParams(BaseModel):
     """What `run.start` takes."""
 
@@ -325,6 +396,19 @@ class StopReason(RootModel[StopReason1]):
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.
     """
+
+
+class Resync(BaseModel):
+    """
+    What `events.resync` gives: the current state, from which the stream
+    continues.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    runs: list[RunAxes]
+    """The axes of each Run the engine knows, live or ended."""
 
 
 class RunReport(BaseModel):

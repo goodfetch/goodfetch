@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import EngineInfo, EngineInfoParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult
+from .models import EngineInfo, EngineInfoParams, EventsSubscribeParams, PageBodyParams, PageBodyRead, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -44,6 +44,20 @@ class AsyncCollieOperations:
     async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
         return EngineInfo.model_construct(**_fields(await self._caller.call("engine.info", params)))
+
+    async def events_subscribe(self, params: EventsSubscribeParams) -> SubscriptionEnded:
+        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SubscriptionEnded.model_construct(**_fields(await self._caller.call("events.subscribe", params)))
+
+    async def page_body(self, params: PageBodyParams) -> PageBodyRead:
+        """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
 
     async def run_abort(self, params: RunParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.
@@ -87,6 +101,20 @@ class CollieOperations:
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
         return EngineInfo.model_construct(**_fields(self._caller.call("engine.info", params)))
+
+    def events_subscribe(self, params: EventsSubscribeParams) -> SubscriptionEnded:
+        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SubscriptionEnded.model_construct(**_fields(self._caller.call("events.subscribe", params)))
+
+    def page_body(self, params: PageBodyParams) -> PageBodyRead:
+        """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
 
     def run_abort(self, params: RunParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.

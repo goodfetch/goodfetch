@@ -22,6 +22,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "body_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.",
       "exit_code": null,
       "group": "unavailable",
@@ -198,6 +208,7 @@
   "events": [
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
       "deprecated": null,
       "description": "A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.",
       "name": "browser_cache.download_progress",
@@ -209,6 +220,31 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.",
+      "name": "events.resync",
+      "payload": {
+        "$ref": "#/$defs/Resync"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.",
+      "name": "run.axes_changed",
+      "payload": {
+        "$ref": "#/$defs/RunAxes"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
       "deprecated": null,
       "description": "The sample crawl finished.",
       "name": "sample.crawled",
@@ -220,6 +256,7 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
       "deprecated": null,
       "description": "A text was repeated.",
       "name": "sample.echoed",
@@ -314,6 +351,43 @@
         "$ref": "#/$defs/EngineInfo"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.",
+      "events": [
+        "events.resync",
+        "run.axes_changed"
+      ],
+      "name": "events.subscribe",
+      "params": {
+        "$ref": "#/$defs/EventsSubscribeParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
+      "events": [],
+      "name": "page.body",
+      "params": {
+        "$ref": "#/$defs/PageBodyParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/PageBodyRead"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",

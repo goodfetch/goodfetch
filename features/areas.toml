@@ -114,3 +114,30 @@ prefix = "browser_cache."
 number = 3
 kind = "format"
 prefix = "browser-cache"
+
+# Area 3's event stream and page bodies (spec #213, #216): the subscription
+# and its events, a Run's axis changes, and `page.body` with its Error code.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "events."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "events."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "run."
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "page.body"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "body_"

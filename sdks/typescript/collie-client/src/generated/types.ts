@@ -19,6 +19,13 @@ export type ArtifactKind =
  */
 export type Completeness = "complete" | "incomplete" | "unverified";
 /**
+ * An event's position among every event of one engine, which only goes up.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Position".
+ */
+export type Position = number;
+/**
  * Where a Run is (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -54,6 +61,13 @@ export type ProductVersion = string;
  * via the `definition` "ProtocolVersion".
  */
 export type ProtocolVersion = string;
+/**
+ * Whether a Run's own checks prove what it committed (ADR 0029).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Verdict".
+ */
+export type Verdict = "verified" | "rejected" | "needs_review";
 /**
  * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  *
@@ -145,13 +159,6 @@ export type Tags1 =
   | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
   | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag]
   | [Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag, Tag];
-/**
- * Whether a Run's own checks prove what it committed (ADR 0029).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Verdict".
- */
-export type Verdict = "verified" | "rejected" | "needs_review";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -249,6 +256,86 @@ export interface EngineInfo {
  */
 export interface EngineInfoParams {}
 /**
+ * What `events.subscribe` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EventsSubscribeParams".
+ */
+export interface EventsSubscribeParams {
+  /**
+   * The position of the last event the Client read: the subscription
+   * resumes after it, or starts with `events.resync` when the engine no
+   * longer holds it. Absent, it starts with the next event.
+   */
+  after?: Position | null;
+}
+/**
+ * What `page.body` takes: the body to read.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageBodyParams".
+ */
+export interface PageBodyParams {
+  /**
+   * Its ID.
+   */
+  body: string;
+  /**
+   * The Run whose folder holds it.
+   */
+  run_id: string;
+}
+/**
+ * What `page.body` answers once it sent the last chunk.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageBodyRead".
+ */
+export interface PageBodyRead {
+  /**
+   * The body's size in bytes.
+   */
+  size: number;
+}
+/**
+ * What `events.resync` gives: the current state, from which the stream
+ * continues.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Resync".
+ */
+export interface Resync {
+  /**
+   * The axes of each Run the engine knows, live or ended.
+   */
+  runs: RunAxes[];
+}
+/**
+ * A Run's three axes as they are now (ADR 0029): what
+ * `run.axes_changed` reports, and what a resync gives of each Run.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunAxes".
+ */
+export interface RunAxes {
+  /**
+   * Whether its results cover its scope, once it ended.
+   */
+  completeness?: Completeness | null;
+  /**
+   * Where it is.
+   */
+  lifecycle: "running" | "stopped" | "finished" | "failed";
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+  /**
+   * Whether its own checks prove what it committed, once it ended.
+   */
+  verdict?: Verdict | null;
+}
+/**
  * What `run.finish` and `run.abort` take: the Run.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -269,7 +356,8 @@ export interface RunParams {
  */
 export interface RunReport {
   /**
-   * Whether its results cover its scope.
+   * Whether a Run's results cover everything in its scope (ADRs 0005 and
+   * 0029).
    */
   completeness: "complete" | "incomplete" | "unverified";
   /**
@@ -293,7 +381,7 @@ export interface RunReport {
    */
   stop_reason?: StopReason | null;
   /**
-   * Whether its own checks prove what it committed.
+   * Whether a Run's own checks prove what it committed (ADR 0029).
    */
   verdict: "verified" | "rejected" | "needs_review";
 }
@@ -401,3 +489,11 @@ export interface SampleStorePutResult {
    */
   replaced: boolean;
 }
+/**
+ * What `events.subscribe` answers when its subscription ends without the
+ * Client cancelling it: the engine stopped.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SubscriptionEnded".
+ */
+export interface SubscriptionEnded {}

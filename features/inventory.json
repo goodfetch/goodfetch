@@ -23,6 +23,17 @@
       ]
     },
     {
+      "id": "error:body_not_found",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:browser_not_installed",
       "kind": "error",
       "area": 3,
@@ -174,6 +185,28 @@
       ]
     },
     {
+      "id": "event:events.resync",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:run.axes_changed",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:sample.crawled",
       "kind": "event",
       "area": 1,
@@ -250,6 +283,28 @@
     },
     {
       "id": "operation:engine.info",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:events.subscribe",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.body",
       "kind": "operation",
       "area": 3,
       "milestone": null,

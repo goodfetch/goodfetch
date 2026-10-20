@@ -18,7 +18,8 @@
 //! array of `{name, version, storage, rule, schema}`, where `storage` is
 //! `json`, `sqlite` or `transcript`. The bundle's `connection` holds the
 //! types of `hello` and `$/cancel`, which open and govern every Connection
-//! outside the catalog; each Error code's entry carries its row of the
+//! outside the catalog, and those of the streaming calls' notifications,
+//! the Client's `$/credit` and the engine's `$/events` and `$/chunk`; each Error code's entry carries its row of the
 //! exit-code table, `exit_code`. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
@@ -34,8 +35,10 @@ use crate::catalog::{
 };
 use crate::connection::{CancelParams, HelloParams, HelloResult};
 use crate::entries::MODULES;
+use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
 use crate::journey::{Journey, JourneyCatalog};
+use crate::page::Chunk;
 use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
 
@@ -78,6 +81,9 @@ pub fn emit() -> Emitted {
             "result": generator.subschema_for::<HelloResult>(),
         },
         "cancel": { "params": generator.subschema_for::<CancelParams>() },
+        "credit": { "params": generator.subschema_for::<CreditParams>() },
+        "events": { "params": generator.subschema_for::<EventBatch>() },
+        "chunk": { "params": generator.subschema_for::<Chunk>() },
     });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
@@ -231,6 +237,7 @@ fn event_entry(product: Product, event: &Event, generator: &mut SchemaGenerator)
         "name": event.name,
         "product": product.as_str(),
         "description": event.description,
+        "class": event.class.as_str(),
         "payload": (event.payload)(generator),
         "stability": event.stability.as_str(),
         "deprecated": deprecation(event.deprecated),

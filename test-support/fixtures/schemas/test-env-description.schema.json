@@ -1,5 +1,24 @@
 {
   "$defs": {
+    "DaemonDescription": {
+      "additionalProperties": false,
+      "description": "A started Daemon, as a test and `goodfetch-test-env`'s description see\nit: what a Client needs to reach it.",
+      "properties": {
+        "socket": {
+          "description": "Where it listens: its Unix socket's path on macOS and Linux, its\nloopback TCP address (`127.0.0.1:<port>`) on Windows (ADR 0024).",
+          "type": "string"
+        },
+        "token": {
+          "description": "The per-launch token a Client's `hello` carries.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "socket",
+        "token"
+      ],
+      "type": "object"
+    },
     "ProvingGroundDescription": {
       "additionalProperties": false,
       "description": "A started Proving ground, as a test and `goodfetch-test-env`'s\ndescription see it.",
@@ -137,6 +156,10 @@
   "additionalProperties": false,
   "description": "One test's setup, as the TypeScript and Python packages read it.",
   "properties": {
+    "daemon": {
+      "$ref": "#/$defs/DaemonDescription",
+      "description": "The Daemon `--daemon` started in the test's home, present only when\nasked for."
+    },
     "env": {
       "additionalProperties": {
         "type": "string"

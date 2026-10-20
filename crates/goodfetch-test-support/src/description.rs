@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::daemon::DaemonDescription;
 use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
 use crate::hostile::{
@@ -47,6 +48,11 @@ pub struct Description {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "ProvingGroundDescription")]
     pub proving_ground: Option<ProvingGroundDescription>,
+    /// The Daemon `--daemon` started in the test's home, present only when
+    /// asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "DaemonDescription")]
+    pub daemon: Option<DaemonDescription>,
 }
 
 impl Description {
@@ -60,7 +66,15 @@ impl Description {
             start_time: START_TIME.to_owned(),
             tools,
             proving_ground: None,
+            daemon: None,
         }
+    }
+
+    /// The same description with the Daemon the test started.
+    #[must_use]
+    pub fn with_daemon(mut self, daemon: DaemonDescription) -> Self {
+        self.daemon = Some(daemon);
+        self
     }
 
     /// The same description with the Proving ground the test started.

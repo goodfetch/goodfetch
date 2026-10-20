@@ -79,6 +79,27 @@ impl fmt::Display for Tool {
     }
 }
 
+/// A Goodfetch Product, whose executable a test runs: Collie's unless the
+/// test needs Foxhound (ADR 0094).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum Product {
+    /// Collie.
+    #[default]
+    Collie,
+    /// Foxhound.
+    Foxhound,
+}
+
+impl Product {
+    /// Its executable in the manifest.
+    pub fn tool(self) -> Tool {
+        match self {
+            Self::Collie => Tool::Collie,
+            Self::Foxhound => Tool::Foxhound,
+        }
+    }
+}
+
 impl Tools {
     /// Reads the manifest at `manifest`, which `None` says is not set.
     pub fn read(manifest: Option<&Path>) -> Result<Self, ToolsError> {

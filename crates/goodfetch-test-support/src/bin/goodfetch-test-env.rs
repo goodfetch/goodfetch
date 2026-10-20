@@ -3,8 +3,12 @@
 //! stdout, and tears it down when its stdin closes. It exits non-zero, with a
 //! message on stderr, when a start fails. `--proving-ground <seed>` also
 //! starts the commit's Proving ground on that seed, which the description
-//! names and which stops before the folder is removed. `--print-schemas`
-//! prints the JSON
+//! names and which stops before the folder is removed. `--daemon` also
+//! starts the Daemon of the tool manifest's Collie executable in the test's
+//! home, or of Foxhound's with `--daemon=foxhound` (ADR 0094); the
+//! description names its socket and token, and at teardown it is stopped
+//! with its executable's `daemon stop` and must leave no runtime file.
+//! `--print-schemas` prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
 //! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it.
 //! On Linux, `dns-namespace` runs a program in a network and mount
@@ -16,8 +20,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use goodfetch_test_support::{
-    Description, PROVING_GROUND_DEADLINE, ProvingGround, TestEnv, Tool, Variables, gitleaks_rule,
-    schemas, tools,
+    DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround, TestEnv,
+    Tool, Variables, gitleaks_rule, schemas, tools,
 };
 
 #[derive(Parser)]
@@ -44,6 +48,17 @@ struct Arguments {
     /// under `proving_ground`.
     #[arg(long, value_name = "SEED")]
     proving_ground: Option<u64>,
+    /// Starts the Daemon of this Product's executable from the test tool
+    /// manifest in the test's home, Collie's unless `--daemon=foxhound`,
+    /// and describes its socket and token under `daemon`.
+    #[arg(
+        long,
+        value_name = "PRODUCT",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "collie"
+    )]
+    daemon: Option<Product>,
     /// Prints the JSON Schemas of test support's file types, keyed by their
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
@@ -174,12 +189,25 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
         }
         None => None,
     };
+    let daemon = match arguments.daemon {
+        Some(product) => {
+            // Its process joins the TestEnv's record too.
+            let started =
+                Daemon::start_program(&env, tools.path(product.tool())?, DAEMON_DEADLINE)?;
+            description = description.with_daemon(started.description().clone());
+            Some(started)
+        }
+        None => None,
+    };
     write_line(&serde_json::to_string(&description)?)?;
     #[expect(
         clippy::disallowed_methods,
         reason = "goodfetch-test-env tears down when its stdin closes (ADR 0062)"
     )]
     io::stdin().read_to_end(&mut Vec::new())?;
+    if let Some(daemon) = daemon {
+        daemon.stop(&env)?;
+    }
     drop(proving_ground);
     drop(env);
     Ok(())

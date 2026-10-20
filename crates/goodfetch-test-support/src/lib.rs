@@ -38,6 +38,7 @@ mod cli;
 mod colour;
 mod crash_dumps;
 mod crash_vfs;
+mod daemon;
 mod description;
 #[cfg(target_os = "linux")]
 mod dns_namespace;
@@ -87,6 +88,7 @@ pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
 };
+pub use daemon::{DAEMON_DEADLINE, Daemon, DaemonDescription, DaemonError};
 pub use description::{Description, schemas};
 #[cfg(target_os = "linux")]
 pub use dns_namespace::{
@@ -161,7 +163,7 @@ pub use ssrf::{
 pub use strict_stdout::{
     Line, MESSAGE_DEADLINE, STDERR_GRACE, StrictStdout, StrictStdoutError, StrictStdoutErrorKind,
 };
-pub use tools::{Tool, Tools, ToolsError, tools};
+pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use variables::{

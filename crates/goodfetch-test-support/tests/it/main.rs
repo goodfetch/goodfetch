@@ -41,6 +41,7 @@ mod ssrf_table;
 mod strict_stdout;
 mod teardown;
 mod test_env;
+mod test_env_daemon;
 mod tools;
 
 use std::path::PathBuf;

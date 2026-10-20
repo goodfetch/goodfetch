@@ -179,8 +179,10 @@ fn extract(archive: &Path, into: &Path) -> Result<()> {
 }
 
 fn cmake(arguments: &[String]) -> Result<()> {
+    // Its output goes to stderr, so stdout holds only the executable's path.
     let status = Process::new("cmake")
         .args(arguments)
+        .stdout(std::io::stderr())
         .status()
         .context("starting cmake, which the LazyFS build needs")?;
     if !status.success() {

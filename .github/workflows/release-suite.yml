@@ -181,10 +181,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test; it lists
-      # its findings and fails nothing while the justfile's `exercise_audit`
-      # is `report`.
-      - name: Audit what each declaring test reached
+      # ADR 0072's exercise audit over every declaring Rust test: with the
+      # justfile's `exercise_audit` at `gate`, a declaring test that never
+      # reached its Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
         run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
@@ -290,10 +290,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test; it lists
-      # its findings and fails nothing while the justfile's `exercise_audit`
-      # is `report`.
-      - name: Audit what each declaring test reached
+      # ADR 0072's exercise audit over every declaring Rust test: with the
+      # justfile's `exercise_audit` at `gate`, a declaring test that never
+      # reached its Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
         run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
@@ -375,10 +375,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test; it lists
-      # its findings and fails nothing while the justfile's `exercise_audit`
-      # is `report`.
-      - name: Audit what each declaring test reached
+      # ADR 0072's exercise audit over every declaring Rust test: with the
+      # justfile's `exercise_audit` at `gate`, a declaring test that never
+      # reached its Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
         run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
@@ -458,10 +458,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test; it lists
-      # its findings and fails nothing while the justfile's `exercise_audit`
-      # is `report`.
-      - name: Audit what each declaring test reached
+      # ADR 0072's exercise audit over every declaring Rust test: with the
+      # justfile's `exercise_audit` at `gate`, a declaring test that never
+      # reached its Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
         run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
@@ -542,10 +542,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
-      # ADR 0072's exercise audit over every declaring Rust test; it lists
-      # its findings and fails nothing while the justfile's `exercise_audit`
-      # is `report`.
-      - name: Audit what each declaring test reached
+      # ADR 0072's exercise audit over every declaring Rust test: with the
+      # justfile's `exercise_audit` at `gate`, a declaring test that never
+      # reached its Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
         run: just features-audit all
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.

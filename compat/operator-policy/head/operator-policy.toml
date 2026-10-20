@@ -9,8 +9,10 @@ location = "example"
 [settings.sample]
 echo_repeats = 4
 
-[settings.network]
+[settings.egress]
 offline = true
+
+[settings.network]
 resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.tls]
@@ -72,8 +74,10 @@ location = "example"
 [lock.sample]
 echo_repeats = 4
 
-[lock.network]
+[lock.egress]
 offline = true
+
+[lock.network]
 resolve = { "example.test" = ["127.0.0.1"] }
 
 [lock.tls]

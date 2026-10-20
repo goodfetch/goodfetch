@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="nextest-run" tests="6" skipped="0" failures="0" errors="0">
-    <testsuite name="sample" tests="2" skipped="0" errors="0" failures="0">
+<testsuites name="nextest-run" tests="8" skipped="0" failures="0" errors="0">
+    <testsuite name="sample" tests="3" skipped="0" errors="0" failures="0">
         <testcase name="tests::refuses_an_empty_text" classname="sample" time="0.001"/>
         <testcase name="tests::echoes_in_process" classname="sample" time="0.001"/>
+        <testcase name="tests::loses_an_attempt_in_process" classname="sample" time="0.001"/>
     </testsuite>
-    <testsuite name="sample::it" tests="4" skipped="0" errors="0" failures="0">
+    <testsuite name="sample::it" tests="5" skipped="0" errors="0" failures="0">
         <testcase name="calls_echo_then_crawl" classname="sample::it" time="0.001"/>
         <testcase name="gets_the_refusal" classname="sample::it" time="0.001"/>
         <testcase name="receives_the_echoed_event" classname="sample::it" time="0.001"/>
+        <testcase name="refuses_a_text_the_stand_in_rejects" classname="sample::it" time="0.001"/>
         <testcase name="declares_nothing" classname="sample::it" time="0.001"/>
     </testsuite>
 </testsuites>

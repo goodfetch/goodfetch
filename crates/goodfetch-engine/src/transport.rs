@@ -4,8 +4,8 @@
 //! adapter. An Attached engine's one Connection is the OS's stdio, or the
 //! one an in-memory dialer opens. This is the only module that opens stdin
 //! and stdout; the Daemon's socket, loopback TCP and the other listeners
-//! join here with the tickets that add them. It also opens the outbound TCP
-//! connections of the engine's own pinned downloads (ADR 0043).
+//! join here with the tickets that add them. The engine's own outbound
+//! connections, which the Simulation never carries, open in `http_client`.
 
 use std::io;
 use std::pin::Pin;
@@ -158,63 +158,5 @@ impl InMemoryDialer {
             .await
             .map_err(|_| TransportError::EngineGone)?;
         Ok(Connection::new(client_reader, client_writer))
-    }
-}
-
-/// An outbound TCP connection on the OS's network, which the engine opens
-/// only for its own pinned downloads (ADR 0043): the Browser cache's
-/// first-use download and `browsers install`.
-#[expect(
-    clippy::disallowed_types,
-    reason = "the transport module is the one place that opens sockets (ADR 0060)"
-)]
-pub struct TcpConnection(tokio::net::TcpStream);
-
-/// Connects to the first of `addresses` that accepts, in order.
-///
-/// # Cancel safety
-///
-/// Dropping the future closes any connection it was opening.
-pub async fn connect_tcp(addresses: &[std::net::SocketAddr]) -> io::Result<TcpConnection> {
-    let mut last = io::Error::new(io::ErrorKind::AddrNotAvailable, "no address to connect to");
-    for address in addresses {
-        #[expect(
-            clippy::disallowed_types,
-            reason = "the transport module is the one place that opens sockets (ADR 0060)"
-        )]
-        let connected = tokio::net::TcpStream::connect(address).await;
-        match connected {
-            Ok(stream) => return Ok(TcpConnection(stream)),
-            Err(error) => last = error,
-        }
-    }
-    Err(last)
-}
-
-impl AsyncRead for TcpConnection {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_read(context, buffer)
-    }
-}
-
-impl AsyncWrite for TcpConnection {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        bytes: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.0).poll_write(context, bytes)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_flush(context)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_shutdown(context)
     }
 }

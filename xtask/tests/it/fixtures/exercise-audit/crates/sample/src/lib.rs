@@ -11,4 +11,10 @@ mod tests {
     /// Covers: operation:sample.echo
     #[test]
     fn echoes_in_process() {}
+
+    /// Sends the request over the in-memory transport, then asserts the
+    /// Error code the Run records, which no reply carries.
+    /// Covers: operation:sample.echo, error:sample_lost
+    #[test]
+    fn loses_an_attempt_in_process() {}
 }

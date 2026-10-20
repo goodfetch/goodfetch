@@ -11,10 +11,10 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
 
 # The exercise audit's verdict in the Pre-merge and Release suites (ADR 0072):
-# `report` while declarations of earlier tickets still miss what they claim
-# (#353's run found 14), so it lists them and fails nothing; `gate` once
-# `just features-audit all gate` passes, when it fails the suites.
-exercise_audit := "report"
+# `gate`, so a declaring test that never reached its Feature fails them;
+# `report` lists the findings and fails nothing, for a local look
+# (`just features-audit ran report`).
+exercise_audit := "gate"
 
 # Lists the recipes.
 default:
@@ -62,6 +62,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- package-dependencies
     cargo run --quiet -p xtask -- mocking-lockfile
+    cargo run --quiet -p xtask -- telemetry
     cargo run --quiet -p xtask -- no-retry
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
@@ -154,7 +155,7 @@ features-audit scope="ran" verdict=exercise_audit:
     status=0
     cargo run --quiet -p xtask -- features audit ${audit[@]+"${audit[@]}"} || status=$?
     if [[ $status -eq 1 && "{{ verdict }}" == report ]]; then
-      echo "The exercise audit reports its findings above and fails nothing until they are fixed (exercise_audit in the justfile, #321)."
+      echo "The exercise audit reports its findings above and fails nothing: the verdict is report, not the suites' gate."
       exit 0
     fi
     exit "$status"

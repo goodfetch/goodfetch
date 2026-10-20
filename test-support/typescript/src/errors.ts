@@ -62,7 +62,13 @@ export type TestSupportErrorCode =
   /** `GOODFETCH_VISUAL_IMAGE` names another image than ci/visual/image.toml pins (ADR 0073). */
   | "visual_image_not_pinned"
   /** A screenshot's page lacks a fixed setting: instant, locale, time zone, viewport, scale or motion (ADR 0073). */
-  | "screenshot_unsettled";
+  | "screenshot_unsettled"
+  /** The Client sent the Scripted engine a message no step of its script expects (ADR 0069). */
+  | "unexpected_message"
+  /** The Client closed its end, or the script ended, with a step of the Scripted engine's script unused (ADR 0069). */
+  | "unused_step"
+  /** A `reply` or `await_reply` step of a Scripted engine's script follows no request to answer (ADR 0069). */
+  | "nothing_to_answer";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

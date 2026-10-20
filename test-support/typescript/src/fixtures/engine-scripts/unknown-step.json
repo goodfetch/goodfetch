@@ -1,0 +1,4 @@
+{
+  "description": "A step of a kind the script format does not define.",
+  "steps": [{ "pause": { "seconds": 1 } }]
+}

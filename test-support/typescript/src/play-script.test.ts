@@ -18,7 +18,7 @@ const collieHello = {
 class TinyClient {
   readonly #writer: WritableStreamDefaultWriter<Uint8Array>;
   readonly #lines: AsyncIterator<string>;
-  #nextId = 1;
+  #nextId = 0;
 
   constructor(transport: InMemoryTransport) {
     this.#writer = transport.writable.getWriter();
@@ -173,6 +173,35 @@ describe("playScript", () => {
     await expect(answered).rejects.toMatchObject({ code: "unexpected_message" });
   });
 
+  test("a script sends events once the Client grants credits, then closes", async () => {
+    const played = playScript("self-test/events-on-credit.json");
+    const client = new TinyClient(played.transport);
+    await client.request("hello", collieHello);
+    await client.next();
+    const subscription = await client.request("events.subscribe", {});
+
+    await client.send({
+      jsonrpc: "2.0",
+      method: "$/credit",
+      params: { id: subscription, credits: 1 },
+    });
+    const batch = await client.next();
+    const after = await client.next();
+
+    expect([batch, after]).toEqual([
+      {
+        jsonrpc: "2.0",
+        method: "$/events",
+        params: {
+          id: 1,
+          events: [{ position: 1, event: "sample.echoed", data: { text: "hello" } }],
+        },
+      },
+      undefined,
+    ]);
+    expect(played.done()).toEqual({ kind: "closed" });
+  });
+
   test("a stalled script answers nothing until the Client gives up", async () => {
     const played = playScript("self-test/stall.json");
     const client = new TinyClient(played.transport);
@@ -276,13 +305,13 @@ describe("playScript", () => {
     expect(played.messages).toEqual([
       {
         from: "client",
-        message: { jsonrpc: "2.0", id: 1, method: "hello", params: collieHello },
+        message: { jsonrpc: "2.0", id: 0, method: "hello", params: collieHello },
       },
       {
         from: "engine",
         message: {
           jsonrpc: "2.0",
-          id: 1,
+          id: 0,
           result: { protocol_version: "0.1", product: "collie", product_version: "0.1.0" },
         },
       },

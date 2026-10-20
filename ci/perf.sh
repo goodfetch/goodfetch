@@ -16,16 +16,8 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
-skip() {
-  if [[ -n "${CI:-}" ]]; then
-    echo "error: $1, and CI runs every part" >&2
-    exit 1
-  fi
-  mkdir -p target
-  echo "just perf: skipped, $1" >>target/skipped.txt
-  echo "skipped: just perf ($1)" >&2
-  exit 0
-}
+# shellcheck source=ci/container.sh
+source "$root/ci/container.sh"
 
 requested=${1:-}
 base=$requested
@@ -37,14 +29,8 @@ else
 fi
 
 if [[ "$(uname -s)" != Linux ]]; then
-  engine=
-  for candidate in docker podman; do
-    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" info >/dev/null 2>&1; then
-      engine=$candidate
-      break
-    fi
-  done
-  [[ -n "$engine" ]] || skip "it runs on Linux, and no container engine (Docker or Podman) is running on this host"
+  engine=$(container_engine)
+  [[ -n "$engine" ]] || skip "just perf" "it runs on Linux, and no container engine (Docker or Podman) is running on this host"
   # shellcheck source=ci/vm/common.sh
   source "$root/ci/vm/common.sh"
   if ! "$engine" image inspect "$CI_IMAGE" >/dev/null 2>&1; then
@@ -66,8 +52,8 @@ if [[ "$(uname -s)" != Linux ]]; then
     "$CI_IMAGE" ci/perf.sh ${requested:+"$requested"}
 fi
 
-command -v valgrind >/dev/null 2>&1 || skip "Valgrind is not installed on this host"
-command -v gungraun-runner >/dev/null 2>&1 || skip "gungraun-runner is not installed on this host"
+command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not installed on this host"
+command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner is not installed on this host"
 
 selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
 targets=$(sed -n 's/^bench-targets=//p' <<<"$selection")

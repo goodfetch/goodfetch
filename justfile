@@ -365,45 +365,14 @@ quick *all:
     "$just" _suite quick "{{ all }}"
 
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
-# changed and the static checks' proofs (`all`: the whole workspace). The
-# visual projects run only in the pinned Playwright image, in CI's `visual`
-# job (ADR 0073).
-#
-# `perf` runs beside the other steps, in its container on Linux x86-64
-# (ci/perf.sh), with its lines marked `[perf]`; the suite waits for it and
-# fails when it fails, and stops it when another step fails first. The checks
-# that take seconds and judge the whole change (sign-offs, commit messages,
-# the SDK crates' features, advisories, the proofs) run before the suites.
+# changed, the stress run of new and changed tests and the static checks'
+# proofs (`all`: the whole workspace). The checks that need Linux run beside
+# the other steps, each in its own container, with their lines marked:
+# `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
+# projects in the pinned Playwright image, ADR 0073). The suite waits for
+# them and fails when one fails (ci/pre-merge.sh).
 pre-merge *all:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just="{{ just_executable() }}"
-    rm -f target/skipped.txt
-    "$just" perf > >(awk '{ print "[perf] " $0; fflush() }') 2>&1 &
-    perf=$!
-    trap '[[ -z "$perf" ]] || kill "$perf" 2>/dev/null || true; "$just" _skips-report' EXIT
-    "$just" dco
-    "$just" commit-messages
-    "$just" lint
-    "$just" feature-combinations
-    "$just" audit
-    "$just" proofs
-    "$just" _suite quick "{{ all }}"
-    "$just" _suite pre-merge "{{ all }}"
-    "$just" journeys-tasks --check
-    "$just" _tlc "{{ all }}"
-    "$just" msrv
-    "$just" miri
-    "$just" notices
-    echo "Waiting for perf…"
-    status=0
-    wait "$perf" || status=$?
-    perf=
-    if [[ $status -ne 0 ]]; then
-      echo "error: just perf failed with exit status $status" >&2
-      exit "$status"
-    fi
-    "$just" _visual-elsewhere
+    PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/pre-merge.sh {{ all }}
 
 # This host's cell of the Release suite. The other cells run in CI only:
 # `just release-ci`.
@@ -479,6 +448,28 @@ release-ci cells="all" commit="":
 # elsewhere, and listed as skipped without either (ci/perf.sh).
 perf base="":
     ci/perf.sh {{ base }}
+
+# The Pre-merge suite's tests that only Linux decides (`tc netem`, the
+# Secret Service, the IPv6 Happy Eyeballs check, the extra loopback
+# addresses): on a host that is not Linux, in the pinned CI image through
+# Docker or Podman, with every Linux OS service; listed as skipped without
+# either (ci/linux.sh).
+linux:
+    ci/linux.sh
+
+# The visual projects in the pinned Playwright image (ADR 0073), through
+# Docker or Podman, comparing every Reference screenshot; a host with
+# neither fails it (ci/visual/container.sh).
+visual:
+    ci/visual/container.sh test
+
+# While GitHub Actions is off, stands in for the `update-screenshots`
+# workflow (ADR 0073's note of 2026-10-20): rewrites the changed or missing
+# Reference screenshots in the pinned Playwright image, through Docker or
+# Podman, and copies them into the working tree. Look at each, then commit
+# them in a commit of their own, with your own sign-off.
+screenshots-update:
+    ci/visual/container.sh update
 
 # Keeps each tool of test-support/models/tools.toml in target/tla-tools/,
 # downloading only a file that lacks its pinned SHA-256; a download whose

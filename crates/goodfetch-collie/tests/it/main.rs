@@ -10,4 +10,5 @@
 mod attached;
 mod browsers;
 mod config;
+mod journeys;
 mod run;

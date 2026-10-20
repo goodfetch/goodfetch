@@ -12,6 +12,7 @@
 
 use std::io::Write as _;
 use std::process::{ChildStdin, Stdio};
+use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
 use goodfetch_test_support::{Process, StrictStdout, TestEnv};
@@ -85,6 +86,12 @@ impl Attached {
                 return message;
             }
         }
+    }
+
+    /// Whether the engine writes nothing on its stdout for `quiet`; a
+    /// message written meanwhile is kept for the next read.
+    fn is_quiet_for(&mut self, quiet: Duration) -> bool {
+        self.stdout.is_quiet_for(quiet)
     }
 
     /// Ends the input and waits for the engine to exit.
@@ -209,5 +216,114 @@ fn cancel_of_run_finish_in_flight_answers_call_cancelled() {
             engine.finish(),
         ),
         (&json!("call_cancelled"), &json!("stopped"), true)
+    );
+}
+
+/// How many handler requests a crawl keeps in flight by default
+/// (`crawl.handler.concurrency`).
+const HANDLER_CONCURRENCY: usize = 16;
+
+/// A slow handler holds the crawl back: no more than the handler
+/// concurrency's requests wait for it, and once it answers, every work
+/// item's Records are committed once. A subscriber that grants no credits
+/// holds back nothing only Foxhound produces, since Records are read from
+/// run state (ADR 0103), and its queue still gets every axis change.
+///
+/// Covers: story:3-8, event:run.axes_changed
+#[test]
+fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_axis_change() {
+    const SEEDS: usize = HANDLER_CONCURRENCY + 4;
+    let seed_count = i64::try_from(SEEDS).unwrap();
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(
+        &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
+    );
+    let seeds: Vec<Value> = (0..SEEDS)
+        .map(|index| json!({ "url": format!("https://shop.test/{index}"), "label": "page" }))
+        .collect();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+        "params": { "run_id": "held", "seeds": seeds },
+    }));
+
+    let (mut started, mut waiting, mut most_waiting) = (false, Vec::new(), 0);
+    while !started || waiting.len() < HANDLER_CONCURRENCY {
+        let message = engine.next().unwrap();
+        if message["method"] == "crawl_request.handle" {
+            waiting.push(message);
+        } else if message["id"] == "start" {
+            started = true;
+        }
+    }
+    let held = engine.is_quiet_for(Duration::from_millis(500));
+    let mut handled = 0;
+    while handled < SEEDS {
+        let request = if waiting.is_empty() {
+            let message = engine.next().unwrap();
+            assert_eq!(message["method"], "crawl_request.handle", "{message}");
+            message
+        } else {
+            waiting.remove(0)
+        };
+        most_waiting = most_waiting.max(waiting.len() + 1);
+        engine.send(&json!({
+            "jsonrpc": "2.0", "id": request["id"],
+            "result": { "records": [{ "dataset": "pages", "data": { "url": request["params"]["crawl_request"]["url"] } }] },
+        }));
+        handled += 1;
+    }
+    let report = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "held" }),
+        &mut |_| None,
+    );
+    engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "events", "credits": 10 } }));
+    let mut events = Vec::new();
+    while events.len() < 2 {
+        let message = engine.next().unwrap();
+        if message["method"] == "$/events" {
+            events.extend(message["params"]["events"].as_array().unwrap().clone());
+        }
+    }
+    let exited = engine.finish();
+
+    let file = Connection::open(
+        env.home()
+            .join("0.0")
+            .join("runs")
+            .join("held")
+            .join("run.sqlite"),
+    )
+    .unwrap();
+    let (records, work_items): (i64, i64) = file
+        .query_row(
+            "SELECT count(*), count(DISTINCT work_item) FROM records",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let lifecycles: Vec<&Value> = events
+        .iter()
+        .map(|event| &event["data"]["lifecycle"])
+        .collect();
+    assert_eq!(
+        (
+            held,
+            most_waiting,
+            &report["result"]["lifecycle"],
+            (records, work_items),
+            lifecycles,
+            exited,
+        ),
+        (
+            true,
+            HANDLER_CONCURRENCY,
+            &json!("finished"),
+            (seed_count, seed_count),
+            vec![&json!("running"), &json!("finished")],
+            true,
+        )
     );
 }

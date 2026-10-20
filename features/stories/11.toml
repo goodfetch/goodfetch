@@ -1,0 +1,46 @@
+# Area 11's user stories (spec #604, Client surfaces, Collie, parts 1 and 2),
+# the declared `story:11-<id>` Features of ADR 0072. Each story's milestone
+# is that of the ticket that finishes it; a story without a Journey carries
+# ADR 0075's reason (`actor`, `part` or `reach`). The spec's issue keeps the
+# full text; this copy is the one the Feature check reads. It holds the
+# stories a test declares so far; the others join with the tickets that
+# declare them. Never renumber or reuse an ID: a removed story stays with
+# `status = "retired"` and a `reason`.
+
+[[story]]
+id = 2
+title = "As a developer, I want `Collie.connect()` with no options to find or start the engine and finish `hello` before it returns, so that a missing binary or a refused version fails there with a message that names the fix (ADR 0078; P24, K09; G6)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer, I want `collie.engine()` to report the kind reached, the engine's Product and versions, the protocol version, the project file, the Goodfetch home, the engine path and the address, logged at info, so that I can tell which engine my program reached (ADRs 0078, 0083, 0095; G6)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer embedding Collie in a web service or a notebook, I want many connections in one process, each with its own settings and its own engine when it starts one, `connect()` to work again after `close()`, and nothing at import (no logging setup, event-loop patch, signal handler or `atexit` hook), so that Collie is a guest in my program (ADR 0078; P05; G2, G4)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer, I want the scoped form of my language (`await using`, `async with` or `with`, `Collie::scope`) beside a first-class idempotent `close()`, and every later call on a closed value to fail `closed`, so that teardown is one line and a leak is a typed error (ADR 0078; P06)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 53
+title = "As a TypeScript developer, I want an async-only SDK whose connection belongs to the realm that opened it, a `worker_threads` worker opening its own, so that nothing is shared across realms by accident (ADR 0081; P22)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

@@ -1,0 +1,51 @@
+# The Client conformance case list (ADR 0069; TESTING.md, SDKs): each case,
+# by capability, with the Features it covers (ADR 0072), the surfaces it
+# applies to and, where a mode does not have its capability yet, its
+# `modes`. Every surface a case lists implements it in each of its modes;
+# `xtask clients check` fails on a missing one or an unknown ID. Area 11
+# writes the cases; each joins with the ticket whose code satisfies it.
+# Bump the version whenever a case changes.
+#
+# The `sdk-typescript` cases below run in the `attached` mode only: the
+# Daemon transport (#220 and area 11's Daemon ticket) adds `daemon` by
+# removing their `modes` line (agent decision, pending owner review).
+
+[suite]
+name = "clients"
+version = "1"
+
+[[capability]]
+name = "lifecycle"
+
+[[capability.case]]
+id = "two-connections-at-once"
+covers = ["story:11-15"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "connect-after-close"
+covers = ["story:11-15"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "closed-after-close"
+covers = ["story:11-17"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "nothing-at-import-or-connect"
+covers = ["story:11-15"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability]]
+name = "product-conformance"
+
+[[capability.case]]
+id = "collie-accepted-by-foxhound"
+covers = ["story:11-8"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]

@@ -821,6 +821,16 @@ warm:
     CARGO_TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/perf-base" cargo bench --workspace --no-run
     ci/msrv.sh
 
+# The measurements before a browser joins the `visual` projects (ADR 0073),
+# through Docker or Podman, on a copy of HEAD: the host's emulation of the
+# pinned image, its pixels against the committed References (CI's), then
+# every Playwright visual case 20 times on each browser (chromium, firefox
+# and webkit by default, or those named, separated by commas). Record what
+# it prints in the shared visual config's REPEATABILITY.
+# Measures screenshot repeatability per browser in the pinned image.
+visual-repeatability browsers="chromium,firefox,webkit":
+    ci/visual/repeatability.sh "{{ browsers }}"
+
 # Applies the Reference screenshots of an `update-screenshots` run of this
 # branch (ADR 0073), refusing a run made in another image than the pinned one
 # or on another commit than the head. Commit them with your own sign-off,

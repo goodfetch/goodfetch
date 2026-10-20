@@ -42,15 +42,9 @@ use super::files::{
     self, Evidence, Exception, ExceptionsFile, Feature, Kind, Status, StoryFile, Unreadable,
 };
 use super::scan::{Declaration, Level, Source};
-use crate::journeys::CatalogVariant;
+use crate::journeys::{CatalogVariant, ManualException};
 use crate::quarantine;
 use crate::results::{self, Outcome};
-
-/// The suite whose runs decide whether a Feature is tested (ADR 0072).
-const RELEASE_SUITE: &str = "release";
-
-/// The branch whose Release runs count.
-const MAIN: &str = "main";
 
 /// What the report reads besides the workspace's `features/` files.
 pub(crate) struct Sources<'a> {
@@ -247,6 +241,36 @@ pub(crate) struct Report {
     pub(crate) listings: bool,
     pub(crate) features: Vec<Entry>,
     pub(crate) views: Vec<View>,
+    /// The milestone gate's state (ADR 0072).
+    pub(crate) gate: Gate,
+}
+
+/// The milestone gate of ADR 0072, over both Products: ready only when the
+/// store holds a Release run of `main` and no Feature due at the milestone
+/// is untested on it.
+#[derive(Serialize)]
+pub(crate) struct Gate {
+    pub(crate) ready: bool,
+    /// The untested Features' IDs, in the inventory's order.
+    pub(crate) untested: Vec<String>,
+}
+
+impl Report {
+    /// The gate's state in one sentence, as stdout and the page give it.
+    pub(crate) fn gate_line(&self) -> String {
+        let milestone = format!("{:?}", self.milestone);
+        match (&self.release_commit, self.gate.untested.len()) {
+            (None, _) => {
+                format!("{milestone} gate: not ready, since the store holds no Release run of main")
+            }
+            (Some(commit), 0) => {
+                format!("{milestone} gate: ready on main's latest Release run, of {commit}")
+            }
+            (Some(commit), untested) => format!(
+                "{milestone} gate: not ready, {untested} Features untested on main's latest Release run, of {commit}"
+            ),
+        }
+    }
 }
 
 /// The milestone a milestone's name starts with: `M1` for `M1 Core`.
@@ -316,12 +340,22 @@ pub(crate) fn build(sources: &Sources<'_>) -> Result<Report> {
         .into_iter()
         .map(|product| view(product, &features))
         .collect();
+    let untested: Vec<String> = features
+        .iter()
+        .filter(|entry| entry.status == State::Untested)
+        .map(|entry| entry.id.clone())
+        .collect();
+    let gate = Gate {
+        ready: release_commit.is_some() && untested.is_empty(),
+        untested,
+    };
     Ok(Report {
         milestone: sources.gate,
         release_commit,
         listings: sources.variant_tests.is_some(),
         features,
         views,
+        gate,
     })
 }
 
@@ -361,22 +395,12 @@ type TestKey = (String, String);
 fn release_outcomes(store: &Path) -> Result<(Option<String>, BTreeMap<TestKey, TestOutcome>)> {
     let attempts = results::read_all(store)
         .with_context(|| format!("reading the results store at {}", store.display()))?;
-    let runs: Vec<_> = attempts
-        .iter()
-        .filter(|attempt| attempt.run.branch.as_deref() == Some(MAIN))
-        .flat_map(|attempt| &attempt.test_runs)
-        .filter(|run| run.suite == RELEASE_SUITE)
-        .collect();
-    let Some(latest) = runs
-        .iter()
-        .max_by_key(|run| (run.started_at, run.run, run.attempt))
-        .map(|run| run.commit.clone())
-    else {
+    let Some((latest, runs)) = results::latest_on_main(&attempts) else {
         return Ok((None, BTreeMap::new()));
     };
     // The newest run of each test in each configuration, across dispatches.
     let mut newest: BTreeMap<(TestKey, String), &results::TestRun> = BTreeMap::new();
-    for run in runs.into_iter().filter(|run| run.commit == latest) {
+    for run in runs {
         let configuration = format!(
             "{} {} {}",
             run.os,
@@ -400,6 +424,72 @@ fn release_outcomes(store: &Path) -> Result<(Option<String>, BTreeMap<TestKey, T
         *combined = worst(*combined, outcome);
     }
     Ok((Some(latest), outcomes))
+}
+
+/// The milestone `feature` is due at: none for a generated one, due with
+/// its code, and for a declared one with no milestone yet. A flagged story
+/// is due at the later of its own milestone and the earliest of a variant
+/// of a Journey that covers it (ADR 0075).
+fn due(feature: &Feature, flagged: bool, variants: &[CatalogVariant]) -> Result<Option<Milestone>> {
+    if !feature.kind.is_declared() {
+        return Ok(None);
+    }
+    let Some(name) = &feature.milestone else {
+        return Ok(None);
+    };
+    let Some(own) = milestone_of(name) else {
+        bail!(
+            "{} has milestone `{name}`, which starts with none of M1 to M4",
+            feature.id
+        );
+    };
+    let journey = variants
+        .iter()
+        .filter(|variant| flagged && variant.covers.contains(&feature.id))
+        .map(|variant| variant.milestone)
+        .min();
+    Ok(Some(journey.map_or(own, |journey| journey.max(own))))
+}
+
+/// Each exception with evidence `manual` in `features/exceptions.toml`
+/// whose Feature is due at `gate`, by its Feature's ID: a generated
+/// Feature's at every gate, a declared one's at the milestone it is due.
+pub(crate) fn manual_exceptions(
+    root: &Path,
+    gate: Milestone,
+    variants: &[CatalogVariant],
+) -> Result<Vec<ManualException>> {
+    let inventory =
+        files::read_inventory(root).map_err(|error| unreadable(error, files::INVENTORY))?;
+    let exceptions: ExceptionsFile = files::read_optional_toml(root, files::EXCEPTIONS)
+        .map_err(|error| unreadable(error, files::EXCEPTIONS))?;
+    let flagged = flagged_stories(root)?;
+    let features: BTreeMap<&str, &Feature> = inventory
+        .features
+        .iter()
+        .filter(|feature| feature.status == Status::Active)
+        .map(|feature| (feature.id.as_str(), feature))
+        .collect();
+    let mut due_at_gate = Vec::new();
+    for exception in exceptions.exception {
+        if !matches!(exception.evidence, Evidence::Manual) {
+            continue;
+        }
+        let Some(feature) = features.get(exception.feature.as_str()) else {
+            continue;
+        };
+        let at_gate = !feature.kind.is_declared()
+            || due(feature, flagged.contains(feature.id.as_str()), variants)? == Some(gate);
+        if at_gate {
+            due_at_gate.push(ManualException {
+                feature: exception.feature,
+                reason: exception.reason,
+                link: exception.link,
+            });
+        }
+    }
+    due_at_gate.sort_by(|left, right| left.feature.cmp(&right.feature));
+    Ok(due_at_gate)
 }
 
 /// The outcome of two runs of one test taken together.
@@ -465,28 +555,8 @@ impl Judge<'_> {
         })
     }
 
-    /// The milestone the Feature is due at: none for a generated one, due
-    /// with its code, and for a declared one with no milestone yet.
     fn due(&self, feature: &Feature, flagged: bool) -> Result<Option<Milestone>> {
-        if !feature.kind.is_declared() {
-            return Ok(None);
-        }
-        let Some(name) = &feature.milestone else {
-            return Ok(None);
-        };
-        let Some(own) = milestone_of(name) else {
-            bail!(
-                "{} has milestone `{name}`, which starts with none of M1 to M4",
-                feature.id
-            );
-        };
-        let journey = self
-            .variants
-            .iter()
-            .filter(|variant| flagged && variant.covers.contains(&feature.id))
-            .map(|variant| variant.milestone)
-            .min();
-        Ok(Some(journey.map_or(own, |journey| journey.max(own))))
+        due(feature, flagged, self.variants)
     }
 
     /// One entry per runner test, conformance case, and variant of a

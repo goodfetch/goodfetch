@@ -1,0 +1,48 @@
+{
+  "features": [
+    {
+      "id": "error:sample_by_hand",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-1",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-2",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M2 Agents",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-3",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    }
+  ]
+}

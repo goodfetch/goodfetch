@@ -210,6 +210,21 @@ fn map_turns_on_the_engines_json_log_with_the_dispatch_records() {
     assert_eq!(log, ("file", "info,goodfetch::rpc::dispatch=trace"));
 }
 
+/// Under `just coverage`, every executable a test starts writes its
+/// coverage profile where cargo-llvm-cov reads it (ADR 0072).
+#[test]
+fn map_passes_the_coverage_profile_file_on_when_one_is_set() {
+    let profile = "/work/target/llvm-cov-target/goodfetch-%p-%14m.profraw";
+    let variables = Variables::from_iter([("LLVM_PROFILE_FILE", profile)]);
+
+    let env = TestEnv::create("env::tests::coverage", &variables).unwrap();
+
+    assert_eq!(
+        env.env().get("LLVM_PROFILE_FILE").map(String::as_str),
+        Some(profile)
+    );
+}
+
 /// The variables of a test nextest runs under `just test`, whose exercise
 /// records go to `records`.
 fn recording(records: &Path) -> Variables {

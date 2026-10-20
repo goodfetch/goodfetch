@@ -45,6 +45,10 @@ job = "pull-request.yml#visual"
 [[deny]]
 job = "pull-request.yml#tlc"
 
+# The in-diff mutation job (ADR 0072): each mutant's tests run under the deny.
+[[deny]]
+job = "pull-request.yml#mutants"
+
 [[deny]]
 job = "update-screenshots.yml#update"
 
@@ -112,6 +116,15 @@ reason = "It scans the results store, keeps the flaky-test and live-check issues
 
 [[outside]]
 job = "test-health.yml#budget"
+reason = "It counts the month's minutes from the results store; it runs none of the product."
+
+# The coverage job (ADR 0072): its tests run the instrumented product under
+# the deny; `budget` only counts the month's minutes.
+[[deny]]
+job = "coverage.yml#coverage"
+
+[[outside]]
+job = "coverage.yml#budget"
 reason = "It counts the month's minutes from the results store; it runs none of the product."
 
 [[deny]]

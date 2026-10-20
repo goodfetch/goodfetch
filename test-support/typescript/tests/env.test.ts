@@ -2,29 +2,35 @@
 // (ADRs 0069, 0090 and 0094), from the real `goodfetch-test-env`. The
 // workspace has no Product executable yet, so these tests hand it a tool
 // manifest whose Product entries are stand-in paths.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect } from "vitest";
+import { afterAll, beforeAll, describe, expect } from "vitest";
 import { test } from "@goodfetch/test-support";
 
 const COLLIE = "/stand-in/goodfetch-collie";
 const FOXHOUND = "/stand-in/goodfetch-foxhound";
 
-/** The commit's manifest, with stand-in paths for both Products' executables. */
-function standInManifest(): { folder: string; path: string } {
-  const manifest = process.env["GOODFETCH_TEST_TOOLS"];
-  if (manifest === undefined) {
+/** Where the commit's manifest goes, with stand-in paths for both Products' executables. */
+const folder = join(tmpdir(), `goodfetch-env-test-${randomUUID()}`);
+const manifest = { folder, path: join(folder, "test-tools.json") };
+
+// Written before the tests run, not as the file loads: a listing of the
+// tests (`vitest list`, which `xtask stress` runs) loads the file without
+// `just test`'s variables.
+beforeAll(() => {
+  const commits = process.env["GOODFETCH_TEST_TOOLS"];
+  if (commits === undefined) {
     throw new Error("GOODFETCH_TEST_TOOLS is not set: run the tests with `just test`");
   }
-  const folder = mkdtempSync(join(tmpdir(), "goodfetch-env-test-"));
-  const path = join(folder, "test-tools.json");
-  const tools: unknown = JSON.parse(readFileSync(manifest, "utf8"));
-  writeFileSync(path, JSON.stringify({ ...Object(tools), collie: COLLIE, foxhound: FOXHOUND }));
-  return { folder, path };
-}
-
-const manifest = standInManifest();
+  mkdirSync(manifest.folder);
+  const tools: unknown = JSON.parse(readFileSync(commits, "utf8"));
+  writeFileSync(
+    manifest.path,
+    JSON.stringify({ ...Object(tools), collie: COLLIE, foxhound: FOXHOUND }),
+  );
+});
 afterAll(() => {
   rmSync(manifest.folder, { recursive: true, force: true });
 });

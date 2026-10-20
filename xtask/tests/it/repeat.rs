@@ -96,6 +96,16 @@ test("passes on its first run only", () => {
 });
 "#;
 
+/// A parameterized pytest test, whose cases pytest-repeat renames: it adds
+/// each run's `<run>-<count>` to the case's parameter ID.
+const PARAMETERIZED: &str = r#"import pytest
+
+
+@pytest.mark.parametrize("name", ["a.log", "b"])
+def test_reads(name: str) -> None:
+    assert name
+"#;
+
 #[rstest]
 #[case::nextest("nextest", "sample tests::flaky", runs("tests::flaky", 3))]
 #[case::playwright(
@@ -112,6 +122,15 @@ test("passes on its first run only", () => {
         ("test_flaky[3-3]".to_owned(), 0),
     ]
 )]
+#[case::pytest_parameterized(
+    "pytest",
+    "tests/test_params.py::test_reads[a.log]",
+    vec![
+        ("test_reads[a.log-1-3]".to_owned(), 0),
+        ("test_reads[a.log-2-3]".to_owned(), 0),
+        ("test_reads[a.log-3-3]".to_owned(), 0),
+    ]
+)]
 #[case::vitest(
     "vitest",
     "passes on its first run only",
@@ -125,6 +144,7 @@ fn chosen_test_runs_the_given_number_of_times_and_no_other_test_runs(
     let workspace = Workspace::from_fixture("quarantine");
     workspace.link_installed_runners();
     workspace.write("web/once.test.ts", PASSES_ONCE.as_bytes());
+    workspace.write("tests/test_params.py", PARAMETERIZED.as_bytes());
     workspace.write(
         ".config/nextest.toml",
         b"[profile.default.junit]\npath = \"junit.xml\"\n",

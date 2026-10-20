@@ -1,0 +1,19 @@
+id = "J-003"
+title = "Resume a killed crawl"
+goal = "A person resumes a crawl after its Daemon is killed."
+area = 3
+product = "foxhound"
+status = "active"
+covers = []
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Start a crawl"
+
+[[steps]]
+text = "Kill the Daemon and start it again"
+
+[[expect]]
+text = "No Record is delivered twice"

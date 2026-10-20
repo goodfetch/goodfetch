@@ -9,7 +9,8 @@
 //!   after the first, and a name pattern. Its JUnit file reports the test
 //!   once, with one `<failure>` per failed run;
 //! - Playwright: `--repeat-each`, with a pattern of the tests;
-//! - pytest: pytest-repeat's `--count`, with the tests' node IDs.
+//! - pytest: pytest-repeat's `--count`, with the tests' node IDs (a
+//!   parameterized case's, one per run).
 
 use std::num::NonZeroU32;
 use std::path::Path;
@@ -104,10 +105,28 @@ pub(crate) fn arguments(
     if !pytest.is_empty() {
         arguments.push(("pytest", format!("--count={count}")));
         for test in pytest {
-            arguments.push(("pytest", test.as_str().to_owned()));
+            arguments.extend(
+                pytest_node_ids(test.as_str(), count)
+                    .into_iter()
+                    .map(|id| ("pytest", id)),
+            );
         }
     }
     Ok(arguments)
+}
+
+/// The node IDs that select each of `count` runs of a pytest test. pytest-repeat
+/// parameterizes each test by its run, last: a test's node ID selects all
+/// of its runs (`test_x[1-20]` …), but a parameterized case's, `test_x[a]`,
+/// selects none of `test_x[a-1-20]` …, so each run's is given. With one run
+/// it parameterizes nothing.
+fn pytest_node_ids(id: &str, count: NonZeroU32) -> Vec<String> {
+    match id.strip_suffix(']') {
+        Some(case) if count.get() > 1 => (1..=count.get())
+            .map(|run| format!("{case}-{run}-{count}]"))
+            .collect(),
+        _ => vec![id.to_owned()],
+    }
 }
 
 /// `xtask repeat`'s arguments: `--test`, repeatable, or `--quarantined`.

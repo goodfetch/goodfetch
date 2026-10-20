@@ -17,6 +17,7 @@ import type {
   OperationTypes,
   Product,
 } from "@goodfetch/collie-client/generated";
+import { onTestFinished } from "vitest";
 import { TestSupportError, type TestSupportErrorCode } from "./errors.ts";
 import {
   productContract,
@@ -177,6 +178,22 @@ export class ProtocolAdapter<
     this.requests = this.#requests;
     this.transport = { open: (listener) => this.#open(listener) };
     this.bodyFetcher = (handle) => this.#fetch(handle);
+    onTestFinished(() => this.#verify());
+  }
+
+  /**
+   * Fails the test with every violation, the first one's code leading: a
+   * call the test did not answer, a message or an answer the bundle
+   * refuses, or a body never served. The Client may have swallowed them.
+   */
+  #verify(): void {
+    const [first] = this.#violations;
+    if (first !== undefined) {
+      throw new TestSupportError(
+        first.code,
+        this.#violations.map((violation) => `${violation.code}: ${violation.message}`).join("\n"),
+      );
+    }
   }
 
   /**

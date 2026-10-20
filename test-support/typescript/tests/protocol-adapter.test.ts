@@ -3,7 +3,13 @@
 // streams pushed events by position across a dropped Connection, and serves
 // bodies by handle. A tiny Client written here drives it through its
 // `transport` and `bodyFetcher`, until area 12's Console Client exists.
-import { describe, expect, test } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect } from "vitest";
+import { test } from "@goodfetch/test-support";
 import {
   createProtocolAdapter,
   failure,
@@ -196,6 +202,28 @@ describe("createProtocolAdapter", () => {
     expect(setting).toThrow(expect.objectContaining({ code: "answer_invalid" }));
   });
 
+  test("refuses, as it is set, an operation of Foxhound's on Collie's engine", () => {
+    const adapter = createProtocolAdapter();
+
+    // @ts-expect-error -- Collie's generated types refuse it too; a test that casts past them still fails.
+    const setting = (): void => adapter.answer("sample.crawl", { visited: 1 });
+
+    expect(setting).toThrow(expect.objectContaining({ code: "answer_invalid" }));
+  });
+
+  test("answers an operation of Foxhound's on Foxhound's engine", async () => {
+    // Foxhound's tests pass its generated `FoxhoundOperationTypes`; this one names the entry it needs.
+    const adapter = createProtocolAdapter<{
+      "sample.crawl": { params: unknown; result: { visited: number } };
+    }>({ product: "foxhound" });
+    adapter.answer("sample.crawl", { visited: 2 });
+    const client = new TinyClient(adapter.transport);
+
+    const reply = await client.call(1, "sample.crawl", { echo: { text: "a" }, pages: 2 });
+
+    expect(reply["result"]).toEqual({ visited: 2 });
+  });
+
   test("takes, as it is set, a result of its schema", () => {
     const adapter = createProtocolAdapter();
 
@@ -325,5 +353,49 @@ describe("ProtocolAdapter bodies", () => {
     const bytes = await adapter.bodyFetcher("screenshot-1.png");
 
     expect(bytes).toEqual(new Uint8Array([137, 80, 78, 71]));
+  });
+});
+
+const vitest = join(
+  dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
+  "vitest.mjs",
+);
+const fixture = fileURLToPath(new URL("fixtures/protocol-adapter/", import.meta.url));
+
+// Each case runs one test of the fixture project of fixtures/protocol-adapter/
+// in its own Vitest, and reads how it ended and the codes that failed it.
+describe("ProtocolAdapter failing the test", () => {
+  test.for([
+    { name: "an unanswered call", ran: "ran: an unanswered call failed call_unanswered" },
+    {
+      name: "an answer breaking its schema",
+      ran: "ran: an answer breaking its schema failed answer_invalid",
+    },
+    {
+      name: "a request breaking its schema",
+      ran: "ran: a request breaking its schema failed request_invalid",
+    },
+    { name: "a body never served", ran: "ran: a body never served failed body_unserved" },
+    {
+      name: "a call answered as the bundle allows",
+      ran: "ran: a call answered as the bundle allows passed ",
+    },
+  ])("$name", async ({ name, ran }, { processes, onTestFinished }) => {
+    const output = await mkdtemp(join(tmpdir(), "goodfetch-protocol-adapter-"));
+    onTestFinished(() => rm(output, { recursive: true, force: true }));
+    const run = processes.spawn(
+      process.execPath,
+      [vitest, "run", "--config", "vitest.config.ts", "--root", ".", `--testNamePattern=^${name}$`],
+      { env: { ...process.env, GOODFETCH_FIXTURE_OUTPUT: output }, cwd: fixture },
+    );
+    let stdout = "";
+    run.child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    run.child.stderr.resume();
+
+    await run.exit;
+
+    expect(stdout.split("\n").filter((line) => line.startsWith("ran: "))).toEqual([ran]);
   });
 });

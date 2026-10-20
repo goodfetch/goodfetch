@@ -155,6 +155,11 @@ fn print_schemas_starts_nothing() {
         schemas.keys().collect::<Vec<_>>(),
         [
             "endpoint-table.schema.json",
+            "hostile-header-values.schema.json",
+            "hostile-limits.schema.json",
+            "hostile-paths.schema.json",
+            "hostile-schema-refs.schema.json",
+            "hostile-secret-redirects.schema.json",
             "locales.schema.json",
             "snapshot-filters.schema.json",
             "ssrf-cases.schema.json",

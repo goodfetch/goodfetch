@@ -9,6 +9,9 @@ use std::path::PathBuf;
 
 use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
+use crate::hostile::{
+    HeaderValue, HostileTable, PathName, ResourceLimit, SchemaRef, SecretRedirect,
+};
 use crate::locales::LocaleTable;
 use crate::proving_ground::ProvingGroundDescription;
 use crate::snapshot::SnapshotFilters;
@@ -73,6 +76,26 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "endpoint-table.schema.json",
             schemars::schema_for!(EndpointTable).to_value(),
+        ),
+        (
+            "hostile-header-values.schema.json",
+            schemars::schema_for!(HostileTable<HeaderValue>).to_value(),
+        ),
+        (
+            "hostile-limits.schema.json",
+            schemars::schema_for!(HostileTable<ResourceLimit>).to_value(),
+        ),
+        (
+            "hostile-paths.schema.json",
+            schemars::schema_for!(HostileTable<PathName>).to_value(),
+        ),
+        (
+            "hostile-schema-refs.schema.json",
+            schemars::schema_for!(HostileTable<SchemaRef>).to_value(),
+        ),
+        (
+            "hostile-secret-redirects.schema.json",
+            schemars::schema_for!(HostileTable<SecretRedirect>).to_value(),
         ),
         (
             "locales.schema.json",

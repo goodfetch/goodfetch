@@ -10,7 +10,8 @@
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
-//! its runner and the Scripted resolver (ADR 0067); the shared snapshot
+//! its runner and the Scripted resolver, and the hostile-input case tables
+//! (ADR 0067); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
 //! (ADRs 0062 and 0073); and `goodfetch-test-env`,
@@ -25,6 +26,7 @@ mod description;
 mod endpoints;
 mod env;
 mod fuzz;
+mod hostile;
 mod invariants;
 mod kill;
 mod locales;
@@ -54,6 +56,12 @@ pub use endpoints::{
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
+pub use hostile::{
+    BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
+    HostileTableError, HostileTables, JsonChannel, LimitSetting, MessageChannel, Os, PathHazard,
+    PathName, PathTarget, RefKeyword, ResourceLimit, Schedule, SchemaRef, SchemaUse,
+    SecretPlacement, SecretRedirect, ServedBy, TableGap, TableGaps,
+};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 pub use locales::{TimeZoneCase, locales, time_zones};

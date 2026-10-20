@@ -12,6 +12,7 @@
 )]
 
 mod endpoints;
+mod hostile_tables;
 mod observation_log;
 mod probe;
 mod proving_ground;

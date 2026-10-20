@@ -1,7 +1,7 @@
 """One test's setup, which `goodfetch-test-env` prepares (ADR 0062).
 
 `TestEnv.open` starts `goodfetch-test-env` from the test tool manifest (with
-the Proving ground on a seed, when asked for), reads
+the Proving ground on a seed and a Product's Daemon, when asked for), reads
 its one-line JSON description, checks it against the committed schema, and
 records every process the test starts through it. `TestEnv.close` closes
 `goodfetch-test-env`'s stdin, which tears the setup down, and fails when a
@@ -17,6 +17,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Self, cast
 
+from goodfetch_test_support.daemon import Daemon
 from goodfetch_test_support.proving_ground import ProvingGround
 from goodfetch_test_support.schemas import validate
 from goodfetch_test_support.tools import Tool, Tools, read_tools
@@ -83,6 +84,9 @@ class TestEnv:
             None if proving_ground is None else ProvingGround.from_json(proving_ground)
         )
         """The Proving ground started on the seed the test asked for, if any."""
+        daemon = description.get("daemon")
+        self.daemon = None if daemon is None else Daemon.from_json(daemon)
+        """The Daemon started in the test's home, if the test asked for one."""
 
     @classmethod
     def open(
@@ -91,6 +95,7 @@ class TestEnv:
         environ: Mapping[str, str],
         *,
         proving_ground_seed: int | None = None,
+        daemon: Product | None = None,
     ) -> Self:
         """Starts `goodfetch-test-env` for the test named `test_name`.
 
@@ -99,6 +104,7 @@ class TestEnv:
             environ: The runner's environment, which names the tool manifest.
             proving_ground_seed: The seed of a Proving ground to start beside
                 the setup, if any.
+            daemon: The Product whose Daemon to start in the test's home, if any.
 
         Raises:
             ToolsError: The manifest or its `test_env` entry is missing.
@@ -111,8 +117,9 @@ class TestEnv:
             if proving_ground_seed is None
             else ["--proving-ground", str(proving_ground_seed)]
         )
+        daemon_flag = [] if daemon is None else [f"--daemon={daemon.value}"]
         process = subprocess.Popen(
-            [executable, "--test-name", test_name, *proving_ground],
+            [executable, "--test-name", test_name, *proving_ground, *daemon_flag],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             env=dict(environ),

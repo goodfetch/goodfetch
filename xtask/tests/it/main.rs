@@ -51,6 +51,7 @@ mod perf_drift;
 mod quarantine;
 mod release_suite;
 mod repeat;
+mod rss;
 mod scan;
 mod screenshots;
 mod self_hosted;

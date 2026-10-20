@@ -574,6 +574,7 @@ release:
     "$just" test release
     "$just" _tlc all
     "$just" proofs
+    "$just" rss
     "$just" _visual-elsewhere
     echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
@@ -628,6 +629,32 @@ release-ci cells="all" commit="":
         --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
     fi
     exit "$status"
+
+# The resident-memory check (ADRs 0071, 0094 and 0134): builds both Products'
+# executables with the `ci` profile the Release suite's cells build, runs the
+# scenario (every scenario when none is named: idle-attached-engine) on each
+# executable it runs on, then holds each peak to its ceiling in
+# ci/rss-ceilings.toml and shows it against its Performance target. With no
+# ceilings file it reports and gates nothing. The JUnit file and the figures
+# the results store keeps go to target/junit/.
+# Runs the resident-memory check: `just rss [scenario…]`.
+rss *scenarios:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    rm -f target/rss/peaks.jsonl
+    cargo run --quiet -p xtask -- rss measure {{ scenarios }} --tools target/rss/test-tools.json --out target/rss/peaks.jsonl
+    cargo run --quiet -p xtask -- rss check --peaks target/rss/peaks.jsonl
+
+# Proposes the resident-memory ceilings of this platform from 20 runs of each
+# scenario on each executable it runs on: 1.5 times the highest peak, rounded
+# up to a whole MiB, as ci/rss-ceilings.toml writes them. Only the owner
+# commits a ceiling (ADR 0071), measured on the build after M1's optimization
+# pass (ADR 0134).
+# Proposes this platform's resident-memory ceilings from 20 runs.
+rss-propose *scenarios:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    rm -f target/rss/propose.jsonl
+    cargo run --quiet -p xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
+    cargo run --quiet -p xtask -- rss propose --peaks target/rss/propose.jsonl
 
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):

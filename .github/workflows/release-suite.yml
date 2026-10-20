@@ -181,6 +181,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: "Test: TLC on every model"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just tlc --all
@@ -281,6 +285,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Measure the base, then the commit, against the Performance budget
         if: endsWith(matrix.cell, '-gnu')
         run: ci/egress/under-deny.sh ci/release/perf.sh run
@@ -357,6 +365,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -431,6 +443,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -506,6 +522,10 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check

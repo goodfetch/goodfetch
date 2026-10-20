@@ -858,7 +858,7 @@ fn an_operator_policy_of_a_version_this_engine_cannot_read_is_invalid(#[case] te
 
 #[test]
 fn an_operator_policy_cap_is_on_a_count_or_a_duration() {
-    let text = "version = \"0.1\"\n[cap.network]\noffline = true\n";
+    let text = "version = \"0.1\"\n[cap.egress]\noffline = true\n";
 
     let read = operator_policy(text, Product::Collie);
 

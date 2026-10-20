@@ -48,6 +48,28 @@ fn scan_reads_each_declaration_with_its_level_and_test() {
     );
 }
 
+/// A module's unit tests may sit in its own `tests/` folder below `src/`,
+/// as `src/engine/tests/run.rs` does: they are unit tests (ADR 0075).
+#[test]
+fn scan_reads_a_test_in_a_tests_folder_below_src_as_a_unit_test() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", "mod deep;\n");
+    workspace.write(
+        "crates/sample/src/store/tests/deep.rs",
+        b"/// Covers: story:1-2\n#[test]\nfn keeps_a_deep_value() {}\n",
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        outcome.stdout.lines().any(|line| line
+            == "story:1-2\tunit\tnextest\tsample store::tests::deep::keeps_a_deep_value"),
+        "{}",
+        outcome.stdout
+    );
+}
+
 #[test]
 fn scan_without_listings_reads_rust_journeys_and_conformance_cases() {
     let workspace = Workspace::from_fixture("features");

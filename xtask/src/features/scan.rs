@@ -49,6 +49,11 @@ impl Level {
         let below_tests = |name: &str| {
             tests.is_some_and(|index| folders[index + 1..].iter().any(|folder| *folder == name))
         };
+        // A module's own `tests/` folder below `src/` holds unit tests.
+        let below_source = folders
+            .iter()
+            .position(|folder| *folder == "src")
+            .is_some_and(|source| tests.is_none_or(|tests| source < tests));
         if below_tests("journeys") {
             Self::Journey
         } else if folders
@@ -56,7 +61,9 @@ impl Level {
             .is_some_and(|folder| *folder == "conformance")
         {
             Self::Conformance
-        } else if tests.is_some_and(|index| folders.get(index + 1) == Some(&OsStr::new("unit"))) {
+        } else if below_source
+            || tests.is_some_and(|index| folders.get(index + 1) == Some(&OsStr::new("unit")))
+        {
             Self::Unit
         } else if tests.is_some() {
             Self::Integration

@@ -5,10 +5,9 @@
 //! Scripted engine records them (ADR 0069).
 
 use std::fmt;
+use std::time::Duration;
 
 use serde_json::{Value, json};
-
-use std::time::Duration;
 
 use super::target::{DEADLINE, Next, START_DEADLINE, Started};
 
@@ -44,13 +43,13 @@ pub(crate) struct Answer {
 }
 
 /// One open Connection.
-pub(crate) struct Session {
+pub(crate) struct Connection {
     started: Started,
     next_id: i64,
     exchanged: Vec<Value>,
 }
 
-impl Session {
+impl Connection {
     pub(crate) fn new(started: Started) -> Self {
         Self {
             started,

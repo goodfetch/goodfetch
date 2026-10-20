@@ -10,7 +10,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::result_document::CaseCheck;
 use serde_json::{Value, json};
 
-use super::session::{Gone, Session};
+use super::connection::{Connection, Gone};
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -57,7 +57,7 @@ impl Case {
     /// answered with `hello`.
     pub(crate) fn run(
         self,
-        session: &mut Session,
+        connection: &mut Connection,
         hello: &HelloResult,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -72,32 +72,32 @@ impl Case {
                 );
                 Ok(())
             }
-            Self::EngineInfo => engine_info(session, hello, checks),
+            Self::EngineInfo => engine_info(connection, hello, checks),
             Self::UnknownMethod => {
-                let id = session.request(UNKNOWN_METHOD, &json!({}))?;
-                let answer = session.answer(id)?.message;
+                let id = connection.request(UNKNOWN_METHOD, &json!({}))?;
+                let answer = connection.answer(id)?.message;
                 refused_as(&answer, ProtocolFailure::MethodNotFound, checks);
                 Ok(())
             }
             Self::InvalidParams => {
-                let id = session.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
-                let answer = session.answer(id)?.message;
+                let id = connection.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
+                let answer = connection.answer(id)?.message;
                 refused_as(&answer, ProtocolFailure::InvalidParams, checks);
                 Ok(())
             }
-            Self::CancelInFlight => cancel_in_flight(session, checks),
-            Self::CancelAnswered => cancel_answered(session, checks),
+            Self::CancelInFlight => cancel_in_flight(connection, checks),
+            Self::CancelAnswered => cancel_answered(connection, checks),
         }
     }
 }
 
 fn engine_info(
-    session: &mut Session,
+    connection: &mut Connection,
     hello: &HelloResult,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let id = session.request(ENGINE_INFO.name, &json!({}))?;
-    let answer = session.answer(id)?.message;
+    let id = connection.request(ENGINE_INFO.name, &json!({}))?;
+    let answer = connection.answer(id)?.message;
     let info = answer
         .get("result")
         .and_then(|result| serde_json::from_value::<EngineInfo>(result.clone()).ok());
@@ -145,10 +145,10 @@ fn refused_as(answer: &Value, failure: ProtocolFailure, checks: &mut Checks) {
 
 /// A subscription stays in flight until its Client cancels it (ADR 0080),
 /// then ends with `call_cancelled`, stopped by the Client (ADR 0113).
-fn cancel_in_flight(session: &mut Session, checks: &mut Checks) -> Result<(), Gone> {
-    let id = session.request(EVENTS_SUBSCRIBE.name, &json!({}))?;
-    session.notify(CANCEL, &json!({ "id": id }))?;
-    let error = &session.answer(id)?.message["error"];
+fn cancel_in_flight(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(EVENTS_SUBSCRIBE.name, &json!({}))?;
+    connection.notify(CANCEL, &json!({ "id": id }))?;
+    let error = &connection.answer(id)?.message["error"];
     checks.check(
         format!(
             "the call ends with the `{}` group's code {}",
@@ -174,12 +174,12 @@ fn cancel_in_flight(session: &mut Session, checks: &mut Checks) -> Result<(), Go
 
 /// A `$/cancel` of a call already answered gets no answer of its own, and
 /// the next call is answered.
-fn cancel_answered(session: &mut Session, checks: &mut Checks) -> Result<(), Gone> {
-    let answered = session.request(ENGINE_INFO.name, &json!({}))?;
-    session.answer(answered)?;
-    session.notify(CANCEL, &json!({ "id": answered }))?;
-    let next = session.request(ENGINE_INFO.name, &json!({}))?;
-    let answer = session.answer(next)?;
+fn cancel_answered(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let answered = connection.request(ENGINE_INFO.name, &json!({}))?;
+    connection.answer(answered)?;
+    connection.notify(CANCEL, &json!({ "id": answered }))?;
+    let next = connection.request(ENGINE_INFO.name, &json!({}))?;
+    let answer = connection.answer(next)?;
     checks.check(
         "the next call is answered with a result",
         answer.message.get("result").is_some(),

@@ -14,7 +14,7 @@
 //! Connection is not reached, which leaves its capability `unproved`.
 
 mod cases;
-mod session;
+mod connection;
 mod target;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
@@ -28,7 +28,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use self::cases::{Case, Checks};
-use self::session::{Gone, Session};
+use self::connection::{Connection, Gone};
 pub use self::target::{EngineMode, EngineTarget, StartError};
 use crate::case_list::{CaseList, DeclaredCapability};
 use crate::host::{RUNTIME, platform};
@@ -175,18 +175,18 @@ pub fn run_protocol_suite(
     proving_ground: &ProvingGround,
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
-    let mut session = Session::new(target::Started::start(target)?);
-    let hello = match hello(&mut session, suite.product) {
+    let mut connection = Connection::new(target::Started::start(target)?);
+    let hello = match hello(&mut connection, suite.product) {
         Ok(hello) => hello,
         Err(refused) => {
             if matches!(refused, ProtocolSuiteError::OtherProduct { .. }) {
-                stop(&mut session, target.mode);
+                stop(&mut connection, target.mode);
             }
-            session.close();
+            connection.close();
             return Err(refused);
         }
     };
-    let opening = session.take_exchanged();
+    let opening = connection.take_exchanged();
     let mut log = Vec::new();
     let mut gone = None;
     for capability in &suite.cases.capabilities {
@@ -196,14 +196,14 @@ pub fn run_protocol_suite(
             }
             let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
             let mut checks = Checks::default();
-            if let Err(why) = case.run(&mut session, &hello, &mut checks) {
+            if let Err(why) = case.run(&mut connection, &hello, &mut checks) {
                 checks.0.push(CaseCheck {
                     name: format!("the target answers the case's calls ({why})"),
                     passed: false,
                 });
                 gone = Some(why);
             }
-            let mut messages = session.take_exchanged();
+            let mut messages = connection.take_exchanged();
             if case == Case::Hello {
                 messages.splice(0..0, opening.iter().cloned());
             }
@@ -223,9 +223,9 @@ pub fn run_protocol_suite(
     }
     // A Connection that only fell silent may still take the stop.
     if matches!(gone, None | Some(Gone::Silent(_))) {
-        stop(&mut session, target.mode);
+        stop(&mut connection, target.mode);
     }
-    session.close();
+    connection.close();
     let header = ConformanceHeader {
         suite: suite.cases.suite.clone(),
         target: Target {
@@ -248,21 +248,21 @@ pub fn run_protocol_suite(
 /// Stops a Daemon the harness started, over its open Connection, so it
 /// removes its runtime file and socket; one that cannot answer is stopped
 /// when the harness closes.
-fn stop(session: &mut Session, mode: EngineMode) {
+fn stop(connection: &mut Connection, mode: EngineMode) {
     if mode == EngineMode::Daemon
-        && let Ok(id) = session.request(STOP.name, &json!({}))
+        && let Ok(id) = connection.request(STOP.name, &json!({}))
     {
-        let _ = session.answer(id);
+        let _ = connection.answer(id);
     }
 }
 
 /// Opens the Connection with `hello`, announcing `product`, and checks that
 /// the engine runs as that Product.
-fn hello(session: &mut Session, product: Product) -> Result<HelloResult, ProtocolSuiteError> {
+fn hello(connection: &mut Connection, product: Product) -> Result<HelloResult, ProtocolSuiteError> {
     let params = HelloParams {
         protocol_version: PROTOCOL_VERSION,
         surface: Surface::Rust,
-        token: session.token().map(ToOwned::to_owned),
+        token: connection.token().map(ToOwned::to_owned),
         needs: Some(product),
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
             .expect("invariant: the workspace's version is a Product version"),
@@ -271,8 +271,8 @@ fn hello(session: &mut Session, product: Product) -> Result<HelloResult, Protoco
     let unanswered = |why: Gone| ProtocolSuiteError::HelloUnanswered {
         reason: why.to_string(),
     };
-    let id = session.request(HELLO, &params).map_err(unanswered)?;
-    let answer = session.first_answer(id).map_err(unanswered)?.message;
+    let id = connection.request(HELLO, &params).map_err(unanswered)?;
+    let answer = connection.first_answer(id).map_err(unanswered)?.message;
     if let Some(error) = answer.get("error") {
         return Err(ProtocolSuiteError::HelloRefused {
             error: error.clone(),

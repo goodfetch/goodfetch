@@ -14,4 +14,7 @@ Journey's seed or the Proving ground's tasks change.
 `xtask journeys check`, in the Quick suite, holds the catalog to ADR 0063's
 rules, reading the task lists rather than starting a Proving ground;
 `just journeys-tasks --check`, in the Pre-merge suite, fails when a committed
-list differs from the Proving ground's. How to write a Journey is in `TESTING.md`, Journeys.
+list differs from the Proving ground's, and `just journeys-tests` holds each
+variant's tests to the catalog, from the runners' listings. `just journeys`
+runs chosen variants. How to write a Journey and its tests is in `TESTING.md`,
+Journeys.

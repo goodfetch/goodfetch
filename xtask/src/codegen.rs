@@ -5,7 +5,9 @@
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
 //! the Journey files' schema on its own, `journeys/journey.schema.json`, for
-//! editors and the TypeScript and Python helpers (ADR 0063). It also commits
+//! editors and the TypeScript and Python helpers (ADR 0063), and the result
+//! document's types those helpers write it with, in their `test-support/`
+//! packages. It also commits
 //! the JSON Schemas of `goodfetch-test-support`'s file types, which
 //! `goodfetch-test-env --print-schemas` prints (ADR 0062).
 //!
@@ -26,6 +28,7 @@ mod deny;
 mod digest;
 mod emitter;
 mod executables;
+mod helpers;
 mod layer;
 mod names;
 mod naming;
@@ -249,9 +252,14 @@ struct Plan {
 
 impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
-        [PROTOCOL_GENERATED, test_support::FOLDER]
-            .into_iter()
-            .chain(PACKAGES.iter().map(|package| package.folder))
+        [
+            PROTOCOL_GENERATED,
+            test_support::FOLDER,
+            helpers::TYPESCRIPT_FOLDER,
+            helpers::PYTHON_FOLDER,
+        ]
+        .into_iter()
+        .chain(PACKAGES.iter().map(|package| package.folder))
     }
 
     /// Every file `xtask codegen` writes inside the folders it owns.
@@ -367,6 +375,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
             header: generated.types.header,
         });
     }
+    helpers::add(&bundle, &mut files, &mut externals)?;
     Ok(Plan { files, externals })
 }
 

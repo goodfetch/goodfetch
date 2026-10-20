@@ -117,15 +117,28 @@ pub(crate) struct Expected {
 }
 
 /// The error a refusal must report: its Error code and, for a navigation
-/// that failed, the browser's network error.
-#[derive(Clone, Serialize)]
+/// that failed, the browser's network error, or, for an egress refusal, the
+/// rule that refused it (ADR 0067).
+#[derive(Clone, Default, Serialize)]
 pub(crate) struct ExpectedError {
     pub(crate) code: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) network_error: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) rule: Option<&'static str>,
 }
 
 impl Expected {
+    /// A refusal alone: nothing carried out, and a reported failure that
+    /// names `error` when one is given.
+    pub(crate) fn refused(error: Option<ExpectedError>) -> Self {
+        Self {
+            refusal: true,
+            error,
+            ..Self::default()
+        }
+    }
+
     /// The expected Records alone.
     pub(crate) fn records(records: Vec<Record>) -> Self {
         Self {
@@ -147,8 +160,35 @@ impl Expected {
 /// bytes, in lowercase hex.
 #[derive(Clone, Serialize)]
 pub(crate) struct File {
+    /// The name the tool saves it under; for a file whose naming is
+    /// [`Naming::Safe`], the hostile name the page suggests.
     pub(crate) name: String,
     pub(crate) sha256: String,
+    #[serde(skip_serializing_if = "Naming::is_exact")]
+    pub(crate) naming: Naming,
+}
+
+/// How the oracle judges the name a tool saved a file under.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Naming {
+    /// The name is exactly the expected one.
+    #[default]
+    Exact,
+    /// The page suggests a hostile name (a path, a reserved name, a control
+    /// character): any name is right that is one safe file name on every OS,
+    /// so the file stays in the folder it is saved to (ADR 0067).
+    Safe,
+}
+
+impl Naming {
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's `skip_serializing_if` passes the field by reference"
+    )]
+    fn is_exact(&self) -> bool {
+        *self == Self::Exact
+    }
 }
 
 /// An Effect a task asks a tool to carry out (ADR 0010), as the site
@@ -228,6 +268,10 @@ pub(crate) enum Finding {
     /// A request sent while the site already had its cap of requests in
     /// flight.
     OverInFlightCap { target: String },
+    /// A request for what a relative link names when resolved against the
+    /// wrong base: the URL before a redirect, or the document's URL where a
+    /// `<base href>` names another (pitfall U08).
+    WrongBase { target: String },
 }
 
 /// One expected Record: its fields by name, `id` among them, each as the page

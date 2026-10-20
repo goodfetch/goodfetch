@@ -1,0 +1,27 @@
+body {
+  margin: 0;
+  font-family: sans-serif;
+}
+
+main {
+  padding: 8px;
+}
+
+.scroller,
+pre {
+  overflow-x: auto;
+}
+
+td,
+th {
+  padding: 4px 16px;
+  white-space: nowrap;
+}
+
+.wide {
+  width: 600px;
+}
+
+.no-wrap {
+  white-space: nowrap;
+}

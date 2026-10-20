@@ -26,6 +26,7 @@ const FAMILY: &str = "content-coding";
 const DECODING_FAILED: ExpectedError = ExpectedError {
     code: "navigation_failed",
     network_error: Some("net::ERR_CONTENT_DECODING_FAILED"),
+    rule: None,
 };
 
 #[derive(Clone, Copy)]

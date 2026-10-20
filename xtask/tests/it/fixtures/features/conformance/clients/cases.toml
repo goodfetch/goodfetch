@@ -1,0 +1,11 @@
+[suite]
+name = "clients"
+version = "1"
+
+[[capability]]
+name = "runs.start"
+
+[[capability.case]]
+id = "start-a-run"
+covers = ["event:sample.echoed"]
+surfaces = ["sdk-typescript", "cli"]

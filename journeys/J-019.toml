@@ -1,0 +1,50 @@
+#:schema ./journey.schema.json
+id = "J-019"
+title = "Restore a Daemon group from its backup after the Lead Daemon is stopped"
+goal = """
+A person whose Lead Daemon is stopped makes another Group member the Lead \
+Daemon from the latest Group backup. The promotion MUST be refused until the \
+former Lead Daemon is confirmed stopped, the new Lead Daemon MUST hold the \
+Daemon group's state as the backup kept it, and the former Lead Daemon, once \
+started again, MUST never grant slices, so that two Lead Daemons never grant \
+slices at once."""
+area = 3
+product = "collie"
+status = "active"
+covers = ["story:3-113"]
+
+[proving_ground]
+seed = 19
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Form a Daemon group of three Daemons, each with its own Goodfetch home"
+
+[[steps]]
+text = "Set a Daemon Limit and run a script that extracts the catalog's product page on the Daemon group"
+
+[[steps]]
+text = "Take a Group backup on demand"
+
+[[steps]]
+text = "Ask to promote another Group member from the backup while the Lead Daemon still runs"
+
+[[steps]]
+text = "Stop the Lead Daemon and confirm it stopped"
+
+[[steps]]
+text = "Promote the other Group member from the backup"
+
+[[steps]]
+text = "Start the former Lead Daemon again and run another script on the Daemon group"
+
+[[expect]]
+text = "The promotion asked for while the Lead Daemon still ran was refused, and the Daemon group kept its Lead Daemon"
+
+[[expect]]
+text = "The promoted Group member is the Lead Daemon, and holds the Daemon group's Run index and Limits as the Group backup kept them"
+
+[[expect]]
+text = "The former Lead Daemon, started again, granted no slice, and the second script's Usage was counted by the new Lead Daemon alone"

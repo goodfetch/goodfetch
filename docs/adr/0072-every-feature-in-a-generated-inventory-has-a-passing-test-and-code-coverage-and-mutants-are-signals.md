@@ -119,6 +119,10 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 > Agent decision, pending owner review (#338): until `features/rows.toml` gives the matrix rows their milestones, the Feature check does not fail on a row without one, and the inventory lists such a row with no milestone. No ticket has set the rows' milestones yet, so the rule would fail every pull request; it is switched on in the change that fills `rows.toml`.
 
+> Agent decision, pending owner review (#351): the Vitest tags, Playwright annotations and pytest markers come from the runners' listings, which start processes, and a Quick-suite check starts none (ADR 0061). The Feature check therefore reads them in the Pre-merge suite (`just features-tests`, after `just journeys-tests`, on the same listings), where every rule above applies. In the Quick suite it reads the Rust `Covers:` lines and the Journeys' and conformance cases' `covers` lists, applies every rule but one, and only notes a generated Feature none of them declares, since a runner's test may declare it.
+
+> Verified on 2026-10-19 (#351): Vitest 5.0.5 accepts `:`, `.`, `/`, `-` and `_` in tag names, in the configuration, on a test and in `--tags-filter`, so Feature IDs are its tags as written and no mapping exists.
+
 - **Before the merge queue exists**, the Release suite runs on manual dispatch (ADR 0061), and the two gates read the latest such run on `main`.
   > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, "the latest such run" is `main`'s latest commit whose cells have all run, across its dispatches; a commit some of whose cells have not run yet is not read.
 - **The release pull request lists every exception**, with its evidence kind.

@@ -117,6 +117,30 @@ fn the_runtime_file_is_its_owners_alone_in_its_majors_folder() {
     );
 }
 
+/// Each major, and each `0.y` minor during previews, has its own runtime
+/// file and socket, which both Products share (ADRs 0030 and 0098).
+///
+/// Covers: story:3-22
+#[rstest]
+#[case::a_release("2.0.1", "2")]
+#[case::a_later_patch_of_the_major("2.7.0", "2")]
+#[case::a_preview_minor("0.4.2", "0.4")]
+#[case::the_next_preview_minor("0.5.0", "0.5")]
+fn each_major_has_its_own_runtime_file_and_socket(#[case] version: &str, #[case] major: &str) {
+    let files = DaemonFiles::of(
+        &Home::new("home".into()),
+        &ProductVersion::parse(version).unwrap(),
+    );
+
+    assert_eq!(
+        (files.runtime_file(), files.socket()),
+        (
+            Path::new("home").join(major).join("daemon.json"),
+            Path::new("home").join(major).join("daemon.sock")
+        )
+    );
+}
+
 /// Unpublishing leaves a runtime file another Daemon wrote since.
 ///
 /// Covers: story:3-138

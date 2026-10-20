@@ -247,6 +247,36 @@ pub(crate) struct Report {
     pub(crate) listings: bool,
     pub(crate) features: Vec<Entry>,
     pub(crate) views: Vec<View>,
+    /// The milestone gate's state (ADR 0072).
+    pub(crate) gate: Gate,
+}
+
+/// The milestone gate of ADR 0072, over both Products: ready only when the
+/// store holds a Release run of `main` and no Feature due at the milestone
+/// is untested on it.
+#[derive(Serialize)]
+pub(crate) struct Gate {
+    pub(crate) ready: bool,
+    /// The untested Features' IDs, in the inventory's order.
+    pub(crate) untested: Vec<String>,
+}
+
+impl Report {
+    /// The gate's state in one sentence, as stdout and the page give it.
+    pub(crate) fn gate_line(&self) -> String {
+        let milestone = format!("{:?}", self.milestone);
+        match (&self.release_commit, self.gate.untested.len()) {
+            (None, _) => {
+                format!("{milestone} gate: not ready, since the store holds no Release run of main")
+            }
+            (Some(commit), 0) => {
+                format!("{milestone} gate: ready on main's latest Release run, of {commit}")
+            }
+            (Some(commit), untested) => format!(
+                "{milestone} gate: not ready, {untested} Features untested on main's latest Release run, of {commit}"
+            ),
+        }
+    }
 }
 
 /// The milestone a milestone's name starts with: `M1` for `M1 Core`.
@@ -316,12 +346,22 @@ pub(crate) fn build(sources: &Sources<'_>) -> Result<Report> {
         .into_iter()
         .map(|product| view(product, &features))
         .collect();
+    let untested: Vec<String> = features
+        .iter()
+        .filter(|entry| entry.status == State::Untested)
+        .map(|entry| entry.id.clone())
+        .collect();
+    let gate = Gate {
+        ready: release_commit.is_some() && untested.is_empty(),
+        untested,
+    };
     Ok(Report {
         milestone: sources.gate,
         release_commit,
         listings: sources.variant_tests.is_some(),
         features,
         views,
+        gate,
     })
 }
 

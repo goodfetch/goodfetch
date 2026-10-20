@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import EngineInfo, EngineInfoParams, EventsSubscribeParams, PageBodyParams, PageBodyRead, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SubscriptionEnded
+from .models import ConfigExplainParams, EngineInfo, EngineInfoParams, EventsSubscribeParams, PageBodyParams, PageBodyRead, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -40,6 +40,10 @@ class AsyncCollieOperations:
     def __init__(self, caller: AsyncCaller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
+        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
+        return SettingsExplanation.model_construct(**_fields(await self._caller.call("config.explain", params)))
 
     async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
@@ -97,6 +101,10 @@ class CollieOperations:
     def __init__(self, caller: Caller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
+        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
+        return SettingsExplanation.model_construct(**_fields(self._caller.call("config.explain", params)))
 
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""

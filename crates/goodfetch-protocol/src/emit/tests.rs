@@ -21,9 +21,41 @@ fn the_bundle_holds_the_schema_of_the_releases_file() {
 #[test]
 fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
+    let mut formats = emitted.bundle["formats"].as_array().unwrap().clone();
+    let settings_files: Vec<serde_json::Value> = formats
+        .drain(4..)
+        .map(|format| {
+            json!({
+                "name": format["name"],
+                "version": format["version"],
+                "storage": format["storage"],
+                "rule": format["rule"],
+                "tables": format["schema"]["properties"].as_object().unwrap().keys().collect::<Vec<_>>(),
+            })
+        })
+        .collect();
 
     assert_eq!(
-        emitted.bundle["formats"],
+        settings_files,
+        [
+            json!({
+                "name": "operator-policy",
+                "version": "0.1",
+                "storage": "toml",
+                "rule": "default",
+                "tables": ["cap", "lock", "settings", "version"],
+            }),
+            json!({
+                "name": "user-configuration",
+                "version": "0.1",
+                "storage": "toml",
+                "rule": "default",
+                "tables": ["settings", "version"],
+            }),
+        ]
+    );
+    assert_eq!(
+        serde_json::Value::Array(formats),
         json!([
             {
                 "name": "protocol",
@@ -102,5 +134,83 @@ fn the_bundle_holds_the_schemas_of_the_result_document_and_the_case_log_entry() 
             "result_document": { "$ref": "#/$defs/ResultDocument" },
             "case_log_entry": { "$ref": "#/$defs/CaseLogEntry" },
         })
+    );
+}
+
+/// Covers: story:3-86, story:3-142, setting:network.resolve
+#[rstest]
+#[case::a_key_collie_carries("network.resolve", json!(["collie", "foxhound"]), "every")]
+#[case::a_key_only_foxhound_carries("crawl.retry.max", json!(["foxhound"]), "every")]
+#[case::a_key_only_the_machine_sets(
+    "browser_cache.max_unused_age",
+    json!(["collie", "foxhound"]),
+    "machine"
+)]
+fn the_catalog_records_each_settings_products_from_its_mark_and_its_authority(
+    #[case] key: &str,
+    #[case] products: serde_json::Value,
+    #[case] authority: &str,
+) {
+    let catalog = emit().catalog;
+
+    let entry = catalog["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|setting| setting["name"] == key)
+        .unwrap();
+
+    assert_eq!(
+        (&entry["products"], entry["authority"].as_str()),
+        (&products, Some(authority))
+    );
+}
+
+#[test]
+fn a_settings_entry_carries_its_values_schema_and_default() {
+    let catalog = emit().catalog;
+
+    let entry = catalog["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|setting| setting["name"] == "timeout.navigation")
+        .unwrap();
+
+    assert_eq!(
+        (
+            &entry["value"],
+            &entry["default"],
+            &entry["clearable"],
+            &entry["weakens"]
+        ),
+        (
+            &json!({ "type": "integer", "minimum": 0, "description": "A duration in milliseconds." }),
+            &json!(30_000),
+            &json!(false),
+            &json!(false),
+        )
+    );
+}
+
+#[test]
+fn a_settings_files_schema_nests_each_key_by_its_segments() {
+    let emitted = emit();
+    let policy = emitted.bundle["formats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|format| format["name"] == "operator-policy")
+        .unwrap();
+
+    let resolve =
+        &policy["schema"]["properties"]["lock"]["properties"]["network"]["properties"]["resolve"];
+
+    assert_eq!(
+        (&resolve["type"], &resolve["additionalProperties"]["items"]),
+        (
+            &json!("object"),
+            &json!({ "type": "string", "format": "ip" })
+        )
     );
 }

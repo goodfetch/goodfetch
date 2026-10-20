@@ -186,6 +186,38 @@ class SampleRefusedError(RefusedError):
         super().__init__(message, code="sample_refused", group="refused", retryable=False)
 
 
+class SettingInvalidError(ProgramError):
+    """A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_invalid", group="program", retryable=False)
+
+
+class SettingLockedError(RefusedError):
+    """A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_locked", group="refused", retryable=False)
+
+
+class SettingNotApplicableError(ProgramError):
+    """A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_not_applicable", group="program", retryable=False)
+
+
+class SettingUnknownError(ProgramError):
+    """A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_unknown", group="program", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
@@ -203,5 +235,9 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "run_not_found": RunNotFoundError,
     "run_state_unavailable": RunStateUnavailableError,
     "sample_refused": SampleRefusedError,
+    "setting_invalid": SettingInvalidError,
+    "setting_locked": SettingLockedError,
+    "setting_not_applicable": SettingNotApplicableError,
+    "setting_unknown": SettingUnknownError,
 }
 """The exception class of each Error code."""

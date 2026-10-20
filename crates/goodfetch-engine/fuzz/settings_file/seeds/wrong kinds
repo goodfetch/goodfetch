@@ -1,0 +1,4 @@
+version = "0.1"
+[settings.timeout]
+navigation = "60s"
+run = -1

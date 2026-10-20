@@ -1,0 +1,10 @@
+version = "0.1"
+
+[settings]
+crawl.retry.max = 1
+
+[lock.network]
+offline = true
+
+[cap.crawl.handler]
+concurrency = 8

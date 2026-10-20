@@ -92,6 +92,8 @@ fn test_streams() -> Contribution {
                         inputs: std::collections::BTreeMap::new(),
                         ended_by: EndedBy::Finish,
                         initialize: None,
+                        policy_version: None,
+                        weakened_by: Vec::new(),
                     })
                     .await
                     .unwrap();

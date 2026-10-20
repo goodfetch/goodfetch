@@ -81,6 +81,39 @@
         }
       ]
     },
+    "ConfigExplainParams": {
+      "additionalProperties": false,
+      "description": "What `config.explain` takes.",
+      "properties": {
+        "keys": {
+          "arrived_in": "0.1",
+          "description": "The keys to explain, each a key or a prefix of keys, such as\n`timeout`; every key when empty.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration to explain with."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Run-layer values to explain with, as a Run's `settings` would give\nthem.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "DownloadProgress": {
       "description": "What `browser_cache.download_progress` reports.",
       "properties": {
@@ -177,6 +210,80 @@
       },
       "type": "object"
     },
+    "ExplainedSetting": {
+      "description": "One setting as `config explain` shows it.",
+      "properties": {
+        "applied": {
+          "arrived_in": "0.1",
+          "description": "Whether this engine applies it: `false` for a key only the other\nProduct honours, which a shared file may hold (ADR 0087).",
+          "type": "boolean"
+        },
+        "cap": {
+          "arrived_in": "0.1",
+          "description": "An Operator policy's cap on it, if any."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "locked_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that locked it, if any: an Operator policy's lock, a\nRecipe that declares it without exposing it, or the default for an\nhonesty guarantee."
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "For the run layer, where the value came from."
+        },
+        "products": {
+          "arrived_in": "0.1",
+          "description": "The Products that honour it, from its Product mark (ADR 0095).",
+          "items": {
+            "$ref": "#/$defs/Product"
+          },
+          "type": "array"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The effective value, or for a key this engine does not apply, the\nvalue its highest layer wrote."
+        },
+        "weakens": {
+          "arrived_in": "0.1",
+          "description": "Whether its value weakens a guarantee class or switches off a costly\ncontrol, which the results it touches are marked with (ADR 0028).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key",
+        "products",
+        "applied",
+        "value",
+        "layer",
+        "weakens"
+      ],
+      "type": "object"
+    },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
       "oneOf": [
@@ -270,6 +377,28 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
       "type": "string"
     },
+    "ProjectSettings": {
+      "additionalProperties": false,
+      "description": "A project configuration's values, which a Client reads where it runs and\nsends with a scope it opens (ADR 0083).",
+      "properties": {
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The file's path, as the Client found it.",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its settings, nested as the file nests them.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "path",
+        "settings"
+      ],
+      "type": "object"
+    },
     "ProtocolVersion": {
       "description": "A version `major.minor` (ADR 0030).",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
@@ -341,6 +470,31 @@
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
       "type": "string"
     },
+    "RunOrigin": {
+      "description": "Where a run-layer value came from (ADR 0083).",
+      "oneOf": [
+        {
+          "const": "argument",
+          "description": "A call's argument.",
+          "type": "string"
+        },
+        {
+          "const": "settings",
+          "description": "A scope's `settings` option.",
+          "type": "string"
+        },
+        {
+          "const": "flag",
+          "description": "A CLI flag.",
+          "type": "string"
+        },
+        {
+          "const": "form",
+          "description": "An Integration's form.",
+          "type": "string"
+        }
+      ]
+    },
     "RunParams": {
       "additionalProperties": false,
       "description": "What `run.finish` and `run.abort` take: the Run.",
@@ -374,6 +528,14 @@
           "arrived_in": "0.1",
           "description": "Where it ended."
         },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The version of the Operator policy it ran under, when one applied\n(ADR 0028).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -400,6 +562,14 @@
           "$ref": "#/$defs/Verdict",
           "arrived_in": "0.1",
           "description": "Whether its own checks prove what it committed."
+        },
+        "weakened_by": {
+          "arrived_in": "0.1",
+          "description": "Every setting it ran with that weakens a guarantee class or switches\noff a costly control, with its value and layer (ADR 0028).",
+          "items": {
+            "$ref": "#/$defs/SettingLimit"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -416,6 +586,18 @@
       "additionalProperties": false,
       "description": "What `run.start` takes.",
       "properties": {
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
         "run_id": {
           "arrived_in": "0.1",
           "description": "The Run's ID; the engine generates a lowercase ULID when it is\nabsent. An existing ID returns that Run when the caller and the\ninputs match, and fails with `run_conflict` otherwise.",
@@ -424,6 +606,12 @@
             "string",
             "null"
           ]
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings, nested by key: the run layer (ADR 0083).",
+          "type": "object"
         },
         "tags": {
           "$ref": "#/$defs/Tags",
@@ -536,6 +724,126 @@
         "replaced"
       ],
       "type": "object"
+    },
+    "SettingLimit": {
+      "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting's key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "layer"
+      ],
+      "type": "object"
+    },
+    "SettingsExplanation": {
+      "description": "What `config.explain` answers and `config explain --json` prints:\nevery setting's effective value, the layer that set it and the layer\nthat locked it (ADR 0028), and the files read.",
+      "properties": {
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The files of the configuration layers, lowest first.",
+          "items": {
+            "$ref": "#/$defs/SettingsFile"
+          },
+          "type": "array"
+        },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy's version, `sha256:` and the first 16 hex digits\nof its file's digest, which the run report names; `None` without a\npolicy.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings": {
+          "arrived_in": "0.1",
+          "description": "Each setting, by key.",
+          "items": {
+            "$ref": "#/$defs/ExplainedSetting"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "files",
+        "settings"
+      ],
+      "type": "object"
+    },
+    "SettingsFile": {
+      "description": "A layer's file, as `config explain` names it.",
+      "properties": {
+        "found": {
+          "arrived_in": "0.1",
+          "description": "Whether it exists; a missing file sets nothing.",
+          "type": "boolean"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "Its layer."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Its path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "path",
+        "found"
+      ],
+      "type": "object"
+    },
+    "SettingsLayer": {
+      "description": "The layers settings resolve through, lowest first (ADRs 0028 and 0083).",
+      "oneOf": [
+        {
+          "const": "default",
+          "description": "The built-in default.",
+          "type": "string"
+        },
+        {
+          "const": "operator_policy",
+          "description": "An Operator policy.",
+          "type": "string"
+        },
+        {
+          "const": "user_configuration",
+          "description": "User configuration.",
+          "type": "string"
+        },
+        {
+          "const": "project_configuration",
+          "description": "Project configuration.",
+          "type": "string"
+        },
+        {
+          "const": "recipe",
+          "description": "A Recipe.",
+          "type": "string"
+        },
+        {
+          "const": "run",
+          "description": "The run: a program's settings, a call's argument, a CLI flag or an\nIntegration's form.",
+          "type": "string"
+        }
+      ]
     },
     "StartedAs": {
       "description": "Whether a start began its Run or found it.",
@@ -784,6 +1092,46 @@
       "name": "sample_refused",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "setting_locked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_not_applicable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_unknown",
+      "product": "collie",
+      "retryable": false
     }
   ],
   "error_groups": [
@@ -901,6 +1249,23 @@
     }
   ],
   "operations": [
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+      "events": [],
+      "name": "config.explain",
+      "params": {
+        "$ref": "#/$defs/ConfigExplainParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/SettingsExplanation"
+      },
+      "stability": "stable"
+    },
     {
       "arrived_in": "0.1",
       "cancellable": false,
@@ -1054,21 +1419,356 @@
   "settings": [
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": 2592000000,
       "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
       "name": "browser_cache.max_unused_age",
-      "product": "collie"
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
     },
     {
       "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "name": "consent.domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+      "name": "filter_lists.extra",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the engine fetches nothing nobody configured: a Pinned artifact missing from the Browser cache fails with `artifact_unavailable_offline` instead of downloading. `false` by default.",
+      "name": "network.offline",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+      "name": "network.resolve",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "items": {
+            "format": "ip",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
       "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home.",
       "name": "run_state.location",
-      "product": "collie"
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1,
       "description": "How many times the sample operation repeats a text.",
       "name": "sample.echo_repeats",
-      "product": "collie"
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+      "name": "secrets.by_reference",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe",
+      "clearable": true,
+      "default": null,
+      "description": "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users.",
+      "name": "session.source",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+      "name": "timeout.first_byte",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "name": "timeout.navigation",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.",
+      "name": "timeout.run",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration_except",
+      "clearable": false,
+      "default": {},
+      "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+      "name": "tls.accept_invalid_certs",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": {},
+      "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+      "name": "tls.trusted_cas",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+      "name": "wall.denied_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "name": "wall.domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+      "name": "wall.refetch_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+      "name": "webhook.signing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
     }
   ],
   "shared_type_values": [

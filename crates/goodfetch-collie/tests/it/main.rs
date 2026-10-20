@@ -9,5 +9,7 @@
 
 mod attached;
 mod browsers;
+mod config;
 mod events;
+mod journeys;
 mod run;

@@ -45,6 +45,17 @@
       ]
     },
     {
+      "id": "command:daemon.install",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:daemon.launched",
       "kind": "command",
       "area": 3,
@@ -57,6 +68,17 @@
     },
     {
       "id": "command:daemon.restart",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.rotate-token",
       "kind": "command",
       "area": 3,
       "milestone": null,
@@ -90,6 +112,17 @@
     },
     {
       "id": "command:daemon.stop",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.uninstall",
       "kind": "command",
       "area": 3,
       "milestone": null,

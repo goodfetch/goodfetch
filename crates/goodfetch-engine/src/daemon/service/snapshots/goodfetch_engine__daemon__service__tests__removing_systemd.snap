@@ -1,0 +1,7 @@
+---
+source: crates/goodfetch-engine/src/daemon/service/tests.rs
+expression: "lines.join(\"\\n\")"
+---
+systemctl --user disable --now goodfetch-daemon-1-cfa77cf6.socket (true)
+systemctl --user stop goodfetch-daemon-1-cfa77cf6.service (true)
+systemctl --user daemon-reload (true)

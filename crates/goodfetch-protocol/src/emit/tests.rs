@@ -234,10 +234,13 @@ fn the_bundle_holds_each_commands_json_output() {
             "browsers.clean": { "$ref": "#/$defs/BrowsersCleanOutput" },
             "browsers.install": { "$ref": "#/$defs/BrowsersInstallOutput" },
             "config.explain": { "$ref": "#/$defs/SettingsExplanation" },
+            "daemon.install": { "$ref": "#/$defs/DaemonInstallOutput" },
             "daemon.restart": { "$ref": "#/$defs/DaemonStartOutput" },
+            "daemon.rotate-token": { "$ref": "#/$defs/DaemonRotateTokenOutput" },
             "daemon.start": { "$ref": "#/$defs/DaemonStartOutput" },
             "daemon.status": { "$ref": "#/$defs/DaemonStatusOutput" },
             "daemon.stop": { "$ref": "#/$defs/DaemonStopOutput" },
+            "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
         })
     );
 }

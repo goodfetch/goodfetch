@@ -39,6 +39,11 @@ values = ["error", "keys"]
 # Which of `daemon`'s own modules may import which.
 [submodules.daemon]
 files = []
+service = []
+
+# Which of `transport`'s own modules may import which.
+[submodules.transport]
+activation = []
 
 # Which of `runs`'s own modules may import which.
 [submodules.runs]

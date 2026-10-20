@@ -106,6 +106,21 @@ impl SecretKind {
         }
     }
 
+    /// The kind in words, as the glossary writes it.
+    fn label(self) -> &'static str {
+        match self {
+            Self::TypedPassword => "typed password",
+            Self::TotpSeed => "TOTP seed",
+            Self::ProxyPassword => "proxy password",
+            Self::ModelApiKey => "model API key",
+            Self::WebhookSigningSecret => "webhook signing secret",
+            Self::SinkCredential => "Sink credential",
+            Self::SessionCookie => "Session cookie",
+            Self::EndpointToken => "endpoint token",
+            Self::RunDataKey => "run data key",
+        }
+    }
+
     /// The regular expression every value of the kind matches, planted here
     /// or by the Proving ground, without the hard tail; JSON escaping and URL
     /// encoding leave it unchanged.
@@ -772,10 +787,10 @@ pub fn gitleaks_rule() -> String {
         write!(
             rule,
             "\n[[rules]]\nid = \"goodfetch-secret-canary-{}\"\n\
-             description = \"A Goodfetch Secret canary standing for a {} (ADR 0067)\"\n\
+             description = \"Goodfetch Secret canary: {} (ADR 0067)\"\n\
              regex = '''{}'''\nkeywords = [\"{MARK}\"]\n",
             kind.name().replace('_', "-"),
-            kind.name().replace('_', " "),
+            kind.label(),
             kind.pattern(),
         )
         .expect("invariant: writing to a String succeeds");

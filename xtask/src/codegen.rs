@@ -350,6 +350,11 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         );
     }
 
+    files.insert(
+        test_support::CANARY_RULE.to_owned(),
+        test_support::canary_rule(cargo, root)?,
+    );
+
     let mut externals = Vec::new();
     for package in &PACKAGES {
         let layer = Layer::new(&collie, &foxhound, package.product)?;

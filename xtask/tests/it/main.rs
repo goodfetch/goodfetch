@@ -49,6 +49,7 @@ mod perf;
 mod perf_build;
 mod perf_ceilings;
 mod perf_drift;
+mod perf_run;
 mod quarantine;
 mod release_suite;
 mod repeat;

@@ -38,11 +38,13 @@ leak-timeout = { period = "200ms", result = "fail" }
 path = "junit.xml"
 
 # `xtask`'s tests that build a fixture crate (codegen, compat, the Feature
-# generators, perf, stress, test tools) build each copy of it into one shared
-# target folder, where the copies' artifacts share their names: they run one
-# at a time, in every profile.
+# generators, perf, stress, test tools) each build into a target folder their
+# workspace holds alone (the harness's numbered slots under `fixture-target/`),
+# so copies whose artifacts share names never meet. At most four run at once,
+# in every profile: each slot builds the fixture's dependencies once, and four
+# Cargo builds beside the other tests keep the host's cores shared.
 [test-groups]
-fixture-builds = { max-threads = 1 }
+fixture-builds = { max-threads = 4 }
 
 [[profile.default.overrides]]
 filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"

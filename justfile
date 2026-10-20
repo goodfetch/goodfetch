@@ -542,23 +542,42 @@ quick *all:
 # changed and the static checks' proofs (`all`: the whole workspace). The
 # visual projects run only in the pinned Playwright image, in CI's `visual`
 # job (ADR 0073).
+#
+# `perf` runs beside the other steps, in its container on Linux x86-64
+# (ci/perf.sh), with its lines marked `[perf]`; the suite waits for it and
+# fails when it fails, and stops it when another step fails first. The checks
+# that take seconds and judge the whole change (sign-offs, commit messages,
+# the SDK crates' features, advisories, the proofs) run before the suites.
 pre-merge *all:
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
     rm -f target/skipped.txt
-    trap '"$just" _skips-report' EXIT
+    "$just" perf > >(awk '{ print "[perf] " $0; fflush() }') 2>&1 &
+    perf=$!
+    trap '[[ -z "$perf" ]] || kill "$perf" 2>/dev/null || true; "$just" _skips-report' EXIT
+    "$just" dco
+    "$just" commit-messages
     "$just" lint
+    "$just" feature-combinations
+    "$just" audit
+    "$just" proofs
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
     "$just" journeys-tasks --check
     "$just" features-tests
     "$just" _tlc "{{ all }}"
-    "$just" proofs
-    "$just" supply-chain
-    "$just" dco
-    "$just" commit-messages
-    "$just" perf
+    "$just" msrv
+    "$just" miri
+    "$just" notices
+    echo "Waiting for perf…"
+    status=0
+    wait "$perf" || status=$?
+    perf=
+    if [[ $status -ne 0 ]]; then
+      echo "error: just perf failed with exit status $status" >&2
+      exit "$status"
+    fi
     "$just" _visual-elsewhere
 
 # This host's cell of the Release suite. The other cells run in CI only:
@@ -719,7 +738,7 @@ screenshots-fetch run:
 # the advisories of every lockfile, the MSRV build, cargo-hack over each
 # Product's SDK crate, Miri and the notice inventory's license check. The
 # audits read public advisory databases, so CI runs this before any egress
-# deny.
+# deny. `pre-merge` runs the same parts, cheapest first.
 supply-chain: audit msrv feature-combinations miri notices
 
 # The third-party notice inventory (ADRs 0018 and 0047): fails on a
@@ -811,8 +830,9 @@ proofs:
 hooks:
     git config core.hooksPath .githooks
 
-# Merges a pull request only when `just quick all` and `just pre-merge all`
-# pass on its exact head, in a fresh worktree (AGENTS.md, "Merging").
+# Merges a pull request only when `just pre-merge all`, which starts with
+# `just quick all`'s lint and Quick suite, passes on its exact head, in a
+# clean checkout in the gate's own worktree (AGENTS.md, "Merging").
 merge number:
     ci/merge-pr.sh {{ number }}
 

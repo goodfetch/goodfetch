@@ -13,7 +13,7 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use super::run::call;
-use super::{attached_on, dependencies, engine_with, hello};
+use super::{attached_on, engine_with, hello};
 
 /// Writes `text` as `file` of the test home's per-major folder.
 fn write(env: &TestEnv, file: &str, text: &str) {
@@ -25,17 +25,13 @@ fn write(env: &TestEnv, file: &str, text: &str) {
 /// Starts a Run with `params` on an engine of `product`, and finishes it
 /// when it starts; answers the start's and the finish's replies.
 fn start_and_finish(env: &TestEnv, product: Product, params: Value) -> (Value, Value) {
-    attached_on(
-        &engine_with(product, None),
-        dependencies(env),
-        |mut client| async move {
-            client.send(&[hello(product.as_str(), "0.1")]).await;
-            client.next().await;
-            let started = call(&mut client, 1, "run.start", params).await;
-            let finished = call(&mut client, 2, "run.finish", json!({ "run_id": "set" })).await;
-            (started, finished)
-        },
-    )
+    attached_on(&engine_with(product, None), env, |mut client| async move {
+        client.send(&[hello(product.as_str(), "0.1")]).await;
+        client.next().await;
+        let started = call(&mut client, 1, "run.start", params).await;
+        let finished = call(&mut client, 2, "run.finish", json!({ "run_id": "set" })).await;
+        (started, finished)
+    })
 }
 
 /// Covers: story:3-88, error:setting_locked
@@ -203,7 +199,7 @@ fn config_explain_shows_each_value_with_the_layer_that_set_it_and_the_layer_that
 
     let explained = attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;

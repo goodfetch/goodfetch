@@ -43,6 +43,14 @@ export type TestSupportErrorCode =
   | "page_errors"
   /** `features/inventory.json` cannot be read, or fails its committed schema (ADR 0072). */
   | "inventory_invalid"
+  /** The Client conformance case list is no TOML, or a capability has no name or a case no ID (ADR 0069). */
+  | "case_list_invalid"
+  /** A case log entry fails the bundle's `case_log_entry` schema, such as by setting an outcome (ADR 0069). */
+  | "case_log_entry_invalid"
+  /** A test carries a `client_case/` tag naming no case of the reporter's case list (ADR 0069). */
+  | "client_case_unknown"
+  /** A test took `clientCase` without carrying a `client_case/` tag (ADR 0069). */
+  | "client_case_untagged"
   /** A Playwright test's `covers` annotation names a Feature the inventory does not list (ADR 0072). */
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */

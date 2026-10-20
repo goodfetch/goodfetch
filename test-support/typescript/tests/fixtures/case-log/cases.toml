@@ -1,0 +1,33 @@
+# A Client conformance case list in `conformance/clients/cases.toml`'s shape
+# (ADR 0069), for the case-log reporter's tests: a capability whose case
+# passes, one whose case fails, and one whose case is skipped.
+
+[suite]
+name = "clients"
+version = "1"
+
+[[capability]]
+name = "hello"
+
+[[capability.case]]
+id = "hello-refused"
+covers = ["story:11-1"]
+surfaces = ["sdk-typescript"]
+script = "hello/refused.json"
+
+[[capability]]
+name = "cancel"
+
+[[capability.case]]
+id = "cancel-mid-run"
+covers = ["story:11-4"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability]]
+name = "credits"
+
+[[capability.case]]
+id = "credits-released"
+covers = ["story:11-9"]
+surfaces = ["sdk-typescript"]

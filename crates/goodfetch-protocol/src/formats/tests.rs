@@ -37,7 +37,9 @@ fn the_registry_lists_every_format_under_the_default_rule() {
             ("protocol", Rule::Default),
             ("browser-cache", Rule::Default),
             ("run-index", Rule::Default),
-            ("run-state", Rule::Default)
+            ("run-state", Rule::Default),
+            ("operator-policy", Rule::Default),
+            ("user-configuration", Rule::Default)
         ]
     );
 }

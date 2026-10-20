@@ -52,6 +52,8 @@ fn use_foxhound() -> Contribution {
                     inputs: BTreeMap::new(),
                     ended_by: EndedBy::Driver,
                     initialize: None,
+                    policy_version: None,
+                    weakened_by: Vec::new(),
                 })
                 .await
                 .unwrap();
@@ -66,7 +68,7 @@ fn use_foxhound() -> Contribution {
 }
 
 /// Sends the call `method` with `params` and answers its reply.
-async fn call(client: &mut Client, id: i64, method: &str, params: Value) -> Value {
+pub(super) async fn call(client: &mut Client, id: i64, method: &str, params: Value) -> Value {
     client
         .send(&[json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })])
         .await;

@@ -203,6 +203,42 @@ export class SampleRefusedError extends RefusedError {
   }
 }
 
+/**
+ * A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.
+ */
+export class SettingInvalidError extends ProgramError {
+  constructor(message: string) {
+    super(message, { code: "setting_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.
+ */
+export class SettingLockedError extends RefusedError {
+  constructor(message: string) {
+    super(message, { code: "setting_locked", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.
+ */
+export class SettingNotApplicableError extends ProgramError {
+  constructor(message: string) {
+    super(message, { code: "setting_not_applicable", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.
+ */
+export class SettingUnknownError extends ProgramError {
+  constructor(message: string) {
+    super(message, { code: "setting_unknown", group: "program", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {
   artifact_download_failed: ArtifactDownloadFailedError,
@@ -221,4 +257,8 @@ export const collieErrorClasses: Readonly<Record<string, new (message: string) =
   run_not_found: RunNotFoundError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
+  setting_invalid: SettingInvalidError,
+  setting_locked: SettingLockedError,
+  setting_not_applicable: SettingNotApplicableError,
+  setting_unknown: SettingUnknownError,
 };

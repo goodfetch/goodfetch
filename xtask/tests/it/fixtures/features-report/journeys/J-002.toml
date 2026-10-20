@@ -1,0 +1,16 @@
+id = "J-002"
+title = "Reach the goal from an SDK"
+goal = "A person reaches the goal from the Rust SDK."
+area = 1
+product = "collie"
+status = "active"
+covers = ["story:1-4"]
+
+[surfaces]
+sdk-rust = "M2"
+
+[[steps]]
+text = "Reach the goal"
+
+[[expect]]
+text = "The goal is reached"

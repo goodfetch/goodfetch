@@ -100,7 +100,9 @@ hickory-resolver = { version = "0.26.3", default-features = false }
 # The executables' global allocator (ADR 0024), and the Callgrind
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }
-# `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071).
+# `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071); and
+# goodfetch-test-support's `NoExec`, which installs its seccomp filter and
+# starts its child with raw system calls on Linux (ADR 0067).
 libc = { version = "0.2.191", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
@@ -141,6 +143,9 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
+# The settings files, which a rewrite keeps byte for byte but for the
+# value it writes (ADRs 0028, 0098).
+toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }

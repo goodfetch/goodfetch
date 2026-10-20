@@ -2,7 +2,8 @@
 //! 0062): the running test's name, the seed and its `GOODFETCH_TEST_SEED`
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
 //! manifest's path, the folder Journey variants write their result documents
-//! into, and on Windows the variables a child needs to start.
+//! into, the exercise records' folder with the test's ID as nextest gives
+//! it, and on Windows the variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
@@ -22,6 +23,16 @@ pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 /// The folder each Journey variant run writes its result document into,
 /// which `just test` sets; unset, a run writes it in the test's own folder.
 pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
+
+/// The folder of every test's exercise record, which `just test` sets
+/// (ADR 0072).
+pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
+
+/// The binary ID of the test nextest runs (`<package>::<target>`).
+pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";
+
+/// The name of the test nextest runs, within its binary.
+pub(crate) const TEST_NAME_VARIABLE: &str = "NEXTEST_TEST_NAME";
 
 /// What Windows needs in a child's environment to start a process.
 pub(crate) const WINDOWS_VARIABLES: [&str; 3] = ["SystemRoot", "ComSpec", "PATHEXT"];
@@ -46,6 +57,9 @@ impl Variables {
             SUITE_VARIABLE,
             TOOLS_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
+            RECORDS_VARIABLE,
+            BINARY_ID_VARIABLE,
+            TEST_NAME_VARIABLE,
         ]
         .into_iter()
         .chain(WINDOWS_VARIABLES)

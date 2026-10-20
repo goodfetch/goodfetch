@@ -25,6 +25,8 @@ pub(super) enum Storage {
     Sqlite,
     /// A protocol's recorded transcripts: `.jsonl` files of one message per line.
     Transcript,
+    /// TOML documents, each a `.toml` file, such as settings files.
+    Toml,
 }
 
 impl Storage {
@@ -33,6 +35,7 @@ impl Storage {
             Self::Json => "json",
             Self::Sqlite => "sqlite",
             Self::Transcript => "transcript",
+            Self::Toml => "toml",
         }
     }
 }

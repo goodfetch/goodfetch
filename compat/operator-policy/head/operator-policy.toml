@@ -1,0 +1,148 @@
+version = "0.1"
+
+[settings.browser_cache]
+max_unused_age = 30000
+
+[settings.run_state]
+location = "example"
+
+[settings.sample]
+echo_repeats = 4
+
+[settings.network]
+offline = true
+resolve = { "example.test" = ["127.0.0.1"] }
+
+[settings.tls]
+trusted_cas = { "example.test" = ["example"] }
+accept_invalid_certs = { "example.test" = "example" }
+
+[settings.consent]
+domains = ["example"]
+
+[settings.wall]
+domains = ["example"]
+refetch_domains = ["example"]
+denied_domains = ["example"]
+
+[settings.filter_lists]
+extra = ["example"]
+
+[settings.session]
+source = "example"
+
+[settings.secrets]
+by_reference = true
+
+[settings.webhook]
+signing = true
+
+[settings.timeout]
+run = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
+
+[settings.crawl]
+sample_pages = 4
+
+[settings.crawl.retry]
+max = 4
+handler_failed = true
+
+[settings.crawl.handler]
+concurrency = 4
+
+[settings.paid_fetch]
+domains = ["example"]
+max_price_per_page = "0.05 USD"
+exchange_rates = { "example.test" = "example" }
+chain_rpc_endpoints = { "example.test" = "example" }
+
+[settings.delivery]
+write_ids_and_epochs = true
+report_guarantee_class = true
+
+[lock.browser_cache]
+max_unused_age = 30000
+
+[lock.run_state]
+location = "example"
+
+[lock.sample]
+echo_repeats = 4
+
+[lock.network]
+offline = true
+resolve = { "example.test" = ["127.0.0.1"] }
+
+[lock.tls]
+trusted_cas = { "example.test" = ["example"] }
+accept_invalid_certs = { "example.test" = "example" }
+
+[lock.consent]
+domains = ["example"]
+
+[lock.wall]
+domains = ["example"]
+refetch_domains = ["example"]
+denied_domains = ["example"]
+
+[lock.filter_lists]
+extra = ["example"]
+
+[lock.session]
+source = "example"
+
+[lock.secrets]
+by_reference = true
+
+[lock.webhook]
+signing = true
+
+[lock.timeout]
+run = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
+
+[lock.crawl]
+sample_pages = 4
+
+[lock.crawl.retry]
+max = 4
+handler_failed = true
+
+[lock.crawl.handler]
+concurrency = 4
+
+[lock.paid_fetch]
+domains = ["example"]
+max_price_per_page = "0.05 USD"
+exchange_rates = { "example.test" = "example" }
+chain_rpc_endpoints = { "example.test" = "example" }
+
+[lock.delivery]
+write_ids_and_epochs = true
+report_guarantee_class = true
+
+[cap.browser_cache]
+max_unused_age = 30000
+
+[cap.sample]
+echo_repeats = 4
+
+[cap.timeout]
+run = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
+
+[cap.crawl]
+sample_pages = 4
+
+[cap.crawl.retry]
+max = 4
+
+[cap.crawl.handler]
+concurrency = 4

@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from goodfetch_collie_client.generated.models import SampleEchoParams, Tags
+from goodfetch_collie_client.generated.models import (
+    ProjectSettings,
+    SampleEchoParams,
+    Tags,
+)
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
@@ -103,11 +107,15 @@ class CrawlStartParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None
     """The Run's ID, as `run.start` takes it."""
     seeds: Seeds
     """The requests the crawl starts from."""
+    settings: dict[str, Any] | None = None
+    """The Run's settings, nested by key: the run layer (ADR 0083)."""
     tags: Tags | None = None
     """The Run's opaque tags."""

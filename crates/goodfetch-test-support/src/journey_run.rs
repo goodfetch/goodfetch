@@ -481,10 +481,10 @@ impl<C> JourneyRun<C> {
         // The test's own copy is the one `Finished` reads: in the suite's
         // folder, another test running the same variant may write after it.
         let path = env.folder().join(&file);
-        let suites = Variables::from_process()
+        let suite_copy = Variables::from_process()
             .get(RESULT_DOCUMENTS_VARIABLE)
             .map(|folder| PathBuf::from(folder).join(&file));
-        for written in std::iter::once(&path).chain(&suites) {
+        for written in std::iter::once(&path).chain(&suite_copy) {
             written
                 .parent()
                 .map_or(Ok(()), std::fs::create_dir_all)

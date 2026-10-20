@@ -129,6 +129,10 @@ jobs:
       CELL: ${{ matrix.cell }}
       TARGET: ${{ matrix.target }}
       SHARD: 1/1
+      # A hosted Ubuntu runner's AppArmor refuses unprivileged user
+      # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
+      # declared, a fallback to another way fails.
+      GOODFETCH_TEST_DNS_NAMESPACE: sudo
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -243,6 +247,10 @@ jobs:
       CELL: ${{ matrix.cell }}
       TARGET: ${{ matrix.target }}
       SHARD: 1/1
+      # A hosted Ubuntu runner's AppArmor refuses unprivileged user
+      # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
+      # declared, a fallback to another way fails.
+      GOODFETCH_TEST_DNS_NAMESPACE: sudo
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

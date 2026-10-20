@@ -49,6 +49,7 @@ if [[ "$(uname -s)" != Linux ]]; then
     --volume goodfetch-perf-target:/var/tmp/target --env CARGO_TARGET_DIR=/var/tmp/target \
     --volume goodfetch-perf-cargo:/usr/local/cargo/registry \
     --env GIT_CONFIG_COUNT=1 --env GIT_CONFIG_KEY_0=safe.directory --env GIT_CONFIG_VALUE_0='*' \
+    ${GOODFETCH_PERF_PULL_REQUEST:+--env GOODFETCH_PERF_PULL_REQUEST} \
     "$CI_IMAGE" ci/perf.sh ${requested:+"$requested"}
 fi
 
@@ -58,4 +59,7 @@ command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner 
 selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
 targets=$(sed -n 's/^bench-targets=//p' <<<"$selection")
 cargo run --quiet -p xtask -- perf build --base "$base" --bench-targets "$targets"
-cargo run --quiet -p xtask -- perf run
+# `just merge` saves the pull request's acceptance (ci/merge-pr.sh); without
+# it, every figure past its threshold fails.
+cargo run --quiet -p xtask -- perf run \
+  ${GOODFETCH_PERF_PULL_REQUEST:+--pull-request "$GOODFETCH_PERF_PULL_REQUEST"}

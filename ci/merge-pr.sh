@@ -86,7 +86,11 @@ echo "Running the local gate on #$number at $head in $worktree"
 (
   cd "$worktree"
   just fetch
-  just pre-merge all
+  # What the pull request's "Performance change" section and its owner's
+  # acceptance comment accept, read at this head for `just perf` (ADR 0134).
+  GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
+    perf pull-request --number "$number" --save target/perf-pull-request.json
+  GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
 )
 
 gh pr merge "$number" --merge --match-head-commit "$head" \

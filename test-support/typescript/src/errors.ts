@@ -13,6 +13,8 @@ export type TestSupportErrorCode =
   | "start_failed"
   /** A shared fixture of `test-support/fixtures/` fails its committed schema. */
   | "fixture_invalid"
+  /** A Secret canary search could not read one of its outputs (ADR 0067). */
+  | "canary_output_unreadable"
   /** The description `goodfetch-test-env` printed fails its committed schema. */
   | "description_invalid"
   /** A test took `provingGround` without setting `provingGroundSeed`. */

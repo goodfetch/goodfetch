@@ -41,6 +41,7 @@ lint: fmt-check
     ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
+    ci/tool.sh gitleaks ci/canary-rule.sh
     ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh

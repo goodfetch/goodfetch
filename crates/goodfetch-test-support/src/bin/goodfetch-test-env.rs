@@ -5,14 +5,16 @@
 //! starts the commit's Proving ground on that seed, which the description
 //! names and which stops before the folder is removed. `--print-schemas`
 //! prints the JSON
-//! Schemas of the crate's file types for `xtask codegen` and starts nothing.
+//! Schemas of the crate's file types for `xtask codegen` and starts nothing;
+//! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it.
 
 use std::io::{self, Read as _, Write as _};
 use std::process::ExitCode;
 
 use clap::Parser;
 use goodfetch_test_support::{
-    Description, PROVING_GROUND_DEADLINE, ProvingGround, TestEnv, Tool, Variables, schemas, tools,
+    Description, PROVING_GROUND_DEADLINE, ProvingGround, TestEnv, Tool, Variables, gitleaks_rule,
+    schemas, tools,
 };
 
 #[derive(Parser)]
@@ -39,12 +41,18 @@ struct Arguments {
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
     print_schemas: bool,
+    /// Prints the Secret canaries' `gitleaks` rule, generated from their
+    /// kinds, and starts nothing.
+    #[arg(long, exclusive = true)]
+    print_canary_rule: bool,
 }
 
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
     let result = if arguments.print_schemas {
         print_schemas()
+    } else if arguments.print_canary_rule {
+        write_text(&gitleaks_rule())
     } else {
         serve(&arguments)
     };
@@ -104,12 +112,16 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
 }
 
 fn write_line(line: &str) -> Result<(), Failure> {
+    write_text(&format!("{line}\n"))
+}
+
+fn write_text(text: &str) -> Result<(), Failure> {
     #[expect(
         clippy::disallowed_methods,
         reason = "goodfetch-test-env writes its description to its own stdout (ADR 0062)"
     )]
     let mut stdout = io::stdout().lock();
-    writeln!(stdout, "{line}")?;
+    stdout.write_all(text.as_bytes())?;
     stdout.flush()?;
     Ok(())
 }

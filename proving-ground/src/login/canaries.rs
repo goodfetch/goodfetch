@@ -46,8 +46,17 @@ const SESSION_PLACE: u64 = 5;
 /// The place of a plant's value, under the plant's number.
 const CANARY_PLACE: u64 = 6;
 
-/// RFC 4226's recommended length for an HMAC-SHA-1 key.
-const SEED_BYTES: u64 = 20;
+/// The random base32 characters after a TOTP seed's mark: with the mark's
+/// 12, 32 characters, 20 bytes, RFC 4226's recommended length for an
+/// HMAC-SHA-1 key.
+const SEED_RANDOM_CHARACTERS: u64 = 20;
+
+/// The start of a TOTP seed canary, which base32's alphabet holds, so the
+/// `gitleaks` rule of test support's Secret canaries finds it.
+const TOTP_MARK: &str = "GFCANARYTOTP";
+
+/// RFC 4648's base32 alphabet.
+const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 /// The most sightings and places sent each canary keeps.
 const RECORD_LIMIT: usize = 256;
@@ -313,7 +322,8 @@ fn hex(seed: u64, place: &[u64]) -> String {
 }
 
 /// The value of the plant numbered `number`, of `kind`: recognisable by its
-/// `gfcanary` prefix, except a TOTP seed, which is base32 as a seed is.
+/// `gfcanary` prefix, or for a TOTP seed, which is base32 as a seed is, by
+/// its `GFCANARYTOTP` one.
 fn canary_value(seed: u64, kind: SecretKind, number: u64) -> String {
     let place = |index| [FAMILY_PLACE, number, CANARY_PLACE, index];
     let random = format!("{}{}", hex(seed, &place(0)), hex(seed, &place(1)));
@@ -322,13 +332,15 @@ fn canary_value(seed: u64, kind: SecretKind, number: u64) -> String {
         SecretKind::SessionCookie => format!("gfcanary-session-{random}"),
         SecretKind::EndpointToken => format!("gfcanary-token-{random}"),
         SecretKind::TotpSeed => {
-            let bytes: Vec<u8> = (0..SEED_BYTES)
+            let random: String = (0..SEED_RANDOM_CHARACTERS)
                 .map(|index| {
-                    u8::try_from(generator::below(seed, &place(2 + index), 256))
-                        .expect("invariant: a value below 256 is a byte")
+                    let at = generator::below(seed, &place(2 + index), 32);
+                    char::from(
+                        BASE32[usize::try_from(at).expect("invariant: a value below 32 fits")],
+                    )
                 })
                 .collect();
-            data_encoding::BASE32_NOPAD.encode(&bytes)
+            format!("{TOTP_MARK}{random}")
         }
     }
 }

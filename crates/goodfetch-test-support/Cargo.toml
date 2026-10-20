@@ -13,6 +13,7 @@ publish = false
 assert_cmd.workspace = true
 chacha20.workspace = true
 clap.workspace = true
+data-encoding.workspace = true
 insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
 proptest.workspace = true
@@ -31,7 +32,8 @@ toml.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "test-util"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }
-# `JourneyRun` submits a tool's result to the Proving ground's oracle.
+# `JourneyRun` submits a tool's result to the Proving ground's oracle, and
+# `Canaries` plants and reads Secret canaries through it.
 ureq.workspace = true
 
 # `NoExec`'s seccomp filter and its child's start (ADR 0067).

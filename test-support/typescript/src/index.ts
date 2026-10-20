@@ -1,5 +1,14 @@
 // `@goodfetch/test-support`'s interface: the Vitest fixtures and what they
 // are built on (ADR 0062).
+export {
+  searchCanaries,
+  type Canary,
+  type CanaryHit,
+  type CanaryOutput,
+  type Encoding,
+  type Placement,
+  type SecretKind,
+} from "./canaries.ts";
 export { TestSupportError, type TestSupportErrorCode } from "./errors.ts";
 export { test, type TestSupportFixtures } from "./fixtures.ts";
 export { locales, timeZones, type TimeZoneCase } from "./locales.ts";

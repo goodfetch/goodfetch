@@ -12,6 +12,7 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+mod canaries;
 mod cli;
 mod endpoints;
 mod exercise_record;

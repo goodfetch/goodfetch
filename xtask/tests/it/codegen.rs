@@ -267,6 +267,7 @@ fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
 #[case::feature_inventory("features/inventory.json", "drift")]
 #[case::stories_schema("features/stories.schema.json", "drift")]
 #[case::journey_schema(JOURNEY_SCHEMA, "drift")]
+#[case::canary_rule(CANARY_RULE, "drift")]
 fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("codegen");
     let edited = format!("{}\n", workspace.read_text(path));
@@ -341,6 +342,43 @@ fn codegen_writes_the_script_schema_among_the_engine_scripts() {
 
     let schema: Value = serde_json::from_str(&workspace.read_text(SCRIPT_SCHEMA)).unwrap();
     assert_eq!(schema["title"], "Script");
+}
+
+/// The Secret canaries' `gitleaks` rule, which the fixture's stand-in of
+/// test support generates from its kinds.
+const CANARY_RULE: &str = "test-support/fixtures/canaries/gitleaks.toml";
+
+#[test]
+fn check_fails_when_the_committed_canary_rule_drifts_from_the_kinds() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        DESCRIPTION,
+        "pub const KINDS: [(&str, &str); 1] = [(\"typed-password\", \"gfcanary-password-[0-9a-f]{16}\")];",
+        "pub const KINDS: [(&str, &str); 2] = [\n    (\"typed-password\", \"gfcanary-password-[0-9a-f]{16}\"),\n    (\"endpoint-token\", \"gfcanary-token-[0-9a-f]{32}\"),\n];",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", CANARY_RULE)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn codegen_writes_the_canary_rule_test_env_prints() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.remove(CANARY_RULE);
+
+    codegen(&workspace);
+
+    assert_eq!(
+        workspace.read_text(CANARY_RULE),
+        "[[rules]]\nid = \"typed-password\"\nregex = '''gfcanary-password-[0-9a-f]{16}'''\n"
+    );
 }
 
 #[test]

@@ -12,9 +12,10 @@
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
-//! its runner and the Scripted resolver, the hostile-input case tables, and
-//! `NoExec`, which starts a child that may start no other program on Linux
-//! (ADR 0067); the shared snapshot
+//! its runner and the Scripted resolver, the hostile-input case tables,
+//! `NoExec`, which starts a child that may start no other program on Linux,
+//! and the Secret canaries, planted and searched for in every encoding
+//! with their `gitleaks` rule (ADR 0067); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
 //! (ADRs 0062 and 0073); the Scripted engine's script format and its
@@ -27,6 +28,7 @@
 //! works on values only: it depends on no Goodfetch crate and is only ever
 //! a dev-dependency.
 
+mod canaries;
 mod cli;
 mod crash_dumps;
 mod crash_vfs;
@@ -63,6 +65,10 @@ mod trace;
 mod unicode;
 mod variables;
 
+pub use canaries::{
+    Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
+    Sighting, gitleaks_rule,
+};
 pub use cli::{Cli, CliError, CliOutput, Stream, cli, record_command};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{

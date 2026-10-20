@@ -48,10 +48,10 @@ describe("visualConfig", () => {
 
     const projects = visualConfig.playwright(environment).projects;
 
-    expect(projects.map((project) => [project.name, project.use?.browserName])).toEqual([
-      ["visual", "chromium"],
-      ["visual-firefox", "firefox"],
-      ["visual-webkit", "webkit"],
+    expect(projects).toMatchObject([
+      { name: "visual", use: { browserName: "chromium" } },
+      { name: "visual-firefox", use: { browserName: "firefox" } },
+      { name: "visual-webkit", use: { browserName: "webkit" } },
     ]);
   });
 
@@ -63,9 +63,9 @@ describe("visualConfig", () => {
 
     const projects = visualConfig.playwright(environment).projects;
 
-    expect(projects.map((project) => [project.name, project.use?.browserName])).toEqual([
-      ["visual-firefox", "firefox"],
-      ["visual-webkit", "webkit"],
+    expect(projects).toMatchObject([
+      { name: "visual-firefox", use: { browserName: "firefox" } },
+      { name: "visual-webkit", use: { browserName: "webkit" } },
     ]);
   });
 

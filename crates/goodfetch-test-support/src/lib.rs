@@ -19,6 +19,7 @@
 //! values only: it depends on no Goodfetch crate and is only ever a
 //! dev-dependency.
 
+mod canaries;
 mod crash_dumps;
 mod crash_vfs;
 mod description;
@@ -43,6 +44,10 @@ mod trace;
 mod unicode;
 mod variables;
 
+pub use canaries::{
+    Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
+    Sighting, gitleaks_rule,
+};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,

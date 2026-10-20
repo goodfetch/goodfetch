@@ -11,11 +11,21 @@ from pydantic import BaseModel, ConfigDict, RootModel
 
 
 class ResultDocumentTypes(BaseModel):
-    """The root of the result document's types, which holds no value of its own."""
+    """The root of the result document's and the case log entry's types, which holds no value of its own."""
 
     model_config = ConfigDict(
         extra="forbid",
     )
+
+
+class CaseLogEntry(BaseModel):
+    """A sample case log entry."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    case: str
+    """The case's ID."""
 
 
 class ResultDocument1(BaseModel):

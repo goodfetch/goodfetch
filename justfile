@@ -41,6 +41,7 @@ lint: fmt-check
     ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
+    ci/tool.sh gitleaks ci/canary-rule.sh
     ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
@@ -104,6 +105,14 @@ journeys-tests:
 # which reads no listing, only notes one.
 features-tests: journeys-tests
     cargo run --quiet -p xtask -- features check --listings target/journey-listings
+
+# ADR 0069's Client conformance case-list check with the runners' listings,
+# in the Pre-merge suite: after `journeys-tests`, it reads Vitest's listing,
+# so a case listing `sdk-typescript` fails without a Vitest test of the
+# TypeScript SDK packages tagged `client_case/<id>` in each of its modes; the
+# Quick suite's `xtask clients check`, which reads no listing, only notes it.
+clients-tests: journeys-tests
+    cargo run --quiet -p xtask -- clients check --listings target/journey-listings
 
 # ADR 0072's exercise audit, after `just test pre-merge` or `release`: each
 # Rust test that declares an `operation:`, `error:`, `event:`, `command:` or
@@ -588,7 +597,8 @@ pre-merge *all:
     "$just" _suite quick "{{ all }}"
     "$just" _suite pre-merge "{{ all }}"
     "$just" journeys-tasks --check
-    "$just" features-tests
+    # One invocation, so the listings `journeys-tests` writes serve both.
+    "$just" features-tests clients-tests
     "$just" _tlc "{{ all }}"
     "$just" msrv
     "$just" miri

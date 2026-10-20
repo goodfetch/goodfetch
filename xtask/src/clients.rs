@@ -8,9 +8,13 @@
 //! ID with `_` for `-`, and ends with the mode, as the test's own name or its
 //! rstest case's (`client_conformance::hello_refused::refuses::case_1_attached`).
 //! The `cli` surface's tests are those of each Product's executable crate,
-//! read through the Feature scanner, which starts no process. The SDK
-//! surfaces' tests are read from M2, with their runners; until then a case
-//! they list is only noted.
+//! read through the Feature scanner, which starts no process. The
+//! `sdk-typescript` surface's tests are the Vitest tests of the TypeScript
+//! SDK packages (`sdks/typescript/`), read from Vitest's listing with
+//! `--listings`, in the Pre-merge suite (`just clients-tests`): each carries
+//! its case as the tag `client_case/<id>` and its mode as the tag `attached`
+//! or `daemon`. Without the listings, and for the surfaces whose runners do
+//! not write a case log yet, a case they list is only noted.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -20,7 +24,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
@@ -39,7 +43,13 @@ pub(crate) enum Command {
     /// ID, a case whose modes are on no surface it lists, and a case list
     /// that does not parse. A listed surface whose tests are not read yet is
     /// noted.
-    Check,
+    Check {
+        /// The folder of the runners' listings `xtask journeys listings`
+        /// writes, whose Vitest listing gives the `sdk-typescript` surface's
+        /// tests.
+        #[arg(long = "listings")]
+        listings: Option<PathBuf>,
+    },
 }
 
 /// The Client conformance case list.
@@ -49,6 +59,13 @@ const CASE_LIST: &str = "conformance/clients/cases.toml";
 const EXECUTABLE_CRATES: [&str; 2] = ["goodfetch-collie", "goodfetch-foxhound"];
 /// The module in a test's path that the case's module follows.
 const CASES_MODULE: &str = "client_conformance";
+/// The folder of the packages whose Vitest tests implement the
+/// `sdk-typescript` surface's cases: each Product's TypeScript SDK packages.
+const TYPESCRIPT_PACKAGES: &str = "sdks/typescript/";
+/// The prefix of the Vitest tag that carries a case's ID.
+const CASE_TAG: &str = "client_case/";
+/// Vitest's listing in the listings folder.
+const VITEST_LISTING: &str = "vitest.json";
 
 /// A Client surface a case applies to (ADR 0069).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -171,8 +188,10 @@ impl Case {
 }
 
 pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
-    let Command::Check = command;
-    let verdict = check(environment.cargo.as_os_str(), &environment.root)?;
+    let Command::Check { listings } = command;
+    let root = &environment.root;
+    let listings = listings.as_ref().map(|folder| root.join(folder));
+    let verdict = check(environment.cargo.as_os_str(), root, listings.as_deref())?;
     for note in &verdict.notes {
         output::line(&format!(
             "note[{}] {}: {}",
@@ -187,7 +206,7 @@ struct Verdict {
     notes: Vec<Finding>,
 }
 
-fn check(cargo: &OsStr, root: &Path) -> Result<Verdict> {
+fn check(cargo: &OsStr, root: &Path, listings: Option<&Path>) -> Result<Verdict> {
     let mut findings = Vec::new();
     let mut notes = Vec::new();
     let cases = match read(root)? {
@@ -211,7 +230,14 @@ fn check(cargo: &OsStr, root: &Path) -> Result<Verdict> {
             ));
         }
     }
-    let implemented = cli_tests(cargo, root, &by_module, &mut findings)?;
+    let cli = cli_tests(cargo, root, &by_module, &mut findings)?;
+    let by_id: BTreeMap<&str, &Case> = unique
+        .iter()
+        .map(|case| (case.id.as_str(), *case))
+        .collect();
+    let typescript = listings
+        .map(|folder| typescript_tests(root, folder, &by_id, &mut findings))
+        .transpose()?;
     for case in unique {
         for &surface in &case.surfaces {
             let modes = case.modes_on(surface);
@@ -223,24 +249,45 @@ fn check(cargo: &OsStr, root: &Path) -> Result<Verdict> {
                 ));
                 continue;
             }
-            if surface != Surface::Cli {
-                notes.push(Finding::new(
-                    "unread-surface",
-                    format!("{} {surface}", case.id),
-                    "this surface's tests are not read yet; its runner's listing joins with its case-log writer (M2)",
-                ));
-                continue;
-            }
+            let (implemented, carrier) = match (surface, &typescript) {
+                (Surface::Cli, _) => (
+                    &cli,
+                    format!(
+                        "no test of {} carries `{CASES_MODULE}::{}`",
+                        EXECUTABLE_CRATES.join(" or "),
+                        case.module()
+                    ),
+                ),
+                (Surface::SdkTypescript, Some(implemented)) => (
+                    implemented,
+                    format!(
+                        "no Vitest test of `{TYPESCRIPT_PACKAGES}` carries the tag `{CASE_TAG}{}`",
+                        case.id
+                    ),
+                ),
+                (Surface::SdkTypescript, None) => {
+                    notes.push(Finding::new(
+                        "unread-surface",
+                        format!("{} {surface}", case.id),
+                        "this surface's tests are read from Vitest's listing, with --listings (`just clients-tests`)",
+                    ));
+                    continue;
+                }
+                (Surface::SdkRust | Surface::SdkPython, _) => {
+                    notes.push(Finding::new(
+                        "unread-surface",
+                        format!("{} {surface}", case.id),
+                        "this surface's tests are not read yet; its runner's listing joins with its case-log writer (M2)",
+                    ));
+                    continue;
+                }
+            };
             for mode in modes {
                 if !implemented.contains(&(case.id.as_str(), mode)) {
                     findings.push(Finding::new(
                         "missing",
                         format!("{} {surface} {mode}", case.id),
-                        format!(
-                            "no test of {} carries `{CASES_MODULE}::{}` in this mode",
-                            EXECUTABLE_CRATES.join(" or "),
-                            case.module()
-                        ),
+                        format!("{carrier} in this mode"),
                     ));
                 }
             }
@@ -314,6 +361,91 @@ fn cli_tests<'a>(
             continue;
         }
         implemented.insert((case.id.as_str(), mode));
+    }
+    Ok(implemented)
+}
+
+#[derive(Deserialize)]
+struct VitestTest {
+    /// The full name, its suites and title joined by ` > `.
+    name: String,
+    file: PathBuf,
+    tags: Vec<String>,
+}
+
+/// Each case and mode a Vitest test of the TypeScript SDK packages
+/// implements on the `sdk-typescript` surface, from Vitest's listing in
+/// `folder`; a test that carries an unknown case, a case or mode the case
+/// does not list, or not exactly one mode, is a finding.
+fn typescript_tests<'a>(
+    root: &Path,
+    folder: &Path,
+    cases: &BTreeMap<&str, &'a Case>,
+    findings: &mut Vec<Finding>,
+) -> Result<BTreeSet<(&'a str, Mode)>> {
+    let path = folder.join(VITEST_LISTING);
+    let bytes = std::fs::read(&path).with_context(|| {
+        format!(
+            "reading {}; `xtask journeys listings` writes it",
+            path.display()
+        )
+    })?;
+    let tests: Vec<VitestTest> =
+        serde_json::from_slice(&bytes).with_context(|| format!("reading {}", path.display()))?;
+    let roots = [
+        root.to_path_buf(),
+        root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
+    ];
+    let mut implemented = BTreeSet::new();
+    for test in tests {
+        let file = roots
+            .iter()
+            .find_map(|root| test.file.strip_prefix(root).ok())
+            .unwrap_or(&test.file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if !file.starts_with(TYPESCRIPT_PACKAGES) {
+            continue;
+        }
+        let subject = format!("vitest {file} > {}", test.name);
+        let modes: Vec<Mode> = test
+            .tags
+            .iter()
+            .filter_map(|tag| Mode::ALL.into_iter().find(|mode| mode.as_str() == tag))
+            .collect();
+        for id in test
+            .tags
+            .iter()
+            .filter_map(|tag| tag.strip_prefix(CASE_TAG))
+        {
+            let Some(case) = cases.get(id) else {
+                findings.push(Finding::new(
+                    "unknown-case",
+                    &subject,
+                    format!("no case of {CASE_LIST} has the ID `{id}`"),
+                ));
+                continue;
+            };
+            let [mode] = modes.as_slice() else {
+                findings.push(Finding::new(
+                    "no-mode",
+                    &subject,
+                    "tag the test with exactly one mode it runs in, `attached` or `daemon`",
+                ));
+                continue;
+            };
+            if !case.surfaces.contains(&Surface::SdkTypescript)
+                || !case.modes_on(Surface::SdkTypescript).contains(mode)
+            {
+                findings.push(Finding::new(
+                    "unlisted",
+                    &subject,
+                    format!("the case does not list the sdk-typescript surface in the {mode} mode"),
+                ));
+                continue;
+            }
+            implemented.insert((case.id.as_str(), *mode));
+        }
     }
     Ok(implemented)
 }

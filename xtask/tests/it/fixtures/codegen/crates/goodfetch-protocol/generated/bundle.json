@@ -1,5 +1,19 @@
 {
   "$defs": {
+    "CaseLogEntry": {
+      "additionalProperties": false,
+      "description": "A sample case log entry.",
+      "properties": {
+        "case": {
+          "description": "The case's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case"
+      ],
+      "type": "object"
+    },
     "Journey": {
       "additionalProperties": false,
       "description": "A sample Journey.",
@@ -174,6 +188,9 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "documents": {
+    "case_log_entry": {
+      "$ref": "#/$defs/CaseLogEntry"
+    },
     "result_document": {
       "$ref": "#/$defs/ResultDocument"
     }

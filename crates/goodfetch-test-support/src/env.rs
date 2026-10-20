@@ -17,7 +17,7 @@ use std::process::Stdio;
 use std::time::{Duration, SystemTime};
 
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
-use crate::exercise::{DISPATCH_TARGET, ExerciseRecord};
+use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
 use crate::variables::{
     COVERAGE_VARIABLE, SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test,
@@ -35,10 +35,10 @@ const START_SECONDS: u64 = 1_767_603_600;
 /// file` until the engine reads its configuration.
 const LOG_OUTPUT: (&str, &str) = ("GOODFETCH_LOG_OUTPUT", "file");
 
-/// Which logs it writes: `rpc`'s dispatch records, which ADR 0072's
-/// exercise audit reads, beside the default level.
+/// Which logs it writes: `rpc`'s dispatch records and the engine's outcome
+/// records, which ADR 0072's exercise audit reads, beside the default level.
 fn log_level() -> String {
-    format!("info,{DISPATCH_TARGET}=trace")
+    format!("info,{DISPATCH_TARGET}=trace,{OUTCOME_TARGET}=trace")
 }
 
 /// How long a folder name keeps the test's name.

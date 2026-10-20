@@ -38,6 +38,15 @@ fn dispatched(lines: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// The Error code of each outcome record among `lines`.
+fn recorded(lines: &[Value]) -> Vec<Value> {
+    lines
+        .iter()
+        .filter(|line| line["target"] == "goodfetch::run::outcome")
+        .map(|line| line["fields"]["error_code"].clone())
+        .collect()
+}
+
 #[test]
 fn the_test_env_map_turns_on_the_json_log_of_the_engine_a_test_starts() {
     let env = TestEnv::new();
@@ -71,7 +80,7 @@ fn the_test_env_map_turns_on_the_json_log_of_the_engine_a_test_starts() {
 }
 
 #[test]
-fn the_test_subscriber_writes_the_dispatch_records_into_the_exercise_record() {
+fn the_test_subscriber_writes_the_dispatch_and_outcome_records_into_the_exercise_record() {
     let env = TestEnv::new();
     let records = env.folder().join("records");
     let mut command = probe(&env, "probe::dispatches_under_the_test_subscriber");
@@ -85,10 +94,11 @@ fn the_test_subscriber_writes_the_dispatch_records_into_the_exercise_record() {
     assert!(status.success());
     let lines = json_lines(&records);
     assert_eq!(
-        (&lines[0], dispatched(&lines[1..])),
+        (&lines[0], dispatched(&lines[1..]), recorded(&lines[1..])),
         (
             &json!({ "test": "sample::it engine_info" }),
-            vec![json!("engine.info")]
+            vec![json!("engine.info")],
+            vec![json!("handler_lost")]
         )
     );
 }

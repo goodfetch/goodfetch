@@ -121,6 +121,52 @@ fn audit_judges_the_error_code_and_event_of_a_test_once_it_reaches_rpc() {
 }
 
 #[test]
+fn audit_judges_the_error_code_and_event_of_a_unit_test_that_reaches_rpc() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.edit(
+        "crates/sample/src/lib.rs",
+        "/// Covers: operation:sample.echo\n",
+        "/// Covers: operation:sample.echo, error:sample_lost, event:sample.lost\n",
+    );
+
+    let outcome = audit(&workspace, &[]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding(
+                "unreached",
+                "error:sample_lost in sample tests::echoes_in_process"
+            ),
+            finding(
+                "unreached",
+                "event:sample.lost in sample tests::echoes_in_process"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn audit_counts_an_error_code_the_run_recorded_as_reached() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.edit(
+        "crates/sample/src/lib.rs",
+        "/// Covers: operation:sample.echo\n",
+        "/// Covers: operation:sample.echo, error:sample_lost\n",
+    );
+    workspace.append(
+        "records/sample-tests-echoes_in_process.jsonl",
+        "{\"fields\":{\"message\":\"the run recorded an error code\",\"error_code\":\"sample_lost\"},\"target\":\"goodfetch::run::outcome\"}\n",
+    );
+
+    let outcome = audit(&workspace, &[]);
+
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), vec![]);
+}
+
+#[test]
 fn audit_over_the_tests_that_ran_fails_one_that_never_reached_its_feature() {
     let workspace = Workspace::from_fixture("exercise-audit");
     workspace.edit(
@@ -293,8 +339,8 @@ fn suite_step_with(
 
 #[cfg(unix)]
 #[rstest]
-#[case::pre_merge_over_the_tests_that_ran(&[])]
-#[case::release_over_every_declaring_test(&["all"])]
+#[case::over_the_tests_that_ran(&[])]
+#[case::over_every_declaring_test(&["all"])]
 fn the_suites_audit_step_fails_a_declaring_test_that_never_reached_its_feature(
     #[case] args: &[&str],
 ) {

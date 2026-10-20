@@ -87,7 +87,7 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
-pub use exercise::{COMMAND_RECORD, COMMAND_TARGET, DISPATCH_TARGET};
+pub use exercise::{COMMAND_RECORD, COMMAND_TARGET, DISPATCH_TARGET, OUTCOME_TARGET};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,

@@ -22,8 +22,8 @@ const MAX_BATCH: usize = 256;
 /// The streaming calls' handlers.
 pub(crate) fn handlers() -> [Handler; 2] {
     [
-        Handler::new(&EVENTS_SUBSCRIBE, subscribe),
-        Handler::new(&PAGE_BODY, read_body),
+        Handler::new(&EVENTS_SUBSCRIBE, subscribe).streaming(),
+        Handler::new(&PAGE_BODY, read_body).streaming(),
     ]
 }
 

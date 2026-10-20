@@ -64,7 +64,8 @@ mod tests {
         reason = "tests read the test Clock (ADR 0059)"
     )]
     fn origin() -> Instant {
-        goodfetch_engine::clock::Clock::paused(std::time::UNIX_EPOCH).now()
+        goodfetch_test_support::runtime()
+            .block_on(async { goodfetch_engine::clock::Clock::paused(std::time::UNIX_EPOCH).now() })
     }
 
     proptest! {

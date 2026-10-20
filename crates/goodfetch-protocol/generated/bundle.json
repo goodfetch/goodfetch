@@ -29,6 +29,67 @@
       ],
       "type": "object"
     },
+    "ArtifactId": {
+      "description": "Which Pinned artifact: its kind, its name and its build.",
+      "properties": {
+        "build": {
+          "arrived_in": "0.1",
+          "description": "Its build ID, such as `141.0.7390.54-linux64`.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind",
+          "arrived_in": "0.1",
+          "description": "What it is."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, such as `chrome-for-testing`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "build"
+      ],
+      "type": "object"
+    },
+    "ArtifactKind": {
+      "description": "What a Pinned artifact is (ADR 0098: the clean-up's rule covers every\nkind). An entry of a kind the engine does not know is one it cannot read,\nand keeps.",
+      "oneOf": [
+        {
+          "const": "browser",
+          "description": "A browser build, such as Chrome for Testing's.",
+          "type": "string"
+        },
+        {
+          "const": "driver",
+          "description": "Playwright's driver (ADR 0019).",
+          "type": "string"
+        },
+        {
+          "const": "executable_copy",
+          "description": "The versioned copy of an executable a Daemon runs from (ADR 0024).",
+          "type": "string"
+        },
+        {
+          "const": "engine_executable",
+          "description": "The engine executable a Product's Rust crate downloads (ADR 0051).",
+          "type": "string"
+        },
+        {
+          "const": "clean_up_rules",
+          "description": "A full Clean-up rules set (ADR 0047).",
+          "type": "string"
+        },
+        {
+          "const": "mouse_movements",
+          "description": "Recorded mouse movements (ADR 0035).",
+          "type": "string"
+        }
+      ]
+    },
     "Attestation": {
       "additionalProperties": false,
       "description": "A Sigstore attestation bundle, checked offline with `gh attestation\nverify --bundle` (ADR 0066).",
@@ -45,6 +106,47 @@
       "required": [
         "url",
         "sha256"
+      ],
+      "type": "object"
+    },
+    "BrowserCacheEntry": {
+      "additionalProperties": false,
+      "description": "One Pinned artifact's entry in the Browser cache, `entry.json` beside its\nfiles: what it is, the digest its files have, and when it was installed\nand last used, which the clean-up reads (ADR 0098).",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactId",
+          "arrived_in": "0.1",
+          "description": "Which artifact it holds."
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest of its files, `sha256:<hex>`, which every launch checks.",
+          "type": "string"
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of this format the entry was written in."
+        },
+        "installed_at": {
+          "arrived_in": "0.1",
+          "description": "When it was installed, in RFC 3339.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "used_at": {
+          "arrived_in": "0.1",
+          "description": "When it was last launched or installed, in RFC 3339.",
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "format_version",
+        "artifact",
+        "digest",
+        "installed_at",
+        "used_at"
       ],
       "type": "object"
     },
@@ -508,6 +610,44 @@
       },
       "required": [
         "seeds"
+      ],
+      "type": "object"
+    },
+    "DownloadProgress": {
+      "description": "What `browser_cache.download_progress` reports.",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactId",
+          "arrived_in": "0.1",
+          "description": "The artifact being downloaded."
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host it comes from.",
+          "type": "string"
+        },
+        "received_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes received so far.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes the answer announced, when it did.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "artifact",
+        "host",
+        "received_bytes"
       ],
       "type": "object"
     },
@@ -2400,6 +2540,15 @@
         "$ref": "#/$defs/Message"
       },
       "storage": "transcript",
+      "version": "0.1"
+    },
+    {
+      "name": "browser-cache",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/BrowserCacheEntry"
+      },
+      "storage": "json",
       "version": "0.1"
     },
     {

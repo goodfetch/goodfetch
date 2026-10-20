@@ -2,6 +2,36 @@
   "error_codes": [
     {
       "arrived_in": "0.1",
+      "description": "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "artifact_download_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "artifact_unavailable_offline",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_not_installed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
       "exit_code": null,
       "group": "unavailable",
@@ -166,6 +196,17 @@
     }
   ],
   "events": [
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.",
+      "name": "browser_cache.download_progress",
+      "payload": {
+        "$ref": "#/$defs/DownloadProgress"
+      },
+      "product": "collie",
+      "stability": "stable"
+    },
     {
       "arrived_in": "0.1",
       "deprecated": null,
@@ -409,6 +450,12 @@
   ],
   "protocol_version": "0.1",
   "settings": [
+    {
+      "arrived_in": "0.1",
+      "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
+      "name": "browser_cache.max_unused_age",
+      "product": "collie"
+    },
     {
       "arrived_in": "0.1",
       "description": "How many pages the sample crawl visits.",

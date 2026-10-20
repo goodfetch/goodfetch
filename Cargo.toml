@@ -140,6 +140,11 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).
 ulid = { version = "3.0.0", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
+# Mozilla's root certificates, which the Browser cache's pinned downloads
+# trust (ADR 0043), as ureq's rustls already does.
+webpki-roots = { version = "1.0.9", default-features = false }
+# The archives the Browser cache unpacks: Chrome for Testing ships ZIPs.
+zip = { version = "9.0.5", default-features = false }
 
 # STYLE.md, Lints, formatting and toolchain; `unsafe`; Async and concurrency.
 # `missing_docs` warns on `goodfetch-collie-client`, `goodfetch-collie`,

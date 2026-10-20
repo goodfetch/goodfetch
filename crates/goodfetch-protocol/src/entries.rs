@@ -3,11 +3,12 @@
 //! where each entry is defined (ADRs 0095 and 0099).
 
 use crate::catalog::{Entries, Operation, Product};
-use crate::{connection, engine, foxhound, run, sample};
+use crate::{browser_cache, connection, engine, foxhound, run, sample};
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 6] = [
+pub const MODULES: [&Entries; 7] = [
     &connection::ENTRIES,
+    &browser_cache::ENTRIES,
     &engine::ENTRIES,
     &run::ENTRIES,
     &sample::ENTRIES,

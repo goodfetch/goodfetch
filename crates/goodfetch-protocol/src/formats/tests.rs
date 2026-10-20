@@ -25,7 +25,7 @@ fn the_default_rule_reads_its_major_up_to_its_own_minor(
 }
 
 #[test]
-fn the_registry_lists_the_protocol_run_state_and_the_run_index_under_the_default_rule() {
+fn the_registry_lists_every_format_under_the_default_rule() {
     let names: Vec<(&str, Rule)> = FORMATS
         .iter()
         .map(|format| (format.name, format.rule))
@@ -35,6 +35,7 @@ fn the_registry_lists_the_protocol_run_state_and_the_run_index_under_the_default
         names,
         [
             ("protocol", Rule::Default),
+            ("browser-cache", Rule::Default),
             ("run-index", Rule::Default),
             ("run-state", Rule::Default)
         ]

@@ -10,13 +10,15 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import SampleEchoed
+from .models import DownloadProgress, SampleEchoed
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
+    "browser_cache.download_progress": DownloadProgress,
     "sample.echoed": SampleEchoed,
 }
 """The payload type of each event:
 
+- `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
 - `sample.echoed`: A text was repeated.
 """
 

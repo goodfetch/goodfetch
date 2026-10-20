@@ -19,6 +19,27 @@ class CollieTypes(BaseModel):
     )
 
 
+class ArtifactKind(StrEnum):
+    """
+    What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
+    kind). An entry of a kind the engine does not know is one it cannot read,
+    and keeps.
+    """
+
+    browser = "browser"
+    """A browser build, such as Chrome for Testing's."""
+    driver = "driver"
+    """Playwright's driver (ADR 0019)."""
+    executable_copy = "executable_copy"
+    """The versioned copy of an executable a Daemon runs from (ADR 0024)."""
+    engine_executable = "engine_executable"
+    """The engine executable a Product's Rust crate downloads (ADR 0051)."""
+    clean_up_rules = "clean_up_rules"
+    """A full Clean-up rules set (ADR 0047)."""
+    mouse_movements = "mouse_movements"
+    """Recorded mouse movements (ADR 0035)."""
+
+
 class Completeness(StrEnum):
     """
     Whether a Run's results cover everything in its scope (ADRs 0005 and
@@ -199,6 +220,36 @@ class Verdict(StrEnum):
     """A declared Success check failed."""
     needs_review = "needs_review"
     """Everything else: a person reviews it."""
+
+
+class ArtifactId(BaseModel):
+    """Which Pinned artifact: its kind, its name and its build."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    build: str
+    """Its build ID, such as `141.0.7390.54-linux64`."""
+    kind: ArtifactKind
+    """What it is."""
+    name: str
+    """Its name, such as `chrome-for-testing`."""
+
+
+class DownloadProgress(BaseModel):
+    """What `browser_cache.download_progress` reports."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact: ArtifactId
+    """The artifact being downloaded."""
+    host: str
+    """The host it comes from."""
+    received_bytes: Annotated[int, Field(ge=0)]
+    """The bytes received so far."""
+    total_bytes: Annotated[int | None, Field(ge=0)] = None
+    """The bytes the answer announced, when it did."""
 
 
 class EngineInfo(BaseModel):

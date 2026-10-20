@@ -8,4 +8,5 @@
 )]
 
 mod attached;
+mod browsers;
 mod run;

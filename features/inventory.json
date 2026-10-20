@@ -1,6 +1,39 @@
 {
   "features": [
     {
+      "id": "error:artifact_download_failed",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:artifact_unavailable_offline",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:browser_not_installed",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:call_cancelled",
       "kind": "error",
       "area": 3,
@@ -130,6 +163,17 @@
       ]
     },
     {
+      "id": "event:browser_cache.download_progress",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:sample.crawled",
       "kind": "event",
       "area": 1,
@@ -143,6 +187,17 @@
       "id": "event:sample.echoed",
       "kind": "event",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:browser-cache",
+      "kind": "format",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2121,6 +2176,17 @@
       "id": "row:silent-false-success",
       "kind": "row",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:browser_cache.max_unused_age",
+      "kind": "setting",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

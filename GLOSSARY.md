@@ -192,6 +192,10 @@ _Avoid_: run result, summary, statistics, stats
 The per-user folder, shared by both Products and every major, of pinned browser builds, among them those Plugins declare, the executable copies a Daemon runs from and the engine's other pinned downloads, each checked by digest. Plugin runtimes have their own runtime cache beside it.
 _Avoid_: browser registry, browsers folder
 
+**Pinned artifact**:
+A download a Product version names by URL and digest, such as a browser build, Playwright's driver or a full Clean-up rules set, which the Browser cache holds and the engine fetches with a plain HTTPS GET, the only connection nobody configures.
+_Avoid_: asset (for a pinned download)
+
 **Run index**:
 The catalog of every run of one user and one product major, whichever Product ran it, on a machine or in a Daemon group, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
 _Avoid_: run registry, run database, history

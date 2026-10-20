@@ -9,6 +9,8 @@
 mod composition;
 #[cfg(feature = "executable")]
 pub mod executable;
+mod pins;
 mod sample;
 
 pub use composition::composition;
+pub use pins::pinned_artifacts;

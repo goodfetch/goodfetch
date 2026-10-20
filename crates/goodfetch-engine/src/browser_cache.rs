@@ -1,0 +1,684 @@
+//! The Browser cache (ADRs 0024, 0043, 0098 and 0115): the per-user folder,
+//! shared by both Products and every major, of the Pinned artifacts each
+//! Product version asks for. A launch prepares its build here: the build is
+//! checked against its pinned digest every time and held under a shared
+//! lock; a build with the wrong digest is refused and removed; a missing one
+//! is downloaded on first use with its progress reported, unless `offline`
+//! refuses it or the engine cannot write the cache. `browsers install`
+//! prepares every pin ahead of time, and the clean-up deletes only what
+//! nothing installed pins, nothing used for `browser_cache.max_unused_age`
+//! and nothing holds.
+//!
+//! Its root is `GOODFETCH_BROWSERS_PATH` when that is set, otherwise
+//! `browsers` in Goodfetch home (ADR 0059).
+
+mod artifact;
+mod clean_up;
+mod download;
+mod extract;
+mod platform;
+mod store;
+#[cfg(test)]
+mod tests;
+
+use std::collections::BTreeSet;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use goodfetch_protocol::browser_cache::{
+    ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
+    ArtifactId, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED, BrowserCacheEntry,
+    BrowserNotInstalledDetails, DownloadFailure, DownloadProgress, InstallOutcome, MissingBrowser,
+    PinnedBy, SettingLimit, SettingsLayer,
+};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::formats::BROWSER_CACHE;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+
+pub use artifact::{BuildPlatform, Digest, MalformedDigest, PinnedArtifact, Pins, content_digest};
+pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
+pub use download::Resolve;
+pub use platform::{
+    Arch, BrowserChoice, BrowserSource, CHROME_FOR_TESTING, Os, Platform, PlatformNotice,
+    browser_source,
+};
+
+use crate::composition::CallError;
+use download::{Failure, Target};
+use rustls::pki_types::CertificateDer;
+use store::{Locking, Read};
+
+/// The variable that points at a copy of the Browser cache, which wins over
+/// `GOODFETCH_HOME` (ADR 0059).
+pub const BROWSERS_PATH_VARIABLE: &str = "GOODFETCH_BROWSERS_PATH";
+
+/// The folder of Goodfetch home the Browser cache sits in by default.
+pub const HOME_FOLDER: &str = "browsers";
+
+/// Where the Browser cache is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CacheLocation(PathBuf);
+
+impl CacheLocation {
+    /// `browsers_path`, from `GOODFETCH_BROWSERS_PATH`, when it is set;
+    /// otherwise `browsers` in the Goodfetch home `home`.
+    pub fn new(home: &Path, browsers_path: Option<PathBuf>) -> Self {
+        Self(browsers_path.unwrap_or_else(|| home.join(HOME_FOLDER)))
+    }
+
+    /// The cache's root folder.
+    pub fn root(&self) -> &Path {
+        &self.0
+    }
+}
+
+/// What a download may do: whether `offline` refuses it, and what it may
+/// reach and trust.
+#[derive(Clone, Debug, Default)]
+pub struct Fetching {
+    /// The layer that set `offline` to `true`, or `None` when downloads are
+    /// allowed (ADR 0043).
+    pub offline: Option<SettingsLayer>,
+    /// The `resolve` setting (ADR 0059).
+    pub resolve: Resolve,
+    /// Certificate authorities trusted beside Mozilla's roots.
+    pub trusted_certificates: Vec<CertificateDer<'static>>,
+}
+
+/// A build in the cache with its pinned digest, held under a shared lock
+/// until it drops, so no clean-up deletes it while a browser runs from it.
+pub struct HeldArtifact {
+    folder: PathBuf,
+    _lock: Option<store::Lock>,
+}
+
+impl HeldArtifact {
+    /// The folder of its files.
+    pub fn files(&self) -> PathBuf {
+        store::files(&self.folder)
+    }
+}
+
+/// What preparing an artifact did.
+pub struct Prepared {
+    /// The artifact, held.
+    pub artifact: HeldArtifact,
+    /// Whether it was downloaded into the cache now, after which the
+    /// automatic clean-up may run.
+    pub downloaded: bool,
+}
+
+/// Why the Browser cache could not give an artifact. Each variant but
+/// [`CacheError::Cache`] is an Error code of ADR 0115.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum CacheError {
+    /// `browser_not_installed`.
+    #[error("{message}")]
+    BrowserNotInstalled {
+        /// What went wrong, for people.
+        message: String,
+        /// The code's details.
+        details: Box<BrowserNotInstalledDetails>,
+    },
+    /// `artifact_unavailable_offline`.
+    #[error("{message}")]
+    Offline {
+        /// What went wrong, for people.
+        message: String,
+        /// The code's details.
+        details: Box<ArtifactUnavailableOfflineDetails>,
+    },
+    /// `artifact_download_failed`.
+    #[error("{message}")]
+    DownloadFailed {
+        /// What went wrong, for people.
+        message: String,
+        /// The code's details.
+        details: Box<ArtifactDownloadFailedDetails>,
+    },
+    /// The cache's own files could not be read or written.
+    #[error("the Browser cache at {path} failed: {source}")]
+    Cache {
+        /// The path that failed.
+        path: PathBuf,
+        /// What failed.
+        source: io::Error,
+    },
+}
+
+impl CacheError {
+    /// Its Error code's name, or `internal_error` for the cache's own files.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::BrowserNotInstalled { .. } => BROWSER_NOT_INSTALLED.name,
+            Self::Offline { .. } => ARTIFACT_UNAVAILABLE_OFFLINE.name,
+            Self::DownloadFailed { .. } => ARTIFACT_DOWNLOAD_FAILED.name,
+            Self::Cache { .. } => ProtocolFailure::InternalError.name(),
+        }
+    }
+
+    /// The failure a call answers with.
+    pub fn to_call_error(&self) -> CallError {
+        match self {
+            Self::BrowserNotInstalled { message, details } => {
+                CallError::new(&BROWSER_NOT_INSTALLED, message.clone(), details)
+            }
+            Self::Offline { message, details } => {
+                CallError::new(&ARTIFACT_UNAVAILABLE_OFFLINE, message.clone(), details)
+            }
+            Self::DownloadFailed { message, details } => {
+                CallError::new(&ARTIFACT_DOWNLOAD_FAILED, message.clone(), details)
+            }
+            Self::Cache { .. } => {
+                CallError::protocol(ProtocolFailure::InternalError, self.to_string())
+            }
+        }
+    }
+
+    fn cache(path: &Path) -> impl FnOnce(io::Error) -> Self {
+        let path = path.to_owned();
+        move |source| Self::Cache { path, source }
+    }
+}
+
+/// The command that installs `pinned_by`'s builds: its executable's
+/// `browsers install` (ADR 0098).
+fn install_command(product: Product) -> String {
+    format!("goodfetch-{} browsers install", product.as_str())
+}
+
+fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
+    format!(
+        "the {} build {} {}, pinned by {} {}",
+        artifact.kind.as_str(),
+        artifact.name,
+        artifact.build,
+        pinned_by.product.name(),
+        pinned_by.product_version,
+    )
+}
+
+/// Runs blocking `work` off the async workers. Until the tasks module's
+/// blocking policy (#215) lands, it runs inline, as that policy's inline
+/// mode does.
+#[expect(
+    clippy::unused_async,
+    reason = "its callers already await the tasks module's blocking policy, which replaces its body"
+)]
+async fn blocking<T>(work: impl FnOnce() -> T) -> T {
+    work()
+}
+
+/// What a check of the build at its pinned path found.
+enum Present {
+    /// The build, with its pinned digest, held.
+    Held(HeldArtifact),
+    /// No usable build: absent, being deleted, or refused and removed.
+    Missing,
+    /// A build with the wrong digest whose entry this engine cannot read,
+    /// or in a cache it cannot write, so it can neither use nor remove it.
+    Refused,
+}
+
+/// The Browser cache at one location.
+#[derive(Clone, Debug)]
+pub struct BrowserCache {
+    root: PathBuf,
+}
+
+impl BrowserCache {
+    /// The cache at `location`; nothing is read until it is used.
+    pub fn new(location: &CacheLocation) -> Self {
+        Self {
+            root: location.root().to_owned(),
+        }
+    }
+
+    /// Its root folder.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Whether this engine can write it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing.
+    pub async fn writable(&self) -> bool {
+        blocking(|| store::writable(&self.root)).await
+    }
+
+    /// The build `artifact`, which `pinned_by` pins, held for a launch: the
+    /// one in the cache when its files have the pinned digest, otherwise
+    /// downloaded into it now, reporting progress to `progress`. A build
+    /// with the wrong digest is refused and removed.
+    ///
+    /// # Errors
+    ///
+    /// `browser_not_installed` when the build is missing and the engine
+    /// cannot write the cache, `artifact_unavailable_offline` when it is
+    /// missing under `offline`, `artifact_download_failed` when its download
+    /// fails.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves no partial build in place: an install in
+    /// progress is removed, and the next call starts again.
+    pub async fn prepare(
+        &self,
+        artifact: &PinnedArtifact,
+        pinned_by: &PinnedBy,
+        fetching: &Fetching,
+        now: jiff::Timestamp,
+        progress: &mut (dyn FnMut(DownloadProgress) + Send),
+    ) -> Result<Prepared, CacheError> {
+        for _ in 0..2 {
+            match blocking(|| self.present(artifact, now)).await? {
+                Present::Held(held) => {
+                    return Ok(Prepared {
+                        artifact: held,
+                        downloaded: false,
+                    });
+                }
+                Present::Refused => return Err(self.not_installed(artifact, pinned_by)),
+                Present::Missing => {}
+            }
+            if let Some(layer) = fetching.offline {
+                return Err(self.offline(artifact, pinned_by, layer));
+            }
+            if !self.writable().await {
+                return Err(self.not_installed(artifact, pinned_by));
+            }
+            if let Some(held) = self
+                .download(artifact, pinned_by, fetching, now, progress)
+                .await?
+            {
+                return Ok(Prepared {
+                    artifact: held,
+                    downloaded: true,
+                });
+            }
+        }
+        // Another process installed it in between, twice: it is there now.
+        match blocking(|| self.present(artifact, now)).await? {
+            Present::Held(held) => Ok(Prepared {
+                artifact: held,
+                downloaded: false,
+            }),
+            Present::Missing | Present::Refused => Err(self.not_installed(artifact, pinned_by)),
+        }
+    }
+
+    /// Prepares every artifact `pins` pins for `platform` (`None` for one no
+    /// build is made for), then releases them: what `browsers install` does
+    /// for CI and images.
+    ///
+    /// # Errors
+    ///
+    /// As [`BrowserCache::prepare`], for the first artifact that fails.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`BrowserCache::prepare`]: artifacts installed before the drop
+    /// stay installed.
+    pub async fn install(
+        &self,
+        pins: &Pins,
+        platform: Option<BuildPlatform>,
+        fetching: &Fetching,
+        now: jiff::Timestamp,
+        progress: &mut (dyn FnMut(DownloadProgress) + Send),
+    ) -> Result<Vec<(ArtifactId, InstallOutcome)>, CacheError> {
+        let mut outcomes = Vec::new();
+        for artifact in pins.for_platform(platform) {
+            let prepared = self
+                .prepare(artifact, &pins.pinned_by, fetching, now, progress)
+                .await?;
+            let outcome = if prepared.downloaded {
+                InstallOutcome::Installed
+            } else {
+                InstallOutcome::AlreadyInstalled
+            };
+            outcomes.push((artifact.id.clone(), outcome));
+        }
+        Ok(outcomes)
+    }
+
+    /// Deletes what `request` allows: entries no artifact of `kept` names,
+    /// unused for its age, and held by no process; nothing in a cache this
+    /// engine cannot write, and no entry it cannot read. Finishes first any
+    /// deletion an earlier run was cut off in.
+    ///
+    /// # Errors
+    ///
+    /// When the cache's files cannot be read or deleted.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a renamed entry, which the next
+    /// clean-up deletes.
+    pub async fn clean_up(&self, request: &CleanUp) -> Result<CleanUpReport, CacheError> {
+        blocking(|| clean_up::run(&self.root, request))
+            .await
+            .map_err(CacheError::cache(&self.root))
+    }
+
+    /// The automatic clean-up after a download into the cache: at most once
+    /// a day, never while `max_unused_age` is `null`. `None` when it did not
+    /// run.
+    ///
+    /// # Errors
+    ///
+    /// When the cache's files cannot be read or deleted.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`BrowserCache::clean_up`].
+    pub async fn clean_up_daily(
+        &self,
+        kept: BTreeSet<ArtifactId>,
+        now: jiff::Timestamp,
+        max_unused_age: MaxUnusedAge,
+    ) -> Result<Option<CleanUpReport>, CacheError> {
+        blocking(|| clean_up::run_daily(&self.root, kept, now, max_unused_age))
+            .await
+            .map_err(CacheError::cache(&self.root))
+    }
+
+    fn present(
+        &self,
+        artifact: &PinnedArtifact,
+        now: jiff::Timestamp,
+    ) -> Result<Present, CacheError> {
+        let folder = store::entry_folder(&self.root, &artifact.id);
+        let failed = CacheError::cache(&folder);
+        let entry = match store::read_entry(&folder, &artifact.id) {
+            Read::Absent => return Ok(Present::Missing),
+            Read::Entry(entry) => Some(entry),
+            Read::Unreadable => None,
+        };
+        let lock = match store::lock_shared(&folder).map_err(failed)? {
+            Locking::Taken(lock) => Some(lock),
+            // A deletion holds it: the build is on its way out.
+            Locking::Held => return Ok(Present::Missing),
+            Locking::Missing => None,
+        };
+        let files = store::files(&folder);
+        let digest = if files.is_dir() {
+            content_digest(&files).ok()
+        } else {
+            None
+        };
+        if digest == Some(artifact.digest) {
+            if let Some(mut entry) = entry
+                && store::writable(&self.root)
+            {
+                entry.used_at = now;
+                // A launch still runs when its use cannot be recorded.
+                let _ = store::write_entry(&folder, &entry);
+            }
+            return Ok(Present::Held(HeldArtifact {
+                folder,
+                _lock: lock,
+            }));
+        }
+        drop(lock);
+        if entry.is_none() || !store::writable(&self.root) {
+            tracing::warn!(
+                folder = %folder.display(),
+                "a build in the Browser cache does not have its pinned digest, and cannot be removed",
+            );
+            return Ok(Present::Refused);
+        }
+        tracing::warn!(
+            folder = %folder.display(),
+            "a build in the Browser cache does not have its pinned digest: removing it",
+        );
+        store::delete(&self.root, &folder).map_err(CacheError::cache(&folder))?;
+        Ok(Present::Missing)
+    }
+
+    /// Downloads and installs `artifact`; `None` when another process put it
+    /// in place first.
+    async fn download(
+        &self,
+        artifact: &PinnedArtifact,
+        pinned_by: &PinnedBy,
+        fetching: &Fetching,
+        now: jiff::Timestamp,
+        progress: &mut (dyn FnMut(DownloadProgress) + Send),
+    ) -> Result<Option<HeldArtifact>, CacheError> {
+        let Some(target) = Target::parse(&artifact.url) else {
+            return Err(CacheError::Cache {
+                path: self.root.clone(),
+                source: io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("the pinned URL of {} is no https URL", artifact.id.name),
+                ),
+            });
+        };
+        let partial = blocking(|| store::partial(&self.root))
+            .await
+            .map_err(CacheError::cache(&self.root))?;
+        let archive = partial.path().join("archive.zip");
+        let network = download::Network {
+            resolve: fetching.resolve.clone(),
+            trusted_certificates: fetching.trusted_certificates.clone(),
+        };
+        let host = target.host().to_owned();
+        let mut report = |received_bytes, total_bytes| {
+            progress(DownloadProgress {
+                artifact: artifact.id.clone(),
+                host: host.clone(),
+                received_bytes,
+                total_bytes,
+            });
+        };
+        tracing::info!(artifact = %artifact.id.name, build = %artifact.id.build, %host, "downloading into the Browser cache");
+        let received = download::download(&target, &network, &archive, &mut report).await;
+        let failure = match received {
+            Ok(digest) if digest == artifact.archive_digest => None,
+            Ok(_) => Some(DownloadFailure::DigestMismatch),
+            Err(Failure::Network | Failure::Url) => Some(DownloadFailure::Network),
+            Err(Failure::Status(status)) => Some(DownloadFailure::HttpStatus { status }),
+            Err(Failure::Cache(source)) => {
+                return Err(CacheError::Cache {
+                    path: archive,
+                    source,
+                });
+            }
+        };
+        if let Some(failure) = failure {
+            return Err(download_failed(artifact, pinned_by, &host, failure));
+        }
+        let files = store::files(partial.path());
+        let unpacked = blocking(|| {
+            extract::unpack(&archive, &files)?;
+            content_digest(&files)
+        })
+        .await;
+        match unpacked {
+            Ok(digest) if digest == artifact.digest => {}
+            Ok(_) | Err(_) => {
+                return Err(download_failed(
+                    artifact,
+                    pinned_by,
+                    &host,
+                    DownloadFailure::DigestMismatch,
+                ));
+            }
+        }
+        let entry = BrowserCacheEntry {
+            format_version: BROWSER_CACHE.version,
+            artifact: artifact.id.clone(),
+            digest: artifact.digest.to_string(),
+            installed_at: now,
+            used_at: now,
+        };
+        let folder = store::entry_folder(&self.root, &artifact.id);
+        let placed = blocking(|| store::install(&self.root, partial, &artifact.id, &entry))
+            .await
+            .map_err(CacheError::cache(&folder))?;
+        if !placed {
+            return Ok(None);
+        }
+        let lock = match blocking(|| store::lock_shared(&folder))
+            .await
+            .map_err(CacheError::cache(&folder))?
+        {
+            Locking::Taken(lock) => Some(lock),
+            Locking::Held | Locking::Missing => None,
+        };
+        Ok(Some(HeldArtifact {
+            folder,
+            _lock: lock,
+        }))
+    }
+
+    fn not_installed(&self, artifact: &PinnedArtifact, pinned_by: &PinnedBy) -> CacheError {
+        let cache = self.root.display().to_string();
+        let message = format!(
+            "{} is not in the Browser cache at {cache}, which this engine cannot write",
+            describe(&artifact.id, pinned_by),
+        );
+        CacheError::BrowserNotInstalled {
+            message,
+            details: Box::new(BrowserNotInstalledDetails {
+                missing: MissingBrowser::Pinned {
+                    artifact: artifact.id.clone(),
+                    pinned_by: pinned_by.clone(),
+                    cache,
+                },
+                fix: format!(
+                    "Run `{}` where the Browser cache is writable, such as in the image's build, or point {BROWSERS_PATH_VARIABLE} at a cache that holds it",
+                    install_command(pinned_by.product),
+                ),
+            }),
+        }
+    }
+
+    fn offline(
+        &self,
+        artifact: &PinnedArtifact,
+        pinned_by: &PinnedBy,
+        layer: SettingsLayer,
+    ) -> CacheError {
+        let cache = self.root.display().to_string();
+        let message = format!(
+            "{} is not in the Browser cache at {cache}, and `offline` refuses its download",
+            describe(&artifact.id, pinned_by),
+        );
+        CacheError::Offline {
+            message,
+            details: Box::new(ArtifactUnavailableOfflineDetails {
+                artifact: artifact.id.clone(),
+                pinned_by: pinned_by.clone(),
+                cache,
+                limit: SettingLimit {
+                    key: "offline".to_owned(),
+                    value: serde_json::Value::Bool(true),
+                    layer,
+                },
+                fix: format!(
+                    "Run `{}` beforehand where the Browser cache is writable, or lift `offline` where it was set",
+                    install_command(pinned_by.product),
+                ),
+            }),
+        }
+    }
+}
+
+fn download_failed(
+    artifact: &PinnedArtifact,
+    pinned_by: &PinnedBy,
+    host: &str,
+    failure: DownloadFailure,
+) -> CacheError {
+    let what = match failure {
+        DownloadFailure::Network => "the network failed".to_owned(),
+        DownloadFailure::HttpStatus { status } => format!("{host} answered {status}"),
+        DownloadFailure::DigestMismatch => {
+            "what it sent does not have the pinned digest".to_owned()
+        }
+    };
+    let message = format!(
+        "downloading {} from {host} failed: {what}",
+        describe(&artifact.id, pinned_by),
+    );
+    CacheError::DownloadFailed {
+        message,
+        details: Box::new(ArtifactDownloadFailedDetails {
+            artifact: artifact.id.clone(),
+            pinned_by: pinned_by.clone(),
+            host: host.to_owned(),
+            failure,
+            fix: format!(
+                "Retry, or run `{}` beforehand, or point {BROWSERS_PATH_VARIABLE} at a prepared Browser cache",
+                install_command(pinned_by.product),
+            ),
+        }),
+    }
+}
+
+/// The installed browser `source` names: the first of its candidates that
+/// exists.
+///
+/// # Errors
+///
+/// `browser_not_installed` when none exists.
+///
+/// # Cancel safety
+///
+/// Dropping the future loses nothing.
+pub async fn installed_browser(
+    choice: &BrowserChoice,
+    candidates: &[PathBuf],
+    product: Product,
+) -> Result<PathBuf, CacheError> {
+    if let Some(found) = blocking(|| candidates.iter().find(|path| path.is_file()).cloned()).await {
+        return Ok(found);
+    }
+    let (missing, fix) = match choice {
+        BrowserChoice::Channel(channel) => (
+            MissingBrowser::Channel {
+                channel: *channel,
+                looked_in: candidates
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect(),
+            },
+            "Install Google Chrome of that channel, or name the browser by its path".to_owned(),
+        ),
+        BrowserChoice::Path(path) => (
+            MissingBrowser::Path {
+                path: path.display().to_string(),
+            },
+            "Correct the browser's path".to_owned(),
+        ),
+        BrowserChoice::Default => (
+            MissingBrowser::Path {
+                path: candidates
+                    .first()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
+            },
+            format!(
+                "Install the distribution's Chromium package, or name a browser by its path; {} runs Chrome for Testing where it has a build",
+                product.name(),
+            ),
+        ),
+    };
+    let message = format!(
+        "no browser at {}",
+        match &missing {
+            MissingBrowser::Channel { looked_in, .. } => looked_in.join(", "),
+            MissingBrowser::Path { path } => path.clone(),
+            MissingBrowser::Pinned { cache, .. } => cache.clone(),
+        }
+    );
+    Err(CacheError::BrowserNotInstalled {
+        message,
+        details: Box::new(BrowserNotInstalledDetails { missing, fix }),
+    })
+}

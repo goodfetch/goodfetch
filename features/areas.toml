@@ -87,3 +87,30 @@ prefix = "run_state."
 number = 3
 kind = "format"
 prefix = "run-"
+
+# Area 3's Browser cache (#259): a missing build's Error codes, the download's
+# progress event, the clean-up's setting and the cache's entry format.
+[[area]]
+number = 3
+kind = "error"
+prefix = "browser_not_installed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "artifact_"
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "browser_cache."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "browser_cache."
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "browser-cache"

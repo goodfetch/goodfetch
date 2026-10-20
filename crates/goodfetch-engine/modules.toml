@@ -1,5 +1,6 @@
 # Which of goodfetch-engine's top-level modules may import which (ADR 0126).
 [modules]
+browser_cache = ["composition", "transport"]
 client = []
 clock = []
 composition = ["client", "product", "run_state", "runs"]
@@ -25,3 +26,12 @@ folder = []
 connection = ["framing", "handshake"]
 framing = []
 handshake = []
+
+# Which of `browser_cache`'s own modules may import which.
+[submodules.browser_cache]
+artifact = []
+clean_up = ["store"]
+download = ["artifact"]
+extract = []
+platform = ["artifact"]
+store = []

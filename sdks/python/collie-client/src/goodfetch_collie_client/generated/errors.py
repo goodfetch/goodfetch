@@ -58,6 +58,30 @@ class InternalError(GoodfetchError):
     """A bug in Goodfetch. Report it."""
 
 
+class ArtifactDownloadFailedError(UnavailableError):
+    """A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="artifact_download_failed", group="unavailable", retryable=True)
+
+
+class ArtifactUnavailableOfflineError(RefusedError):
+    """The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="artifact_unavailable_offline", group="refused", retryable=False)
+
+
+class BrowserNotInstalledError(UnavailableError):
+    """The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_not_installed", group="unavailable", retryable=False)
+
+
 class CallCancelledError(UnavailableError):
     """The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it."""
 
@@ -131,6 +155,9 @@ class SampleRefusedError(RefusedError):
 
 
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
+    "artifact_download_failed": ArtifactDownloadFailedError,
+    "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
+    "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
     "not_in_product": NotInProductError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,

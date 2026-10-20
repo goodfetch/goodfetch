@@ -33,6 +33,13 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "schema": { "$ref": "#/$defs/Message" },
             },
             {
+                "name": "browser-cache",
+                "version": "0.1",
+                "storage": "json",
+                "rule": "default",
+                "schema": { "$ref": "#/$defs/BrowserCacheEntry" },
+            },
+            {
                 "name": "run-index",
                 "version": "0.1",
                 "storage": "sqlite",

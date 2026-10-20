@@ -5,10 +5,11 @@
 use crate::catalog::{Entries, Operation, Product};
 use crate::{
     browser_cache, connection, dns, engine, events, executables, foxhound, page, run, sample,
+    settings,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 11] = [
+pub const MODULES: [&Entries; 13] = [
     &connection::ENTRIES,
     &browser_cache::ENTRIES,
     &dns::ENTRIES,
@@ -18,8 +19,10 @@ pub const MODULES: [&Entries; 11] = [
     &executables::ENTRIES,
     &run::ENTRIES,
     &sample::ENTRIES,
+    &settings::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
+    &foxhound::settings::ENTRIES,
 ];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
@@ -50,7 +53,8 @@ mod tests {
                 "run.start",
                 "run.finish",
                 "run.abort",
-                "sample.echo"
+                "sample.echo",
+                "config.explain"
             ]
         );
         assert_eq!(
@@ -63,6 +67,7 @@ mod tests {
                 "run.finish",
                 "run.abort",
                 "sample.echo",
+                "config.explain",
                 "sample.crawl",
                 "crawl.start"
             ]

@@ -1,0 +1,202 @@
+# Path traversal into every file Goodfetch writes from outside input (ADR
+# 0067), with each OS's cases: a name or path that would leave the folder
+# Goodfetch writes it in, or that is no safe file name on some OS, is
+# refused with `path_unsafe`. `os` names the OSes whose file systems a case
+# attacks, which `HostileTable::cases_here()` runs it on. Page-suggested
+# download names are not here: a correct tool keeps the file under a safe
+# name instead of refusing it, which the Proving ground's `downloads` pages
+# judge. A layer's runner pairs these with its own positive control: a plain
+# name, and a path to a subfolder where the target takes a path, are written
+# where they should be.
+
+[[cases]]
+name = "parent_traversal"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '../../goodfetch-traversal.csv', os = "every", hazard = "parent_traversal" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "parent_traversal_after_a_subfolder"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'shots/../../goodfetch-traversal.csv', os = "every", hazard = "parent_traversal" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "absolute_path"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '/tmp/goodfetch-absolute.csv', os = "every", hazard = "absolute" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "control_characters"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = "report\u0007\n.csv", os = "every", hazard = "control_character" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "nul"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = "report\u0000.csv", os = "every", hazard = "control_character" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "name_longer_than_255_bytes"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv', os = "every", hazard = "overlong" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "empty_name"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '', os = "every", hazard = "dot_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "dot"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '.', os = "every", hazard = "dot_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "dot_dot"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '..', os = "every", hazard = "parent_traversal" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "archive_link_out_of_the_bundle"
+input = { targets = ["plugin_bundle_entry"], name = 'lib/escape.js', link_to = '../../goodfetch-outside.js', os = "every", hazard = "archive_link" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "archive_link_to_an_absolute_path"
+input = { targets = ["plugin_bundle_entry"], name = 'lib/passwd', link_to = '/etc/passwd', os = "every", hazard = "archive_link" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "backslash_parent_traversal"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '..\..\goodfetch-traversal.csv', os = "windows", hazard = "parent_traversal" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "mixed_separator_parent_traversal"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '..\../goodfetch-traversal.csv', os = "windows", hazard = "parent_traversal" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "drive_path"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'C:\Windows\goodfetch-drive.csv', os = "windows", hazard = "drive" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "drive_relative_path"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'C:goodfetch-drive-relative.csv', os = "windows", hazard = "drive" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "verbatim_path"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '\\?\C:\goodfetch-verbatim.csv', os = "windows", hazard = "verbatim" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "verbatim_unc_path"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '\\?\UNC\server\share\goodfetch-verbatim-unc.csv', os = "windows", hazard = "verbatim" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "device_namespace_path"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '\\.\PhysicalDrive0', os = "windows", hazard = "device_namespace" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "unc_path"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = '\\server\share\goodfetch-unc.csv', os = "windows", hazard = "unc" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "reserved_name_with_an_extension"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'CON.csv', os = "windows", hazard = "reserved_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "reserved_printer_name"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'LPT1', os = "windows", hazard = "reserved_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "reserved_name_in_lowercase"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'nul.txt', os = "windows", hazard = "reserved_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "reserved_serial_port_name"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'COM1.csv', os = "windows", hazard = "reserved_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "reserved_name_with_a_superscript_digit"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = "COM\u00b9.csv", os = "windows", hazard = "reserved_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "reserved_console_input_name"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'CONIN$', os = "windows", hazard = "reserved_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "reserved_name_in_a_subfolder"
+input = { targets = ["screenshot_path", "run_trace_path", "plugin_bundle_entry"], name = 'shots/AUX.png', os = "windows", hazard = "reserved_name" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "trailing_dot"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'report.csv.', os = "windows", hazard = "trailing_dot_or_space" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "trailing_space"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'report.csv ', os = "windows", hazard = "trailing_dot_or_space" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "alternate_data_stream"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'report.csv:hidden', os = "windows", hazard = "alternate_data_stream" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "alternate_data_stream_type"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'report.csv::$DATA', os = "windows", hazard = "alternate_data_stream" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "character_windows_forbids"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = 'report?<>|*.csv', os = "windows", hazard = "forbidden_character" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"
+
+[[cases]]
+name = "decomposed_name"
+input = { targets = ["export_name", "key_value_store_key", "screenshot_path", "run_trace_path", "plan_name", "plugin_bundle_entry"], name = "cafe\u0301.csv", os = "macos", hazard = "normalisation" }
+expected = { code = "path_unsafe" }
+served_by = "program_input"

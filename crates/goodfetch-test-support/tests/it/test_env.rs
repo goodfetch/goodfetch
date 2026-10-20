@@ -156,6 +156,11 @@ fn print_schemas_starts_nothing() {
         [
             "engine-scripts/script.schema.json",
             "schemas/endpoint-table.schema.json",
+            "schemas/hostile-header-values.schema.json",
+            "schemas/hostile-limits.schema.json",
+            "schemas/hostile-paths.schema.json",
+            "schemas/hostile-schema-refs.schema.json",
+            "schemas/hostile-secret-redirects.schema.json",
             "schemas/locales.schema.json",
             "schemas/snapshot-filters.schema.json",
             "schemas/ssrf-cases.schema.json",

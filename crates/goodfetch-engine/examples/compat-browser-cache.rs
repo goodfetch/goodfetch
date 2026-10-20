@@ -13,9 +13,10 @@ use std::path::PathBuf;
 use goodfetch_engine::browser_cache::{
     BrowserCache, CacheLocation, Digest, Fetching, PinnedArtifact, content_digest,
 };
-use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy, SettingsLayer};
+use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::settings::SettingsLayer;
 
 /// ADR 0059's test `Clock` start.
 const START: &str = "2026-01-05T09:00:00Z";

@@ -1,0 +1,17 @@
+---
+source: crates/goodfetch-collie/tests/it/config.rs
+expression: "serde_json::to_string_pretty(&reply[\"error\"]).unwrap()"
+---
+{
+  "code": -32006,
+  "data": {
+    "code": "not_in_product",
+    "fix": "Run it with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`), or connect to a Foxhound engine.",
+    "needs": "foxhound",
+    "product": "collie",
+    "product_version": "0.0.0",
+    "requested": "crawl.retry.max",
+    "retryable": false
+  },
+  "message": "`crawl.retry.max` is part of Foxhound, and this engine is Collie 0.0.0."
+}

@@ -4,7 +4,8 @@
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: a tagged crawl
 //! of two seeds, one with a Payload, whose handler pushes Records for the
 //! first and fails on the second, which `run.finish` ends; and a Run its
-//! program drives, which `run.abort` stops. It writes each Run's file, as
+//! program drives, under an Operator policy and with a setting that
+//! weakens a guarantee, which `run.abort` stops. It writes each Run's file, as
 //! SQL text, into the folder given as the only argument: `crawl.sql` and
 //! `aborted.sql`. `xtask compat write` runs it.
 #![expect(
@@ -52,7 +53,11 @@ fn scenario() -> Vec<Value> {
         call(
             3,
             "run.start",
-            json!({ "run_id": "aborted", "tags": ["manual"] }),
+            json!({
+                "run_id": "aborted",
+                "tags": ["manual"],
+                "settings": { "tls": { "accept_invalid_certs": { "intranet.test": null } } },
+            }),
         ),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
     ]
@@ -110,6 +115,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let engine = Engine::new(identity, &goodfetch_foxhound::composition())?;
     let home = tempfile::tempdir()?;
+    std::fs::create_dir_all(home.path().join("0.0"))?;
+    std::fs::write(
+        home.path().join("0.0").join("operator-policy.toml"),
+        "version = \"0.1\"\n",
+    )?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .start_paused(true)

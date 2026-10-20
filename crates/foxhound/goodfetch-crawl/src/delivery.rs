@@ -4,7 +4,8 @@
 //! before its `crawl_request.handle` request is sent; commits an answered
 //! attempt's Records once, while its lease holds; and ends an attempt whose
 //! handler failed, or that got no answer before its lease ended, with
-//! nothing committed, its work item retried under the Run's policy. Once
+//! nothing committed, its work item retried under the Run's policy, which
+//! each admission point reads again from the Run's settings. Once
 //! every work item is done, it finishes the Run. When the Run stops, the
 //! attempts in flight are abandoned and their work items return to pending
 //! without counting; when the program's Connection ends, the driver
@@ -12,6 +13,7 @@
 
 use goodfetch_engine::client::{Client, ClientRequestError};
 use goodfetch_engine::runs::{Ending, Run};
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
     HANDLER_LOST,
@@ -47,10 +49,11 @@ struct Attempt {
 ///
 /// Run it as one of the Run's tasks to its end: dropped, it leaves its
 /// leases to the next writer, which counts them as lost.
-pub(crate) async fn drive(run: Run, client: Client, policy: CrawlPolicy) {
+pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut client_gone = false;
     loop {
+        let policy = CrawlPolicy::of(&settings.at_admission().await);
         if !client_gone && attempts.len() < policy.handler_concurrency {
             let room = policy.handler_concurrency - attempts.len();
             match run
@@ -108,6 +111,7 @@ pub(crate) async fn drive(run: Run, client: Client, policy: CrawlPolicy) {
                 if let Answer::ClientGone = attempt.answer {
                     client_gone = true;
                 }
+                let policy = CrawlPolicy::of(&settings.at_admission().await);
                 settle(&run, policy, attempt).await;
             }
         }

@@ -1,0 +1,5 @@
+{
+  "exit_codes": [
+    { "code": 12, "name": "not_installed" }
+  ]
+}

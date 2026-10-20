@@ -622,6 +622,60 @@ fn parse(text: &str) -> Result<(Journey, Value), String> {
     Ok((journey, json))
 }
 
+/// One variant of an active Journey, as the Feature report reads it
+/// (ADR 0075): its ID, `J-NNN@<surface>`, the milestone it is due at, and
+/// the Features its Journey covers.
+pub(crate) struct CatalogVariant {
+    pub(crate) id: String,
+    pub(crate) milestone: Milestone,
+    pub(crate) covers: Vec<String>,
+}
+
+/// Every variant of each active Journey of the working tree's catalog,
+/// `foxhound-cli` included.
+pub(crate) fn active_variants(root: &Path) -> Result<Vec<CatalogVariant>> {
+    let journeys = working_journeys(root)?;
+    Ok(journeys
+        .iter()
+        .filter(|journey| journey.status == Status::Active)
+        .flat_map(variants::of)
+        .map(|variant| CatalogVariant {
+            id: variant.id(),
+            milestone: variant.milestone,
+            covers: variant
+                .journey
+                .covers
+                .iter()
+                .map(|feature| feature.as_str().to_owned())
+                .collect(),
+        })
+        .collect())
+}
+
+/// The tests that carry each variant, by its ID, from the runners' listings
+/// in `folder`: each as `(<runner>, <test ID>)`, the test named as its
+/// runner and the results store name it. A test that carries no single
+/// variant carries none here; the Journey check fails on it.
+pub(crate) fn variant_tests(
+    root: &Path,
+    folder: &Path,
+) -> Result<BTreeMap<String, Vec<(String, String)>>> {
+    let mut carriers: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for test in listings::read(root, folder)? {
+        let variants::Carried::Variant { journey, surface } = &test.carried else {
+            continue;
+        };
+        let Some((runner, id)) = test.subject.split_once(' ') else {
+            continue;
+        };
+        carriers
+            .entry(format!("{journey}@{surface}"))
+            .or_default()
+            .push((runner.to_owned(), id.to_owned()));
+    }
+    Ok(carriers)
+}
+
 /// Every Journey of the working tree's catalog, which must parse.
 fn working_journeys(root: &Path) -> Result<Vec<Journey>> {
     journey_files(root)?

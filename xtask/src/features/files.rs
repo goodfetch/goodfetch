@@ -231,14 +231,10 @@ pub(crate) struct ExceptionsFile {
     pub(crate) exception: Vec<Exception>,
 }
 
-/// One excepted Feature. The check reads its Feature; the other fields are
-/// required by its schema, for the report and the release pull request.
+/// One excepted Feature. The check reads its Feature; the report lists it
+/// by its evidence, with its reason and link.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[expect(
-    dead_code,
-    reason = "`evidence`, `reason` and `link` are required by the schema; the check reads `feature`"
-)]
 pub(crate) struct Exception {
     /// Its ID.
     pub(crate) feature: String,
@@ -262,6 +258,19 @@ pub(crate) enum Evidence {
     Check,
     /// Nothing in this repository reaches it.
     None,
+}
+
+impl Evidence {
+    pub(crate) const ALL: [Self; 4] = [Self::Manual, Self::Live, Self::Check, Self::None];
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Live => "live",
+            Self::Check => "check",
+            Self::None => "none",
+        }
+    }
 }
 
 /// Each file's JSON Schema, by the path `xtask codegen` writes it to.

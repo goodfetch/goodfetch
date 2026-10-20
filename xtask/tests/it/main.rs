@@ -31,6 +31,7 @@ mod egress_hosts;
 mod egress_rules;
 mod evict_caches;
 mod features;
+mod features_report;
 mod fixture_size;
 mod ingest;
 mod journey_selection;

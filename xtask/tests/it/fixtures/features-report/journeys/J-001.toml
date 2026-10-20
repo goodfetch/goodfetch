@@ -1,0 +1,16 @@
+id = "J-001"
+title = "Reach the goal"
+goal = "A person reaches the goal."
+area = 1
+product = "foxhound"
+status = "active"
+covers = ["story:1-1"]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Reach the goal"
+
+[[expect]]
+text = "The goal is reached"

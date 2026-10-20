@@ -416,7 +416,7 @@ fn a_handlers_own_failure_commits_nothing_and_is_not_retried() {
                 "1".to_owned(),
                 "failed".to_owned(),
                 1,
-                Some("handler_lost".to_owned())
+                Some("handler_failed".to_owned())
             )],
         )
     );

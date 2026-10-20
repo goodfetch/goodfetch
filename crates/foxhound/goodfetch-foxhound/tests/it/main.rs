@@ -11,3 +11,4 @@ mod attached;
 mod crawl;
 mod daemon;
 mod journeys;
+mod writer_lock;

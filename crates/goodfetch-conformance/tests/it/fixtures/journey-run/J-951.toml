@@ -1,0 +1,26 @@
+id = "J-951"
+title = "Read the catalog"
+goal = "A person reads every product of the catalog. The Records MUST be the catalog's products."
+area = 3
+product = "collie"
+status = "active"
+covers = []
+
+[proving_ground]
+seed = 951
+tasks = [
+  { id = "catalog/1", digest = "0000000000000000000000000000000000000000000000000000000000000000" },
+]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Ask the executable for its version"
+
+[[steps]]
+text = "Read every product the catalog lists, from its first listing page"
+
+[[expect]]
+text = "The oracle verifies the catalog's Records"
+task = "catalog/1"

@@ -19,6 +19,8 @@ export type TestSupportErrorCode =
   | "description_invalid"
   /** A test took `provingGround` without setting `provingGroundSeed`. */
   | "proving_ground_unseeded"
+  /** A test took `daemon` without setting `withDaemon`. */
+  | "daemon_not_requested"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */

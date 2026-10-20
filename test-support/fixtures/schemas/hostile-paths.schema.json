@@ -1,0 +1,432 @@
+{
+  "$defs": {
+    "ExpectedError": {
+      "description": "The typed error a case expects, by its Error code.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`header_value_invalid`: a header value Goodfetch would send holds a\nCR, an LF or a NUL.",
+          "properties": {
+            "code": {
+              "const": "header_value_invalid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`secret_domain_not_allowed`: a request carrying a Secret placeholder's\nvalue was redirected outside the binding's domains (ADR 0092).",
+          "properties": {
+            "code": {
+              "const": "secret_domain_not_allowed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`path_unsafe`: a name or path from outside input would leave the\nfolder Goodfetch writes it in, or is no safe file name on some OS.",
+          "properties": {
+            "code": {
+              "const": "path_unsafe",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`schema_ref_not_allowed`: a JSON Schema references a file, a URL or a\nprivate address.",
+          "properties": {
+            "code": {
+              "const": "schema_ref_not_allowed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`response_limit_exceeded`, naming the setting whose limit was passed.",
+          "properties": {
+            "code": {
+              "const": "response_limit_exceeded",
+              "type": "string"
+            },
+            "setting": {
+              "$ref": "#/$defs/LimitSetting",
+              "description": "The setting."
+            }
+          },
+          "required": [
+            "code",
+            "setting"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`message_too_large`: a JSON-RPC message longer than the engine reads.",
+          "properties": {
+            "code": {
+              "const": "message_too_large",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`message_too_deep`: a JSON-RPC message nested deeper than the engine\nreads.",
+          "properties": {
+            "code": {
+              "const": "message_too_deep",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`navigation_failed`, with the browser's network error where the\nbrowser path gives one (ADR 0085).",
+          "properties": {
+            "code": {
+              "const": "navigation_failed",
+              "type": "string"
+            },
+            "network_error": {
+              "description": "The browser's network error, such as\n`net::ERR_INVALID_HTTP_RESPONSE`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HostileCase": {
+      "additionalProperties": false,
+      "description": "One hostile-input case: the input a layer meets, the typed error it must\ngive, and what serves the input end to end.",
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/ExpectedError",
+          "description": "The typed error every layer gives. A case without one fails the\ntable's parse."
+        },
+        "input": {
+          "$ref": "#/$defs/PathName",
+          "description": "The hostile input, of the family's own shape."
+        },
+        "name": {
+          "description": "The case's name, unique in its table, in snake case.",
+          "type": "string"
+        },
+        "served_by": {
+          "$ref": "#/$defs/ServedBy",
+          "description": "What serves the input end to end."
+        }
+      },
+      "required": [
+        "name",
+        "input",
+        "expected",
+        "served_by"
+      ],
+      "type": "object"
+    },
+    "LimitSetting": {
+      "description": "A setting whose limit a `response_limit_exceeded` names.",
+      "oneOf": [
+        {
+          "const": "network.max_body_size",
+          "description": "The decoded bytes of a body the engine reads.",
+          "type": "string"
+        },
+        {
+          "const": "network.max_decompression_ratio",
+          "description": "The ratio of decoded to received bytes, once a decoded body passes\n1 MiB.",
+          "type": "string"
+        },
+        {
+          "const": "network.max_json_depth",
+          "description": "The nesting of JSON the engine parses from outside.",
+          "type": "string"
+        }
+      ]
+    },
+    "PathHazard": {
+      "description": "What makes a name or path hostile.",
+      "oneOf": [
+        {
+          "const": "parent_traversal",
+          "description": "`..` components that climb out of the folder.",
+          "type": "string"
+        },
+        {
+          "const": "absolute",
+          "description": "A path from the root.",
+          "type": "string"
+        },
+        {
+          "const": "drive",
+          "description": "A Windows drive, absolute or drive-relative.",
+          "type": "string"
+        },
+        {
+          "const": "verbatim",
+          "description": "A Windows verbatim path, `\\\\?\\`.",
+          "type": "string"
+        },
+        {
+          "const": "device_namespace",
+          "description": "A Windows device path, `\\\\.\\`.",
+          "type": "string"
+        },
+        {
+          "const": "unc",
+          "description": "A Windows UNC path.",
+          "type": "string"
+        },
+        {
+          "const": "reserved_name",
+          "description": "A Windows reserved device name, with or without an extension.",
+          "type": "string"
+        },
+        {
+          "const": "trailing_dot_or_space",
+          "description": "A trailing dot or space, which Windows removes.",
+          "type": "string"
+        },
+        {
+          "const": "alternate_data_stream",
+          "description": "An NTFS alternate data stream.",
+          "type": "string"
+        },
+        {
+          "const": "forbidden_character",
+          "description": "A character Windows forbids in a name: `<`, `>`, `:`, `\"`, `|`, `?`\nor `*`.",
+          "type": "string"
+        },
+        {
+          "const": "control_character",
+          "description": "A control character or a NUL.",
+          "type": "string"
+        },
+        {
+          "const": "normalisation",
+          "description": "A decomposed name that APFS opens as the composed name it equals.",
+          "type": "string"
+        },
+        {
+          "const": "overlong",
+          "description": "A name longer than the 255 bytes a file system's name holds.",
+          "type": "string"
+        },
+        {
+          "const": "dot_name",
+          "description": "An empty name, `.` or `..`.",
+          "type": "string"
+        },
+        {
+          "const": "archive_link",
+          "description": "A link in an archive that points out of it.",
+          "type": "string"
+        }
+      ]
+    },
+    "PathName": {
+      "additionalProperties": false,
+      "description": "The input of a `paths` case: a name or path from outside input that\nGoodfetch would write under one of its folders.",
+      "properties": {
+        "hazard": {
+          "$ref": "#/$defs/PathHazard",
+          "description": "What makes it hostile."
+        },
+        "link_to": {
+          "description": "Where the entry links to, for a link in an archive.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The name or path.",
+          "type": "string"
+        },
+        "os": {
+          "$ref": "#/$defs/Schedule",
+          "description": "The OSes whose file systems it attacks, which its case runs on."
+        },
+        "targets": {
+          "description": "What Goodfetch would name with it.",
+          "items": {
+            "$ref": "#/$defs/PathTarget"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "targets",
+        "name",
+        "os",
+        "hazard"
+      ],
+      "type": "object"
+    },
+    "PathTarget": {
+      "description": "What Goodfetch names from outside input.",
+      "oneOf": [
+        {
+          "const": "export_name",
+          "description": "An Export's file name.",
+          "type": "string"
+        },
+        {
+          "const": "key_value_store_key",
+          "description": "A Key-value store key, which names a file.",
+          "type": "string"
+        },
+        {
+          "const": "screenshot_path",
+          "description": "A screenshot's path.",
+          "type": "string"
+        },
+        {
+          "const": "run_trace_path",
+          "description": "A Run trace's path.",
+          "type": "string"
+        },
+        {
+          "const": "plan_name",
+          "description": "A Plan's file name.",
+          "type": "string"
+        },
+        {
+          "const": "plugin_bundle_entry",
+          "description": "An entry of a Plugin bundle being unpacked.",
+          "type": "string"
+        }
+      ]
+    },
+    "Schedule": {
+      "description": "The OSes a case runs on.",
+      "oneOf": [
+        {
+          "const": "every",
+          "description": "Linux, macOS and Windows.",
+          "type": "string"
+        },
+        {
+          "const": "unix",
+          "description": "Linux and macOS.",
+          "type": "string"
+        },
+        {
+          "const": "linux",
+          "description": "Linux.",
+          "type": "string"
+        },
+        {
+          "const": "macos",
+          "description": "macOS.",
+          "type": "string"
+        },
+        {
+          "const": "windows",
+          "description": "Windows.",
+          "type": "string"
+        }
+      ]
+    },
+    "ServedBy": {
+      "description": "What serves a case's input end to end.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The Proving ground's task whose page serves it, by its ID, such as\n`headers/5`.",
+          "properties": {
+            "page": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A page the owner builds, described, such as a decompression bomb's:\nuntil it exists the case runs in-process only.",
+          "properties": {
+            "waiting_on_owner": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "waiting_on_owner"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A page the Proving ground does not have yet, described, which a later\nticket adds: until then the case runs in-process only.",
+          "properties": {
+            "missing_page": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "missing_page"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "program_input",
+          "description": "No page: the program, a Recipe, a setting or a peer hands the value to\nGoodfetch, so a layer's end-to-end runner passes it in itself.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One family's table: every case, in the committed file's order.",
+  "properties": {
+    "cases": {
+      "description": "The cases.",
+      "items": {
+        "$ref": "#/$defs/HostileCase"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "cases"
+  ],
+  "title": "HostileTable",
+  "type": "object"
+}

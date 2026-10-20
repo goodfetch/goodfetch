@@ -1,0 +1,5 @@
+{"test":"sample::it calls_echo_then_crawl"}
+{"timestamp":"2026-01-05T09:00:00Z","level":"TRACE","fields":{"message":"request answered","method":"hello"},"target":"goodfetch::rpc::dispatch"}
+{"timestamp":"2026-01-05T09:00:00Z","level":"INFO","fields":{"message":"engine started"},"target":"goodfetch_engine::engine"}
+{"timestamp":"2026-01-05T09:00:00Z","level":"TRACE","fields":{"message":"request answered","method":"sample.echo"},"target":"goodfetch::rpc::dispatch"}
+{"timestamp":"2026-01-05T09:00:00Z","level":"TRACE","fields":{"message":"request answered","method":"sample.crawl"},"target":"goodfetch::rpc::dispatch"}

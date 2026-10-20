@@ -323,11 +323,26 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
     })
 }
 
+/// A setting's entry in the settings schema: its value's schema, default and
+/// authority, and the Products that honour it, read from its mark: both for
+/// Collie's, which Foxhound contains, only Foxhound for Foxhound's (ADRs
+/// 0087 and 0095).
 fn setting_entry(product: Product, setting: &Setting) -> Value {
+    let products: Vec<&str> = [Product::Collie, Product::Foxhound]
+        .into_iter()
+        .filter(|honours| honours.contains(product))
+        .map(Product::as_str)
+        .collect();
     json!({
         "name": setting.name,
         "product": product.as_str(),
+        "products": products,
         "description": setting.description,
+        "value": setting.kind.schema(),
+        "default": (setting.default)(),
+        "clearable": setting.clearable,
+        "authority": setting.authority.as_str(),
+        "weakens": setting.weakens.is_some(),
         "arrived_in": setting.arrived_in.to_string(),
     })
 }

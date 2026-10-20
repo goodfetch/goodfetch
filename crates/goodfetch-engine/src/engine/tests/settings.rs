@@ -1,0 +1,250 @@
+//! A Run's settings through the engine's public interface over the
+//! in-memory network (spec #213's Seam 3): `run.start`'s `settings` and the
+//! Goodfetch home's Operator policy and user configuration resolved before
+//! the Run begins, refused with their Error codes, the run report naming
+//! the policy's version and the settings that weaken, and `config.explain`.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tests write the Goodfetch home's settings files themselves"
+)]
+
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_support::TestEnv;
+use serde_json::{Value, json};
+
+use super::run::call;
+use super::{attached_on, dependencies, engine_with, hello};
+
+/// Writes `text` as `file` of the test home's per-major folder.
+fn write(env: &TestEnv, file: &str, text: &str) {
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(file), text).unwrap();
+}
+
+/// Starts a Run with `params` on an engine of `product`, and finishes it
+/// when it starts; answers the start's and the finish's replies.
+fn start_and_finish(env: &TestEnv, product: Product, params: Value) -> (Value, Value) {
+    attached_on(
+        &engine_with(product, None),
+        dependencies(env),
+        |mut client| async move {
+            client.send(&[hello(product.as_str(), "0.1")]).await;
+            client.next().await;
+            let started = call(&mut client, 1, "run.start", params).await;
+            let finished = call(&mut client, 2, "run.finish", json!({ "run_id": "set" })).await;
+            (started, finished)
+        },
+    )
+}
+
+/// Covers: story:3-88, error:setting_locked
+#[test]
+fn a_run_whose_settings_an_operator_policy_locked_is_refused_before_it_begins() {
+    let env = TestEnv::new();
+    write(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n",
+    );
+
+    let (started, _) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({ "run_id": "set", "settings": { "timeout": { "navigation": 1000 } } }),
+    );
+
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["limit"],
+            env.home().join("1").join("runs").join("set").exists(),
+        ),
+        (
+            &json!("setting_locked"),
+            &json!({ "key": "timeout.navigation", "value": 10000, "layer": "operator_policy" }),
+            false,
+        )
+    );
+}
+
+/// Covers: story:3-89, story:3-92, setting:tls.accept_invalid_certs
+#[test]
+fn a_run_report_names_the_operator_policy_version_and_the_settings_that_weaken() {
+    let env = TestEnv::new();
+    write(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n",
+    );
+
+    let (_, finished) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({
+            "run_id": "set",
+            "settings": { "tls": { "accept_invalid_certs": { "intranet.example": null } } },
+        }),
+    );
+
+    assert_eq!(
+        (
+            &finished["result"]["policy_version"],
+            &finished["result"]["weakened_by"]
+        ),
+        (
+            &json!("sha256:e0e1ddb8a44ecebb"),
+            &json!([{
+                "key": "tls.accept_invalid_certs",
+                "value": { "intranet.example": null },
+                "layer": "run",
+            }])
+        )
+    );
+}
+
+/// Covers: story:3-142, error:not_in_product
+#[test]
+fn a_foxhound_key_in_a_runs_settings_is_not_in_product_on_a_collie_engine() {
+    let env = TestEnv::new();
+
+    let (started, _) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({ "run_id": "set", "settings": { "crawl": { "retry": { "max": 5 } } } }),
+    );
+
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["requested"],
+            &started["error"]["data"]["needs"]
+        ),
+        (
+            &json!("not_in_product"),
+            &json!("crawl.retry.max"),
+            &json!("foxhound")
+        )
+    );
+}
+
+/// Covers: story:3-143, error:setting_not_applicable
+#[test]
+fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {
+    let env = TestEnv::new();
+
+    let (started, _) = start_and_finish(
+        &env,
+        Product::Foxhound,
+        json!({ "run_id": "set", "settings": { "crawl": { "retry": { "max": 5 } } } }),
+    );
+
+    assert_eq!(
+        started["error"]["data"]["code"],
+        json!("setting_not_applicable")
+    );
+}
+
+/// Covers: story:3-136, error:setting_not_applicable, setting:browser_cache.max_unused_age
+#[test]
+fn browser_cache_max_unused_age_in_a_runs_settings_is_not_applicable() {
+    let env = TestEnv::new();
+
+    let (started, _) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({ "run_id": "set", "settings": { "browser_cache": { "max_unused_age": 1000 } } }),
+    );
+
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["layer"]
+        ),
+        (&json!("setting_not_applicable"), &json!("run"))
+    );
+}
+
+/// Covers: story:3-86, error:setting_unknown, error:setting_invalid
+#[test]
+fn a_user_configuration_that_does_not_read_refuses_the_run_with_its_error_code() {
+    let env = TestEnv::new();
+    write(
+        &env,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings.timeout]\nnavigation_ = 1000\n",
+    );
+
+    let (started, _) = start_and_finish(&env, Product::Collie, json!({ "run_id": "set" }));
+
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["closest"]
+        ),
+        (&json!("setting_unknown"), &json!("timeout.navigation"))
+    );
+}
+
+/// Covers: story:3-89, story:3-142, operation:config.explain, setting:timeout.first_byte
+#[test]
+fn config_explain_shows_each_value_with_the_layer_that_set_it_and_the_layer_that_locked_it() {
+    let env = TestEnv::new();
+    write(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n",
+    );
+    write(
+        &env,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings]\ntimeout.first_byte = 5000\ncrawl.retry.max = 4\n",
+    );
+
+    let explained = attached_on(
+        &engine_with(Product::Collie, None),
+        dependencies(&env),
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(
+                &mut client,
+                1,
+                "config.explain",
+                json!({ "keys": ["timeout.navigation", "timeout.first_byte", "crawl"] }),
+            )
+            .await
+        },
+    );
+
+    assert_eq!(
+        explained["result"]["settings"],
+        json!([
+            {
+                "key": "crawl.retry.max",
+                "products": ["foxhound"],
+                "applied": false,
+                "value": 4,
+                "layer": "user_configuration",
+                "weakens": false,
+            },
+            {
+                "key": "timeout.first_byte",
+                "products": ["collie", "foxhound"],
+                "applied": true,
+                "value": 5000,
+                "layer": "user_configuration",
+                "weakens": false,
+            },
+            {
+                "key": "timeout.navigation",
+                "products": ["collie", "foxhound"],
+                "applied": true,
+                "value": 10000,
+                "layer": "operator_policy",
+                "locked_by": "operator_policy",
+                "weakens": false,
+            },
+        ])
+    );
+}

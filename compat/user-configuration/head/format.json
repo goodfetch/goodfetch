@@ -1,0 +1,350 @@
+{
+  "name": "user-configuration",
+  "schema": {
+    "$defs": {
+      "ProtocolVersion": {
+        "description": "A version `major.minor` (ADR 0030).",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "settings": {
+        "additionalProperties": false,
+        "arrived_in": "0.1",
+        "description": "The settings it sets, nested by key.",
+        "properties": {
+          "browser_cache": {
+            "additionalProperties": false,
+            "properties": {
+              "max_unused_age": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "consent": {
+            "additionalProperties": false,
+            "properties": {
+              "domains": {
+                "description": "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "crawl": {
+            "additionalProperties": false,
+            "properties": {
+              "handler": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "retry": {
+                "additionalProperties": false,
+                "properties": {
+                  "handler_failed": {
+                    "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                    "type": "boolean"
+                  },
+                  "max": {
+                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "sample_pages": {
+                "description": "How many pages the sample crawl visits.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "delivery": {
+            "additionalProperties": false,
+            "properties": {
+              "report_guarantee_class": {
+                "description": "Every delivery reports its Guarantee class, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              },
+              "write_ids_and_epochs": {
+                "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "filter_lists": {
+            "additionalProperties": false,
+            "properties": {
+              "extra": {
+                "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "network": {
+            "additionalProperties": false,
+            "properties": {
+              "offline": {
+                "description": "Whether the engine fetches nothing nobody configured: a Pinned artifact missing from the Browser cache fails with `artifact_unavailable_offline` instead of downloading. `false` by default.",
+                "type": "boolean"
+              },
+              "resolve": {
+                "additionalProperties": {
+                  "items": {
+                    "format": "ip",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "paid_fetch": {
+            "additionalProperties": false,
+            "properties": {
+              "chain_rpc_endpoints": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The RPC endpoint of each chain whose finalized state proves a payment did not settle, by chain. Set only in an Operator policy and user and project configuration.",
+                "type": "object"
+              },
+              "domains": {
+                "description": "The registrable domains a run may pay for a page; `*` only when written. Widened only in an Operator policy, user or project configuration, or by a person's answer; a Recipe or a run only narrows it.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "exchange_rates": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The fixed rates that convert a price into a Limit's currency, by currency pair. Set only in an Operator policy and user and project configuration.",
+                "type": "object"
+              },
+              "max_price_per_page": {
+                "anyOf": [
+                  {
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+              }
+            },
+            "type": "object"
+          },
+          "run_state": {
+            "additionalProperties": false,
+            "properties": {
+              "location": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home."
+              }
+            },
+            "type": "object"
+          },
+          "sample": {
+            "additionalProperties": false,
+            "properties": {
+              "echo_repeats": {
+                "description": "How many times the sample operation repeats a text.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": false,
+            "properties": {
+              "by_reference": {
+                "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "session": {
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users."
+              }
+            },
+            "type": "object"
+          },
+          "timeout": {
+            "additionalProperties": false,
+            "properties": {
+              "first_byte": {
+                "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "handler": {
+                "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "navigation": {
+                "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "run": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+              }
+            },
+            "type": "object"
+          },
+          "tls": {
+            "additionalProperties": false,
+            "properties": {
+              "accept_invalid_certs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+                "type": "object"
+              },
+              "trusted_cas": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "wall": {
+            "additionalProperties": false,
+            "properties": {
+              "denied_domains": {
+                "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "domains": {
+                "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "refetch_domains": {
+                "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "webhook": {
+            "additionalProperties": false,
+            "properties": {
+              "signing": {
+                "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "version": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ProtocolVersion"
+          }
+        ],
+        "arrived_in": "0.1",
+        "description": "The version of this format the file was written in."
+      }
+    },
+    "required": [
+      "version"
+    ],
+    "type": "object"
+  },
+  "storage": "toml",
+  "version": "0.1"
+}

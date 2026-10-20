@@ -1,0 +1,16 @@
+id = "J-003"
+title = "Reach a goal no test proves yet"
+goal = "A person reaches a goal whose variant no test carries."
+area = 1
+product = "foxhound"
+status = "active"
+covers = ["story:1-3"]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Reach the goal"
+
+[[expect]]
+text = "The goal is reached"

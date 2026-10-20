@@ -2,12 +2,21 @@
 //! line, which Foxhound's executable keeps with its names, flags and exit
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
-//! entry, which an SDK starts, and `browsers install` and `browsers clean`;
-//! the CLI's other commands join with area 11.
+//! entry, which an SDK starts, `browsers install`, `browsers clean` and
+//! `config explain`; the CLI's other commands join with area 11.
+//!
+//! `main` reads the environment once and passes the map (ADR 0059); every
+//! `GOODFETCH_` variable in it must be a deployment variable, or the
+//! executable stops with `setting_unknown` or `setting_invalid` before any
+//! command runs (ADR 0083).
 //!
 //! Logs go to stderr through the `tracing` subscriber, filtered by
 //! `GOODFETCH_LOG` in `EnvFilter`'s syntax (`info` when unset); stdout is
-//! the protocol's alone (STYLE.md).
+//! the protocol's alone (STYLE.md). With `GOODFETCH_LOG_OUTPUT=file` they
+//! also go, as JSON lines, to a file of its own in the Goodfetch home's log
+//! folder, which test support turns on for ADR 0072's exercise audit (ADR
+//! 0122). Both variables stand in for the `log.*` settings until the engine
+//! reads its configuration.
 //!
 //! The engine runs on the system versions of its handles (ADR 0059): the
 //! OS's clock, entropy seeded by the OS, blocking work on tracked threads,
@@ -16,25 +25,38 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::fs::File;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::settings::{check_environment, deployment_variable};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::Network;
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::util::SubscriberInitExt as _;
 
 mod browsers;
+mod config;
 mod output;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
+
+/// Where the logs also go: `file`, the Goodfetch home's log folder, or
+/// `none`, the default.
+pub const LOG_OUTPUT_VARIABLE: &str = "GOODFETCH_LOG_OUTPUT";
+
+/// The Goodfetch home's log folder (ADR 0122).
+const LOG_FOLDER: &str = "logs";
 
 /// The deployment variable that roots the Goodfetch home (ADRs 0059, 0083).
 pub const HOME_VARIABLE: &str = "GOODFETCH_HOME";
@@ -57,6 +79,33 @@ enum Command {
     Browsers {
         #[command(subcommand)]
         command: BrowsersCommand,
+    },
+    /// Shows the settings and where each value comes from.
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Shows each effective setting, the layer that set it and the layer
+    /// that locked it: the built-in default, the Operator policy, user
+    /// configuration, the project configuration or these flags.
+    Explain {
+        /// Keys, or prefixes of keys such as `timeout`, to show; every key
+        /// when none.
+        keys: Vec<String>,
+        /// Sets a run value, as `key=value`; repeatable.
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set: Vec<String>,
+        /// Reads this project configuration instead of the `goodfetch.toml`
+        /// found from the working folder upward.
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -116,8 +165,9 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
-    let parsed = command(start.product)
-        .version(start.version)
+    let command_line = command(start.product).version(start.version);
+    let binary = command_line.get_name().to_owned();
+    let parsed = command_line
         .try_get_matches_from(&start.arguments)
         .and_then(|matches| CommandLine::from_arg_matches(&matches));
     let command_line = match parsed {
@@ -127,7 +177,20 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2));
         }
     };
-    log_to_stderr(start.environment.get(OsStr::new(LOG_VARIABLE)));
+    let home = home(&start.environment);
+    let filter = start.environment.get(OsStr::new(LOG_VARIABLE));
+    match log_file(&binary, &start.environment, home.as_ref()) {
+        Ok(file) => install_logs(filter, file),
+        Err(problem) => {
+            install_logs(filter, None);
+            tracing::error!(%problem, "the logs cannot go where {LOG_OUTPUT_VARIABLE} says");
+            return ExitCode::FAILURE;
+        }
+    }
+    if let Err(error) = check_environment(&start.environment) {
+        tracing::error!(code = error.code(), "{error}");
+        return ExitCode::FAILURE;
+    }
     let Ok(product_version) = ProductVersion::parse(start.version) else {
         tracing::error!(
             version = start.version,
@@ -153,7 +216,7 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let Some(home) = home(&start.environment) else {
+    let Some(home) = home else {
         tracing::error!("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows");
         return ExitCode::FAILURE;
     };
@@ -180,15 +243,52 @@ pub fn main(start: &Start) -> ExitCode {
         Command::Browsers {
             command: BrowsersCommand::Clean { dry_run, json },
         } => browsers::clean(pinned_by, &start.environment, dry_run, json),
+        Command::Config {
+            command:
+                ConfigCommand::Explain {
+                    keys,
+                    set,
+                    project,
+                    json,
+                },
+        } => config_explain(&engine, &dependencies.home, keys, set, project, json),
     }
+}
+
+/// `config explain`, from the working folder.
+fn config_explain(
+    engine: &Engine,
+    home: &Home,
+    keys: Vec<String>,
+    set: Vec<String>,
+    project: Option<std::path::PathBuf>,
+    json: bool,
+) -> ExitCode {
+    let Ok(folder) = std::env::current_dir() else {
+        tracing::error!("the working folder cannot be read");
+        return ExitCode::FAILURE;
+    };
+    let identity = engine.identity();
+    config::explain(
+        identity.product,
+        &identity.product_version,
+        home,
+        &config::Explain {
+            keys,
+            set,
+            project,
+            folder,
+            json,
+        },
+    )
 }
 
 /// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`
 /// folder of the OS's usual data folder otherwise.
 fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
-    match environment.get(OsStr::new(HOME_VARIABLE)) {
-        Some(home) if !home.is_empty() => Some(Home::new(home.into())),
-        _ => dirs::data_dir().map(|data| Home::new(data.join("goodfetch"))),
+    match deployment_variable(environment, HOME_VARIABLE) {
+        Some(home) => Some(Home::new(home.into())),
+        None => dirs::data_dir().map(|data| Home::new(data.join("goodfetch"))),
     }
 }
 
@@ -244,8 +344,39 @@ fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {
     }
 }
 
-/// Installs the `tracing` subscriber, writing to stderr.
-fn log_to_stderr(filter: Option<&OsString>) {
+/// The file of this process's logs in the home's log folder, when
+/// `GOODFETCH_LOG_OUTPUT` is `file`; none when it is `none` or unset.
+fn log_file(
+    binary: &str,
+    environment: &BTreeMap<OsString, OsString>,
+    home: Option<&Home>,
+) -> Result<Option<File>, String> {
+    let output = environment.get(OsStr::new(LOG_OUTPUT_VARIABLE));
+    match output.map(|output| output.to_str()) {
+        None | Some(Some("none")) => Ok(None),
+        Some(Some("file")) => {
+            let home = home.ok_or("no Goodfetch home holds a log folder")?;
+            let folder = home.root().join(LOG_FOLDER);
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "main opens the log file before the runtime starts (ADR 0122)"
+            )]
+            let file = std::fs::create_dir_all(&folder).and_then(|()| {
+                File::options()
+                    .create(true)
+                    .append(true)
+                    .open(folder.join(format!("{binary}-{}.jsonl", std::process::id())))
+            });
+            file.map(Some)
+                .map_err(|error| format!("{}: {error}", folder.display()))
+        }
+        Some(_) => Err("it is `file` or `none`".to_owned()),
+    }
+}
+
+/// Installs the `tracing` subscriber: text on stderr, and JSON lines in
+/// `file` when there is one, both filtered by `filter`.
+fn install_logs(filter: Option<&OsString>, file: Option<File>) {
     let filter = filter
         .and_then(|filter| filter.to_str())
         .and_then(|filter| tracing_subscriber::EnvFilter::try_new(filter).ok())
@@ -255,9 +386,18 @@ fn log_to_stderr(filter: Option<&OsString>) {
         reason = "the tracing subscriber's writer is one of the three writers of stderr (STYLE.md)"
     )]
     let writer = std::io::stderr;
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(writer)
-        .with_ansi(false)
+    let file = file.map(|file| {
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(Arc::new(file))
+    });
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_ansi(false),
+        )
+        .with(file)
         .init();
 }

@@ -13,19 +13,14 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
 exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
-quarantined=false
-while IFS=$'\t' read -r runner argument; do
-  if [[ "$runner" == nextest ]]; then
-    printf '%s\n' "$argument"
-    quarantined=true
-  fi
-done <<<"$exclusions"
+quarantine=$(awk -F'\t' '$1 == "nextest" { print $2 }' <<<"$exclusions")
+[[ -z "$quarantine" ]] || printf '%s\n' "$quarantine"
 
 # The quarantine's arguments start with `--`, after which nextest passes
 # `--skip` to each test binary; with none, the service skips add it.
 services=$(ci/os-services.sh skipped target/skipped.txt)
 if [[ -n "$services" ]]; then
-  $quarantined || printf '%s\n' --
+  [[ -n "$quarantine" ]] || printf '%s\n' --
   while IFS= read -r pattern; do
     printf '%s\n%s\n' --skip "$pattern"
   done <<<"$services"

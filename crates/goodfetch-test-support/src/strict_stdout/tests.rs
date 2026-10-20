@@ -1,5 +1,6 @@
-use std::io::Cursor;
+use std::io::{Cursor, Write as _};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
@@ -201,5 +202,27 @@ fn a_json_line_that_is_not_a_json_rpc_message_is_refused_naming_it(#[case] line:
             number: 2,
             bytes: line.to_vec()
         })
+    );
+}
+
+#[test]
+fn a_child_that_writes_nothing_is_quiet_and_a_line_written_meanwhile_is_kept_for_the_next_read() {
+    let (stdout, mut writer) = std::io::pipe().unwrap();
+    let mut stdout = StrictStdout::new(stdout, Cursor::new(Vec::new()));
+
+    let quiet = stdout.is_quiet_for(Duration::from_millis(50));
+    writer
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n")
+        .unwrap();
+    let written = stdout.is_quiet_for(Duration::from_secs(10));
+    let kept = stdout.next();
+
+    assert_eq!(
+        (quiet, written, kept),
+        (
+            true,
+            false,
+            Some(json!({"jsonrpc":"2.0","id":1,"result":{}}))
+        )
     );
 }

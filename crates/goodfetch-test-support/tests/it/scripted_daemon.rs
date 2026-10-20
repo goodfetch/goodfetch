@@ -382,6 +382,13 @@ fn the_runtime_file_and_the_socket_are_for_their_owner_only() {
 
     assert_eq!(file.permissions().mode() & 0o777, 0o600);
     assert_eq!(socket.permissions().mode() & 0o777, 0o600);
+    // A socket the home's path is too long for sits in a folder of its own,
+    // which only its owner may enter.
+    let socket_folder = Path::new(&reported.address).parent().unwrap();
+    if !socket_folder.starts_with(env.home()) {
+        let folder = std::fs::metadata(socket_folder).unwrap();
+        assert_eq!(folder.permissions().mode() & 0o777, 0o700);
+    }
     refused_to_its_end(
         &RuntimeFile::read(&runtime_file(env.home())).unwrap(),
         &process,

@@ -242,6 +242,7 @@ impl Listener {
             Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
                 let own = tempfile::Builder::new()
                     .prefix("goodfetch é ")
+                    .permissions(std::fs::Permissions::from_mode(0o700))
                     .tempdir_in("/tmp")?;
                 let path = own.path().join(goodfetch_test_support::DAEMON_SOCKET);
                 (UnixListener::bind(&path)?, path, Some(own))

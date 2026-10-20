@@ -13,11 +13,12 @@
 //! its runner and the Scripted resolver (ADR 0067); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
-//! (ADRs 0062 and 0073); and `goodfetch-test-env`,
-//! which gives the same
-//! setup to TypeScript and Python as one JSON description. It works on
-//! values only: it depends on no Goodfetch crate and is only ever a
-//! dev-dependency.
+//! (ADRs 0062 and 0073); the Scripted engine's script format and its
+//! player (ADR 0069); `goodfetch-test-env`, which gives the same setup to
+//! TypeScript and Python as one JSON description; and
+//! `goodfetch-scripted-engine`, which plays a script over its stdio. It
+//! works on values only: it depends on no Goodfetch crate and is only ever
+//! a dev-dependency.
 
 mod crash_dumps;
 mod crash_vfs;
@@ -30,10 +31,12 @@ mod invariants;
 mod kill;
 mod locales;
 mod observation;
+mod player;
 mod process;
 mod proving_ground;
 mod resolver;
 mod runtime;
+mod script;
 mod snapshot;
 mod special_purpose;
 mod sql_dump;
@@ -62,6 +65,7 @@ pub use locales::{TimeZoneCase, locales, time_zones};
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
 };
+pub use player::{ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play};
 pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,
     reported_address, reported_address_within,
@@ -72,6 +76,10 @@ pub use proving_ground::{
 };
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use script::{
+    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
+    engine_script,
+};
 pub use snapshot::{SnapshotValues, snapshot_settings};
 pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,

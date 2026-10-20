@@ -4,7 +4,8 @@
 #   build       before the deny: builds the target's tests once with
 #               `cargo nextest archive`, and both Products' executables with
 #               the thin-LTO `ci` profile, from one invocation (ADR 0094),
-#               and the test tool manifest of the executables tests run;
+#               the test tool manifest of the executables tests run, and the
+#               one of the `ci` executables the resident-memory check runs;
 #   size        writes the target's size report of both Products, keyed by
 #               the tree the cell tested (`xtask size`, ADR 0061);
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
@@ -13,7 +14,12 @@
 #               host-tools recorded; Bun and Deno 2 are on PATH for the SDK
 #               smoke scripts Vitest spawns (ADR 0069);
 #   python      pytest on each CPython host-tools recorded, split across
-#               processes by pytest-xdist.
+#               processes by pytest-xdist;
+#   rss         the resident-memory check (ADRs 0071, 0094 and 0134): each
+#               scenario on each Product's `ci` executable it runs on, each
+#               peak held to its ceiling in ci/rss-ceilings.toml, reporting
+#               and gating nothing while that file does not exist; its JUnit
+#               file and figures land in target/junit/.
 # The test parts run under ADR 0043's deny through ci/egress/under-deny.sh,
 # which the workflow step names. Each runner's JUnit file lands in
 # target/junit/ under a name that says its runtime.
@@ -25,7 +31,7 @@
 # GOODFETCH_NODE_LINES and GOODFETCH_PYTHONS.
 set -euo pipefail
 
-part=${1:?usage: ci/release/cell.sh build|size|rust|typescript|python}
+part=${1:?usage: ci/release/cell.sh build|size|rust|typescript|python|rss}
 cell=${CELL:?the job sets CELL}
 target=${TARGET:?the job sets TARGET}
 shard=${SHARD:-1/1}
@@ -33,6 +39,8 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 archive=target/release-suite/tests.tar.zst
+rss_tools="$root/target/release-suite/rss-tools.json"
+rss_peaks=target/release-suite/rss-peaks.jsonl
 exclusions=target/release-suite/quarantine.tsv
 mkdir -p target/junit target/release-suite
 
@@ -69,6 +77,8 @@ case "$part" in
     cargo run --quiet --locked -p xtask -- test-tools --cargo-profile ci-test \
       --target "$target" --out "$GOODFETCH_TEST_TOOLS"
     cargo run --quiet --locked -p xtask -- quarantine exclude >"$exclusions"
+    cargo run --quiet --locked -p xtask -- test-tools --cargo-profile ci \
+      --target "$target" --out "$rss_tools"
     ;;
   size)
     tree=$(git rev-parse 'HEAD^{tree}')
@@ -123,8 +133,15 @@ case "$part" in
     done
     exit "$status"
     ;;
+  rss)
+    rm -f "$rss_peaks"
+    cargo run --quiet --locked -p xtask -- rss measure --tools "$rss_tools" --out "$rss_peaks"
+    summary=()
+    [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && summary=(--summary "$GITHUB_STEP_SUMMARY")
+    cargo run --quiet --locked -p xtask -- rss check --peaks "$rss_peaks" ${summary[@]+"${summary[@]}"}
+    ;;
   *)
-    echo "error: the part is build, size, rust, typescript or python, not $part" >&2
+    echo "error: the part is build, size, rust, typescript, python or rss, not $part" >&2
     exit 2
     ;;
 esac

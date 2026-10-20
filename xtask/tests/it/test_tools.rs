@@ -53,3 +53,18 @@ fn a_workspace_without_those_executables_gets_an_empty_manifest() {
 
     assert_eq!(manifest, serde_json::json!({}));
 }
+
+/// Two copies of one fixture alive at once build into target folders of
+/// their own, so the tests that build a fixture crate can run in parallel
+/// without one copy's build replacing the other's (`.config/nextest.toml`,
+/// the `fixture-builds` group).
+#[test]
+fn copies_alive_at_once_build_into_target_folders_of_their_own() {
+    let first = Workspace::from_fixture("test-tools");
+    let second = Workspace::from_fixture("test-tools");
+
+    let first_manifest = test_tools(&first);
+    let second_manifest = test_tools(&second);
+
+    assert_ne!(first_manifest["test_env"], second_manifest["test_env"]);
+}

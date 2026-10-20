@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 
-use super::entry::{Entry, unreadable};
+use super::entry::{Carriers, Entry, unreadable};
 use super::files::{self, Kind, StoryFile};
 
 pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
@@ -22,7 +22,7 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
             area: Some(area),
             milestone: Some(story.milestone),
             status: story.status,
-            section: None,
+            carriers: Carriers::Both,
         }));
     }
     Ok(entries)

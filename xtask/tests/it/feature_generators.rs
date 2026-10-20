@@ -1,0 +1,274 @@
+//! The Feature inventory's generators of `command:`, `screen:` and
+//! `block-cause:` (ADR 0072): each command of both Products' executables,
+//! each route of the Console's packages and each Block cause of the catalog
+//! is a Feature the moment it exists, with the Products that carry it, and
+//! leaves the inventory when it goes. A kind whose source does not exist yet
+//! generates nothing.
+
+use serde_json::{Value, json};
+
+use crate::workspace::Workspace;
+
+const JSON2TS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../node_modules/.bin/json2ts");
+const DATAMODEL_CODEGEN: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../.venv/bin/datamodel-codegen"
+);
+
+fn codegen(workspace: &Workspace) {
+    let outcome = workspace.xtask(&[
+        "codegen",
+        "--json2ts",
+        JSON2TS,
+        "--datamodel-codegen",
+        DATAMODEL_CODEGEN,
+    ]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// The inventory's Features of `kind`, each as its ID and its Products.
+fn features_of_kind(workspace: &Workspace, kind: &str) -> Vec<(String, Value)> {
+    let inventory: Value =
+        serde_json::from_str(&workspace.read_text("features/inventory.json")).unwrap();
+    inventory["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|feature| feature["kind"] == kind)
+        .map(|feature| {
+            (
+                feature["id"].as_str().unwrap().to_owned(),
+                feature["products"].clone(),
+            )
+        })
+        .collect()
+}
+
+fn both() -> Value {
+    json!(["collie", "foxhound"])
+}
+
+fn foxhound() -> Value {
+    json!(["foxhound"])
+}
+
+const COMMANDS_EXAMPLE: &str = "crates/goodfetch-collie/examples/commands.rs";
+
+/// Adds Collie's executable crate to the fixture, whose `commands` example
+/// writes `command_lines` as both executables' command trees.
+fn add_executable_crate(workspace: &Workspace, command_lines: &Value) {
+    workspace.write(
+        "crates/goodfetch-collie/Cargo.toml",
+        b"[package]\nname = \"goodfetch-collie\"\nversion.workspace = true\nedition.workspace = true\npublish.workspace = true\n\n[features]\nexecutable = []\n",
+    );
+    workspace.write(
+        "crates/goodfetch-collie/src/lib.rs",
+        b"//! The fixture's stand-in of Collie's executable crate.\n",
+    );
+    write_command_lines(workspace, command_lines);
+}
+
+fn write_command_lines(workspace: &Workspace, command_lines: &Value) {
+    let source = format!(
+        "fn main() {{\n    let folder = std::path::PathBuf::from(std::env::args_os().nth(1).unwrap());\n    std::fs::write(folder.join(\"commands.json\"), {:?}).unwrap();\n}}\n",
+        command_lines.to_string()
+    );
+    workspace.write(COMMANDS_EXAMPLE, source.as_bytes());
+}
+
+fn tree(name: &str, commands: &[Value]) -> Value {
+    json!({ "name": name, "commands": commands })
+}
+
+/// Collie's command line, which Foxhound's keeps, and Foxhound's, which adds
+/// `crawl`.
+fn command_lines(foxhound_adds_crawl: bool) -> Value {
+    let shared = [
+        tree("attached-engine", &[]),
+        tree("browsers", &[tree("install", &[])]),
+    ];
+    let mut foxhound = shared.to_vec();
+    if foxhound_adds_crawl {
+        foxhound.push(tree("crawl", &[]));
+    }
+    json!({
+        "collie": tree("goodfetch-collie", &shared),
+        "foxhound": tree("goodfetch-foxhound", &foxhound),
+    })
+}
+
+#[test]
+fn each_command_of_both_executables_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_executable_crate(&workspace, &command_lines(true));
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "command"),
+        vec![
+            ("command:attached-engine".to_owned(), both()),
+            ("command:browsers.install".to_owned(), both()),
+            ("command:crawl".to_owned(), foxhound()),
+        ]
+    );
+}
+
+#[test]
+fn the_table_of_foxhounds_names_lists_the_commands_only_foxhound_carries() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_executable_crate(&workspace, &command_lines(true));
+
+    codegen(&workspace);
+
+    let table = workspace.read_text("crates/goodfetch-protocol/generated/foxhound_names.rs");
+    assert!(
+        table.contains("pub const COMMANDS: &[&str] = &[\"crawl\"];\n"),
+        "{table}"
+    );
+}
+
+#[test]
+fn a_removed_command_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_executable_crate(&workspace, &command_lines(true));
+    codegen(&workspace);
+    write_command_lines(&workspace, &command_lines(false));
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "command"),
+        vec![
+            ("command:attached-engine".to_owned(), both()),
+            ("command:browsers.install".to_owned(), both()),
+        ]
+    );
+}
+
+const COLLIE_ROUTES: &str = "console/collie/routes.json";
+const FOXHOUND_ROUTES: &str = "console/foxhound-screens/routes.json";
+
+#[test]
+fn each_console_route_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write(COLLIE_ROUTES, br#"{ "routes": ["/runs", "/runs/$run"] }"#);
+    workspace.write(FOXHOUND_ROUTES, br#"{ "routes": ["/datasets"] }"#);
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "screen"),
+        vec![
+            ("screen:/datasets".to_owned(), foxhound()),
+            ("screen:/runs".to_owned(), both()),
+            ("screen:/runs/$run".to_owned(), both()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_route_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write(COLLIE_ROUTES, br#"{ "routes": ["/runs", "/runs/$run"] }"#);
+    codegen(&workspace);
+    workspace.write(COLLIE_ROUTES, br#"{ "routes": ["/runs"] }"#);
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "screen"),
+        vec![("screen:/runs".to_owned(), both())]
+    );
+}
+
+const FIXTURE_EMITTER: &str = "crates/goodfetch-protocol/src/emit.rs";
+const METRICS_SECTION: &str = "\"metrics\": sorted(self.metrics),";
+
+/// Gives the fixture's catalog the values of shared types `values` lists,
+/// each as its name, Product and type.
+fn add_shared_type_values(workspace: &Workspace, values: &[(&str, &str, &str)]) {
+    let values: Vec<String> = values
+        .iter()
+        .map(|(name, product, shared_type)| {
+            format!(
+                "{{ \"arrived_in\": \"0.1\", \"description\": \"A value.\", \"name\": \"{name}\", \"product\": \"{product}\", \"type\": \"{shared_type}\" }}"
+            )
+        })
+        .collect();
+    workspace.edit(
+        FIXTURE_EMITTER,
+        METRICS_SECTION,
+        &format!(
+            "{METRICS_SECTION}\n            \"shared_type_values\": [{}],",
+            values.join(", ")
+        ),
+    );
+}
+
+#[test]
+fn each_block_cause_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_shared_type_values(
+        &workspace,
+        &[
+            ("challenge", "collie", "block_cause"),
+            ("decoy", "foxhound", "block_cause"),
+            ("sample_echoes", "collie", "usage_kind"),
+        ],
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "block-cause"),
+        vec![
+            ("block-cause:challenge".to_owned(), both()),
+            ("block-cause:decoy".to_owned(), foxhound()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_block_cause_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_shared_type_values(
+        &workspace,
+        &[
+            ("challenge", "collie", "block_cause"),
+            ("rate_limit", "collie", "block_cause"),
+        ],
+    );
+    codegen(&workspace);
+    workspace.edit(
+        FIXTURE_EMITTER,
+        ", { \"arrived_in\": \"0.1\", \"description\": \"A value.\", \"name\": \"rate_limit\", \"product\": \"collie\", \"type\": \"block_cause\" }",
+        "",
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "block-cause"),
+        vec![("block-cause:challenge".to_owned(), both())]
+    );
+}
+
+/// The fixture has no executable crate, an empty Console and no Block cause,
+/// as the repository had before each source landed.
+#[test]
+fn a_kind_whose_source_does_not_exist_generates_nothing_and_fails_nothing() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write("console/README.md", b"# Console\n");
+
+    codegen(&workspace);
+
+    assert_eq!(
+        [
+            features_of_kind(&workspace, "command"),
+            features_of_kind(&workspace, "screen"),
+            features_of_kind(&workspace, "block-cause"),
+        ],
+        [vec![], vec![], vec![]]
+    );
+}

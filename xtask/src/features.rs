@@ -5,7 +5,9 @@
 //! and the exercise audit of what each declaring test reached.
 
 mod audit;
+mod block_cause;
 mod check;
+mod command;
 mod contract;
 mod covers;
 mod entry;
@@ -15,6 +17,7 @@ mod inventory;
 mod listed;
 mod row;
 mod scan;
+mod screen;
 mod story;
 
 use std::collections::BTreeSet;
@@ -27,6 +30,7 @@ use anyhow::Result;
 use crate::environment::Environment;
 use crate::output;
 
+pub(crate) use command::{CommandLines, CommandTree, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
 

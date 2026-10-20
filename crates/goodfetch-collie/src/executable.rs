@@ -131,22 +131,9 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
-    let (binary, about) = match start.product {
-        Product::Collie => (
-            "goodfetch-collie",
-            "Collie, Goodfetch's Product for browser automation.",
-        ),
-        Product::Foxhound => (
-            "goodfetch-foxhound",
-            "Foxhound, Goodfetch's Product for crawling, which contains Collie.",
-        ),
-    };
-    let command = CommandLine::command()
-        .name(binary)
-        .bin_name(binary)
-        .version(start.version)
-        .about(about);
-    let parsed = command
+    let command_line = command(start.product).version(start.version);
+    let binary = command_line.get_name().to_owned();
+    let parsed = command_line
         .try_get_matches_from(&start.arguments)
         .and_then(|matches| CommandLine::from_arg_matches(&matches));
     let command_line = match parsed {
@@ -158,7 +145,7 @@ pub fn main(start: &Start) -> ExitCode {
     };
     let home = home(&start.environment);
     let filter = start.environment.get(OsStr::new(LOG_VARIABLE));
-    match log_file(binary, &start.environment, home.as_ref()) {
+    match log_file(&binary, &start.environment, home.as_ref()) {
         Ok(file) => install_logs(filter, file),
         Err(problem) => {
             install_logs(filter, None);
@@ -228,6 +215,36 @@ fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
         Some(home) if !home.is_empty() => Some(Home::new(home.into())),
         _ => dirs::data_dir().map(|data| Home::new(data.join("goodfetch"))),
     }
+}
+
+/// The command line of `product`'s executable, without its version: its
+/// commands, flags and help, from which the Feature inventory generates its
+/// `command:` Features (ADR 0072).
+///
+/// # Examples
+///
+/// ```
+/// use goodfetch_collie::executable::command;
+/// use goodfetch_protocol::catalog::Product;
+///
+/// assert_eq!(command(Product::Foxhound).get_name(), "goodfetch-foxhound");
+/// ```
+#[must_use]
+pub fn command(product: Product) -> clap::Command {
+    let (binary, about) = match product {
+        Product::Collie => (
+            "goodfetch-collie",
+            "Collie, Goodfetch's Product for browser automation.",
+        ),
+        Product::Foxhound => (
+            "goodfetch-foxhound",
+            "Foxhound, Goodfetch's Product for crawling, which contains Collie.",
+        ),
+    };
+    CommandLine::command()
+        .name(binary)
+        .bin_name(binary)
+        .about(about)
 }
 
 fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {

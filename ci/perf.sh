@@ -57,7 +57,9 @@ if [[ "$(uname -s)" != Linux ]]; then
   mounts=(--volume "$root:$root")
   common=$(git rev-parse --path-format=absolute --git-common-dir)
   [[ "$common" == "$root"/* ]] || mounts+=(--volume "$common:$common")
-  exec "$engine" run --rm --platform linux/amd64 "${mounts[@]}" --workdir "$root" \
+  # `--init`, so stopping this command (as `just pre-merge` does when another
+  # step fails) stops everything in the container.
+  exec "$engine" run --rm --init --platform linux/amd64 "${mounts[@]}" --workdir "$root" \
     --volume goodfetch-perf-target:/var/tmp/target --env CARGO_TARGET_DIR=/var/tmp/target \
     --volume goodfetch-perf-cargo:/usr/local/cargo/registry \
     --env GIT_CONFIG_COUNT=1 --env GIT_CONFIG_KEY_0=safe.directory --env GIT_CONFIG_VALUE_0='*' \

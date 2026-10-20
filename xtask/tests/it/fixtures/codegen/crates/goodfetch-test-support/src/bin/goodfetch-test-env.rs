@@ -1,4 +1,5 @@
-//! Prints the fixture's schemas, keyed by file name, with `--print-schemas`.
+//! Prints the fixture's schemas, keyed by their paths under
+//! `test-support/fixtures/`, with `--print-schemas`.
 
 fn main() {
     assert_eq!(
@@ -6,7 +7,9 @@ fn main() {
         Some("--print-schemas")
     );
     let schemas = serde_json::json!({
-        "test-env-description.schema.json":
+        "engine-scripts/script.schema.json":
+            schemars::schema_for!(goodfetch_test_support::Script),
+        "schemas/test-env-description.schema.json":
             schemars::schema_for!(goodfetch_test_support::Description),
     });
     println!("{schemas}");

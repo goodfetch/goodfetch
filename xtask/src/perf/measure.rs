@@ -106,9 +106,11 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
     }
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     let tree = base_tree(root);
+    // `--force`: a base tree whose folder went without Git (a cleared
+    // `target/`) leaves its record, which a plain `add` refuses to reuse.
     git(
         root,
-        &["worktree", "add", "--detach", "--quiet"],
+        &["worktree", "add", "--force", "--detach", "--quiet"],
         &[&tree.to_string_lossy(), &commit],
     )?;
     let target_directory = metadata::target_directory(cargo, root)?;
@@ -369,6 +371,10 @@ fn bench_targets(cargo: &OsStr, root: &Path) -> Result<BTreeSet<String>> {
         .collect())
 }
 
+/// Removes the base's worktree and its record, and nothing else: never a
+/// repository-wide `git worktree prune`, which in the container (where only
+/// this worktree is mounted) would drop the record of every other unlocked
+/// worktree, whose folders it cannot see.
 fn remove_base_tree(root: &Path) -> Result<()> {
     let tree = base_tree(root);
     if tree.exists() {
@@ -378,7 +384,6 @@ fn remove_base_tree(root: &Path) -> Result<()> {
             &[&tree.to_string_lossy()],
         )?;
     }
-    git(root, &["worktree", "prune"], &[])?;
     Ok(())
 }
 

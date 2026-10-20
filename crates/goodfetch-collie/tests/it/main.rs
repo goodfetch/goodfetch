@@ -12,6 +12,7 @@ mod browsers;
 mod config;
 mod daemon;
 mod events;
+mod invalid_calls;
 mod journeys;
 mod log;
 mod run;

@@ -4,7 +4,7 @@
 //! deletes what nothing installed pins, nothing used for
 //! `browser_cache.max_unused_age` and nothing holds, or under `--dry-run`
 //! lists it. Their `--json` output is `goodfetch-protocol`'s type. Both
-//! read the machine's settings (ADR 0098): `network.offline`,
+//! read the machine's settings (ADR 0098): `egress.offline`,
 //! `network.resolve` and `browser_cache.max_unused_age`, from the Operator
 //! policy and user configuration of Goodfetch home.
 
@@ -15,11 +15,13 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{
-    BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, Fetching,
-    MaxUnusedAge, Pins, Platform, Resolve, kept_artifacts,
+    BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, MaxUnusedAge, Pins,
+    Platform, kept_artifacts,
 };
 use goodfetch_engine::home::Home;
+use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
+use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowsersCleanOutput, BrowsersInstallOutput, InstallOutcome, InstalledArtifact,
@@ -27,7 +29,7 @@ use goodfetch_protocol::browser_cache::{
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::settings::{NETWORK_OFFLINE, NETWORK_RESOLVE};
+use goodfetch_protocol::settings::{EGRESS_OFFLINE, NETWORK_RESOLVE};
 
 use super::output;
 
@@ -67,11 +69,11 @@ pub(super) fn machine_settings(
     resolve(&layers, product, product)
 }
 
-/// What downloads may do under `settings`: `network.offline` and the layer
+/// What downloads may do under `settings`: `egress.offline` and the layer
 /// that set it, and `network.resolve`'s mapping.
 fn fetching(settings: &Resolved) -> Fetching {
     let offline = settings
-        .get(NETWORK_OFFLINE.name)
+        .get(EGRESS_OFFLINE.name)
         .filter(|offline| offline.value == serde_json::Value::Bool(true))
         .map(|offline| offline.layer);
     let mapping = settings

@@ -9,7 +9,7 @@
 "timeout.navigation"
 "timeout.run"
 "network.resolve"
-"network.offline"
+"egress.offline"
 "tls.accept_invalid_certs"
 "crawl.retry.max"
 "crawl.handler.concurrency"

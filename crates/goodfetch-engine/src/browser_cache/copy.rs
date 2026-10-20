@@ -18,8 +18,9 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 
 use super::HeldArtifact;
-use super::artifact::{Digest, content_digest};
+use super::artifact::content_digest;
 use super::store::{self, Locking, Read};
+use crate::pinned_download::Digest;
 
 /// How many hex digits of the file's digest a copy's build ID carries.
 const DIGEST_DIGITS: usize = 16;

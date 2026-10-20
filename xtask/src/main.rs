@@ -55,6 +55,7 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod telemetry;
 mod test_tools;
 mod tlc;
 mod tree;
@@ -244,6 +245,9 @@ enum Command {
         #[command(subcommand)]
         command: stress::Command,
     },
+    /// Fails on a setting that could turn telemetry on and on an analytics
+    /// client in `Cargo.lock`, `uv.lock` or `pnpm-lock.yaml` (ADR 0043).
+    Telemetry,
     /// Builds the commit's executables that tests run with the tests' own
     /// Cargo profile and writes the test tool manifest of their paths, which
     /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
@@ -403,7 +407,9 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
-        Command::Journeys { command } => journeys::run(&command, environment),
+        Command::Journeys { command } => {
+            journeys::run(&command, environment, features::manual_exceptions)
+        }
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
@@ -421,6 +427,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::Stress { command } => stress::run(command, environment),
+        Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
         Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),

@@ -104,9 +104,12 @@ async function visualRun(
   update = false,
 ): Promise<number | null> {
   writeFileSync(join(folder, "page.visual.test.ts"), testFile(page));
-  // Outside CI, where Vitest itself would write a missing reference.
+  // Outside CI, where Vitest itself would write a missing reference, and
+  // unmeasured: under `just coverage` the copied config would measure the
+  // nested run too.
   const env: NodeJS.ProcessEnv = { ...process.env, GOODFETCH_VISUAL_IMAGE: PINNED };
   delete env["CI"];
+  delete env["GOODFETCH_COVERAGE"];
   const args = [VITEST, "run", "--config", "vitest.config.ts", "--project", "visual"];
   if (update) {
     args.push("--update");

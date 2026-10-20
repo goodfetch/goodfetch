@@ -1,0 +1,23 @@
+[[exception]]
+feature = "story:3-1"
+evidence = "manual"
+reason = "A person sees the Daemon's tray icon."
+link = "https://example.invalid/owner-test#tray"
+
+[[exception]]
+feature = "story:3-2"
+evidence = "manual"
+reason = "A person checks it at the next milestone."
+link = "https://example.invalid/owner-test#later"
+
+[[exception]]
+feature = "error:sample_by_hand"
+evidence = "manual"
+reason = "A person reads the error's wording."
+link = "https://example.invalid/owner-test#wording"
+
+[[exception]]
+feature = "story:3-3"
+evidence = "check"
+reason = "A CI job checks it."
+link = ".github/workflows/pull-request.yml#quick"

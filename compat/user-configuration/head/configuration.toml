@@ -12,8 +12,10 @@ location = "example"
 [settings.sample]
 echo_repeats = 4
 
-[settings.network]
+[settings.egress]
 offline = true
+
+[settings.network]
 resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.tls]

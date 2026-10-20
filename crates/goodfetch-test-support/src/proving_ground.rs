@@ -209,6 +209,15 @@ impl ProvingGround {
     pub fn url(&self, host: &str, path: &str) -> String {
         format!("http://{host}:{}{path}", self.address.port())
     }
+
+    /// `GET /observations` on its own address: every request its page hosts
+    /// received, as the Proving ground saw it, and the connection record.
+    pub fn observations(&self) -> Result<serde_json::Value, ProvingGroundError> {
+        ureq::get(&self.description.fixtures.connections)
+            .call()
+            .and_then(|mut response| response.body_mut().read_json())
+            .map_err(|error| ProvingGroundError::Observations(error.to_string()))
+    }
 }
 
 impl Drop for ProvingGround {
@@ -249,4 +258,7 @@ pub enum ProvingGroundError {
     /// Its certificate authority's file cannot be written.
     #[error("the Proving ground's certificate authority cannot be written: {0}")]
     CertificateAuthority(io::Error),
+    /// Its observations could not be read.
+    #[error("the Proving ground's observations: {0}")]
+    Observations(String),
 }

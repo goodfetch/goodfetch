@@ -1,0 +1,25 @@
+id = "J-001"
+title = "Start the Daemon and open its Console"
+goal = "A person starts the Daemon and opens its Console."
+area = 3
+product = "collie"
+status = "active"
+covers = []
+
+[surfaces]
+cli = "M1"
+console = "M1"
+
+[[steps]]
+text = "Start the Daemon"
+on = "cli"
+
+[[steps]]
+text = "Ask for the Console, which the system browser opens"
+manual = "only a person sees the browser open"
+
+[[steps]]
+text = "Open the Console"
+
+[[expect]]
+text = "The Console opens with no login"

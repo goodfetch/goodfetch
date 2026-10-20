@@ -246,6 +246,26 @@ fn the_test_seed_variable_does_not_change_the_journeys_seed() {
     assert_eq!(document["proving_ground"]["seed"], json!(902));
 }
 
+/// Under `just test`, every test's runs write into one folder, where two
+/// tests running one variant, as these tests and Seam C's do, write one
+/// file. Each run's own document is the one its test reads; the folder
+/// keeps the last.
+#[test]
+fn a_runs_document_stays_its_own_when_another_run_of_its_variant_finishes_after_it() {
+    let env = TestEnv::new();
+    let variables = Variables::from_process();
+    let mut command = probe(&env, "probe::runs_journey_901_twice");
+    command
+        .env(TOOLS_VARIABLE, variables.get(TOOLS_VARIABLE).unwrap())
+        .env(RESULT_DOCUMENTS_VARIABLE, env.folder());
+
+    let status = env.spawn(&mut command).unwrap().close_stdin_and_wait();
+
+    assert!(status.unwrap().success());
+    let kept = written(&env.folder().join("J-901@cli.json"));
+    assert_eq!(kept["outcome"], json!("failed"));
+}
+
 #[test]
 fn the_oracles_answer_to_a_submission_is_its_tasks_answer() {
     let mut run = JourneyRun::start_file(

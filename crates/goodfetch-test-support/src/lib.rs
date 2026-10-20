@@ -10,7 +10,8 @@
 //! Limits checkers, seeded kills of real processes and the crash VFS under
 //! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
-//! crashers, the endpoint table with `EndpointRunner`, which applies it to a
+//! crashers, `ProtocolFuzz`, the protocol fuzzing generated from the
+//! committed JSON Schema bundle over the caller's transport, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
 //! its runner and the Scripted resolver, the hostile-input case tables,
 //! `NoExec`, which starts a child that may start no other program on Linux,
@@ -50,6 +51,7 @@ mod no_exec;
 mod observation;
 mod player;
 mod process;
+mod protocol_fuzz;
 mod proving_ground;
 mod resolver;
 mod runtime;
@@ -109,6 +111,10 @@ pub use player::{ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play};
 pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,
     reported_address, reported_address_within,
+};
+pub use protocol_fuzz::{
+    Broken, FuzzedCall, Invalidity, ProtocolFuzz, ProtocolFuzzError, ProtocolSchema,
+    ProtocolTransport, SchemaUnreadable, TransportFailure,
 };
 pub use proving_ground::{
     PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription, ProvingGroundError,

@@ -28,7 +28,14 @@ impl Clock {
     /// The test version: wall time starts at `start` and moves with Tokio's
     /// paused clock. `disallowed-methods` refuses it outside tests and bench
     /// targets.
+    ///
+    /// # Panics
+    ///
+    /// Off a Tokio runtime: made before the runtime it runs on, it would
+    /// count the real time until that runtime is built as wall time.
     pub fn paused(start: SystemTime) -> Self {
+        tokio::runtime::Handle::try_current()
+            .expect("invariant: a paused Clock is made on the runtime it runs on");
         Self(Source::Paused {
             wall: start,
             since: monotonic(),
@@ -78,3 +85,6 @@ fn monotonic() -> Instant {
     )]
     Instant::now()
 }
+
+#[cfg(test)]
+mod tests;

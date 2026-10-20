@@ -17,6 +17,11 @@ ajv.addFormat("uint64", {
   type: "number",
   validate: (value: number) => Number.isSafeInteger(value) && value >= 0,
 });
+// schemars writes Rust's `u8` as this one, such as a script's exit code.
+ajv.addFormat("uint8", {
+  type: "number",
+  validate: (value: number) => Number.isInteger(value) && value >= 0 && value <= 255,
+});
 
 /** A committed schema of `test-support/fixtures/schemas/`, which Ajv checks as it compiles it. */
 export function committedSchema(file: string): SchemaObject {

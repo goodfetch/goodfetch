@@ -1,0 +1,7 @@
+version = "0.1"
+
+[settings.timeout]
+navigation = 45000
+
+[settings.network.resolve]
+"staging.example" = ["127.0.0.1", "::1"]

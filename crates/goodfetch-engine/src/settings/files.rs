@@ -371,3 +371,29 @@ fn toml_of(value: &Value) -> Option<toml_edit::Value> {
         }
     })
 }
+
+/// The settings files' fuzz target's body (ADR 0067): reads `data` as an
+/// Operator policy and as user configuration, on both Products' engines;
+/// a configuration that reads, rewritten with each value it applies, reads
+/// back the same. It panics only on a bug.
+pub fn fuzz_settings_file(data: &[u8]) {
+    let Ok(text) = std::str::from_utf8(data) else {
+        return;
+    };
+    for product in [Product::Collie, Product::Foxhound] {
+        let _ = operator_policy(text, product);
+        let Ok(read) = configuration(SettingsLayer::UserConfiguration, text, product) else {
+            continue;
+        };
+        for (key, value) in &read.applied {
+            let rewritten = rewrite(text, "settings", key, value)
+                .expect("invariant: a file that read rewrites");
+            let again = configuration(SettingsLayer::UserConfiguration, &rewritten, product)
+                .expect("invariant: a rewritten file reads");
+            assert_eq!(
+                again.applied, read.applied,
+                "a rewrite changed what the file sets"
+            );
+        }
+    }
+}

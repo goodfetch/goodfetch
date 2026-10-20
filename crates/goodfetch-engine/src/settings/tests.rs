@@ -909,6 +909,10 @@ fn a_variable_outside_the_reserved_prefix_is_not_checked() {
     assert_eq!(check_environment(&environment), Ok(()));
 }
 
+mod settings_file {
+    goodfetch_test_support::fuzz_replay!(crate::settings::fuzz_settings_file, "fuzz/settings_file");
+}
+
 proptest! {
     /// A higher layer wins only where no lower layer locked the value
     /// (ADR 0028), for any layers that set, lock or leave a duration.

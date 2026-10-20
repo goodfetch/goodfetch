@@ -1,0 +1,3 @@
+version = "0.1"
+[settings.timeout]
+navigaton = 1000

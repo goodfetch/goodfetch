@@ -32,8 +32,8 @@ pub use environment::{check_environment, deployment_variable};
 pub use error::SettingsError;
 pub use files::{
     MachineLayers, OPERATOR_POLICY_FILE, PROJECT_CONFIGURATION_FILE, SettingsFiles,
-    USER_CONFIGURATION_FILE, configuration, find_project, load_project, operator_policy,
-    policy_version, rewrite,
+    USER_CONFIGURATION_FILE, configuration, find_project, fuzz_settings_file, load_project,
+    operator_policy, policy_version, rewrite,
 };
 pub use resolve::{Effective, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
 pub use values::Values;

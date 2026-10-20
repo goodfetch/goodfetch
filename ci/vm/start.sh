@@ -88,13 +88,18 @@ for image in "${images[@]}"; do
 done
 
 # The job's container lives as long as the VM, so what `just fetch` installs
-# before the deny serves every later step.
+# before the deny serves every later step. CAP_SYS_ADMIN, inside rootless
+# containerd's user namespace, lets the container's default seccomp profile
+# allow `unshare` and `mount`, so `DnsNamespace` makes its user, network and
+# mount namespaces there as the container's root (ADR 0067), the way the
+# job declares.
 for image in "${images[@]}"; do
   [[ "$image" == ci ]] || continue
   vm_shell nerdctl run --detach --name "$CONTAINER" --platform linux/amd64 \
-    --cap-add NET_ADMIN \
+    --cap-add NET_ADMIN --cap-add SYS_ADMIN \
     --volume /work:/work --volume "/cache:/cache:$cache_flag" \
     --env CI=true --env "GOODFETCH_CACHE_MODE=$cache_mode" \
+    --env GOODFETCH_TEST_DNS_NAMESPACE=user_namespace \
     "$CI_IMAGE" sleep infinity
   vm_shell nerdctl exec "$CONTAINER" /work/ci/vm/in-container.sh prepare
 done

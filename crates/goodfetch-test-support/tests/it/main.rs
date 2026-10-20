@@ -15,6 +15,8 @@
 
 mod canaries;
 mod cli;
+#[cfg(target_os = "linux")]
+mod dns_namespace;
 mod endpoints;
 mod exercise_record;
 mod hostile_tables;

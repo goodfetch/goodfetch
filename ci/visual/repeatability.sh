@@ -54,6 +54,7 @@ echo "Commit $commit, image $digest, host $host, $engine."
   "$image" bash -c '
     set -uo pipefail
     cd /work
+    mkdir -p target
     # Rosetta for Linux names its processor "VirtualApple", QEMU "QEMU Virtual CPU".
     echo "In the image: $(uname -m), processor $(sed -n "s/^model name[[:space:]]*: //p" /proc/cpuinfo | head -1)."
     ci/visual/run.sh install >target/visual-install.log 2>&1 || { tail -40 target/visual-install.log; exit 2; }

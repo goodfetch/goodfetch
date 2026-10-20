@@ -30,6 +30,7 @@ mod features;
 mod fixture_size;
 mod foxhound_side;
 mod github;
+mod image_pins;
 mod issues;
 mod journeys;
 mod junit;
@@ -42,6 +43,7 @@ mod no_retry;
 mod notices;
 mod os_services;
 mod output;
+mod output_scans;
 mod package_dependencies;
 mod perf;
 mod quarantine;
@@ -156,6 +158,10 @@ enum Command {
     },
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
+    /// Fails on a container image a workflow runs that is not pinned by
+    /// digest: in a workflow, an action, a Containerfile, a pin file or a
+    /// script (ADR 0067).
+    ImagePins,
     /// The Journey catalog under `journeys/` (ADR 0063).
     Journeys {
         #[command(subcommand)]
@@ -179,6 +185,9 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
+    /// Fails on an upload of a job's outputs that does not follow a passing
+    /// `gitleaks` scan of what it uploads (ADR 0067).
+    OutputScans,
     /// The real OS services the tests meet: the extra loopback addresses and
     /// the Secret Service (ADR 0059).
     OsServices {
@@ -403,6 +412,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
+        Command::ImagePins => Ok(check::report(&image_pins::check(root)?)),
         Command::Journeys { command } => journeys::run(&command, environment),
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
@@ -410,6 +420,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Notices(arguments) => notices::run(&arguments, environment),
         Command::OsServices { command } => os_services::run(command, environment),
+        Command::OutputScans => Ok(check::report(&output_scans::check(root)?)),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),

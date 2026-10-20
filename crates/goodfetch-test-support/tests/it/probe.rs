@@ -3,9 +3,12 @@
 //! engine speaking its protocol. They are ignored, so they run only as those
 //! children.
 
+use std::path::Path;
 use std::time::Duration;
 
-use goodfetch_test_support::{ObservationLog, Operation, Record, Redacted, TestEnv};
+use goodfetch_test_support::{
+    JourneyRun, ObservationLog, Operation, Record, Redacted, TestEnv, Tool, tools,
+};
 
 #[test]
 #[ignore = "run as a child by seed::seed_line_is_printed_before_the_test_body_runs"]
@@ -65,4 +68,16 @@ fn fails_with_an_observation_log() {
     ));
 
     panic!("the probe fails on purpose");
+}
+
+#[test]
+#[ignore = "run as a child by journey_run::the_test_seed_variable_does_not_change_the_journeys_seed"]
+fn runs_journey_902() {
+    let journey =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/journey-run/J-902.toml");
+    let foxhound = tools().unwrap().path(Tool::Foxhound).unwrap().to_owned();
+    let run = JourneyRun::start_file(&journey, "cli", &foxhound, |facts: serde_json::Value| facts)
+        .unwrap();
+
+    let _finished = run.finish().unwrap();
 }

@@ -60,6 +60,12 @@ impl Attached {
         Some(message)
     }
 
+    /// Whether the engine writes nothing on its stdout for `quiet`; a
+    /// message written meanwhile is kept for the next read.
+    pub(crate) fn is_quiet_for(&mut self, quiet: std::time::Duration) -> bool {
+        self.stdout.is_quiet_for(quiet)
+    }
+
     /// Ends the input and waits for the engine to exit, returning whatever
     /// it still sent.
     pub(crate) fn finish(mut self) -> (Vec<Value>, bool) {
@@ -91,7 +97,7 @@ fn request(id: i64, method: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {} })
 }
 
-/// Covers: story:3-1, story:3-3
+/// Covers: story:3-1, story:3-3, command:attached-engine
 #[test]
 fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input() {
     let env = TestEnv::new();

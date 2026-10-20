@@ -12,10 +12,13 @@ autobenches = false
 
 [dependencies]
 chacha20.workspace = true
+# The Base64 of the page-body chunks `page.body` sends.
+data-encoding.workspace = true
 # Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
 flate2.workspace = true
 getrandom.workspace = true
 goodfetch-protocol.workspace = true
+hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 # The Browser cache's pinned downloads (ADR 0043): HTTPS GETs over HTTP/1.1.
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1"] }

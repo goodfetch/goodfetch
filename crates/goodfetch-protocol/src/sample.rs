@@ -11,9 +11,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric,
-    Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
-    SharedTypeValue, Stability, schema_of,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage,
+    Instrument, Metric, Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion,
+    Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -61,6 +61,7 @@ pub struct SampleStorePutResult {
 const SAMPLE_ECHOED: Event = Event {
     name: "sample.echoed",
     description: "A text was repeated.",
+    class: EventClass::Telemetry,
     payload: schema_of::<SampleEchoed>,
     stability: Stability::Experimental,
     deprecated: None,

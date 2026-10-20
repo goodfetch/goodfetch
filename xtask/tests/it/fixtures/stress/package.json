@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "link:.toolchain/@playwright/test",
+    "vitest": "link:.toolchain/vitest",
+    "web-support": "workspace:*"
+  }
+}

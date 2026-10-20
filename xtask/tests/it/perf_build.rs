@@ -67,3 +67,54 @@ fn base_measures_a_bench_target_the_head_renamed_in_a_selected_crate() {
         serde_json::json!(["goodfetch-frontier/counts"])
     );
 }
+
+/// Another worktree of the repository whose folder `xtask perf` cannot see
+/// (in its container, only the measured worktree is mounted) keeps its
+/// record: perf removes its own base tree and prunes nothing else.
+#[test]
+fn a_worktree_out_of_sight_keeps_its_record() {
+    let workspace = Workspace::from_fixture("empty");
+    crate_with_bench(&workspace, "instructions");
+    workspace.commit_all();
+    let other = tempfile::tempdir().unwrap();
+    let other_tree = other.path().join("other");
+    let hidden = other.path().join("hidden");
+    workspace.git(&[
+        "worktree",
+        "add",
+        "--quiet",
+        "--detach",
+        other_tree.to_str().unwrap(),
+    ]);
+    std::fs::rename(&other_tree, &hidden).unwrap();
+
+    let outcome = workspace.xtask(&["perf", "build", "--base", "HEAD"]);
+
+    std::fs::rename(&hidden, &other_tree).unwrap();
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let worktrees = workspace.git(&["worktree", "list", "--porcelain"]);
+    let other_tree = other_tree.canonicalize().unwrap();
+    assert!(
+        worktrees.lines().any(
+            |line| line.strip_prefix("worktree ").map(std::path::Path::new) == Some(&other_tree)
+        ),
+        "{worktrees}"
+    );
+}
+
+/// A base tree whose folder was deleted without Git (as the gate's
+/// worktree clears `target/` between gates) leaves a record behind; the
+/// next build checks the base out there again.
+#[test]
+fn a_base_tree_deleted_without_git_is_checked_out_again() {
+    let workspace = Workspace::from_fixture("empty");
+    crate_with_bench(&workspace, "instructions");
+    workspace.commit_all();
+    let first = workspace.xtask(&["perf", "build", "--base", "HEAD"]);
+    assert_eq!(first.code, 0, "{}", first.stderr);
+    workspace.remove_folder("target/perf");
+
+    let outcome = workspace.xtask(&["perf", "build", "--base", "HEAD"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}

@@ -1,7 +1,8 @@
 //! What test support reads from the process that runs a test (ADRs 0059 to
 //! 0062): the running test's name, the seed and its `GOODFETCH_TEST_SEED`
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
-//! manifest's path, and on Windows the variables a child needs to start.
+//! manifest's path, the folder Journey variants write their result documents
+//! into, and on Windows the variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
@@ -17,6 +18,10 @@ pub const SUITE_VARIABLE: &str = "GOODFETCH_TEST_SUITE";
 
 /// The path of the test tool manifest, which `just test` writes.
 pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
+
+/// The folder each Journey variant run writes its result document into,
+/// which `just test` sets; unset, a run writes it in the test's own folder.
+pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
 
 /// What Windows needs in a child's environment to start a process.
 pub(crate) const WINDOWS_VARIABLES: [&str; 3] = ["SystemRoot", "ComSpec", "PATHEXT"];
@@ -36,11 +41,16 @@ impl Variables {
     /// The variables of the running process that test support reads; one
     /// that is not Unicode counts as absent.
     pub fn from_process() -> Self {
-        [SEED_VARIABLE, SUITE_VARIABLE, TOOLS_VARIABLE]
-            .into_iter()
-            .chain(WINDOWS_VARIABLES)
-            .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)))
-            .collect()
+        [
+            SEED_VARIABLE,
+            SUITE_VARIABLE,
+            TOOLS_VARIABLE,
+            RESULT_DOCUMENTS_VARIABLE,
+        ]
+        .into_iter()
+        .chain(WINDOWS_VARIABLES)
+        .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)))
+        .collect()
     }
 
     /// One variable's value.

@@ -9,7 +9,7 @@
 //! The engine also sends the Client handler requests, such as a crawl's
 //! `crawl_request.handle`, each under an id of its own, and routes each
 //! reply back to its sender; the Connection's end fails those still
-//! waiting.
+//! waiting. A `$/credit` adds credits to the streaming call it names.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -18,6 +18,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams, StoppedBy,
 };
+use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{
     ErrorObject, Notification, ProtocolFailure, Request, RequestId, Version,
@@ -30,7 +31,8 @@ use tokio_util::sync::CancellationToken;
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::{failure_line, handshake, line, not_in_product, record, success_line};
 use crate::client::{Client, Outgoing};
-use crate::composition::{CallContext, CallError, Handler};
+use crate::composition::{CallContext, CallError, CallSetup, CallStream, Handler};
+use crate::events::{Credits, Events};
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -62,6 +64,7 @@ pub(crate) async fn serve(
     connection: Connection,
     owner: &TaskOwner,
     runs: Runs,
+    events: Events,
 ) {
     let (mut reader, writer) = connection.split();
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
@@ -79,6 +82,7 @@ pub(crate) async fn serve(
         opened: false,
         client,
         runs,
+        events,
         requests,
         pending: BTreeMap::new(),
         next_request: 0,
@@ -107,6 +111,7 @@ async fn write_lines(mut writer: ConnectionWriter, mut lines: mpsc::Receiver<Vec
 struct InFlight {
     token: CancellationToken,
     cancellable: bool,
+    credits: Credits,
 }
 
 /// Whether the Connection goes on after a message.
@@ -126,6 +131,7 @@ struct Session<'owner> {
     opened: bool,
     client: Client,
     runs: Runs,
+    events: Events,
     requests: mpsc::Receiver<Outgoing>,
     pending: BTreeMap<RequestId, Pending>,
     next_request: i64,
@@ -346,18 +352,26 @@ impl Session<'_> {
     fn call(&mut self, id: RequestId, handler: &Handler, params: Option<Value>) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
-        let context = CallContext::new(
-            Arc::clone(&self.dispatch.identity),
-            token.clone(),
-            self.client.clone(),
-            self.runs.clone(),
-        );
+        let credits = Credits::new();
+        let context = CallContext::new(CallSetup {
+            identity: Arc::clone(&self.dispatch.identity),
+            token: token.clone(),
+            client: self.client.clone(),
+            runs: self.runs.clone(),
+            events: self.events.clone(),
+            stream: CallStream {
+                id: id.clone(),
+                credits: credits.clone(),
+                outgoing: self.outgoing.clone(),
+            },
+        });
         let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
         self.in_flight.insert(
             id.clone(),
             InFlight {
                 token: token.clone(),
                 cancellable: operation.cancellable,
+                credits,
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
@@ -391,6 +405,10 @@ impl Session<'_> {
     }
 
     fn notification(&self, notification: &Notification) {
+        if notification.method == CREDIT {
+            self.credit(notification);
+            return;
+        }
         if notification.method != CANCEL {
             tracing::debug!(method = %notification.method, "an unknown notification is ignored");
             return;
@@ -405,6 +423,20 @@ impl Session<'_> {
                 }
             }
             Err(error) => tracing::debug!(%error, "a `$/cancel` without a call's id is ignored"),
+        }
+    }
+
+    /// Adds a `$/credit`'s credits to the call it names; one for a call no
+    /// longer in flight is ignored.
+    fn credit(&self, notification: &Notification) {
+        let params = notification.params.clone().unwrap_or(Value::Null);
+        match serde_json::from_value::<CreditParams>(params) {
+            Ok(CreditParams { id, credits }) => {
+                if let Some(call) = self.in_flight.get(&id) {
+                    call.credits.grant(credits);
+                }
+            }
+            Err(error) => tracing::debug!(%error, "a `$/credit` that is not one is ignored"),
         }
     }
 

@@ -9,7 +9,8 @@
 //! document's types those helpers write it with, in their `test-support/`
 //! packages. It also commits
 //! the JSON Schemas of `goodfetch-test-support`'s file types, which
-//! `goodfetch-test-env --print-schemas` prints (ADR 0062).
+//! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
+//! format's among the engine scripts (ADR 0069).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -27,6 +28,7 @@
 mod deny;
 mod digest;
 mod emitter;
+mod executables;
 mod helpers;
 mod layer;
 mod names;
@@ -300,7 +302,8 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
-    let foxhound_names = names::table(&catalog);
+    let command_lines = executables::command_lines(cargo, root)?;
+    let foxhound_names = names::table(&catalog, command_lines.as_ref());
     files.insert(
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
@@ -310,6 +313,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         catalog: &catalog,
         bundle: &bundle,
         foxhound_names: &foxhound_names,
+        command_lines: command_lines.as_ref(),
     };
     files.insert(
         features::INVENTORY.to_owned(),
@@ -340,14 +344,8 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         deny::render_collie(&collie_text, &crates).into_bytes(),
     );
 
-    for (name, schema) in test_support::schemas(cargo, root)? {
-        if name.contains(['/', '\\']) {
-            bail!("goodfetch-test-env printed a schema named {name}, which is no file name");
-        }
-        files.insert(
-            format!("{}/{name}", test_support::FOLDER),
-            json_text(&schema)?,
-        );
+    for (path, schema) in test_support::schemas(cargo, root)? {
+        files.insert(path, json_text(&schema)?);
     }
 
     files.insert(

@@ -8,12 +8,16 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
+mod body;
 pub mod browser_cache;
 pub mod client;
 pub mod clock;
 mod composition;
+pub mod dns;
 mod engine;
 pub mod entropy;
+pub mod events;
+pub mod executables;
 pub mod home;
 mod info;
 mod product;

@@ -1,0 +1,23 @@
+id = "J-902"
+title = "Read the catalog"
+goal = "A person reads the catalog's products. They MUST be the catalog's products."
+area = 6
+product = "foxhound"
+status = "active"
+covers = []
+
+[proving_ground]
+seed = 902
+tasks = [
+  { id = "catalog/1", digest = "0000000000000000000000000000000000000000000000000000000000000000" },
+]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Read the catalog from its first listing page"
+
+[[expect]]
+text = "The oracle verifies the catalog's Records"
+task = "catalog/1"

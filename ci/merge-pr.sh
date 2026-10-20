@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Merges a pull request on the local gate (AGENTS.md, "Merging"). GitHub
 # Actions is off, so no required check can block a merge: this command is the
-# lock instead. It runs `just quick all` and `just pre-merge all` in a fresh
-# worktree of the pull request's exact head, and merges only when both pass.
+# lock instead. It runs `just pre-merge all`, which starts with `just quick
+# all`'s lint and Quick suite, in a clean checkout of the pull request's
+# exact head, and merges only when it passes.
 set -euo pipefail
 
 number=${1:?usage: ci/merge-pr.sh <pull request number>}
@@ -33,25 +34,63 @@ if ! git merge-base --is-ancestor "origin/$base" "$head"; then
   exit 1
 fi
 
-# Locked, so a `git worktree prune` from another session cannot drop it while
-# the gate runs; beside the other worktrees, in the main checkout.
+# One worktree for every gate, at a fixed path beside the other worktrees in
+# the main checkout, so Cargo's fingerprints, sccache's keys and the perf
+# container's build volume, all keyed by absolute paths, still hold at the
+# next gate. Locked, so a `git worktree prune` from another session cannot
+# drop it, and held by one gate at a time through a lock folder.
 root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
-worktree="$root/.claude/worktrees/merge-$number-$$"
-remove_worktree() { git worktree remove --force --force "$worktree" >/dev/null 2>&1 || true; }
-trap remove_worktree EXIT
-git worktree add --quiet --lock --detach "$worktree" "$head"
+worktree="$root/.claude/worktrees/merge-gate"
+lock="$worktree.lock"
+if ! mkdir "$lock" 2>/dev/null; then
+  holder=$(cat "$lock/pid" 2>/dev/null || true)
+  if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
+    echo "error: another gate (process $holder) is running in $worktree; run the command again when it ends" >&2
+    exit 1
+  fi
+  # The gate that held it ended without releasing it.
+  rm -rf "$lock"
+  mkdir "$lock"
+fi
+echo "$$" >"$lock/pid"
+trap 'rm -rf "$lock"' EXIT
 
-echo "Running the local gate on #$number at $head"
+# The exact head and nothing else: tracked files as committed, every other
+# file removed but the build caches (`target/`, the Python environment and
+# the npm packages, which `just fetch` brings to the head's lockfiles), and
+# no step's output from an earlier gate in `target/`.
+if [[ -e "$worktree/.git" ]]; then
+  git -C "$worktree" checkout --quiet --force --detach "$head"
+  git -C "$worktree" clean -ffdxq -e /target/ -e /.venv/ -e node_modules/
+else
+  git worktree add --quiet --lock --detach "$worktree" "$head"
+fi
+shopt -s nullglob
+for entry in "$worktree"/target/*; do
+  case ${entry##*/} in
+    # Cargo's build folders (the profiles' and the MSRV's), the tests'
+    # temporary folder with its fixture builds, and the TLA+ tools, each
+    # checked against its pinned SHA-256 when used.
+    CACHEDIR.TAG | debug | release | ci-test | msrv | tmp | tla-tools) ;;
+    *) rm -rf "$entry" ;;
+  esac
+done
+shopt -u nullglob
+if [[ -n "$(git -C "$worktree" status --porcelain)" || $(git -C "$worktree" rev-parse HEAD) != "$head" ]]; then
+  echo "error: the gate's worktree $worktree is not a clean checkout of $head" >&2
+  exit 1
+fi
+
+echo "Running the local gate on #$number at $head in $worktree"
 (
   cd "$worktree"
   just fetch
-  just quick all
   just pre-merge all
 )
 
 gh pr merge "$number" --merge --match-head-commit "$head" \
   --subject "$title (#$number)" \
-  --body "Merged on the local gate: \`just quick all\` and \`just pre-merge all\` passed at $head.
+  --body "Merged on the local gate: \`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite, passed at $head.
 
 Signed-off-by: $(git config user.name) <$(git config user.email)>"
 echo "Merged #$number at $head"

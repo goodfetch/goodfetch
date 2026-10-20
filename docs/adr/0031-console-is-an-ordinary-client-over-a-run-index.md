@@ -35,6 +35,7 @@ Evidence from the competitor survey made for that ticket:
 
 **Events and reconnects.**
 - **Positions.** Every event carries a position that only goes up. The Console keeps one position per engine and resubscribes from it after a reconnect. When the engine no longer holds that position, it sends a fresh snapshot of the screen's state and continues from there.
+  > Note (agent decision, pending owner review; [#216](https://github.com/goodfetch/goodfetch/issues/216)): positions count from 1 in each engine process, telemetry events included. The engine keeps its last 4,096 lossless events, and `events.subscribe {after}` resumes after any position from the last one it no longer keeps to the last it gave. Any other position, older or ahead of it, starts the subscription with an `events.resync` event at a new position, whose `runs` give the axes of every Run the stream has reported, then the stream. A Daemon restarted under the same Connection address may give a position a Client already read again; the Daemon's ticket ([#220](https://github.com/goodfetch/goodfetch/issues/220)) decides whether its `hello` names the engine process so a Client resyncs.
 - **No loss.** Lossless events (records, axis changes, "Needs you" items) are never missed across a reconnect.
 - **Fallback.** Where a WebSocket cannot be opened, the Console falls back to Server-Sent Events plus `POST`, carrying the same messages.
 

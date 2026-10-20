@@ -37,8 +37,8 @@ struct Arguments {
     /// under `proving_ground`.
     #[arg(long, value_name = "SEED")]
     proving_ground: Option<u64>,
-    /// Prints the JSON Schemas of test support's file types, keyed by file
-    /// name, and starts nothing.
+    /// Prints the JSON Schemas of test support's file types, keyed by their
+    /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
     print_schemas: bool,
     /// Prints the Secret canaries' `gitleaks` rule, generated from their

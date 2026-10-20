@@ -6,10 +6,12 @@
 //! and in the Run index, returns the Run a start's Run ID already names, and
 //! ends each Run once, with its Run report: `finished` by `run.finish` or by
 //! its driver, `stopped` by an abort. Every axis change rewrites the Run's
-//! Run index row.
+//! Run index row, then is published as `run.axes_changed`, a lossless event
+//! that a full subscriber's queue makes wait (ADR 0024).
 //!
 //! A Run's driver, such as Foxhound's crawl, holds a [`Run`]: its run
-//! state's writer, its clock, its cancellation and its tasks.
+//! state's writer, its clock, its cancellation, its tasks and its page
+//! bodies.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -18,9 +20,10 @@ use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
+use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, PointInTime, RunId, RunIndexRow, RunKind, RunReport, RunStarted,
-    StartInput, StartedAs, StopReason, Tags, Verdict,
+    Completeness, Lifecycle, PointInTime, RunAxes, RunId, RunIndexRow, RunKind, RunReport,
+    RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
 };
 use rusqlite::Connection;
 use serde_json::Value;
@@ -31,8 +34,10 @@ use self::folder::{
     Found, LockError, RunRow, canonical_inputs, input_differences, point_in_time, read_found,
     read_report, take_lock, text,
 };
+use crate::body;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
+use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
 use crate::run_index;
 use crate::run_state::{RunState, RunStateOptions, RunStateTables};
@@ -67,6 +72,8 @@ pub(crate) struct RunsSetup {
     pub(crate) clock: Clock,
     /// The engine's entropy, from which Run IDs draw.
     pub(crate) entropy: Entropy,
+    /// The engine's event stream, which each axis change reaches.
+    pub(crate) events: Events,
 }
 
 /// Writes a new Run's first rows, beside the engine's own, in the
@@ -189,6 +196,7 @@ enum Command {
     Uses(RunId, Product),
     Ended(RunId, RunReport),
     StopAll(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
+    Folder(RunId, oneshot::Sender<PathBuf>),
 }
 
 /// The engine's Runs: a handle to its registry, which any task may clone.
@@ -201,6 +209,7 @@ pub struct Runs {
 #[derive(Clone)]
 pub struct Run {
     id: RunId,
+    folder: PathBuf,
     state: RunState,
     clock: Clock,
     owner: Arc<TaskOwner>,
@@ -267,6 +276,33 @@ impl Run {
             .commands
             .send(Command::End(self.id.clone(), end))
             .await;
+    }
+
+    /// Stores `bytes` as one of the Run's page bodies, a file in its folder
+    /// named by their digest, and answers its handle, which a Client on the
+    /// same machine reads directly and any other through `page.body`.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a temporary file beside the bodies,
+    /// never a partial body.
+    pub async fn store_body(&self, bytes: Vec<u8>) -> std::io::Result<BodyHandle> {
+        let folder = self.folder.clone();
+        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let (body, file) = self
+            .owner
+            .blocking(move || body::store(&folder, &bytes))
+            .await?;
+        Ok(BodyHandle {
+            run_id: self.id.clone(),
+            body,
+            path: file.display().to_string(),
+            size,
+        })
     }
 
     /// Records that the Run uses an entry of `product`'s, so that from now
@@ -364,6 +400,24 @@ impl Runs {
             .map_err(|_| RunError::Stopped)?;
         let report = answered.await.map_err(|_| RunError::Stopped)??;
         wait_for(report).await
+    }
+
+    /// The folder of the Run `run_id`, whether or not it exists.
+    ///
+    /// # Errors
+    ///
+    /// `Stopped` when the registry has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub(crate) async fn folder(&self, run_id: RunId) -> Result<PathBuf, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Folder(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        answered.await.map_err(|_| RunError::Stopped)
     }
 
     /// Stops every live Run as aborted by its Client, as an Attached engine
@@ -464,6 +518,9 @@ impl Registry {
                         }
                     }
                     let _ = answer.send(reports);
+                }
+                Command::Folder(run_id, answer) => {
+                    let _ = answer.send(self.folder(&run_id));
                 }
             }
         }
@@ -637,6 +694,7 @@ impl Registry {
             id: run_id.clone(),
             run: Some(Run {
                 id: run_id.clone(),
+                folder: folder.clone(),
                 state,
                 clock: self.setup.clock,
                 owner: Arc::new(self.owner.child()),
@@ -661,7 +719,16 @@ impl Registry {
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
         let run = live.run.clone().expect("invariant: a Run begins live");
-        self.live.insert(run_id, live);
+        self.live.insert(run_id.clone(), live);
+        self.setup
+            .events
+            .publish_axes(RunAxes {
+                run_id,
+                lifecycle: Lifecycle::Running,
+                verdict: None,
+                completeness: None,
+            })
+            .await;
         Ok(Started::New(run))
     }
 
@@ -738,6 +805,7 @@ impl Registry {
             };
             let index = self.setup.home.run_index(&self.setup.version);
             let registry = self.runs.clone();
+            let events = self.setup.events.clone();
             let run_id = run_id.clone();
             self.ending_owner.spawn(async move {
                 let report = closing.end().await;
@@ -751,6 +819,14 @@ impl Registry {
                 if let Err(error) = run_index::write(&index, &ended) {
                     tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
                 }
+                events
+                    .publish_axes(RunAxes {
+                        run_id: run_id.clone(),
+                        lifecycle: report.lifecycle,
+                        verdict: Some(report.verdict),
+                        completeness: Some(report.completeness),
+                    })
+                    .await;
                 if let Some(registry) = registry.upgrade() {
                     let _ = registry.send(Command::Ended(run_id, report)).await;
                 }

@@ -92,6 +92,8 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
   - Every reader of result documents (the catalog report, the coverage check, the release gate) loads them through a Rust reader in `goodfetch-protocol` that recomputes the outcome and rejects a document whose stored outcome disagrees. A helper that writes `proved` beside a `false_success` answer fails CI there.
   - Those readers also compare each `journey` document with its Journey and reject one whose steps, checks and named Proving ground tasks are not exactly the Journey's. A helper that leaves a failed or unreached step out of the document therefore fails CI too.
 
+  > Agent decision, pending owner review (#350, 2026-10-20): the Rust helper, `goodfetch-test-support`'s `JourneyRun`, adds `check(wording, body)` for a check that names no task, and `expect_task(task, submission)` submits the tool's result to the variant's Proving ground's oracle and records the answer and each check naming the task. A `foxhound-cli` variant in Collie's executable crate takes Foxhound's executable from the test tool manifest (`tools()`'s `foxhound` entry), since Collie's crate takes no Foxhound crate. The executable's Product and version in the document are those its `--version` reports. Each run writes `<id>@<surface>.json` into the folder `GOODFETCH_TEST_RESULT_DOCUMENTS` names, which `just test` sets to `target/result-documents/`, else into the test's own folder. `TESTING.md`, Journeys, has the rules.
+
 ### The catalog check and report
 
 The "Test infrastructure" spec builds them. The check fails when:

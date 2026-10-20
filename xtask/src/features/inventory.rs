@@ -9,9 +9,10 @@ use anyhow::Result;
 use goodfetch_protocol::catalog::Product;
 use serde_json::Value;
 
-use super::entry::unreadable;
+use super::command::CommandLines;
+use super::entry::{Carriers, unreadable};
 use super::files::{self, AreasFile, Feature, Inventory};
-use super::{contract, format, row, story};
+use super::{block_cause, command, contract, format, row, screen, story};
 
 /// ADR 0087's generated table of the names only Foxhound carries, by catalog
 /// section.
@@ -27,6 +28,9 @@ pub(crate) struct Sources<'a> {
     pub(crate) bundle: &'a Value,
     /// The names only Foxhound carries.
     pub(crate) foxhound_names: &'a FoxhoundNames,
+    /// Both executables' command lines; none when the workspace has no
+    /// executable crate.
+    pub(crate) command_lines: Option<&'a CommandLines>,
 }
 
 pub(crate) fn generate(sources: &Sources<'_>) -> Result<Inventory> {
@@ -36,6 +40,9 @@ pub(crate) fn generate(sources: &Sources<'_>) -> Result<Inventory> {
     entries.extend(row::entries(sources.root)?);
     entries.extend(contract::entries(sources.catalog));
     entries.extend(format::entries(sources.bundle));
+    entries.extend(command::entries(sources.command_lines));
+    entries.extend(screen::entries(sources.root)?);
+    entries.extend(block_cause::entries(sources.catalog));
     let mut features: Vec<Feature> = entries
         .into_iter()
         .map(|entry| {
@@ -45,12 +52,14 @@ pub(crate) fn generate(sources: &Sources<'_>) -> Result<Inventory> {
                     [area] => Some(area),
                     _ => None,
                 });
-            let foxhound_only = entry.section.is_some_and(|section| {
-                sources
+            let foxhound_only = match entry.carriers {
+                Carriers::Both => false,
+                Carriers::Foxhound => true,
+                Carriers::Table(section) => sources
                     .foxhound_names
                     .get(section)
-                    .is_some_and(|names| names.contains(&entry.name))
-            });
+                    .is_some_and(|names| names.contains(&entry.name)),
+            };
             Feature {
                 id: format!("{}:{}", entry.kind, entry.name),
                 kind: entry.kind,

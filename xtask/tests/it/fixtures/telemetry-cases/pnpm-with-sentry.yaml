@@ -1,0 +1,13 @@
+---
+lockfileVersion: "9.0"
+
+importers:
+  console/app:
+    dependencies:
+      "@sentry/react":
+        specifier: 10.0.0
+        version: 10.0.0
+
+packages:
+  "@sentry/react@10.0.0":
+    resolution: { integrity: sha512-DDDD }

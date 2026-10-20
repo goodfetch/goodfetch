@@ -29,11 +29,12 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::json;
 
+use crate::pinned_download::{Digest, Fetching};
+
 use super::{
     Arch, BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_FOR_TESTING,
-    CacheError, CacheLocation, CleanUp, Digest, Fetching, InstalledExecutable, MaxUnusedAge, Os,
-    PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest, installed_browser,
-    kept_artifacts,
+    CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge, Os, PinnedArtifact,
+    Platform, PlatformNotice, browser_source, content_digest, installed_browser, kept_artifacts,
 };
 
 /// The digest of [`build_files`]'s tree, worked out by hand from the rule
@@ -236,11 +237,11 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
     };
     assert_eq!(details.artifact, id);
     assert_eq!(details.pinned_by, pinned_by());
-    assert_eq!(details.limit.key, "offline");
+    assert_eq!(details.limit.key, "egress.offline");
     assert_eq!(details.limit.layer, SettingsLayer::UserConfiguration);
     assert_eq!(
         details.fix,
-        "Run `goodfetch-collie browsers install` beforehand where the Browser cache is writable, or lift `offline` where it was set"
+        "Run `goodfetch-collie browsers install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
     );
 }
 

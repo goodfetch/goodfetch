@@ -13,76 +13,14 @@
     reason = "the digest reads files on the tasks module's blocking policy, never on an async worker"
 )]
 
-use std::fmt;
 use std::fs;
 use std::io::{self, Read as _};
 use std::path::Path;
-use std::str::FromStr;
 
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
 use sha2::{Digest as _, Sha256};
 
-/// A SHA-256 digest, written `sha256:<hex>`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Digest([u8; 32]);
-
-impl Digest {
-    /// The digest of `bytes`.
-    pub fn of(bytes: &[u8]) -> Self {
-        Self(Sha256::digest(bytes).into())
-    }
-
-    pub(super) fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    fn from_hasher(hasher: Sha256) -> Self {
-        Self(hasher.finalize().into())
-    }
-}
-
-impl fmt::Display for Digest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("sha256:")?;
-        for byte in self.0 {
-            write!(formatter, "{byte:02x}")?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Debug for Digest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, formatter)
-    }
-}
-
-/// Text that is no `sha256:<hex>` digest.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("`{0}` is no digest `sha256:<64 lowercase hex digits>`")]
-pub struct MalformedDigest(String);
-
-impl FromStr for Digest {
-    type Err = MalformedDigest;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let malformed = || MalformedDigest(text.to_owned());
-        let hex = text.strip_prefix("sha256:").ok_or_else(malformed)?;
-        if hex.len() != 64
-            || !hex
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-        {
-            return Err(malformed());
-        }
-        let mut bytes = [0; 32];
-        for (index, byte) in bytes.iter_mut().enumerate() {
-            *byte =
-                u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).map_err(|_| malformed())?;
-        }
-        Ok(Self(bytes))
-    }
-}
+use crate::pinned_download::Digest;
 
 /// The platform a build runs on, where it is built for one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -154,7 +92,7 @@ pub fn content_digest(root: &Path) -> io::Result<Digest> {
     for (relative, kind, digest) in files {
         tree.update(relative.as_bytes());
         tree.update([0, kind, 0]);
-        tree.update(digest.0);
+        tree.update(digest.as_bytes());
         tree.update(b"\n");
     }
     Ok(Digest::from_hasher(tree))

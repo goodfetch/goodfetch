@@ -74,8 +74,12 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-quick-pull-request-linux-x64-1
@@ -166,8 +170,12 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-pre-merge-pull-request-linux-x64-1
@@ -236,10 +244,14 @@ jobs:
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/
       # gungraun's and size-limit's reports (target/junit/perf/) and the
       # head's figures (perf-figures.json) go with the JUnit files.
       - name: Upload the JUnit files and the performance reports
-        if: always()
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-perf-pull-request-linux-x64-1
@@ -339,15 +351,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-visual-pull-request-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Upload the expected, actual and diff images
-        if: failure()
+        if: failure() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: visual-differences-pull-request
@@ -363,8 +379,11 @@ jobs:
   # build, cargo-hack over each Product's SDK crate, Miri on opted-in
   # `unsafe`, the DCO sign-off and the Conventional Commits subject of every
   # commit the pull request adds, and the third-party notice inventory's
-  # license check over every ecosystem and declared input (#137). cargo-deny's licenses, bans, sources and the
-  # boundary checks run in the Quick job's lints.
+  # license check over every ecosystem and declared input (#137); and two of
+  # ADR 0067's security parts of the Pre-merge suite, gitleaks over those
+  # commits and `cargo fuzz check` (#317). cargo-deny's licenses, bans,
+  # sources and the boundary checks, the image digest pins and the secret
+  # scan before every upload run in the Quick job's lints.
   # The audits read public advisory databases, so they run before the egress
   # deny; Miri runs tests, so it runs under it (ci/egress/endpoints.toml).
   supply-chain:
@@ -389,6 +408,16 @@ jobs:
         run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
       - name: Check every commit's message
         run: ci/vm/exec.sh just commit-messages HEAD^1 HEAD^2
+      # gitleaks over the commits the pull request adds, while the repository
+      # is private; GitHub secret scanning and push protection take over once
+      # it is public (ADR 0067; .github/security-settings.md).
+      - name: Scan every commit for secrets
+        if: github.event.repository.private
+        run: ci/vm/exec.sh just commit-leaks HEAD^1 HEAD^2
+      # Every fuzz target still builds with fuzzing's flags; nothing fuzzes
+      # in a pull request (ADR 0067).
+      - name: Check every fuzz target with cargo fuzz check
+        run: ci/vm/exec.sh just fuzz-check
       - name: Audit the locked dependencies
         run: ci/vm/exec.sh just audit
       - name: Build on the MSRV

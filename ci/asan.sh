@@ -99,7 +99,9 @@ case "${1:-}" in
     # the tests of an OS service it lacks are skipped (ci/os-services.sh).
     skips=()
     while IFS=$'\t' read -r runner argument; do
-      [[ "$runner" == nextest ]] && skips+=("$argument")
+      case "$runner" in
+        nextest) skips+=("$argument") ;;
+      esac
     done < <(cargo run --quiet -p xtask -- quarantine exclude)
     services=$(ci/os-services.sh skipped target/skipped.txt)
     if [[ -n "$services" ]]; then

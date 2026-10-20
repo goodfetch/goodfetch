@@ -1,0 +1,2 @@
+{"test":"sample::it installs_with_its_exit_code"}
+{"fields":{"command":"browsers install","exit_code":12},"target":"goodfetch::test::command"}

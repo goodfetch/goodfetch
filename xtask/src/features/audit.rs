@@ -1,0 +1,274 @@
+//! The exercise audit (ADR 0072): a Rust test that declares an
+//! `operation:`, `error:`, `event:`, `command:` or `exit:` Feature must have
+//! reached it while it ran, so a declaration never claims what the test
+//! passed by. What a test reached is its exercise record, which test support
+//! writes under `just test`: one JSON-lines file per test, whose first line
+//! is `{"test": "<binary id> <test name>"}` and whose other lines are
+//! `tracing`'s JSON log lines, `{"target": …, "fields": {…}, …}`:
+//! - `rpc`'s dispatch records (target [`DISPATCH_TARGET`]), copied from the
+//!   engine's JSON log in the test's Goodfetch home or written by the test
+//!   `tracing` subscriber of an in-process test: each request's `method`, its
+//!   reply's `error_code`, and each `event` sent to a Client;
+//! - the command records of test support's CLI helper (target
+//!   [`COMMAND_TARGET`]): each `command` path and its `exit_code`, which the
+//!   catalog's `exit_codes` table names.
+//!
+//! A declaring test with no record is reported, never passed. The one
+//! exception is ADR 0072's: a unit test that never reaches `rpc` may declare
+//! the `error:` or `event:` Feature it asserts itself, which no record shows.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context as _, Result};
+use serde_json::Value;
+
+use super::scan::{Declaration, Level, Source};
+use crate::check::Finding;
+use crate::junit;
+
+/// The `tracing` target of `rpc`'s dispatch records.
+pub(crate) const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
+
+/// The target of test support's command records.
+pub(crate) const COMMAND_TARGET: &str = "goodfetch::test::command";
+
+/// The catalog file `xtask codegen` emits, whose `exit_codes` name each
+/// exit code.
+const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
+
+/// The Feature kinds a record can show.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Operation,
+    Error,
+    Event,
+    Command,
+    Exit,
+}
+
+impl Kind {
+    fn of(feature: &str) -> Option<(Self, &str)> {
+        let (kind, name) = feature.split_once(':')?;
+        let kind = match kind {
+            "operation" => Self::Operation,
+            "error" => Self::Error,
+            "event" => Self::Event,
+            "command" => Self::Command,
+            "exit" => Self::Exit,
+            _ => return None,
+        };
+        Some((kind, name))
+    }
+}
+
+/// What one test's records show it reached.
+#[derive(Default)]
+struct Reached {
+    methods: BTreeSet<String>,
+    error_codes: BTreeSet<String>,
+    events: BTreeSet<String>,
+    commands: BTreeSet<String>,
+    exit_codes: BTreeSet<u64>,
+    /// Whether any dispatch record shows the test reached `rpc`.
+    dispatched: bool,
+}
+
+impl Reached {
+    fn add(&mut self, line: &Value) {
+        let fields = &line["fields"];
+        let text = |name: &str| fields[name].as_str().map(ToOwned::to_owned);
+        match line["target"].as_str() {
+            Some(DISPATCH_TARGET) => {
+                self.dispatched = true;
+                self.methods.extend(text("method"));
+                self.error_codes.extend(text("error_code"));
+                self.events.extend(text("event"));
+            }
+            Some(COMMAND_TARGET) => {
+                self.commands.extend(text("command"));
+                self.exit_codes.extend(fields["exit_code"].as_u64());
+            }
+            _ => {}
+        }
+    }
+
+    fn holds(&self, kind: Kind, name: &str, exit_codes: &BTreeMap<String, u64>) -> bool {
+        match kind {
+            Kind::Operation => self.methods.contains(name),
+            Kind::Error => self.error_codes.contains(name),
+            Kind::Event => self.events.contains(name),
+            Kind::Command => self.commands.contains(name),
+            Kind::Exit => exit_codes
+                .get(name)
+                .is_some_and(|code| self.exit_codes.contains(code)),
+        }
+    }
+}
+
+/// The findings of the audit of `declarations` against the records in
+/// `records`, over the tests in `ran` or, without it, over every declaring
+/// test.
+pub(crate) fn audit(
+    root: &Path,
+    declarations: &[Declaration],
+    records: &Path,
+    ran: Option<&BTreeSet<String>>,
+) -> Result<Vec<Finding>> {
+    let mut findings = Vec::new();
+    let reached = read_records(root, records, &mut findings)?;
+    let exit_codes = exit_codes(root)?;
+    let mut by_test: BTreeMap<&str, Vec<(&Declaration, Kind, &str)>> = BTreeMap::new();
+    for declaration in declarations {
+        if declaration.source != Source::Nextest
+            || ran.is_some_and(|ran| !ran.contains(&declaration.test))
+        {
+            continue;
+        }
+        let Some((kind, name)) = Kind::of(&declaration.feature) else {
+            continue;
+        };
+        let record = reached.get(declaration.test.as_str());
+        // ADR 0072: a unit test that never reaches `rpc` asserts its own
+        // Error code or event, which only the review sees.
+        let outside_rpc = declaration.level == Level::Unit
+            && matches!(kind, Kind::Error | Kind::Event)
+            && !record.is_some_and(|record| record.dispatched);
+        if !outside_rpc {
+            by_test
+                .entry(declaration.test.as_str())
+                .or_default()
+                .push((declaration, kind, name));
+        }
+    }
+    for (test, audited) in by_test {
+        let Some(record) = reached.get(test) else {
+            let features: Vec<&str> = audited
+                .iter()
+                .map(|(declaration, ..)| declaration.feature.as_str())
+                .collect();
+            findings.push(Finding::new(
+                "record-missing",
+                test,
+                format!(
+                    "the test declares {} but left no exercise record; run it through `just test`",
+                    features.join(", ")
+                ),
+            ));
+            continue;
+        };
+        for (declaration, kind, name) in audited {
+            if !record.holds(kind, name, &exit_codes) {
+                findings.push(Finding::new(
+                    "unreached",
+                    format!("{} in {test}", declaration.feature),
+                    "the test declares it, but its exercise record never shows it reached",
+                ));
+            }
+        }
+    }
+    Ok(findings)
+}
+
+/// Every test's records in the folder, by test; a file that is no record is
+/// a finding.
+fn read_records(
+    root: &Path,
+    folder: &Path,
+    findings: &mut Vec<Finding>,
+) -> Result<BTreeMap<String, Reached>> {
+    let mut reached: BTreeMap<String, Reached> = BTreeMap::new();
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Ok(reached);
+    };
+    let mut files: Vec<_> = entries
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<_, _>>()
+        .with_context(|| format!("listing {}", folder.display()))?;
+    files.retain(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "jsonl")
+    });
+    files.sort();
+    for path in files {
+        let contents = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let shown = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let mut lines = contents
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(serde_json::from_str::<Value>);
+        let test = lines
+            .next()
+            .and_then(Result::ok)
+            .and_then(|first| first["test"].as_str().map(ToOwned::to_owned));
+        let Some(test) = test else {
+            findings.push(Finding::new(
+                "record-unreadable",
+                shown,
+                "an exercise record's first line names its test, as `{\"test\": \"<binary id> <test name>\"}`",
+            ));
+            continue;
+        };
+        let record = reached.entry(test).or_default();
+        let mut unreadable = false;
+        for line in lines {
+            match line {
+                Ok(line) => record.add(&line),
+                Err(_) => unreadable = true,
+            }
+        }
+        if unreadable {
+            findings.push(Finding::new(
+                "record-unreadable",
+                shown,
+                "an exercise record holds JSON lines only",
+            ));
+        }
+    }
+    Ok(reached)
+}
+
+/// The catalog's exit codes by name; none when the catalog has no table.
+fn exit_codes(root: &Path) -> Result<BTreeMap<String, u64>> {
+    let path = root.join(CATALOG);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(BTreeMap::new());
+    };
+    let catalog: Value =
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    Ok(catalog["exit_codes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| Some((entry["name"].as_str()?.to_owned(), entry["code"].as_u64()?)))
+        .collect())
+}
+
+/// The tests nextest's JUnit files show ran, passed or failed.
+pub(crate) fn tests_that_ran(root: &Path, files: &[PathBuf]) -> Result<BTreeSet<String>> {
+    let mut ran = BTreeSet::new();
+    for file in files {
+        let path = root.join(file);
+        let contents = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let cases = junit::test_cases("nextest", &contents)
+            .with_context(|| format!("reading {}", path.display()))?;
+        ran.extend(
+            cases
+                .into_iter()
+                .filter(|case| case.ending != junit::Ending::Skipped)
+                .map(|case| case.test),
+        );
+    }
+    Ok(ran)
+}

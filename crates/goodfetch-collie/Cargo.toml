@@ -36,6 +36,10 @@ tracing-subscriber = { workspace = true, optional = true, features = ["env-filte
 goodfetch-collie = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+insta.workspace = true
+# `config explain --json` is validated against its schema in the bundle (TESTING.md, CLI).
+jsonschema.workspace = true
+rstest.workspace = true
 # The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs).
 rusqlite.workspace = true
 serde_json.workspace = true

@@ -2,8 +2,13 @@
 //! line, which Foxhound's executable keeps with its names, flags and exit
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
-//! entry, which an SDK starts, and `browsers install` and `browsers clean`;
-//! the CLI's other commands join with area 11.
+//! entry, which an SDK starts, `browsers install`, `browsers clean` and
+//! `config explain`; the CLI's other commands join with area 11.
+//!
+//! `main` reads the environment once and passes the map (ADR 0059); every
+//! `GOODFETCH_` variable in it must be a deployment variable, or the
+//! executable stops with `setting_unknown` or `setting_invalid` before any
+//! command runs (ADR 0083).
 //!
 //! Logs go to stderr through the `tracing` subscriber, filtered by
 //! `GOODFETCH_LOG` in `EnvFilter`'s syntax (`info` when unset); stdout is
@@ -23,6 +28,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::settings::{check_environment, deployment_variable};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::Network;
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
@@ -31,6 +37,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 
 mod browsers;
+mod config;
 mod output;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
@@ -57,6 +64,33 @@ enum Command {
     Browsers {
         #[command(subcommand)]
         command: BrowsersCommand,
+    },
+    /// Shows the settings and where each value comes from.
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Shows each effective setting, the layer that set it and the layer
+    /// that locked it: the built-in default, the Operator policy, user
+    /// configuration, the project configuration or these flags.
+    Explain {
+        /// Keys, or prefixes of keys such as `timeout`, to show; every key
+        /// when none.
+        keys: Vec<String>,
+        /// Sets a run value, as `key=value`; repeatable.
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set: Vec<String>,
+        /// Reads this project configuration instead of the `goodfetch.toml`
+        /// found from the working folder upward.
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -142,6 +176,10 @@ pub fn main(start: &Start) -> ExitCode {
         }
     };
     log_to_stderr(start.environment.get(OsStr::new(LOG_VARIABLE)));
+    if let Err(error) = check_environment(&start.environment) {
+        tracing::error!(code = error.code(), "{error}");
+        return ExitCode::FAILURE;
+    }
     let Ok(product_version) = ProductVersion::parse(start.version) else {
         tracing::error!(
             version = start.version,
@@ -194,15 +232,52 @@ pub fn main(start: &Start) -> ExitCode {
         Command::Browsers {
             command: BrowsersCommand::Clean { dry_run, json },
         } => browsers::clean(pinned_by, &start.environment, dry_run, json),
+        Command::Config {
+            command:
+                ConfigCommand::Explain {
+                    keys,
+                    set,
+                    project,
+                    json,
+                },
+        } => config_explain(&engine, &dependencies.home, keys, set, project, json),
     }
+}
+
+/// `config explain`, from the working folder.
+fn config_explain(
+    engine: &Engine,
+    home: &Home,
+    keys: Vec<String>,
+    set: Vec<String>,
+    project: Option<std::path::PathBuf>,
+    json: bool,
+) -> ExitCode {
+    let Ok(folder) = std::env::current_dir() else {
+        tracing::error!("the working folder cannot be read");
+        return ExitCode::FAILURE;
+    };
+    let identity = engine.identity();
+    config::explain(
+        identity.product,
+        &identity.product_version,
+        home,
+        &config::Explain {
+            keys,
+            set,
+            project,
+            folder,
+            json,
+        },
+    )
 }
 
 /// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`
 /// folder of the OS's usual data folder otherwise.
 fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
-    match environment.get(OsStr::new(HOME_VARIABLE)) {
-        Some(home) if !home.is_empty() => Some(Home::new(home.into())),
-        _ => dirs::data_dir().map(|data| Home::new(data.join("goodfetch"))),
+    match deployment_variable(environment, HOME_VARIABLE) {
+        Some(home) => Some(Home::new(home.into())),
+        None => dirs::data_dir().map(|data| Home::new(data.join("goodfetch"))),
     }
 }
 

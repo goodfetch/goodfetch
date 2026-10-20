@@ -7,6 +7,10 @@
     clippy::disallowed_methods,
     reason = "the tests lay out cache entries by hand, as a prepared GOODFETCH_BROWSERS_PATH copy holds them"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -105,6 +109,30 @@ fn browsers_clean_deletes_what_nothing_pins_or_used_within_the_age() {
     );
     assert!(!unused.exists());
     assert!(recent.join("entry.json").exists());
+}
+
+/// `browser_cache.max_unused_age` set in user configuration reaches the
+/// clean-up: a build unused since 2020 is kept under an age of about 300
+/// years (ADR 0098).
+///
+/// Covers: story:3-136, setting:browser_cache.max_unused_age
+#[test]
+fn browsers_clean_keeps_what_was_used_within_the_age_user_configuration_sets() {
+    let env = TestEnv::new();
+    let cache = env.home().join("browsers");
+    let unused = lay_out(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
+    fs::create_dir_all(env.home().join("0.0")).unwrap();
+    fs::write(
+        env.home().join("0.0").join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings.browser_cache]\nmax_unused_age = 9999999999999\n",
+    )
+    .unwrap();
+
+    let output = run(&env, &["browsers", "clean", "--json"], &[]);
+
+    let output: BrowsersCleanOutput = serde_json::from_value(output).unwrap();
+    assert_eq!(output.deleted, Vec::new());
+    assert!(unused.join("entry.json").exists());
 }
 
 /// Covers: row:SDK-08

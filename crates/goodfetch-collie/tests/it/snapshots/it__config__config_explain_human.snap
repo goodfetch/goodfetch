@@ -1,0 +1,9 @@
+---
+source: crates/goodfetch-collie/tests/it/config.rs
+expression: stdout
+---
+crawl.retry.max = 5  (user_configuration, Foxhound's, not applied)
+network.resolve = {"staging.example":["127.0.0.1"]}  (operator_policy, locked by operator_policy)
+timeout.first_byte = 10000  (project_configuration)
+timeout.navigation = 60000  (project_configuration)
+timeout.run = null  (default)

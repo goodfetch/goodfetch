@@ -198,8 +198,9 @@ pub struct Start {
     pub product: Product,
     /// Its Product version, its crate's `CARGO_PKG_VERSION`.
     pub version: &'static str,
-    /// Its composition.
-    pub composition: Composition,
+    /// Builds its composition, which [`main`] calls only once a command
+    /// starts the engine, so `--version` and the help never build it.
+    pub composition: fn() -> Composition,
     /// Its command line, as the OS gave it.
     pub arguments: Vec<OsString>,
     /// Its environment, which `main` reads once (ADR 0059).
@@ -217,7 +218,7 @@ pub struct Start {
 /// let exit_code = main(&Start {
 ///     product: Product::Collie,
 ///     version: env!("CARGO_PKG_VERSION"),
-///     composition: goodfetch_collie::composition(),
+///     composition: goodfetch_collie::composition,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
 /// });
@@ -279,7 +280,7 @@ pub fn main(start: &Start) -> ExitCode {
         // pipeline (area 1); until then every executable is a source build.
         channel: Channel::CratesIo,
     };
-    let engine = match Engine::new(identity, &start.composition) {
+    let engine = match Engine::new(identity, &(start.composition)()) {
         Ok(engine) => engine,
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");

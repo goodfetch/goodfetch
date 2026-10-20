@@ -177,7 +177,8 @@ pub(super) fn engine() -> Engine {
 
 /// Runs the engine on the `Dependencies` that `dependencies` makes on the
 /// runtime while `talk` drives its Client from `hello` on, then closes the
-/// Connection.
+/// Connection. The test `tracing` subscriber, timed by their `Clock`, writes
+/// the dispatch records into the test's exercise record (ADR 0072).
 pub(super) fn crawl<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
@@ -185,6 +186,11 @@ pub(super) fn crawl<T>(
     let engine = engine();
     goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
+        let clock = dependencies.clock;
+        let _subscriber =
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }));
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();
@@ -419,7 +425,7 @@ fn a_handlers_own_failure_commits_nothing_and_is_not_retried() {
 /// A handler that never answers loses its lease; the work item is tried
 /// again, and the late answer of the lost attempt commits nothing.
 ///
-/// Covers: story:3-41, error:handler_lost
+/// Covers: story:3-41
 #[test]
 fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_nothing() {
     let env = TestEnv::new();
@@ -454,6 +460,48 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
         (
             vec![("pages".to_owned(), 1, "1".to_owned(), json!("on time"))],
             vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
+        )
+    );
+}
+
+/// A handler that never answers any attempt fails its work item with
+/// `handler_lost` once `crawl.retry.max`'s 2 retries are spent. The Error
+/// code is the work item's, never a reply's, so the run file shows it.
+///
+/// Covers: error:handler_lost
+#[test]
+fn a_handler_that_never_answers_any_attempt_fails_its_work_item_with_handler_lost() {
+    let env = TestEnv::new();
+
+    crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "gone", "seeds": seeds(1) }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            client
+                .call("run.finish", json!({ "run_id": "gone" }), &mut |_| {
+                    Reply::Silent
+                })
+                .await
+        },
+    );
+
+    let file = run_file(&env, "gone");
+    assert_eq!(
+        (records(&file), work_items(&file)),
+        (
+            Vec::new(),
+            vec![(
+                "1".to_owned(),
+                "failed".to_owned(),
+                3,
+                Some("handler_lost".to_owned())
+            )],
         )
     );
 }

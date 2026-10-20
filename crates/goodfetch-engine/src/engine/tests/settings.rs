@@ -161,7 +161,7 @@ fn browser_cache_max_unused_age_in_a_runs_settings_is_not_applicable() {
     );
 }
 
-/// Covers: story:3-86, error:setting_unknown, error:setting_invalid
+/// Covers: story:3-86, error:setting_unknown
 #[test]
 fn a_user_configuration_that_does_not_read_refuses_the_run_with_its_error_code() {
     let env = TestEnv::new();

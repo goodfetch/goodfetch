@@ -6,13 +6,13 @@
 
 use rstest::rstest;
 
-use crate::workspace::{Workspace, finding};
+use crate::workspace::{Outcome, Workspace, finding};
 
 /// The fixture's exercise records, as `just test` leaves them.
 const RECORDS: &str = "records";
 
 /// Audits the fixture's records.
-fn audit(workspace: &Workspace, more: &[&str]) -> crate::workspace::Outcome {
+fn audit(workspace: &Workspace, more: &[&str]) -> Outcome {
     let mut args = vec!["features", "audit", "--records", RECORDS];
     args.extend(more);
     workspace.xtask(&args)
@@ -94,10 +94,61 @@ fn audit_reports_a_command_whose_arguments_match_no_command_feature() {
     );
 }
 
+#[test]
+fn audit_judges_the_error_code_and_event_of_a_test_once_it_reaches_rpc() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.append(
+        "records/sample-it-refuses_a_text_the_stand_in_rejects.jsonl",
+        "{\"fields\":{\"message\":\"request answered\",\"method\":\"hello\"},\"target\":\"goodfetch::rpc::dispatch\"}\n",
+    );
+
+    let outcome = audit(&workspace, &[]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding(
+                "unreached",
+                "error:sample_refused in sample::it refuses_a_text_the_stand_in_rejects"
+            ),
+            finding(
+                "unreached",
+                "event:sample.echoed in sample::it refuses_a_text_the_stand_in_rejects"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn audit_over_the_tests_that_ran_fails_one_that_never_reached_its_feature() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.edit(
+        "records/sample-it-calls_echo_then_crawl.jsonl",
+        r#""method":"sample.crawl""#,
+        r#""method":"sample.echo""#,
+    );
+
+    let outcome = audit(&workspace, &["--junit", "junit/nextest.xml"]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unreached",
+            "operation:sample.crawl in sample::it calls_echo_then_crawl"
+        )]
+    );
+}
+
 #[rstest]
 #[case::integration_test(
     "records/sample-it-gets_the_refusal.jsonl",
     "sample::it gets_the_refusal"
+)]
+#[case::integration_test_that_never_reaches_rpc(
+    "records/sample-it-refuses_a_text_the_stand_in_rejects.jsonl",
+    "sample::it refuses_a_text_the_stand_in_rejects"
 )]
 #[case::unit_test_declaring_an_operation(
     "records/sample-tests-echoes_in_process.jsonl",
@@ -162,4 +213,104 @@ fn audit_over_the_tests_that_ran_still_reports_one_that_ran_without_a_record() {
             "sample::it receives_the_echoed_event"
         )]
     );
+}
+
+/// The suites' audit step: the repository's `just features-audit`, with the
+/// verdict its `exercise_audit` switch names, run in the fixture once its
+/// records and JUnit file are where `just test pre-merge` leaves them. A
+/// `cargo` first on the path answers `cargo metadata` with the fixture's
+/// target folder and runs this xtask for `cargo run -p xtask`.
+#[cfg(unix)]
+fn suite_step(workspace: &Workspace, args: &[&str]) -> Outcome {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let root = workspace.path();
+    std::fs::create_dir_all(root.join("target/nextest/ci")).unwrap();
+    std::fs::rename(root.join(RECORDS), root.join("target/test-records")).unwrap();
+    std::fs::copy(
+        root.join("junit/nextest.xml"),
+        root.join("target/nextest/ci/junit.xml"),
+    )
+    .unwrap();
+    let shims = root.join("shims");
+    std::fs::create_dir_all(&shims).unwrap();
+    let real_cargo = std::env::var_os("CARGO").expect("nextest runs the test under Cargo");
+    let cargo = shims.join("cargo");
+    std::fs::write(
+        &cargo,
+        format!(
+            concat!(
+                "#!/bin/sh\n",
+                "case \"$1\" in\n",
+                "  metadata) printf '{{\"target_directory\":\"%s/target\"}}\\n' \"$PWD\" ;;\n",
+                "  run) while [ \"$1\" != -- ]; do shift; done; shift; CARGO='{cargo}' exec '{xtask}' \"$@\" ;;\n",
+                "  *) exit 2 ;;\n",
+                "esac\n",
+            ),
+            cargo = real_cargo.to_string_lossy(),
+            xtask = env!("CARGO_BIN_EXE_xtask"),
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(shims).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let justfile = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../justfile");
+    let output = workspace
+        .command("just")
+        .arg("--justfile")
+        .arg(justfile)
+        .arg("--working-directory")
+        .arg(root)
+        .arg("features-audit")
+        .args(args)
+        .env("PATH", path)
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .unwrap();
+    Outcome {
+        code: output.status.code().unwrap(),
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: String::from_utf8(output.stderr).unwrap(),
+    }
+}
+
+#[cfg(unix)]
+#[rstest]
+#[case::pre_merge_over_the_tests_that_ran(&[])]
+#[case::release_over_every_declaring_test(&["all"])]
+fn the_suites_audit_step_fails_a_declaring_test_that_never_reached_its_feature(
+    #[case] args: &[&str],
+) {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.edit(
+        "records/sample-it-calls_echo_then_crawl.jsonl",
+        r#""method":"sample.crawl""#,
+        r#""method":"sample.echo""#,
+    );
+
+    let outcome = suite_step(&workspace, args);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome.findings().contains(&finding(
+            "unreached",
+            "operation:sample.crawl in sample::it calls_echo_then_crawl"
+        )),
+        "{}",
+        outcome.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_suites_audit_step_passes_when_every_test_that_ran_reached_what_it_declares() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+
+    let outcome = suite_step(&workspace, &[]);
+
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), vec![]);
 }

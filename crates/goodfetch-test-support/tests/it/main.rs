@@ -12,6 +12,7 @@
 )]
 
 mod endpoints;
+mod exercise_record;
 mod observation_log;
 mod probe;
 mod proving_ground;

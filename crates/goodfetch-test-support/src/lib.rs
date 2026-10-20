@@ -24,6 +24,7 @@ mod crash_vfs;
 mod description;
 mod endpoints;
 mod env;
+mod exercise;
 mod fuzz;
 mod invariants;
 mod kill;
@@ -53,6 +54,7 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
+pub use exercise::{DISPATCH_TARGET, RECORDS_VARIABLE};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};

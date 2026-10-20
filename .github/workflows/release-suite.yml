@@ -169,6 +169,28 @@ jobs:
       - name: Fetch the pinned TLA+ tools
         if: matrix.cell == 'linux-x64-gnu'
         run: just tlc-fetch
+      # ADR 0067's Release-suite security jobs, on Linux x64 glibc: the
+      # AddressSanitizer run of every crate that opts into `unsafe`, on the
+      # nightly of ci/sanitizer-toolchain.toml (its standard library rebuilt,
+      # so its build fetches before the deny); the V8 memory-corruption
+      # scripts on the test V8 build fetched by digest, and the ZAP baseline
+      # of the Console from its image by digest, each a slot until its
+      # subject exists (ci/v8-corruption.sh, ci/zap.sh).
+      - name: Install the sanitizer toolchain
+        if: matrix.cell == 'linux-x64-gnu'
+        run: >-
+          rustup toolchain install
+          "$(sed -n 's/^toolchain = "\(.*\)"$/\1/p' ci/sanitizer-toolchain.toml)"
+          --profile minimal --component rust-src
+      - name: Build the AddressSanitizer tests
+        if: matrix.cell == 'linux-x64-gnu'
+        run: just asan build
+      - name: Fetch the test V8 build by its digest
+        if: matrix.cell == 'linux-x64-gnu'
+        run: just v8-corruption fetch
+      - name: Pull the pinned ZAP image
+        if: matrix.cell == 'linux-x64-gnu'
+        run: just zap fetch
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic
@@ -196,6 +218,15 @@ jobs:
       - name: "Test: the sample's broken variant fails TLC"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just tlc-self-test
+      - name: "Test: AddressSanitizer on the crates that opt into unsafe"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just asan test
+      - name: "Test: the V8 memory-corruption scripts"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just v8-corruption test
+      - name: "Test: the ZAP baseline of the Console"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just zap scan
       - name: Measure the base, then the commit, against the Performance budget
         if: endsWith(matrix.cell, '-gnu')
         run: ci/egress/under-deny.sh ci/release/perf.sh run
@@ -209,15 +240,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-${{ matrix.cell }}-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success'
+        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
@@ -312,15 +347,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-${{ matrix.cell }}-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success'
+        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
@@ -394,15 +433,20 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        shell: bash
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-windows-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success'
+        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-x86_64-pc-windows-msvc
@@ -477,15 +521,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-macos-arm64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && steps.size.outcome == 'success'
+        if: always() && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-aarch64-apple-darwin
@@ -561,15 +609,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-macos-x64-rosetta-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && steps.size.outcome == 'success'
+        if: always() && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-x86_64-apple-darwin
@@ -624,15 +676,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-visual-dispatch-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Upload the expected, actual and diff images
-        if: failure()
+        if: failure() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: visual-differences-release-dispatch

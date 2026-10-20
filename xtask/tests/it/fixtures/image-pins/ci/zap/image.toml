@@ -1,0 +1,4 @@
+# An image a script runs, pinned by its digest.
+repository = "ghcr.io/zaproxy/zaproxy"
+tag = "2.16.1"
+digest = "sha256:3333333333333333333333333333333333333333333333333333333333333333"

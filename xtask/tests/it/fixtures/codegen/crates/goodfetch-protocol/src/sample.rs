@@ -25,6 +25,14 @@ pub struct SampleEchoParams {
     pub text: String,
 }
 
+/// What a `hello` says, the Connection's own message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HelloParams {
+    /// The protocol version the sender speaks.
+    pub protocol_version: String,
+}
+
 /// What `sample.echo` answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SampleEchoResult {

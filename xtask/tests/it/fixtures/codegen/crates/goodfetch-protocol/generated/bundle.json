@@ -14,6 +14,20 @@
       ],
       "type": "object"
     },
+    "HelloParams": {
+      "additionalProperties": false,
+      "description": "What a `hello` says, the Connection's own message.",
+      "properties": {
+        "protocol_version": {
+          "description": "The protocol version the sender speaks.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version"
+      ],
+      "type": "object"
+    },
     "Journey": {
       "additionalProperties": false,
       "description": "A sample Journey.",
@@ -187,6 +201,13 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "connection": {
+    "hello": {
+      "params": {
+        "$ref": "#/$defs/HelloParams"
+      }
+    }
+  },
   "documents": {
     "case_log_entry": {
       "$ref": "#/$defs/CaseLogEntry"

@@ -1,0 +1,5 @@
+name: Scanner
+description: A Docker action whose image is pinned by digest.
+runs:
+  using: docker
+  image: docker://ghcr.io/example/scanner:1@sha256:4444444444444444444444444444444444444444444444444444444444444444

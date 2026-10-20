@@ -140,6 +140,11 @@ class ProtocolVersion(RootModel[str]):
     """A version `major.minor` (ADR 0030)."""
 
 
+class RequestId(RootModel[int | str]):
+    root: int | str
+    """A request's id, which its reply carries back."""
+
+
 class RunId(RootModel[str]):
     root: Annotated[str, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")]
     """A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
@@ -270,6 +275,35 @@ class SubscriptionEnded(BaseModel):
     )
 
 
+class Surface(StrEnum):
+    """The surface a `hello` comes from (ADR 0024)."""
+
+    sdk_typescript = "sdk_typescript"
+    """The TypeScript SDK."""
+    sdk_python = "sdk_python"
+    """The Python SDK."""
+    rust = "rust"
+    """A Rust program, through a Product's crate."""
+    cli = "cli"
+    """The CLI, as a Client of a Daemon."""
+    mcp = "mcp"
+    """The MCP server, as a Client of a Daemon."""
+    console = "console"
+    """The Console."""
+    cloud = "cloud"
+    """
+    Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine
+    takes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).
+    """
+    browser_host = "browser_host"
+    """
+    A Browser host, which is never a Client and needs no Product
+    (ADR 0095).
+    """
+    worker = "worker"
+    """A Script sandbox worker."""
+
+
 class Tag(RootModel[str]):
     root: Annotated[str, Field(max_length=64)]
     """An opaque text a Run is tagged with (ADR 0036)."""
@@ -310,6 +344,30 @@ class ArtifactId(BaseModel):
     """Its name, such as `chrome-for-testing`."""
 
 
+class CancelParams(BaseModel):
+    """What `$/cancel` names: the call to stop."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: RequestId
+    """The call's id."""
+
+
+class Chunk(BaseModel):
+    """What `$/chunk` carries: the next bytes of the body a call reads."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: str
+    """Its bytes, in Base64 (RFC 4648, with padding)."""
+    id: RequestId
+    """The id of the `page.body` call."""
+    offset: Annotated[int, Field(ge=0)]
+    """Where its bytes start in the body."""
+
+
 class ConfigExplainParams(BaseModel):
     """What `config.explain` takes."""
 
@@ -328,6 +386,18 @@ class ConfigExplainParams(BaseModel):
     Run-layer values to explain with, as a Run's `settings` would give
     them.
     """
+
+
+class CreditParams(BaseModel):
+    """What `$/credit` grants: more events, or chunks, for a streaming call."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credits: Annotated[int, Field(ge=1)]
+    """How many more events, or chunks, the Client takes."""
+    id: RequestId
+    """The streaming call's id."""
 
 
 class DownloadProgress(BaseModel):
@@ -360,6 +430,25 @@ class EngineInfo(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class EventEnvelope(BaseModel):
+    """One event of a batch."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Any
+    """Its payload, of the type the catalog gives the event."""
+    dropped: Annotated[int | None, Field(ge=0)] = None
+    """
+    For a telemetry event, how many of the same kind and scope it
+    replaced unsent.
+    """
+    event: str
+    """The catalog's name of the event."""
+    position: Position
+    """Its position."""
 
 
 class EventsSubscribeParams(BaseModel):
@@ -413,6 +502,41 @@ class ExplainedSetting(BaseModel):
     Whether its value weakens a guarantee class or switches off a costly
     control, which the results it touches are marked with (ADR 0028).
     """
+
+
+class HelloParams(BaseModel):
+    """What a `hello` says."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    needs: Product | None = None
+    """
+    The Product the Client needs, which every surface but a Browser
+    host's must name (ADR 0095).
+    """
+    product_version: ProductVersion
+    """The sender's own Product version."""
+    protocol_version: ProtocolVersion
+    """The protocol version the sender speaks."""
+    surface: Surface
+    """The surface it comes from."""
+    token: str | None = None
+    """The Daemon's token; an Attached engine needs none."""
+
+
+class HelloResult(BaseModel):
+    """What an engine answers to a `hello` it accepts."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    product: Product
+    """The engine's Product."""
+    product_version: ProductVersion
+    """The engine's Product version."""
+    protocol_version: ProtocolVersion
+    """The protocol version the engine speaks."""
 
 
 class PageBodyParams(BaseModel):
@@ -538,6 +662,21 @@ class StopReason(RootModel[StopReason1]):
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.
     """
+
+
+class EventBatch(BaseModel):
+    """
+    What `$/events` carries: a batch of one subscription's events, in the
+    order of their positions.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[EventEnvelope]
+    """Its events."""
+    id: RequestId
+    """The id of the subscription's `events.subscribe` call."""
 
 
 class Resync(BaseModel):

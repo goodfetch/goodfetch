@@ -1,0 +1,31 @@
+# Every image this workflow runs is pinned by digest.
+name: build
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: docker.io/library/rust:1.99.0-slim-trixie@sha256:458b145eb2406e832adc9c9536d487c5d264401a4ce63adbeced3fe91292616c
+    services:
+      postgres:
+        image: docker.io/library/postgres:18@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    steps:
+      - name: Lint the workflows
+        uses: docker://ghcr.io/zizmorcore/zizmor:1.30.1@sha256:2222222222222222222222222222222222222222222222222222222222222222
+      - name: Scan the Console
+        run: |
+          # The digest is the pin; the tag only names it.
+          docker run --rm ghcr.io/zaproxy/zaproxy:2.16.1@sha256:3333333333333333333333333333333333333333333333333333333333333333 zap-baseline.py
+          curl -fsS https://ghcr.io/v2/zaproxy/zaproxy/tags/list
+
+  object-container:
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:bdfda2a8fdf48707c5e50a49bd3e06d8d0c759153dc8ee057d8a81c3450bb3e9
+    steps:
+      - name: Test
+        run: just test

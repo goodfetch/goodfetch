@@ -219,10 +219,15 @@ impl External {
 }
 
 /// How `xtask codegen` runs `json-schema-to-typescript`, before its banner.
-const JSON2TS_OPTIONS: [&str; 3] = [
+/// A bounded array stays an array (`--maxItems -1`) rather than a union of
+/// every tuple length: the engine checks the bound, and a program's
+/// `string[]` is then a value of the type.
+const JSON2TS_OPTIONS: [&str; 5] = [
     "--unreachableDefinitions",
     "--additionalProperties",
     "false",
+    "--maxItems",
+    "-1",
 ];
 
 /// What one language's generator gives for one package's layer.
@@ -355,7 +360,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
 
     let mut externals = Vec::new();
     for package in &PACKAGES {
-        let layer = Layer::new(&collie, &foxhound, package.product)?;
+        let layer = Layer::new(&bundle, &collie, &foxhound, package.product)?;
         let generated = match package.language {
             Language::TypeScript => typescript::generate(&layer),
             Language::Python => python::generate(&layer),

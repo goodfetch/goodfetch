@@ -1,0 +1,17 @@
+# A service container named by its tag.
+name: extra
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: docker.io/library/redis:8
+    steps:
+      - name: Test
+        run: just test

@@ -174,3 +174,150 @@ fn runs_journey_901_twice() {
         serde_json::from_slice(&std::fs::read(first.path()).unwrap()).unwrap();
     assert_eq!(written["outcome"], serde_json::json!("proved"));
 }
+
+/// What a fixture command's colour depends on: `--color always` among its
+/// arguments, its `NO_COLOR` and whether its stdout is a terminal.
+struct ColourInputs {
+    always: bool,
+    no_color: Option<std::ffi::OsString>,
+    terminal: bool,
+}
+
+fn colour_inputs() -> ColourInputs {
+    use std::io::IsTerminal as _;
+
+    let arguments: Vec<String> = std::env::args().collect();
+    ColourInputs {
+        always: arguments
+            .windows(2)
+            .any(|pair| pair[0] == "--color" && pair[1] == "always"),
+        no_color: std::env::var_os("NO_COLOR"),
+        terminal: std::io::stdout().is_terminal(),
+    }
+}
+
+/// Prints `line`, flushes, and exits before libtest prints its own
+/// verdict, which it colours on a terminal.
+#[expect(
+    clippy::exit,
+    reason = "the probe stands in for a command and ends before libtest's coloured verdict"
+)]
+fn print_and_exit(line: &str, code: i32) -> ! {
+    #[expect(
+        clippy::print_stdout,
+        reason = "the probe stands in for a command writing its output"
+    )]
+    {
+        println!("{line}");
+    }
+    std::io::stdout().flush().unwrap();
+    std::process::exit(code);
+}
+
+#[test]
+#[ignore = "run as a child by pty's tests"]
+fn keeps_the_colour_properties() {
+    let inputs = colour_inputs();
+    let no_color = inputs.no_color.is_some_and(|value| !value.is_empty());
+    let colour = inputs.always || (!no_color && inputs.terminal);
+
+    print_and_exit(
+        if colour {
+            "status: \u{1b}[32mready\u{1b}[0m"
+        } else {
+            "status: ready"
+        },
+        0,
+    );
+}
+
+#[test]
+#[ignore = "run as a child by pty::a_command_that_breaks_a_colour_property_fails_it"]
+fn says_failed_only_in_colour() {
+    let inputs = colour_inputs();
+    let no_color = inputs.no_color.is_some_and(|value| !value.is_empty());
+    let colour = inputs.always || (!no_color && inputs.terminal);
+
+    print_and_exit(
+        if colour {
+            "status: \u{1b}[31mready\u{1b}[0m"
+        } else {
+            "status: ready (failed)"
+        },
+        0,
+    );
+}
+
+#[test]
+#[ignore = "run as a child by pty::a_command_that_breaks_a_colour_property_fails_it"]
+fn turns_colour_off_under_an_empty_no_color() {
+    let inputs = colour_inputs();
+    let colour = inputs.always || (inputs.no_color.is_none() && inputs.terminal);
+
+    print_and_exit(
+        if colour {
+            "status: \u{1b}[32mready\u{1b}[0m"
+        } else {
+            "status: ready"
+        },
+        0,
+    );
+}
+
+#[test]
+#[ignore = "run as a child by pty::a_command_that_breaks_a_colour_property_fails_it"]
+fn lets_no_color_beat_color_always() {
+    let inputs = colour_inputs();
+    let no_color = inputs.no_color.is_some_and(|value| !value.is_empty());
+    let colour = !no_color && (inputs.always || inputs.terminal);
+
+    print_and_exit(
+        if colour {
+            "status: \u{1b}[32mready\u{1b}[0m"
+        } else {
+            "status: ready"
+        },
+        0,
+    );
+}
+
+#[test]
+#[ignore = "run as a child by pty::a_prompt_is_answered_through_a_pseudo_terminal"]
+fn prompts_for_an_answer() {
+    use std::io::{BufRead as _, IsTerminal as _};
+
+    if !std::io::stdin().is_terminal() {
+        print_and_exit("refused: stdin is not a terminal", 1);
+    }
+    #[expect(
+        clippy::print_stdout,
+        reason = "the probe stands in for a command asking a person"
+    )]
+    {
+        print!("Accept the certificate? [y/N] ");
+    }
+    std::io::stdout().flush().unwrap();
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer).unwrap();
+
+    if answer.trim() == "y" {
+        print_and_exit("accepted", 0);
+    }
+    print_and_exit("declined", 1);
+}
+
+#[test]
+#[ignore = "run as a child by pty::a_prompt_that_never_shows_fails_the_wait"]
+fn ends_without_a_prompt() {
+    print_and_exit("nothing to ask", 0);
+}
+
+#[test]
+#[ignore = "run as a child by cli::a_locale_case_sets_lang_and_tz_only_for_the_child_it_runs"]
+fn prints_its_environment() {
+    let lines: Vec<String> = std::env::vars()
+        .map(|(name, value)| format!("env:{name}={value}"))
+        .collect();
+
+    print_and_exit(&lines.join("\n"), 0);
+}

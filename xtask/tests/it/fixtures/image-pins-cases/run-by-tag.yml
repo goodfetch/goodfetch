@@ -1,0 +1,14 @@
+# A run script that names an image by its tag.
+name: extra
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Scan
+        run: docker run --rm ghcr.io/zaproxy/zaproxy:stable zap-baseline.py

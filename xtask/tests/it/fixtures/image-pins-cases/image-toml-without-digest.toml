@@ -1,0 +1,3 @@
+# An image pin file with no digest.
+repository = "ghcr.io/zaproxy/zaproxy"
+tag = "2.16.1"

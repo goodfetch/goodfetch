@@ -27,8 +27,9 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use crate::env::{TestEnv, command};
+use crate::env::{TestEnv, command, posix_locale};
 use crate::exercise::{COMMAND_TARGET, command_record};
+use crate::locales::{locales, time_zones};
 use crate::snapshot::{SnapshotValues, snapshot_settings};
 
 /// The Feature inventory, whose `command:` Features name the commands.
@@ -42,6 +43,7 @@ pub struct Cli<'env> {
     env: &'env TestEnv,
     command: assert_cmd::Command,
     arguments: Vec<String>,
+    refused: Option<CliError>,
 }
 
 /// A run of `executable`, the path of the Product's executable the test
@@ -58,6 +60,7 @@ pub fn cli(env: &TestEnv, executable: impl AsRef<OsStr>) -> Cli<'_> {
         env,
         command,
         arguments: Vec::new(),
+        refused: None,
     }
 }
 
@@ -88,10 +91,47 @@ impl Cli<'_> {
         self
     }
 
+    /// Sets the child's `LANG` to a locale of the shared table (ADR 0073),
+    /// given by its BCP 47 tag: `tr-TR` sets `LANG=tr_TR.UTF-8`. The test's
+    /// map and the test's own process keep theirs. A tag outside the table
+    /// fails the run with [`CliError::LocaleUnknown`].
+    #[must_use]
+    pub fn with_locale(mut self, tag: &str) -> Self {
+        if locales().iter().any(|locale| locale == tag) {
+            self.command.env("LANG", posix_locale(tag));
+        } else {
+            self.refused.get_or_insert(CliError::LocaleUnknown {
+                tag: tag.to_owned(),
+            });
+        }
+        self
+    }
+
+    /// Sets the child's `TZ` to a time zone of the shared table (ADR 0073),
+    /// such as `Asia/Kathmandu`. The test's map and the test's own process
+    /// keep theirs. A zone outside the table fails the run with
+    /// [`CliError::TimeZoneUnknown`].
+    #[must_use]
+    pub fn with_time_zone(mut self, zone: &str) -> Self {
+        if time_zones().iter().any(|case| case.name == zone) {
+            self.command.env("TZ", zone);
+        } else {
+            self.refused.get_or_insert(CliError::TimeZoneUnknown {
+                zone: zone.to_owned(),
+            });
+        }
+        self
+    }
+
     /// Runs the executable to its end, appends the command and its exit
     /// code to the test's command record, and returns its output; it fails
-    /// when stdout or stderr is not UTF-8 or holds an escape byte.
+    /// when stdout or stderr is not UTF-8 or holds an escape byte, and
+    /// before starting anything when a locale or time zone is outside the
+    /// shared table.
     pub fn run(mut self) -> Result<CliOutput, CliError> {
+        if let Some(refused) = self.refused {
+            return Err(refused);
+        }
         let output = self.command.output().map_err(CliError::Start)?;
         let exit = output.status.code();
         record_command(self.env, &self.arguments, exit)?;
@@ -287,6 +327,18 @@ pub enum CliError {
         path: PathBuf,
         /// Why.
         error: io::Error,
+    },
+    /// The locale is not one of the shared table's (ADR 0073).
+    #[error("the locale {tag} is not in the shared locale table")]
+    LocaleUnknown {
+        /// Its tag.
+        tag: String,
+    },
+    /// The time zone is not one of the shared table's (ADR 0073).
+    #[error("the time zone {zone} is not in the shared locale table")]
+    TimeZoneUnknown {
+        /// Its name.
+        zone: String,
     },
     /// The Feature inventory cannot be read.
     #[error("the Feature inventory {} cannot be read: {reason}", path.display())]

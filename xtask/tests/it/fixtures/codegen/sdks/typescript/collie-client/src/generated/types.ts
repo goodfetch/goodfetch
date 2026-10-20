@@ -7,6 +7,18 @@ export interface CollieTypes {
   [k: string]: unknown;
 }
 /**
+ * What a `hello` says, the Connection's own message.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HelloParams".
+ */
+export interface HelloParams {
+  /**
+   * The protocol version the sender speaks.
+   */
+  protocol_version: string;
+}
+/**
  * What `sample.echo` repeats.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

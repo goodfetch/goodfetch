@@ -98,6 +98,38 @@ class CallCancelledError(UnavailableError):
         super().__init__(message, code="call_cancelled", group="unavailable", retryable=False)
 
 
+class ClosedError(ProgramError):
+    """The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="closed", group="program", retryable=False)
+
+
+class EngineExitedError(UnavailableError):
+    """The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="engine_exited", group="unavailable", retryable=False)
+
+
+class EngineNotFoundError(UnavailableError):
+    """`connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="engine_not_found", group="unavailable", retryable=False)
+
+
+class EngineOutputInvalidError(InternalError):
+    """The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="engine_output_invalid", group="internal", retryable=False)
+
+
 class ExecutableBlockedBySmartAppControlError(RefusedError):
     """Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file."""
 
@@ -224,6 +256,10 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "body_not_found": BodyNotFoundError,
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
+    "closed": ClosedError,
+    "engine_exited": EngineExitedError,
+    "engine_not_found": EngineNotFoundError,
+    "engine_output_invalid": EngineOutputInvalidError,
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,

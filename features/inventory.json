@@ -285,6 +285,17 @@
       ]
     },
     {
+      "id": "error:run_busy",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_conflict",
       "kind": "error",
       "area": 3,
@@ -319,6 +330,17 @@
     },
     {
       "id": "error:run_not_found",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:run_not_owned",
       "kind": "error",
       "area": 3,
       "milestone": null,

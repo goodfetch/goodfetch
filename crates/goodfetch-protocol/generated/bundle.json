@@ -2027,6 +2027,26 @@
       "minimum": 0,
       "type": "integer"
     },
+    "Presence": {
+      "description": "Whether the state a Run index row points at is there (ADRs 0031 and\n0036).",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "Its state is at its location.",
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "`runs reindex` found no state at its location; the row is kept.",
+          "type": "string"
+        },
+        {
+          "const": "erased",
+          "description": "The Run was discarded on purpose; `runs reindex` keeps its row\nerased.",
+          "type": "string"
+        }
+      ]
+    },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
       "oneOf": [
@@ -2367,6 +2387,26 @@
       ],
       "type": "object"
     },
+    "RunAbortParams": {
+      "additionalProperties": false,
+      "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
+      "properties": {
+        "forwarded": {
+          "arrived_in": "0.1",
+          "description": "Set by an engine that forwards the abort to the owner the Run index\nnames (ADR 0031): an engine that does not own the Run then answers\n`run_not_owned` instead of taking its writer role.",
+          "type": "boolean"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -2417,7 +2457,7 @@
       "type": "string"
     },
     "RunIndexRow": {
-      "description": "One row of the Run index (ADR 0031): a Run, where its state is, and its\nthree axes.",
+      "description": "One row of the Run index (ADR 0031): a Run, where its state is, its three\naxes and, while it is live, the engine that owns it.",
       "properties": {
         "completeness": {
           "anyOf": [
@@ -2457,6 +2497,21 @@
           "$ref": "#/$defs/Product",
           "description": "The Product it needs (ADR 0098)."
         },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonEndpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "While it is live, the endpoint of the engine that owns it, when that\nengine has one: a Daemon's. An engine that cannot take the Run's\nwriter lock forwards live actions there."
+        },
+        "presence": {
+          "$ref": "#/$defs/Presence",
+          "description": "Whether its state is at its location."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -2488,7 +2543,8 @@
         "needs",
         "tags",
         "lifecycle",
-        "started_at"
+        "started_at",
+        "presence"
       ],
       "type": "object"
     },
@@ -2793,6 +2849,44 @@
         "lifecycle",
         "started_at",
         "weakened_by"
+      ],
+      "type": "object"
+    },
+    "RunsReindexOutput": {
+      "description": "What `runs reindex --json` prints: the Run index it rebuilt, and how many\nof its rows are of each presence.",
+      "properties": {
+        "erased": {
+          "arrived_in": "0.1",
+          "description": "Rows of Runs discarded on purpose, kept erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "missing": {
+          "arrived_in": "0.1",
+          "description": "Rows it kept whose state it did not find.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "present": {
+          "arrived_in": "0.1",
+          "description": "Rows of Runs whose state it found.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_index": {
+          "arrived_in": "0.1",
+          "description": "The Run index's path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_index",
+        "present",
+        "missing",
+        "erased"
       ],
       "type": "object"
     },
@@ -4778,6 +4872,9 @@
     },
     "daemon.stop": {
       "$ref": "#/$defs/DaemonStopOutput"
+    },
+    "runs.reindex": {
+      "$ref": "#/$defs/RunsReindexOutput"
     }
   },
   "protocol_version": "0.1",

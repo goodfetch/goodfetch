@@ -178,6 +178,14 @@ class ProtocolVersionUnsupportedError(UnavailableError):
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
 
 
+class RunBusyError(RefusedError):
+    """Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_busy", group="refused", retryable=True)
+
+
 class RunConflictError(ProgramError):
     """The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID."""
 
@@ -208,6 +216,14 @@ class RunNotFoundError(ProgramError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="run_not_found", group="program", retryable=False)
+
+
+class RunNotOwnedError(RefusedError):
+    """The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_not_owned", group="refused", retryable=False)
 
 
 class RunStateUnavailableError(UnavailableError):
@@ -274,10 +290,12 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "run_busy": RunBusyError,
     "run_conflict": RunConflictError,
     "run_id_invalid": RunIdInvalidError,
     "run_in_use": RunInUseError,
     "run_not_found": RunNotFoundError,
+    "run_not_owned": RunNotOwnedError,
     "run_state_unavailable": RunStateUnavailableError,
     "sample_refused": SampleRefusedError,
     "setting_invalid": SettingInvalidError,

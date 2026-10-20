@@ -238,6 +238,7 @@ fn the_bundle_holds_each_commands_json_output() {
             "daemon.start": { "$ref": "#/$defs/DaemonStartOutput" },
             "daemon.status": { "$ref": "#/$defs/DaemonStatusOutput" },
             "daemon.stop": { "$ref": "#/$defs/DaemonStopOutput" },
+            "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
         })
     );
 }

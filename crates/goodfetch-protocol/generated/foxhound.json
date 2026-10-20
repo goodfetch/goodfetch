@@ -698,6 +698,26 @@
       ],
       "type": "object"
     },
+    "RunAbortParams": {
+      "additionalProperties": false,
+      "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
+      "properties": {
+        "forwarded": {
+          "arrived_in": "0.1",
+          "description": "Set by an engine that forwards the abort to the owner the Run index\nnames (ADR 0031): an engine that does not own the Run then answers\n`run_not_owned` instead of taking its writer role.",
+          "type": "boolean"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -1493,6 +1513,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_busy",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.",
       "exit_code": null,
       "group": "program",
@@ -1528,6 +1558,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "run_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_not_owned",
       "product": "collie",
       "retryable": false
     },
@@ -1886,11 +1926,11 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.",
+      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
       "events": [],
       "name": "run.abort",
       "params": {
-        "$ref": "#/$defs/RunParams"
+        "$ref": "#/$defs/RunAbortParams"
       },
       "product": "collie",
       "result": {

@@ -44,6 +44,7 @@ use crate::journey::{Journey, JourneyCatalog};
 use crate::page::Chunk;
 use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
+use crate::run::RunsReindexOutput;
 use crate::settings::SettingsExplanation;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
@@ -97,6 +98,7 @@ pub fn emit() -> Emitted {
         "daemon.start": generator.subschema_for::<DaemonStartOutput>(),
         "daemon.status": generator.subschema_for::<DaemonStatusOutput>(),
         "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
+        "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
     });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();

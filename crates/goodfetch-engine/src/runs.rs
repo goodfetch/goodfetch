@@ -650,6 +650,26 @@ impl Registry {
         })
     }
 
+    /// Takes the lock of the Run of `run_id` in `folder`, which no other
+    /// engine may hold while it runs there.
+    async fn lock(&self, run_id: &RunId, folder: &Path) -> Result<File, StartError> {
+        let lock_folder = folder.to_path_buf();
+        self.owner
+            .blocking(move || take_lock(&lock_folder))
+            .await
+            .map_err(|error| match error {
+                LockError::Held => StartError::InUse {
+                    run_id: run_id.clone(),
+                    folder: folder.to_path_buf(),
+                },
+                LockError::Io(error) => StartError::Unavailable {
+                    run_id: run_id.clone(),
+                    folder: folder.to_path_buf(),
+                    error,
+                },
+            })
+    }
+
     async fn begin(
         &mut self,
         run_id: RunId,
@@ -662,18 +682,7 @@ impl Registry {
             folder: folder.clone(),
             error,
         };
-        let lock_folder = folder.clone();
-        let lock = self
-            .owner
-            .blocking(move || take_lock(&lock_folder))
-            .await
-            .map_err(|error| match error {
-                LockError::Held => StartError::InUse {
-                    run_id: run_id.clone(),
-                    folder: folder.clone(),
-                },
-                LockError::Io(error) => unavailable(error),
-            })?;
+        let lock = self.lock(&run_id, &folder).await?;
         let writer = Arc::new(self.owner.child());
         let state = RunState::open(
             folder.join(RUN_FILE),

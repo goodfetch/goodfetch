@@ -23,4 +23,5 @@ pub mod jsonrpc;
 pub mod releases;
 pub mod result_document;
 pub mod routing;
+pub mod run;
 pub mod sample;

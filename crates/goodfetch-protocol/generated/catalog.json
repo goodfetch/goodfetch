@@ -12,6 +12,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "handler_failed",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The attempt's lease ended with no answer from the program's handler: its process ended, its Connection dropped, or it hung. The attempt committed nothing and counts against `crawl.retry.max`.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "handler_lost",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
       "exit_code": 10,
       "group": "unavailable",
@@ -27,6 +47,56 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "protocol_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_conflict",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_id_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_in_use",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Run has this Run ID: the Run index does not list it.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_state_unavailable",
       "product": "collie",
       "retryable": false
     },
@@ -119,6 +189,22 @@
       "stability": "experimental"
     }
   ],
+  "handler_requests": [
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy.",
+      "name": "crawl_request.handle",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestHandleParams"
+      },
+      "product": "foxhound",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestHandled"
+      },
+      "stability": "experimental"
+    }
+  ],
   "hook_stages": [
     {
       "arrived_in": "0.1",
@@ -157,6 +243,23 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
+      "events": [],
+      "name": "crawl.start",
+      "params": {
+        "$ref": "#/$defs/CrawlStartParams"
+      },
+      "product": "foxhound",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
@@ -170,6 +273,57 @@
         "$ref": "#/$defs/EngineInfo"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.",
+      "events": [],
+      "name": "run.abort",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
+      "events": [],
+      "name": "run.finish",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
+      "events": [],
+      "name": "run.start",
+      "params": {
+        "$ref": "#/$defs/RunStartParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",
@@ -260,6 +414,12 @@
       "description": "How many pages the sample crawl visits.",
       "name": "crawl.sample_pages",
       "product": "foxhound"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home.",
+      "name": "run_state.location",
+      "product": "collie"
     },
     {
       "arrived_in": "0.1",

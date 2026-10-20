@@ -8,7 +8,23 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from goodfetch_collie_client.generated.errors import GoodfetchError, RefusedError
+from goodfetch_collie_client.generated.errors import GoodfetchError, ProgramError, RefusedError, UnavailableError
+
+
+class HandlerFailedError(ProgramError):
+    """The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="handler_failed", group="program", retryable=True)
+
+
+class HandlerLostError(UnavailableError):
+    """The attempt's lease ended with no answer from the program's handler: its process ended, its Connection dropped, or it hung. The attempt committed nothing and counts against `crawl.retry.max`."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="handler_lost", group="unavailable", retryable=True)
 
 
 class SampleCrawlRefusedError(RefusedError):
@@ -20,6 +36,8 @@ class SampleCrawlRefusedError(RefusedError):
 
 
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
+    "handler_failed": HandlerFailedError,
+    "handler_lost": HandlerLostError,
     "sample_crawl_refused": SampleCrawlRefusedError,
 }
 """The exception class of each Error code."""

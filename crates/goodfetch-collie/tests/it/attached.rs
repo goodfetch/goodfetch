@@ -8,26 +8,33 @@
 )]
 
 use std::io::Write as _;
-use std::process::{ChildStdin, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 
 use goodfetch_protocol::jsonrpc::Message;
 use goodfetch_test_support::{Process, StrictStdout, TestEnv};
 use serde_json::{Value, json};
 
 /// A running Attached engine of Collie's executable.
-struct Attached {
+pub(crate) struct Attached {
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
 }
 
 impl Attached {
-    fn start(env: &TestEnv) -> Self {
+    pub(crate) fn start(env: &TestEnv) -> Self {
+        Self::start_with(env, |_| {})
+    }
+
+    /// Starts it after `configure` changed its command, such as its
+    /// environment.
+    pub(crate) fn start_with(env: &TestEnv, configure: impl FnOnce(&mut Command)) -> Self {
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
         command
             .arg("attached-engine")
             .env("GOODFETCH_LOG", "trace")
             .stderr(Stdio::piped());
+        configure(&mut command);
         let process = env.spawn(&mut command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap();
@@ -38,7 +45,7 @@ impl Attached {
         }
     }
 
-    fn send(&mut self, message: &Value) {
+    pub(crate) fn send(&mut self, message: &Value) {
         let stdin = self.stdin.as_mut().unwrap();
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
@@ -47,7 +54,7 @@ impl Attached {
     }
 
     /// The next message, read as one of the protocol's (ADR 0038).
-    fn next(&mut self) -> Option<Value> {
+    pub(crate) fn next(&mut self) -> Option<Value> {
         let message = self.stdout.try_next().unwrap()?;
         serde_json::from_value::<Message>(message.clone()).unwrap();
         Some(message)
@@ -55,7 +62,7 @@ impl Attached {
 
     /// Ends the input and waits for the engine to exit, returning whatever
     /// it still sent.
-    fn finish(mut self) -> (Vec<Value>, bool) {
+    pub(crate) fn finish(mut self) -> (Vec<Value>, bool) {
         drop(self.stdin.take());
         let mut rest = Vec::new();
         while let Some(message) = self.next() {
@@ -66,7 +73,7 @@ impl Attached {
     }
 }
 
-fn hello(needs: &str, protocol_version: &str) -> Value {
+pub(crate) fn hello(needs: &str, protocol_version: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": 0,

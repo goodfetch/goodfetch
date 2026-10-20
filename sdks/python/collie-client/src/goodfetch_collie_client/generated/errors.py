@@ -82,6 +82,46 @@ class ProtocolVersionUnsupportedError(UnavailableError):
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
 
 
+class RunConflictError(ProgramError):
+    """The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_conflict", group="program", retryable=False)
+
+
+class RunIdInvalidError(ProgramError):
+    """The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_id_invalid", group="program", retryable=False)
+
+
+class RunInUseError(RefusedError):
+    """Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_in_use", group="refused", retryable=True)
+
+
+class RunNotFoundError(ProgramError):
+    """No Run has this Run ID: the Run index does not list it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_not_found", group="program", retryable=False)
+
+
+class RunStateUnavailableError(UnavailableError):
+    """The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_state_unavailable", group="unavailable", retryable=False)
+
+
 class SampleRefusedError(RefusedError):
     """The sample operation refused the text."""
 
@@ -94,6 +134,11 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "call_cancelled": CallCancelledError,
     "not_in_product": NotInProductError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "run_conflict": RunConflictError,
+    "run_id_invalid": RunIdInvalidError,
+    "run_in_use": RunInUseError,
+    "run_not_found": RunNotFoundError,
+    "run_state_unavailable": RunStateUnavailableError,
     "sample_refused": SampleRefusedError,
 }
 """The exception class of each Error code."""

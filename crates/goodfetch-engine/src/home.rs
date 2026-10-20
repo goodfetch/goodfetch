@@ -1,0 +1,77 @@
+//! The Goodfetch home (ADRs 0031, 0059 and 0098): the folder of one user's
+//! Goodfetch data, shared by both Products, and in it the per-major folder
+//! that holds the run folders and the Run index. `main` resolves it, from
+//! `GOODFETCH_HOME` when it is set and the OS's usual data folder otherwise,
+//! and passes it to the engine as a value. During `0.y` previews each `0.y`
+//! minor counts as a major (ADR 0030).
+
+use std::path::{Path, PathBuf};
+
+use goodfetch_protocol::connection::ProductVersion;
+
+/// The per-major folder's own name for the run folders.
+const RUNS: &str = "runs";
+
+/// The Run index's file in the per-major folder.
+const RUN_INDEX: &str = "run-index.sqlite";
+
+/// One user's Goodfetch data folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Home {
+    root: PathBuf,
+}
+
+impl Home {
+    /// The home at `root`: the folder `GOODFETCH_HOME` names, or the
+    /// `goodfetch` folder of the OS's usual data folder.
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    /// Its folder.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// The per-major folder of the Product version `version`: `1` for any
+    /// `1.x.y`, `0.4` for any `0.4.y`.
+    pub fn per_major(&self, version: &ProductVersion) -> PathBuf {
+        self.root.join(major_folder(version))
+    }
+
+    /// The per-major data folder's run folders, the default
+    /// `run_state.location`.
+    pub fn runs(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(RUNS)
+    }
+
+    /// The per-major Run index's file.
+    pub fn run_index(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(RUN_INDEX)
+    }
+}
+
+/// The name of a version's per-major folder.
+fn major_folder(version: &ProductVersion) -> String {
+    let text = version.to_string();
+    let mut numbers = text.split(['.', '-']);
+    let major = numbers.next().unwrap_or("0");
+    match (major, numbers.next()) {
+        ("0", Some(minor)) => format!("0.{minor}"),
+        (major, _) => major.to_owned(),
+    }
+}
+
+/// Where the run folders are: the per-major data folder's, unless
+/// `run_state.location` names another folder.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum RunStateLocation {
+    /// The per-major data folder's `runs`.
+    #[default]
+    PerMajor,
+    /// The folder `run_state.location` names.
+    Folder(PathBuf),
+}
+
+#[cfg(test)]
+mod tests;

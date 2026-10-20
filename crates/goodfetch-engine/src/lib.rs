@@ -5,19 +5,28 @@
 //! executables and their published SDK crates link it, and V8 must stay out
 //! of a crate built without the `executable` feature (STYLE.md, reason 2).
 //! It never names a Foxhound type: where Foxhound adds behaviour, it fills
-//! an interface defined here.
+//! an interface defined here, such as a Run's driver and the tables it keeps
+//! in run state.
 
+pub mod client;
+pub mod clock;
 mod composition;
 mod engine;
+pub mod entropy;
+pub mod home;
 mod info;
 mod product;
 pub mod rpc;
+pub mod run;
+mod run_index;
+pub mod run_state;
+pub mod runs;
 pub mod tasks;
 pub mod transport;
 
 pub use composition::{
     CallContext, CallError, Composition, CompositionError, Contribution, Handler,
 };
-pub use engine::Engine;
+pub use engine::{Dependencies, Engine};
 pub use info::contribution;
 pub use product::{Channel, Identity};

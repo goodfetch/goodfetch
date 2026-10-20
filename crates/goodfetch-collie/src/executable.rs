@@ -7,19 +7,32 @@
 //! Logs go to stderr through the `tracing` subscriber, filtered by
 //! `GOODFETCH_LOG` in `EnvFilter`'s syntax (`info` when unset); stdout is
 //! the protocol's alone (STYLE.md).
+//!
+//! The engine runs on the system versions of its handles (ADR 0059): the
+//! OS's clock, entropy seeded by the OS, blocking work on tracked threads,
+//! and the Goodfetch home that `GOODFETCH_HOME` names, or else the
+//! `goodfetch` folder of the OS's usual data folder.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::Network;
-use goodfetch_engine::{Channel, Composition, Engine, Identity};
+use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
+
+/// The deployment variable that roots the Goodfetch home (ADRs 0059, 0083).
+pub const HOME_VARIABLE: &str = "GOODFETCH_HOME";
 
 /// The command line both executables share.
 #[derive(Parser)]
@@ -119,12 +132,40 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let Some(home) = home(&start.environment) else {
+        tracing::error!("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows");
+        return ExitCode::FAILURE;
+    };
+    let entropy = match Entropy::from_os() {
+        Ok(entropy) => entropy,
+        Err(error) => {
+            tracing::error!(%error, "the engine has no seed for its random choices");
+            return ExitCode::FAILURE;
+        }
+    };
+    let dependencies = Dependencies {
+        home,
+        clock: Clock::system(),
+        entropy,
+        blocking: BlockingPolicy::Threads,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions::default(),
+    };
     match command_line.command {
-        Command::AttachedEngine => run_attached(&engine),
+        Command::AttachedEngine => run_attached(&engine, dependencies),
     }
 }
 
-fn run_attached(engine: &Engine) -> ExitCode {
+/// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`
+/// folder of the OS's usual data folder otherwise.
+fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
+    match environment.get(OsStr::new(HOME_VARIABLE)) {
+        Some(home) if !home.is_empty() => Some(Home::new(home.into())),
+        _ => dirs::data_dir().map(|data| Home::new(data.join("goodfetch"))),
+    }
+}
+
+fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {
     #[expect(
         clippy::disallowed_methods,
         reason = "main builds the runtime (ADR 0060)"
@@ -133,7 +174,7 @@ fn run_attached(engine: &Engine) -> ExitCode {
         .enable_all()
         .build()
         .expect("invariant: the OS gives the runtime its threads");
-    let served = runtime.block_on(engine.run_attached(Network::Os));
+    let served = runtime.block_on(engine.run_attached(Network::Os, dependencies));
     // Tokio's stdin reads on a blocking thread that only new input wakes, so
     // the runtime is not waited for once the Connection has closed.
     runtime.shutdown_background();

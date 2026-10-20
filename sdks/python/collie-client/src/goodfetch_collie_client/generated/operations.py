@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import EngineInfo, EngineInfoParams, SampleEchoParams, SampleEchoResult
+from .models import EngineInfo, EngineInfoParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult
 
 
 class AsyncCaller(Protocol):
@@ -45,6 +45,27 @@ class AsyncCollieOperations:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
         return EngineInfo.model_construct(**_fields(await self._caller.call("engine.info", params)))
 
+    async def run_abort(self, params: RunParams) -> RunReport:
+        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.abort", params)))
+
+    async def run_finish(self, params: RunParams) -> RunReport:
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.finish", params)))
+
+    async def run_start(self, params: RunStartParams) -> RunStarted:
+        """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(await self._caller.call("run.start", params)))
+
     @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
     async def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
         """Repeats a text back to the caller.
@@ -66,6 +87,27 @@ class CollieOperations:
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
         return EngineInfo.model_construct(**_fields(self._caller.call("engine.info", params)))
+
+    def run_abort(self, params: RunParams) -> RunReport:
+        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.abort", params)))
+
+    def run_finish(self, params: RunParams) -> RunReport:
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.finish", params)))
+
+    def run_start(self, params: RunStartParams) -> RunStarted:
+        """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(self._caller.call("run.start", params)))
 
     @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
     def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:

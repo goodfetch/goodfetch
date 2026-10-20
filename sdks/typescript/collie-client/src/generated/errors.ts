@@ -87,6 +87,51 @@ export class ProtocolVersionUnsupportedError extends UnavailableError {
 }
 
 /**
+ * The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.
+ */
+export class RunConflictError extends ProgramError {
+  constructor(message: string) {
+    super(message, { code: "run_conflict", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+ */
+export class RunIdInvalidError extends ProgramError {
+  constructor(message: string) {
+    super(message, { code: "run_id_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
+ * Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.
+ */
+export class RunInUseError extends RefusedError {
+  constructor(message: string) {
+    super(message, { code: "run_in_use", group: "refused", retryable: true });
+  }
+}
+
+/**
+ * No Run has this Run ID: the Run index does not list it.
+ */
+export class RunNotFoundError extends ProgramError {
+  constructor(message: string) {
+    super(message, { code: "run_not_found", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.
+ */
+export class RunStateUnavailableError extends UnavailableError {
+  constructor(message: string) {
+    super(message, { code: "run_state_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The sample operation refused the text.
  */
 export class SampleRefusedError extends RefusedError {
@@ -100,5 +145,10 @@ export const collieErrorClasses: Readonly<Record<string, new (message: string) =
   call_cancelled: CallCancelledError,
   not_in_product: NotInProductError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  run_conflict: RunConflictError,
+  run_id_invalid: RunIdInvalidError,
+  run_in_use: RunInUseError,
+  run_not_found: RunNotFoundError,
+  run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
 };

@@ -1,11 +1,14 @@
 //! Newline-delimited JSON-RPC framing, without I/O: bytes in, lines out, and
-//! each line decoded into a request or a notification. A line longer than
+//! each line decoded into a request, a notification or the reply to a handler
+//! request the engine sent. A line longer than
 //! [`MAX_MESSAGE_BYTES`] or nested deeper than [`MAX_DEPTH`] ends in its
 //! typed limit error (ADR 0067), and the framer keeps no more than the limit
 //! in memory while it skips the rest of that line.
 
-use goodfetch_protocol::jsonrpc::{Notification, ProtocolFailure, Request, RequestId};
-use serde_json::Value;
+use goodfetch_protocol::jsonrpc::{
+    ErrorData, ErrorObject, Notification, ProtocolFailure, Request, RequestId,
+};
+use serde_json::{Map, Value};
 
 /// The longest message the engine reads, in bytes, its newline excluded.
 /// Page bodies and files travel as handles, never inline.
@@ -85,6 +88,13 @@ pub enum Incoming {
     Request(Request),
     /// A message that expects no reply.
     Notification(Notification),
+    /// The reply to a handler request the engine sent.
+    Reply {
+        /// The request's id.
+        id: RequestId,
+        /// Its result, or its failure.
+        answer: Result<Value, ErrorObject>,
+    },
 }
 
 /// A line that is no message the engine reads.
@@ -145,6 +155,12 @@ pub fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
         .get("id")
         .and_then(|id| serde_json::from_value::<RequestId>(id.clone()).ok());
     let has_id = object.contains_key("id");
+    if !object.contains_key("method")
+        && let Some(id) = id.clone()
+        && let Some(answer) = reply_answer(object)
+    {
+        return Ok(Incoming::Reply { id, answer });
+    }
     if !object.contains_key("method") {
         return Err(DecodeError::new(
             ProtocolFailure::InvalidRequest,
@@ -168,6 +184,37 @@ pub fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
             .map(Incoming::Notification)
             .map_err(invalid)
     }
+}
+
+/// The answer a reply carries: its `result`, or its `error`, read as the
+/// handler's own `handler_failed` when it names no Error code.
+fn reply_answer(object: &Map<String, Value>) -> Option<Result<Value, ErrorObject>> {
+    if let Some(result) = object.get("result") {
+        return Some(Ok(result.clone()));
+    }
+    let error = object.get("error")?;
+    if let Ok(error) = serde_json::from_value::<ErrorObject>(error.clone()) {
+        return Some(Err(error));
+    }
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("the handler failed")
+        .to_owned();
+    let code = error
+        .get("code")
+        .and_then(Value::as_i64)
+        .and_then(|code| i32::try_from(code).ok())
+        .unwrap_or(-32000);
+    Some(Err(ErrorObject {
+        code,
+        message,
+        data: ErrorData {
+            code: "handler_failed".to_owned(),
+            retryable: false,
+            details: Map::new(),
+        },
+    }))
 }
 
 /// Whether `line` nests arrays and objects deeper than `limit`, outside its
@@ -222,6 +269,18 @@ pub fn fuzz_framing(data: &[u8]) {
         let encoded = match &message {
             Incoming::Request(request) => serde_json::to_vec(request),
             Incoming::Notification(notification) => serde_json::to_vec(notification),
+            Incoming::Reply {
+                id,
+                answer: Ok(result),
+            } => serde_json::to_vec(
+                &serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+            ),
+            Incoming::Reply {
+                id,
+                answer: Err(error),
+            } => serde_json::to_vec(
+                &serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": error }),
+            ),
         }
         .expect("invariant: a decoded message encodes");
         assert_eq!(

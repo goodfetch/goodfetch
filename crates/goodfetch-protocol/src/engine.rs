@@ -52,6 +52,7 @@ pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[ENGINE_INFO],
     events: &[],
+    handler_requests: &[],
     error_codes: &[],
     plugin_kinds: &[],
     metrics: &[],

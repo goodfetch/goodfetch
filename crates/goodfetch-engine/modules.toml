@@ -1,12 +1,24 @@
 # Which of goodfetch-engine's top-level modules may import which (ADR 0126).
 [modules]
-composition = ["product"]
-engine = ["composition", "product", "rpc", "tasks", "transport"]
-info = ["composition"]
+client = []
+clock = []
+composition = ["client", "product", "run_state", "runs"]
+engine = ["clock", "composition", "entropy", "home", "product", "rpc", "run_state", "runs", "tasks", "transport"]
+entropy = []
+home = []
+info = ["composition", "run"]
 product = []
-rpc = ["composition", "product", "tasks", "transport"]
+rpc = ["client", "composition", "product", "runs", "tasks", "transport"]
+run = ["composition", "runs"]
+run_index = ["run_state"]
+run_state = ["tasks"]
+runs = ["clock", "entropy", "home", "run_index", "run_state", "tasks"]
 tasks = []
 transport = []
+
+# Which of `runs`'s own modules may import which.
+[submodules.runs]
+folder = []
 
 # Which of `rpc`'s own modules may import which.
 [submodules.rpc]

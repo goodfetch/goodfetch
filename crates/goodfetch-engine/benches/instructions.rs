@@ -1,5 +1,9 @@
 //! The engine's instruction counts, under gungraun's Callgrind with mimalloc
 //! as the global allocator, as the executables ship (ADR 0071).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "bench targets run on the test Clock and Entropy (ADR 0071)"
+)]
 
 mod scenarios;
 
@@ -22,6 +26,15 @@ fn dispatch(lines: Vec<u8>) -> usize {
     black_box(scenarios::dispatch(black_box(&lines)))
 }
 
-library_benchmark_group!(name = engine, benchmarks = [framing, dispatch]);
+#[library_benchmark]
+#[bench::hundred_records(100)]
+fn run_state_writes(count: usize) -> usize {
+    black_box(scenarios::run_state_writes(black_box(count)))
+}
+
+library_benchmark_group!(
+    name = engine,
+    benchmarks = [framing, dispatch, run_state_writes]
+);
 
 main!(library_benchmark_groups = engine);

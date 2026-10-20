@@ -1,14 +1,18 @@
-//! The engine's own operations, `engine.*`, which every Product's
-//! composition lists first.
+//! The engine's own operations, `engine.*` and `run.*`, which every
+//! Product's composition lists first.
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
 
 use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::run;
 
 /// What the engine adds to every composition.
 pub fn contribution() -> Contribution {
-    Contribution::new("goodfetch-engine").with_handler(Handler::new(&ENGINE_INFO, engine_info))
+    run::handlers().into_iter().fold(
+        Contribution::new("goodfetch-engine").with_handler(Handler::new(&ENGINE_INFO, engine_info)),
+        Contribution::with_handler,
+    )
 }
 
 async fn engine_info(_: EngineInfoParams, context: CallContext) -> Result<EngineInfo, CallError> {

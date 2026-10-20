@@ -1,0 +1,7 @@
+# Which of goodfetch-crawl's top-level modules may import which (ADR 0126).
+[modules]
+delivery = ["lease", "policy", "work_items"]
+lease = []
+policy = []
+start = ["delivery", "policy", "work_items"]
+work_items = []

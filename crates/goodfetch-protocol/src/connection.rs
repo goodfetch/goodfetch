@@ -293,6 +293,7 @@ pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
+    handler_requests: &[],
     error_codes: &[PROTOCOL_VERSION_UNSUPPORTED, NOT_IN_PRODUCT, CALL_CANCELLED],
     plugin_kinds: &[],
     metrics: &[],

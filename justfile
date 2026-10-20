@@ -507,6 +507,11 @@ stress base="":
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+    # Vitest lists a file's tests by loading it, as a run does, so the
+    # listings get the variables `just repeat` runs the tests with.
+    export GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-pre-merge}"
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     selection=$(cargo run --quiet -p xtask -- stress select --base "$base" \
       --saved "$target/stress-listings" --cargo-profile {{ test_profile }})
     echo "Stressed tests (<count>, <runner>, <test ID>):"
@@ -747,7 +752,9 @@ warm:
     cargo clippy --workspace --all-targets --all-features
     cargo build -p xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
-    cargo run --quiet -p xtask -- stress listings --cargo-profile ci-test \
+    {{ just_executable() }} _test-tools
+    GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json" \
+      cargo run --quiet -p xtask -- stress listings --cargo-profile ci-test \
       --out "$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/stress-listings"
     {{ just_executable() }} build ci
     cargo bench --workspace --no-run

@@ -74,6 +74,26 @@ fn audit_fails_a_declaring_test_that_never_reached_its_feature(
     assert_eq!(outcome.findings(), vec![finding("unreached", unreached)]);
 }
 
+#[test]
+fn audit_reports_a_command_whose_arguments_match_no_command_feature() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.append(
+        "records/sample-it-installs_with_its_exit_code.jsonl",
+        "{\"fields\":{\"unmatched\":\"browsers frobnicate\",\"exit_code\":2},\"target\":\"goodfetch::test::command\"}\n",
+    );
+
+    let outcome = audit(&workspace, &[]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "command-unmatched",
+            "`browsers frobnicate` in sample::it installs_with_its_exit_code"
+        )]
+    );
+}
+
 #[rstest]
 #[case::integration_test(
     "records/sample-it-gets_the_refusal.jsonl",

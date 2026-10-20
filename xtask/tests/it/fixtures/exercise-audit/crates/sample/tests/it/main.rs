@@ -12,7 +12,7 @@ fn gets_the_refusal() {}
 #[test]
 fn receives_the_echoed_event() {}
 
-/// Covers: command:browsers install, exit:not_installed
+/// Covers: command:browsers.install, exit:not_installed
 #[test]
 fn installs_with_its_exit_code() {}
 

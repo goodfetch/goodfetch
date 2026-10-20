@@ -49,9 +49,9 @@ fn audit_passes_when_every_declaring_test_reached_what_it_declares() {
 )]
 #[case::command_never_run(
     "records/sample-it-installs_with_its_exit_code.jsonl",
-    r#""command":"browsers install""#,
-    r#""command":"browsers clean""#,
-    "command:browsers install in sample::it installs_with_its_exit_code"
+    r#""command":"browsers.install""#,
+    r#""command":"browsers.clean""#,
+    "command:browsers.install in sample::it installs_with_its_exit_code"
 )]
 #[case::exit_code_never_seen(
     "records/sample-it-installs_with_its_exit_code.jsonl",

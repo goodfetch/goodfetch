@@ -10,8 +10,9 @@
 //!   `tracing` subscriber of an in-process test: each request's `method`, its
 //!   reply's `error_code`, and each `event` sent to a Client;
 //! - the command records of test support's CLI helper (target
-//!   [`COMMAND_TARGET`]): each `command` path and its `exit_code`, which the
-//!   catalog's `exit_codes` table names.
+//!   [`COMMAND_TARGET`]): each `command`, named as its `command:` Feature
+//!   names it (`browsers.install`), and its `exit_code`, which the catalog's
+//!   `exit_codes` table names.
 //!
 //! A declaring test with no record is reported, never passed. The one
 //! exception is ADR 0072's: a unit test that never reaches `rpc` may declare

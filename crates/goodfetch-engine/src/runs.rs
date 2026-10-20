@@ -25,6 +25,7 @@ use goodfetch_protocol::run::{
     Completeness, Lifecycle, PointInTime, RunAxes, RunId, RunIndexRow, RunKind, RunReport,
     RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
 };
+use goodfetch_protocol::settings::SettingLimit;
 use rusqlite::Connection;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -41,6 +42,7 @@ use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
 use crate::run_index;
 use crate::run_state::{RunState, RunStateOptions, RunStateTables};
+use crate::settings::Settings;
 use crate::tasks::TaskOwner;
 
 /// A Run's state, in its folder.
@@ -74,6 +76,8 @@ pub(crate) struct RunsSetup {
     pub(crate) entropy: Entropy,
     /// The engine's event stream, which each axis change reaches.
     pub(crate) events: Events,
+    /// The engine's settings, which each Run resolves its own under.
+    pub(crate) settings: Settings,
 }
 
 /// Writes a new Run's first rows, beside the engine's own, in the
@@ -107,6 +111,12 @@ pub struct Start {
     pub ended_by: EndedBy,
     /// Its first rows of the composition's tables.
     pub initialize: Option<Initialize>,
+    /// The version of the Operator policy its settings resolved under,
+    /// which its Run report names (ADR 0028).
+    pub policy_version: Option<String>,
+    /// The settings it runs with that weaken a guarantee or switch off a
+    /// costly control, which its Run report is marked with (ADR 0028).
+    pub weakened_by: Vec<SettingLimit>,
 }
 
 /// What a start found.
@@ -203,6 +213,7 @@ enum Command {
 #[derive(Clone, Debug)]
 pub struct Runs {
     commands: mpsc::Sender<Command>,
+    settings: Settings,
 }
 
 /// A live Run, as its driver holds it.
@@ -325,7 +336,10 @@ impl Runs {
     /// child of it.
     pub(crate) fn start_registry(setup: RunsSetup, owner: &TaskOwner) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
-        let runs = Self { commands };
+        let runs = Self {
+            commands,
+            settings: setup.settings.clone(),
+        };
         let registry = Registry {
             setup,
             owner: owner.child(),
@@ -340,6 +354,11 @@ impl Runs {
 
     fn downgrade(&self) -> mpsc::WeakSender<Command> {
         self.commands.downgrade()
+    }
+
+    /// The engine's settings, which a start resolves its Run's under.
+    pub fn settings(&self) -> &Settings {
+        &self.settings
     }
 
     /// Begins a Run, or returns the one its Run ID names.
@@ -457,6 +476,8 @@ struct Live {
     inputs: String,
     ended_by: EndedBy,
     started_at: PointInTime,
+    policy_version: Option<String>,
+    weakened_by: Vec<SettingLimit>,
     report: watch::Sender<Option<RunReport>>,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
@@ -629,6 +650,26 @@ impl Registry {
         })
     }
 
+    /// Takes the lock of the Run of `run_id` in `folder`, which no other
+    /// engine may hold while it runs there.
+    async fn lock(&self, run_id: &RunId, folder: &Path) -> Result<File, StartError> {
+        let lock_folder = folder.to_path_buf();
+        self.owner
+            .blocking(move || take_lock(&lock_folder))
+            .await
+            .map_err(|error| match error {
+                LockError::Held => StartError::InUse {
+                    run_id: run_id.clone(),
+                    folder: folder.to_path_buf(),
+                },
+                LockError::Io(error) => StartError::Unavailable {
+                    run_id: run_id.clone(),
+                    folder: folder.to_path_buf(),
+                    error,
+                },
+            })
+    }
+
     async fn begin(
         &mut self,
         run_id: RunId,
@@ -641,18 +682,7 @@ impl Registry {
             folder: folder.clone(),
             error,
         };
-        let lock_folder = folder.clone();
-        let lock = self
-            .owner
-            .blocking(move || take_lock(&lock_folder))
-            .await
-            .map_err(|error| match error {
-                LockError::Held => StartError::InUse {
-                    run_id: run_id.clone(),
-                    folder: folder.clone(),
-                },
-                LockError::Io(error) => unavailable(error),
-            })?;
+        let lock = self.lock(&run_id, &folder).await?;
         let writer = Arc::new(self.owner.child());
         let state = RunState::open(
             folder.join(RUN_FILE),
@@ -671,6 +701,8 @@ impl Registry {
             epoch: 1,
             inputs: inputs.clone(),
             started_at: started_at.clone(),
+            policy_version: start.policy_version.clone(),
+            weakened_by: start.weakened_by.clone(),
         };
         let tags = start.tags.clone();
         let initialize = start.initialize;
@@ -703,6 +735,7 @@ impl Registry {
                         .runs
                         .upgrade()
                         .expect("invariant: the registry runs while a handle sends to it"),
+                    settings: self.setup.settings.clone(),
                 },
             }),
             folder,
@@ -712,6 +745,8 @@ impl Registry {
             inputs,
             ended_by: start.ended_by,
             started_at,
+            policy_version: start.policy_version,
+            weakened_by: start.weakened_by,
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
@@ -800,6 +835,8 @@ impl Registry {
                 writer: Arc::clone(&live.writer),
                 lock: Arc::clone(&live.lock),
                 started_at: live.started_at.clone(),
+                policy_version: live.policy_version.clone(),
+                weakened_by: live.weakened_by.clone(),
                 clock,
                 end,
             };
@@ -890,6 +927,8 @@ struct Closing {
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
     started_at: PointInTime,
+    policy_version: Option<String>,
+    weakened_by: Vec<SettingLimit>,
     clock: Clock,
     end: End,
 }
@@ -903,6 +942,8 @@ impl Closing {
             writer,
             lock,
             started_at,
+            policy_version,
+            weakened_by,
             clock,
             end,
         } = self;
@@ -920,6 +961,8 @@ impl Closing {
             completeness,
             started_at,
             ended_at: point_in_time(&clock),
+            policy_version,
+            weakened_by,
         };
         let written = report.clone();
         let state = run.state.clone();

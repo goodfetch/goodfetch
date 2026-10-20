@@ -1,0 +1,145 @@
+# CR, LF or NUL in header values (ADR 0067): one case per source and
+# character, each with the typed error every layer gives, read through
+# goodfetch-test-support's `HostileTables::committed()`. A value Goodfetch
+# would send is refused with `header_value_invalid` before it reaches the
+# wire or CDP; Chromium also refuses one passed through CDP (checked
+# 2026-10-20, ADR 0067's note). A page's response head is the Proving
+# ground's `headers` family. A layer's runner pairs these with its own
+# positive control: the same header with a plain value is sent.
+
+[[cases]]
+name = "recipe_header_with_crlf"
+input = { source = "recipe", name = "X-Note", value = "a\r\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "recipe_header_with_lf"
+input = { source = "recipe", name = "X-Note", value = "a\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "recipe_header_with_cr"
+input = { source = "recipe", name = "X-Note", value = "a\rX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "recipe_header_with_nul"
+input = { source = "recipe", name = "X-Note", value = "a\u0000b" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "sink_header_with_crlf"
+input = { source = "sink", name = "X-Note", value = "a\r\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "sink_header_with_lf"
+input = { source = "sink", name = "X-Note", value = "a\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "sink_header_with_cr"
+input = { source = "sink", name = "X-Note", value = "a\rX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "sink_header_with_nul"
+input = { source = "sink", name = "X-Note", value = "a\u0000b" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "webhook_header_with_crlf"
+input = { source = "webhook", name = "X-Note", value = "a\r\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "webhook_header_with_lf"
+input = { source = "webhook", name = "X-Note", value = "a\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "webhook_header_with_cr"
+input = { source = "webhook", name = "X-Note", value = "a\rX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "webhook_header_with_nul"
+input = { source = "webhook", name = "X-Note", value = "a\u0000b" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "page_request_header_with_crlf"
+input = { source = "page_request", name = "X-Note", value = "a\r\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "page_request_header_with_lf"
+input = { source = "page_request", name = "X-Note", value = "a\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "page_request_header_with_cr"
+input = { source = "page_request", name = "X-Note", value = "a\rX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "page_request_header_with_nul"
+input = { source = "page_request", name = "X-Note", value = "a\u0000b" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "route_header_with_crlf"
+input = { source = "route", name = "X-Note", value = "a\r\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "route_header_with_lf"
+input = { source = "route", name = "X-Note", value = "a\nX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "route_header_with_cr"
+input = { source = "route", name = "X-Note", value = "a\rX-Injected: yes" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+[[cases]]
+name = "route_header_with_nul"
+input = { source = "route", name = "X-Note", value = "a\u0000b" }
+expected = { code = "header_value_invalid" }
+served_by = "program_input"
+
+# A response head the Proving ground writes as its own bytes. Chromium
+# refuses the NUL with this network error; it keeps a bare CR as a line
+# break and sets the cookie after it (Chrome for Testing 156.0.8078.4,
+# 2026-10-20), so on the browser path Goodfetch must refuse that head itself:
+# an owner decision, recorded in ADR 0067's note.
+[[cases]]
+name = "response_head_with_nul"
+input = { source = "response", name = "X-Note", value = "one\u0000two" }
+expected = { code = "navigation_failed", network_error = "net::ERR_INVALID_HTTP_RESPONSE" }
+served_by = { page = "headers/5" }
+
+[[cases]]
+name = "response_head_with_a_bare_cr"
+input = { source = "response", name = "X-Note", value = "one\rSet-Cookie: injected=1" }
+expected = { code = "navigation_failed" }
+served_by = { page = "headers/6" }

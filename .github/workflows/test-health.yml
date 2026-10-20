@@ -2,10 +2,11 @@
 # the repository is public, on GitHub-hosted Linux:
 #
 # - the daily test-health job, on `main`'s head, 15 minutes in all: the 10
-#   oldest quarantined tests 50 times each (`quarantined`), then the scan of
-#   the results store, the drift check of `xtask perf` (ADR 0071) and the
-#   Allure Report 3 build from it (`report`). The Feature report (ADR 0072)
-#   joins `report` with its ticket.
+#   oldest quarantined tests 50 times each (`quarantined`), which then lists
+#   every runner's tests on the build it made, then the scan of the results
+#   store, the drift check of `xtask perf` (ADR 0071), the Allure Report 3
+#   build from it and the Feature report (ADR 0072) from the store, the
+#   quarantine list and those listings (`report`).
 # - the constrained test-health run, weekly and after each manual-dispatch
 #   Release run: the Pre-merge suite under a cgroup that halves the runner's
 #   CPU and memory, with a fresh order seed and Vitest's `detectAsyncLeaks`,
@@ -78,6 +79,14 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: "Test: the 10 oldest quarantined tests, 50 times each"
         run: ci/egress/under-deny.sh just repeat 50 --quarantined 10
+      # The Feature report reads the Vitest, Playwright and pytest
+      # declarations and each Journey variant's tests from these listings,
+      # written on this job's build so `report` builds no test.
+      - name: List every runner's tests for the Feature report
+        if: always()
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked -p xtask -- journeys listings
+          --out target/journey-listings --cargo-profile ci-test
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -94,6 +103,13 @@ jobs:
           name: junit-quarantined-test-health-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
+      - name: Upload the runners' listings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: journey-listings
+          path: target/journey-listings/
+          if-no-files-found: ignore
 
   report:
     name: report
@@ -105,6 +121,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      # The runners' listings `quarantined` uploaded.
+      actions: read
       contents: read
       # The scan opens and reopens flaky-test and live-check issues, and the
       # drift check needs-triage ones.
@@ -155,6 +173,39 @@ jobs:
         with:
           name: allure-report
           path: target/allure/report/
+          if-no-files-found: ignore
+      - name: Download the runners' listings
+        id: listings
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
+          --name journey-listings --dir target/journey-listings
+      # ADR 0072: each Feature tested, untested by cause, excepted by
+      # evidence kind or planned at the gate of GATE, the milestone whose
+      # owner test comes next, from main's latest Release run in the store.
+      # Without the listings it says so, and counts no Vitest, Playwright or
+      # pytest declaration and no Journey variant as proved.
+      - name: Build the Feature report
+        if: always()
+        env:
+          GATE: M1
+          LISTED: ${{ steps.listings.outcome }}
+        run: |
+          listings=()
+          [[ $LISTED == success ]] && listings=(--listings target/journey-listings)
+          cargo run --quiet --locked -p xtask -- features report --milestone "$GATE" \
+            --store test-results "${listings[@]}" --out target/features-report
+      # Published beside the Allure report once the repository is public;
+      # attached to the run until then.
+      - name: Attach the Feature report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: features-report
+          path: target/features-report/
           if-no-files-found: ignore
 
   budget:

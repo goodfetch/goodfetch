@@ -138,6 +138,13 @@
             "$ref": "#/$defs/Product",
             "description": "The Product it needs (ADR 0098)."
           },
+          "policy_version": {
+            "description": "The version of the Operator policy it ran under (ADR 0028).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "run_id": {
             "$ref": "#/$defs/RunId",
             "description": "The Run's ID."
@@ -167,6 +174,10 @@
               }
             ],
             "description": "Its Verdict, once it ended."
+          },
+          "weakened_by": {
+            "description": "The settings it ran with that weaken a guarantee or switch off a\ncostly control, as a JSON list of each one's key, value and layer\n(ADR 0028).",
+            "type": "string"
           }
         },
         "required": [
@@ -177,7 +188,8 @@
           "epoch",
           "inputs",
           "lifecycle",
-          "started_at"
+          "started_at",
+          "weakened_by"
         ],
         "type": "object"
       },

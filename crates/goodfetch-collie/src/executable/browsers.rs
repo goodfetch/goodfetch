@@ -3,30 +3,38 @@
 //! version pins into the Browser cache, for CI and images; the second
 //! deletes what nothing installed pins, nothing used for
 //! `browser_cache.max_unused_age` and nothing holds, or under `--dry-run`
-//! lists it. Their `--json` output is `goodfetch-protocol`'s type.
+//! lists it. Their `--json` output is `goodfetch-protocol`'s type. Both
+//! read the machine's settings (ADR 0098): `network.offline`,
+//! `network.resolve` and `browser_cache.max_unused_age`, from the Operator
+//! policy and user configuration of Goodfetch home.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{
     BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, Fetching,
-    MaxUnusedAge, Pins, Platform,
+    MaxUnusedAge, Pins, Platform, Resolve,
 };
+use goodfetch_engine::home::Home;
+use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowsersCleanOutput, BrowsersInstallOutput, InstallOutcome, InstalledArtifact,
-    NotCleaned, PinnedBy,
+    MAX_UNUSED_AGE, NotCleaned, PinnedBy,
 };
+use goodfetch_protocol::settings::{NETWORK_OFFLINE, NETWORK_RESOLVE};
 
 use super::output;
 
 /// The variable that roots Goodfetch home (ADR 0059).
 const HOME_VARIABLE: &str = "GOODFETCH_HOME";
 
-/// The Browser cache this executable uses: `GOODFETCH_BROWSERS_PATH`, else
-/// `browsers` in `GOODFETCH_HOME`, else in the OS's data folder.
-fn location(environment: &BTreeMap<OsString, OsString>) -> Option<CacheLocation> {
+/// The Goodfetch home and the Browser cache this executable uses:
+/// `GOODFETCH_BROWSERS_PATH`, else `browsers` in `GOODFETCH_HOME`, else in
+/// the OS's data folder.
+fn location(environment: &BTreeMap<OsString, OsString>) -> Option<(Home, CacheLocation)> {
     let variable = |name: &str| {
         environment
             .get(OsStr::new(name))
@@ -35,7 +43,56 @@ fn location(environment: &BTreeMap<OsString, OsString>) -> Option<CacheLocation>
     };
     let home =
         variable(HOME_VARIABLE).or_else(|| dirs::data_dir().map(|data| data.join("goodfetch")))?;
-    Some(CacheLocation::new(&home, variable(BROWSERS_PATH_VARIABLE)))
+    let location = CacheLocation::new(&home, variable(BROWSERS_PATH_VARIABLE));
+    Some((Home::new(home), location))
+}
+
+/// The machine's settings: the Operator policy and user configuration of
+/// `home`'s major, as the engine resolves them before any Run.
+fn machine_settings(home: &Home, pinned_by: &PinnedBy) -> Result<Resolved, SettingsError> {
+    let product = pinned_by.product;
+    let machine = SettingsFiles::of(home, &pinned_by.product_version).load(product)?;
+    let layers = Layers {
+        operator_policy: machine.operator_policy,
+        user_configuration: machine.user_configuration,
+        ..Layers::default()
+    };
+    resolve(&layers, product, product)
+}
+
+/// What downloads may do under `settings`: `network.offline` and the layer
+/// that set it, and `network.resolve`'s mapping.
+fn fetching(settings: &Resolved) -> Fetching {
+    let offline = settings
+        .get(NETWORK_OFFLINE.name)
+        .filter(|offline| offline.value == serde_json::Value::Bool(true))
+        .map(|offline| offline.layer);
+    let mapping = settings
+        .hosts(NETWORK_RESOLVE.name)
+        .into_iter()
+        .fold(Resolve::new(), |mapping, (host, addresses)| {
+            mapping.with(host, addresses)
+        });
+    Fetching {
+        offline,
+        resolve: mapping,
+        ..Fetching::default()
+    }
+}
+
+/// `browser_cache.max_unused_age` under `settings`.
+fn max_unused_age(settings: &Resolved) -> MaxUnusedAge {
+    MaxUnusedAge::new(
+        settings
+            .value(MAX_UNUSED_AGE.name)
+            .as_u64()
+            .map(Duration::from_millis),
+    )
+}
+
+fn refused(error: &SettingsError) -> ExitCode {
+    tracing::error!(code = error.code(), "{error}");
+    ExitCode::FAILURE
 }
 
 /// The time the command runs at.
@@ -77,8 +134,12 @@ pub(super) fn install(
     environment: &BTreeMap<OsString, OsString>,
     json: bool,
 ) -> ExitCode {
-    let Some(location) = location(environment) else {
+    let Some((home, location)) = location(environment) else {
         return no_home();
+    };
+    let settings = match machine_settings(&home, &pinned_by) {
+        Ok(settings) => settings,
+        Err(error) => return refused(&error),
     };
     let cache = BrowserCache::new(&location);
     let pins = Pins {
@@ -86,12 +147,14 @@ pub(super) fn install(
         artifacts: crate::pinned_artifacts(),
     };
     let now = now();
+    let fetching = fetching(&settings);
+    let max_unused_age = max_unused_age(&settings);
     let installed = runtime().block_on(async {
         let outcomes = cache
             .install(
                 &pins,
                 Platform::current().build_platform(),
-                &Fetching::default(),
+                &fetching,
                 now,
                 &mut |progress| {
                     tracing::debug!(
@@ -108,7 +171,7 @@ pub(super) fn install(
             .any(|(_, outcome)| *outcome == InstallOutcome::Installed)
         {
             cache
-                .clean_up_daily(kept(&pins), now, MaxUnusedAge::default())
+                .clean_up_daily(kept(&pins), now, max_unused_age)
                 .await?;
         }
         Ok::<_, CacheError>(outcomes)
@@ -152,8 +215,12 @@ pub(super) fn clean(
     dry_run: bool,
     json: bool,
 ) -> ExitCode {
-    let Some(location) = location(environment) else {
+    let Some((home, location)) = location(environment) else {
         return no_home();
+    };
+    let settings = match machine_settings(&home, &pinned_by) {
+        Ok(settings) => settings,
+        Err(error) => return refused(&error),
     };
     let cache = BrowserCache::new(&location);
     let pins = Pins {
@@ -164,7 +231,7 @@ pub(super) fn clean(
         kept: kept(&pins),
         now: now(),
         // `browsers clean` uses the default while the setting is `null`.
-        max_unused_age: MaxUnusedAge::default().counting(),
+        max_unused_age: max_unused_age(&settings).counting(),
         dry_run,
     };
     let report = match runtime().block_on(cache.clean_up(&request)) {

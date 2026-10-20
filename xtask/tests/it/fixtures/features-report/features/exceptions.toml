@@ -1,0 +1,11 @@
+[[exception]]
+feature = "error:sample_excepted"
+evidence = "manual"
+reason = "A person checks it in the owner test."
+link = "https://example.invalid/owner-test"
+
+[[exception]]
+feature = "error:sample_unreachable"
+evidence = "none"
+reason = "No test in this fixture reaches it."
+link = "https://example.invalid/elsewhere"

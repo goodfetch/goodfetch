@@ -48,6 +48,18 @@ fn sends_protocol_events_then_hangs() {
     std::thread::sleep(Duration::from_secs(600));
 }
 
+#[test]
+#[ignore = "run as a child by exercise_record::the_test_subscriber_writes_the_dispatch_records_into_the_exercise_record"]
+fn dispatches_under_the_test_subscriber() {
+    let start = TestEnv::new().start_time();
+    let subscriber = goodfetch_test_support::subscriber(move || start);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(target: "goodfetch::engine", "engine started");
+        tracing::trace!(target: "goodfetch::rpc::dispatch", method = "engine.info", "request answered");
+    });
+}
+
 /// A test's own operation, carrying a security value.
 #[derive(serde::Serialize)]
 struct SignIn {

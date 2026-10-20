@@ -37,7 +37,9 @@ const SCHEMA: &[&str] = &[
         verdict TEXT,
         completeness TEXT,
         started_at TEXT NOT NULL,
-        ended_at TEXT
+        ended_at TEXT,
+        policy_version TEXT,
+        weakened_by TEXT NOT NULL DEFAULT '[]'
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
 ];

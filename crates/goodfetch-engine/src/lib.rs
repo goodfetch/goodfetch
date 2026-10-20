@@ -13,6 +13,7 @@ pub mod browser_cache;
 pub mod client;
 pub mod clock;
 mod composition;
+mod config;
 pub mod dns;
 mod engine;
 pub mod entropy;
@@ -26,6 +27,7 @@ pub mod run;
 mod run_index;
 pub mod run_state;
 pub mod runs;
+pub mod settings;
 pub mod tasks;
 pub mod transport;
 

@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::runtime::Runtime;
 
-use super::{POLICY, dependencies, engine_with};
+use super::{POLICY, configure, dependencies, engine};
 use crate::policy::CrawlPolicy;
 
 /// The model's crawls take one work item at a time.
@@ -273,9 +273,10 @@ impl StateMachineTest for Subject {
                 vfs: Some(vfs.name().to_owned()),
             },
         );
+        configure(&env, ONE_AT_A_TIME);
         let (reader, writer) = runtime.block_on(async {
             let (network, dialer) = transport::in_memory();
-            let engine = engine_with(ONE_AT_A_TIME);
+            let engine = engine();
             owner.spawn(async move {
                 engine
                     .run_attached(Network::InMemory(network), dependencies)

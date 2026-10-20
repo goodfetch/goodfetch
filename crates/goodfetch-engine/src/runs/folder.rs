@@ -10,6 +10,7 @@ use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{Lifecycle, PointInTime, RunId, RunKind, RunReport, StartInput};
+use goodfetch_protocol::settings::SettingLimit;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 use serde_json::{Map, Value};
 
@@ -24,13 +25,15 @@ pub(super) struct RunRow {
     pub(super) epoch: u64,
     pub(super) inputs: String,
     pub(super) started_at: PointInTime,
+    pub(super) policy_version: Option<String>,
+    pub(super) weakened_by: Vec<SettingLimit>,
 }
 
 impl RunRow {
     pub(super) fn insert(&self, connection: &Connection) -> rusqlite::Result<()> {
         connection.execute(
-            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, policy_version, weakened_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             (
                 self.run_id.as_str(),
                 self.kind.as_str(),
@@ -40,6 +43,9 @@ impl RunRow {
                 &self.inputs,
                 Lifecycle::Running.as_str(),
                 self.started_at.as_str(),
+                self.policy_version.as_deref(),
+                serde_json::to_string(&self.weakened_by)
+                    .expect("invariant: setting limits encode"),
             ),
         )?;
         Ok(())
@@ -158,7 +164,7 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
     };
     connection
         .query_row(
-            "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at FROM run
+            "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at, policy_version, weakened_by FROM run
              WHERE ended_at IS NOT NULL",
             [],
             |row| {
@@ -177,6 +183,10 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
                     completeness: parsed(&row.get::<_, String>(4)?)?,
                     started_at: PointInTime::from_rfc3339(row.get(5)?),
                     ended_at: PointInTime::from_rfc3339(row.get(6)?),
+                    policy_version: row.get(7)?,
+                    weakened_by: serde_json::from_str(&row.get::<_, String>(8)?).map_err(
+                        |error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)),
+                    )?,
                 })
             },
         )

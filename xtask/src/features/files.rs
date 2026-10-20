@@ -55,6 +55,12 @@ pub(crate) enum Kind {
     Exit,
     /// A versioned format of the format registry.
     Format,
+    /// A CLI command path of a Product's executable, from clap's `Command`.
+    Command,
+    /// A Block cause.
+    BlockCause,
+    /// A Console route.
+    Screen,
 }
 
 impl Kind {
@@ -74,6 +80,9 @@ impl Kind {
             Self::Setting => "setting",
             Self::Exit => "exit",
             Self::Format => "format",
+            Self::Command => "command",
+            Self::BlockCause => "block-cause",
+            Self::Screen => "screen",
         }
     }
 }
@@ -262,6 +271,15 @@ pub(crate) enum Evidence {
     Check,
     /// Nothing in this repository reaches it.
     None,
+}
+
+/// `console/<package>/routes.json`: the routes of one package of the
+/// Console, which its build writes and commits (ADR 0072).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RouteList {
+    /// Each route, as the Console's router writes it.
+    pub(crate) routes: Vec<String>,
 }
 
 /// Each file's JSON Schema, by the path `xtask codegen` writes it to.

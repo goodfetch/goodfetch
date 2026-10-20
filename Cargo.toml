@@ -92,9 +92,16 @@ web-bot-auth = { version = "0.7.0", default-features = false }
 ed25519-dalek = { version = "2.2.0", default-features = false }
 indexmap = { version = "2.14.2", default-features = false }
 insta = { version = "1.49.0", default-features = false }
+# The engine's own DNS resolver (ADRs 0024, 0044): the static musl
+# executables have no libc resolver to call, and Sessions with a local
+# address ask it on every OS. `system-config` reads the system's resolver
+# configuration.
+hickory-resolver = { version = "0.26.3", default-features = false }
 # The executables' global allocator (ADR 0024), and the Callgrind
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }
+# `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071).
+libc = { version = "0.2.191", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the
@@ -146,6 +153,8 @@ ureq = { version = "3.4.2", default-features = false, features = ["rustls", "jso
 # Mozilla's root certificates, which the Browser cache's pinned downloads
 # trust (ADR 0043), as ureq's rustls already does.
 webpki-roots = { version = "1.0.9", default-features = false }
+# `xtask rss`'s peak reader: GetProcessMemoryInfo on Windows (ADR 0071).
+windows-sys = { version = "0.61.2", default-features = false }
 # The archives the Browser cache unpacks: Chrome for Testing ships ZIPs.
 zip = { version = "9.0.5", default-features = false }
 

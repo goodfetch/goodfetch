@@ -51,6 +51,22 @@ number = 3
 kind = "error"
 prefix = "call_cancelled"
 
+# The engine's own DNS resolver and Smart App Control's refusal (#260).
+[[area]]
+number = 3
+kind = "error"
+prefix = "name_not_resolved"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "name_lookup_failed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "executable_blocked_by_smart_app_control"
+
 [[area]]
 number = 3
 kind = "format"
@@ -205,3 +221,21 @@ prefix = "delivery."
 number = 6
 kind = "setting"
 prefix = "webhook."
+# The Browser cache's commands (#259): `browsers install` and `browsers clean`.
+[[area]]
+number = 3
+kind = "command"
+prefix = "browsers."
+
+# The hidden Attached-engine entry of both executables, which an SDK starts
+# (spec #213).
+[[area]]
+number = 3
+kind = "command"
+prefix = "attached-engine"
+
+# Area 3's settings command (#225): `config explain`.
+[[area]]
+number = 3
+kind = "command"
+prefix = "config."

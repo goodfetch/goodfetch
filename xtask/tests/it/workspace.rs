@@ -8,6 +8,46 @@ use std::process::Command;
 
 pub(crate) struct Workspace {
     folder: tempfile::TempDir,
+    /// The Cargo target folder this workspace builds into, taken on its
+    /// first `xtask` run.
+    target: std::cell::OnceCell<TargetSlot>,
+}
+
+/// One of the numbered target folders under `fixture-target/`, held through
+/// a lock on its lock file for as long as the workspace lives. Copies of one
+/// fixture crate share their artifacts' names, so two workspaces never build
+/// into one folder at once; a folder keeps its dependencies built for the
+/// next test that takes it.
+struct TargetSlot {
+    folder: PathBuf,
+    _lock: std::fs::File,
+}
+
+impl TargetSlot {
+    /// The first slot no live workspace holds, in any test process.
+    fn take() -> Self {
+        let slots = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target");
+        std::fs::create_dir_all(&slots).unwrap();
+        for slot in 0.. {
+            let lock = std::fs::File::options()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(slots.join(format!("{slot}.lock")))
+                .unwrap();
+            match lock.try_lock() {
+                Ok(()) => {
+                    return Self {
+                        folder: slots.join(slot.to_string()),
+                        _lock: lock,
+                    };
+                }
+                Err(std::fs::TryLockError::WouldBlock) => {}
+                Err(std::fs::TryLockError::Error(error)) => panic!("locking slot {slot}: {error}"),
+            }
+        }
+        unreachable!("a slot is free once the slots outnumber the live workspaces")
+    }
 }
 
 /// One problem a check reported: its kind and what it is about, read from an
@@ -85,7 +125,10 @@ impl Workspace {
     pub(crate) fn from_fixture(name: &str) -> Self {
         let folder = tempfile::tempdir().unwrap();
         copy_tree(&fixtures().join(name), folder.path());
-        Self { folder }
+        Self {
+            folder,
+            target: std::cell::OnceCell::new(),
+        }
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -234,11 +277,11 @@ impl Workspace {
         command
     }
 
-    /// Runs `xtask <args>` in the workspace. Cargo builds offline, into one
-    /// target folder every test shares, so a fixture's dependencies build
-    /// once. Copies of one fixture crate share its artifacts there too, so
-    /// the tests that build one run one at a time (`.config/nextest.toml`,
-    /// the `fixture-builds` group).
+    /// Runs `xtask <args>` in the workspace. Cargo builds offline, into a
+    /// target folder the workspace holds alone while it lives and later
+    /// workspaces reuse, so a fixture's dependencies build once per folder
+    /// and the tests that build a fixture crate can run at once
+    /// (`.config/nextest.toml`, the `fixture-builds` group).
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
         self.xtask_with_env(args, &[])
     }
@@ -255,7 +298,7 @@ impl Workspace {
             .envs(variables.iter().copied())
             .env(
                 "CARGO_TARGET_DIR",
-                Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target"),
+                &self.target.get_or_init(TargetSlot::take).folder,
             )
             .env("CARGO_NET_OFFLINE", "true")
             .output()

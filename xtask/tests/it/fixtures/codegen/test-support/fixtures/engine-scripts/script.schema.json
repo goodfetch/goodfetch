@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A script the Scripted engine plays.",
+  "properties": {
+    "description": {
+      "description": "What the script plays.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "description"
+  ],
+  "title": "Script",
+  "type": "object"
+}

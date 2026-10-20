@@ -3,6 +3,7 @@
 //! engine speaking its protocol. They are ignored, so they run only as those
 //! children.
 
+use std::io::Write as _;
 use std::path::Path;
 use std::time::Duration;
 
@@ -92,4 +93,56 @@ fn runs_journey_902() {
         .unwrap();
 
     let _finished = run.finish().unwrap();
+}
+
+#[test]
+#[ignore = "run as a child by cli::an_escape_byte_in_piped_output_fails_the_run"]
+fn prints_an_escape_byte_to_stdout() {
+    #[expect(
+        clippy::print_stdout,
+        reason = "the probe stands in for a command that leaks colour into a pipe"
+    )]
+    {
+        println!("\u{1b}[31mred\u{1b}[0m");
+    }
+}
+
+#[test]
+#[ignore = "run as a child by cli::an_escape_byte_in_piped_output_fails_the_run"]
+fn prints_an_escape_byte_to_stderr() {
+    #[expect(
+        clippy::print_stderr,
+        reason = "the probe stands in for a command that leaks colour into a pipe"
+    )]
+    {
+        eprintln!("\u{1b}[31mred\u{1b}[0m");
+    }
+}
+
+#[test]
+#[ignore = "run as a child by cli::a_clean_run_snapshots_its_exit_code_stdout_and_stderr_as_one_value"]
+fn prints_to_both_streams_then_exits_with_3() {
+    #[expect(
+        clippy::print_stdout,
+        clippy::print_stderr,
+        reason = "the probe stands in for a command writing to both of its streams"
+    )]
+    {
+        println!("out");
+        eprintln!("err");
+    }
+    std::io::stdout().flush().unwrap();
+    #[expect(
+        clippy::exit,
+        reason = "the probe stands in for a command that ends with its own exit code"
+    )]
+    std::process::exit(3);
+}
+
+#[test]
+#[ignore = "run as a child by cli::teardown_copies_the_command_record_into_the_tests_exercise_record"]
+fn records_a_command_then_drops_its_test_env() {
+    let env = TestEnv::new();
+
+    goodfetch_test_support::record_command(&env, &["browsers", "install"], Some(0)).unwrap();
 }

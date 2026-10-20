@@ -1,0 +1,38 @@
+{
+  "description": "An events batch whose event has no position, which `$/events` requires.",
+  "steps": [
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 1,
+          "credits": 1
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 1,
+            "events": [
+              {
+                "event": "sample.echoed",
+                "data": {
+                  "text": "hello"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

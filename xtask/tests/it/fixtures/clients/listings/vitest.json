@@ -1,0 +1,22 @@
+[
+  {
+    "name": "runs > starts a run attached",
+    "file": "sdks/typescript/collie-client/tests/runs.test.ts",
+    "tags": ["client_case/start-a-run", "attached"]
+  },
+  {
+    "name": "runs > starts a run on a Daemon",
+    "file": "sdks/typescript/collie-client/tests/runs.test.ts",
+    "tags": ["client_case/start-a-run", "daemon"]
+  },
+  {
+    "name": "shows the started run",
+    "file": "console/tests/runs.test.ts",
+    "tags": ["client_case/start-a-run", "attached"]
+  },
+  {
+    "name": "frames a message",
+    "file": "sdks/typescript/collie-client/src/framing.test.ts",
+    "tags": ["story:1-4"]
+  }
+]

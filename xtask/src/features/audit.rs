@@ -12,9 +12,12 @@
 //! - the command records of test support's CLI helper (target
 //!   [`COMMAND_TARGET`]): each `command`, named as its `command:` Feature
 //!   names it (`browsers.install`), and its `exit_code`, which the catalog's
-//!   `exit_codes` table names.
+//!   `exit_codes` table names; or, for arguments that name no `command:`
+//!   Feature, `unmatched`, the arguments joined by spaces.
 //!
-//! A declaring test with no record is reported, never passed. The one
+//! A command run with arguments that match no `command:` Feature is
+//! reported, since no declaration can claim it. A declaring test with no
+//! record is reported, never passed. The one
 //! exception is ADR 0072's: a unit test that never reaches `rpc` may declare
 //! the `error:` or `event:` Feature it asserts itself, which no record shows.
 
@@ -76,6 +79,8 @@ struct Reached {
     events: BTreeSet<String>,
     commands: BTreeSet<String>,
     exit_codes: BTreeSet<u64>,
+    /// The arguments of each command that matched no `command:` Feature.
+    unmatched: BTreeSet<String>,
     /// Whether any dispatch record shows the test reached `rpc`.
     dispatched: bool,
 }
@@ -93,6 +98,7 @@ impl Reached {
             }
             Some(COMMAND_TARGET) => {
                 self.commands.extend(text("command"));
+                self.unmatched.extend(text("unmatched"));
                 self.exit_codes.extend(fields["exit_code"].as_u64());
             }
             _ => {}
@@ -124,6 +130,15 @@ pub(crate) fn audit(
     let mut findings = Vec::new();
     let reached = read_records(root, records, &mut findings)?;
     let exit_codes = exit_codes(root)?;
+    for (test, record) in &reached {
+        for arguments in &record.unmatched {
+            findings.push(Finding::new(
+                "command-unmatched",
+                format!("`{arguments}` in {test}"),
+                "the CLI helper ran a command whose arguments name no `command:` Feature of the inventory",
+            ));
+        }
+    }
     let mut by_test: BTreeMap<&str, Vec<(&Declaration, Kind, &str)>> = BTreeMap::new();
     for declaration in declarations {
         if declaration.source != Source::Nextest

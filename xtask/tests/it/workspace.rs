@@ -175,10 +175,13 @@ impl Workspace {
         }
     }
 
-    /// Installs the workspace's npm packages as a pnpm workspace, its
-    /// runners being the repository's installed ones through the
-    /// `.toolchain` link (committed with the workspace, so a checkout of it
-    /// installs the same), and links the repository's Python environment.
+    /// Installs the workspace's npm packages as a pnpm workspace and its
+    /// Python environment as a uv workspace, offline. Their runners are the
+    /// repository's installed ones: Vitest and Playwright through the
+    /// `.toolchain` link, pytest through `.pytoolchain`'s `.pth` file, on
+    /// the repository's interpreter that `.python-version` names. All three
+    /// and the lockfiles are committed with the workspace, so a checkout of
+    /// it installs the same.
     pub(crate) fn install_runners(&self) {
         let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let node_modules = repository.join("node_modules");
@@ -193,12 +196,10 @@ impl Workspace {
             "{} is missing: run `uv sync`",
             venv.display()
         );
-        for (target, link) in [(&node_modules, ".toolchain"), (&venv, ".venv")] {
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(target, self.path().join(link)).unwrap();
-            #[cfg(windows)]
-            std::os::windows::fs::symlink_dir(target, self.path().join(link)).unwrap();
-        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&node_modules, self.path().join(".toolchain")).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&node_modules, self.path().join(".toolchain")).unwrap();
         let output = Command::new("pnpm")
             .args(["install", "--offline"])
             .current_dir(self.path())
@@ -210,6 +211,37 @@ impl Workspace {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+        // The `.pth` line and the interpreter, one per line. `addsitedir`
+        // reads the repository's own `.pth` files too, so the pytest plugins
+        // it installs load.
+        let output = Command::new(venv.join("bin/python"))
+            .args([
+                "-c",
+                "import os, sys, sysconfig\n\
+                 print(f\"import site; site.addsitedir({sysconfig.get_path('purelib')!r})\")\n\
+                 print(os.path.realpath(sys.executable))",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let output = String::from_utf8(output.stdout).unwrap();
+        let (pth, interpreter) = output.trim().split_once('\n').unwrap();
+        self.write(
+            ".pytoolchain/site/repository.pth",
+            format!("{pth}\n").as_bytes(),
+        );
+        self.write(".python-version", format!("{interpreter}\n").as_bytes());
+        for args in [
+            &["lock", "--offline"][..],
+            &["sync", "--frozen", "--offline"],
+        ] {
+            let output = self.command("uv").args(args).output().unwrap();
+            assert!(
+                output.status.success(),
+                "uv {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 
     pub(crate) fn remove(&self, relative: &str) {

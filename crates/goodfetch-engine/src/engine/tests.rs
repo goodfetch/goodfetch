@@ -143,7 +143,8 @@ impl Client {
 }
 
 /// What an in-process test's engine runs on: the test's home, the test
-/// `Clock` and `Entropy`, and blocking work inline.
+/// `Clock` and `Entropy`, and blocking work inline. Made on the runtime the
+/// engine runs on, as the paused `Clock` must be.
 fn dependencies(env: &TestEnv) -> Dependencies {
     Dependencies {
         home: Home::new(env.home().to_owned()),
@@ -162,17 +163,28 @@ where
     F: FnOnce(Client) -> Fut,
     Fut: Future<Output = T>,
 {
-    let env = TestEnv::new();
-    attached_on(engine, dependencies(&env), client)
+    attached_on(engine, &TestEnv::new(), client)
 }
 
-/// [`attached`], on `dependencies`.
-fn attached_on<F, Fut, T>(engine: &Engine, dependencies: Dependencies, client: F) -> T
+/// [`attached`], in `env`.
+fn attached_on<F, Fut, T>(engine: &Engine, env: &TestEnv, client: F) -> T
 where
     F: FnOnce(Client) -> Fut,
     Fut: Future<Output = T>,
 {
+    attached_with(engine, || dependencies(env), client)
+}
+
+/// [`attached`], on the `Dependencies` that `dependencies` makes on the
+/// runtime.
+fn attached_with<D, F, Fut, T>(engine: &Engine, dependencies: D, client: F) -> T
+where
+    D: FnOnce() -> Dependencies,
+    F: FnOnce(Client) -> Fut,
+    Fut: Future<Output = T>,
+{
     goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies();
         let (network, dialer) = transport::in_memory();
         let talk = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();

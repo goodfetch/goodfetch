@@ -1,0 +1,3 @@
+[[rules]]
+id = "typed-password"
+regex = '''gfcanary-password-[0-9a-f]{16}'''

@@ -19,8 +19,20 @@ export type ResultDocument = {
 };
 
 /**
- * The root of the result document's types, which holds no value of its own.
+ * The root of the result document's and the case log entry's types, which holds no value of its own.
  */
 export interface ResultDocumentTypes {
   [k: string]: unknown;
+}
+/**
+ * A sample case log entry.
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "CaseLogEntry".
+ */
+export interface CaseLogEntry {
+  /**
+   * The case's ID.
+   */
+  case: string;
 }

@@ -245,10 +245,9 @@ impl Drop for TestEnv {
         // finished writing its dump.
         let alive = self.processes.stop_alive();
         let panicking = std::thread::panicking();
-        let recorded = self
-            .record
-            .as_ref()
-            .map_or(Ok(()), |record| record.append_logs(&self.home));
+        let recorded = self.record.as_ref().map_or(Ok(()), |record| {
+            record.append_logs(self.folder.path(), &self.home)
+        });
         if let Err(error) = recorded
             && !panicking
         {

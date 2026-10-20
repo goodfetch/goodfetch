@@ -1,0 +1,148 @@
+{
+  "canaries": [
+    {
+      "id": "password",
+      "kind": "typed_password",
+      "value": "fixture-password-1\"\\+/=&~~~"
+    },
+    {
+      "id": "session",
+      "kind": "session_cookie",
+      "value": "fixture-session-cookie-2"
+    },
+    {
+      "id": "sink",
+      "kind": "sink_credential",
+      "value": "fixture-sink-credential-3\"\\",
+      "planted_in": ["vault.json"]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "raw.log",
+      "text": "log: fixture-password-1\"\\+/=&~~~\n"
+    },
+    {
+      "name": "json-escaped.log",
+      "text": "{\"password\":\"fixture-password-1\\\"\\\\+/=&~~~\"}"
+    },
+    {
+      "name": "url-encoded.log",
+      "text": "GET /login?password=fixture-password-1%22%5C%2B%2F%3D%26~~~ HTTP/1.1"
+    },
+    {
+      "name": "base64.log",
+      "text": "data=Zml4dHVyZS1wYXNzd29yZC0xIlwrLz0mfn5+\n"
+    },
+    {
+      "name": "base64url.log",
+      "text": "token=Zml4dHVyZS1wYXNzd29yZC0xIlwrLz0mfn5-\n"
+    },
+    {
+      "name": "hex.log",
+      "text": "key 666978747572652d70617373776f72642d31225c2b2f3d267e7e7e\n"
+    },
+    {
+      "name": "upper-hex.log",
+      "text": "KEY 666978747572652D73657373696F6E2D636F6F6B69652D32\n"
+    },
+    {
+      "name": "proxy-authorization.log",
+      "text": "Proxy-Authorization: Basic dXNlcjpmaXh0dXJlLXBhc3N3b3JkLTEiXCsvPSZ+fn4=\n"
+    },
+    {
+      "name": "session.log",
+      "text": "Cookie: session=fixture-session-cookie-2\n"
+    },
+    {
+      "name": "vault.json",
+      "text": "{\"sink\":\"fixture-sink-credential-3\\\"\\\\\"}"
+    },
+    {
+      "name": "other-canary.log",
+      "text": "seen fixture-other-canary-9 Zml4dHVyZS1vdGhlci1jYW5hcnktOQ== 666978747572652d6f746865722d63616e6172792d39\n"
+    }
+  ],
+  "hits": [
+    {
+      "canary": "password",
+      "kind": "typed_password",
+      "encoding": "raw",
+      "output": "raw.log",
+      "offset": 5,
+      "placement": "leaked"
+    },
+    {
+      "canary": "password",
+      "kind": "typed_password",
+      "encoding": "json_escaped",
+      "output": "json-escaped.log",
+      "offset": 13,
+      "placement": "leaked"
+    },
+    {
+      "canary": "password",
+      "kind": "typed_password",
+      "encoding": "url_encoded",
+      "output": "url-encoded.log",
+      "offset": 20,
+      "placement": "leaked"
+    },
+    {
+      "canary": "password",
+      "kind": "typed_password",
+      "encoding": "base64",
+      "output": "base64.log",
+      "offset": 5,
+      "placement": "leaked"
+    },
+    {
+      "canary": "password",
+      "kind": "typed_password",
+      "encoding": "base64",
+      "output": "base64url.log",
+      "offset": 6,
+      "placement": "leaked"
+    },
+    {
+      "canary": "password",
+      "kind": "typed_password",
+      "encoding": "hex",
+      "output": "hex.log",
+      "offset": 4,
+      "placement": "leaked"
+    },
+    {
+      "canary": "session",
+      "kind": "session_cookie",
+      "encoding": "hex",
+      "output": "upper-hex.log",
+      "offset": 4,
+      "placement": "leaked"
+    },
+    {
+      "canary": "password",
+      "kind": "typed_password",
+      "encoding": "base64",
+      "output": "proxy-authorization.log",
+      "offset": 34,
+      "placement": "leaked"
+    },
+    {
+      "canary": "session",
+      "kind": "session_cookie",
+      "encoding": "raw",
+      "output": "session.log",
+      "offset": 16,
+      "placement": "leaked"
+    },
+    {
+      "canary": "sink",
+      "kind": "sink_credential",
+      "encoding": "json_escaped",
+      "output": "vault.json",
+      "offset": 9,
+      "placement": "planted"
+    }
+  ]
+}

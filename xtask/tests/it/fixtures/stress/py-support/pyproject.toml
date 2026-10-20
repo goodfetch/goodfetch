@@ -1,0 +1,8 @@
+[project]
+name = "py-support"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

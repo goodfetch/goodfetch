@@ -1,7 +1,7 @@
 //! The corpus check (ADR 0069, Quick suite): every message step of every
 //! script in `test-support/fixtures/engine-scripts/` validates against the
-//! committed JSON Schema bundle and names a method the catalog has, so no
-//! script sends what the engine could never send. `raw` steps are skipped.
+//! committed JSON Schema bundle and names a method the catalog or the
+//! connection has, so no script sends what the engine could never send. `raw` steps are skipped.
 //! The check is shown refusing the fixtures beside it.
 
 use std::path::{Path, PathBuf};
@@ -76,7 +76,8 @@ impl Contract {
         }
     }
 
-    /// A method the Client sends: `hello`, `$/cancel` or an operation.
+    /// A method the Client sends: `hello`, `$/cancel`, `$/credit` or an
+    /// operation.
     fn client_method(&self, name: &str) -> Option<Method> {
         match name {
             "hello" => Some(Method {
@@ -84,8 +85,8 @@ impl Contract {
                 result: Some(self.connection["hello"]["result"].clone()),
                 notification: false,
             }),
-            "$/cancel" => Some(Method {
-                params: self.connection["cancel"]["params"].clone(),
+            "$/cancel" | "$/credit" => Some(Method {
+                params: self.connection[name.trim_start_matches("$/")]["params"].clone(),
                 result: None,
                 notification: true,
             }),
@@ -97,10 +98,17 @@ impl Contract {
         }
     }
 
-    /// An event the engine sends as a notification, by its catalog name.
+    /// The params of a notification the engine sends: the connection's
+    /// `$/events` or `$/chunk`, or an event by its catalog name.
     fn event(&self, name: &str) -> Option<Value> {
-        self.entry("events", name)
-            .map(|event| event["payload"].clone())
+        match name {
+            "$/events" | "$/chunk" => {
+                Some(self.connection[name.trim_start_matches("$/")]["params"].clone())
+            }
+            _ => self
+                .entry("events", name)
+                .map(|event| event["payload"].clone()),
+        }
     }
 
     fn entry(&self, section: &str, name: &str) -> Option<&Value> {
@@ -367,6 +375,18 @@ fn a_failure_naming_an_unknown_error_code_fails_the_check() {
             step: 1,
             code: json!("hello_refused")
         }]
+    );
+}
+
+#[test]
+fn an_events_batch_that_breaks_the_bundles_schema_fails_the_check() {
+    let contract = Contract::committed();
+
+    let found = violations(&fixture("events-batch-breaks-the-schema.json"), &contract);
+
+    assert!(
+        matches!(found.as_slice(), [Violation::Schema { step: 2, .. }]),
+        "{found:?}"
     );
 }
 

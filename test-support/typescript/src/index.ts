@@ -15,6 +15,13 @@ export {
   type JourneyFacts,
   type JourneyResultDocument,
 } from "./journey-document.ts";
+export {
+  playScript,
+  type Ending,
+  type InMemoryTransport,
+  type PlayedMessage,
+  type PlayedScript,
+} from "./play-script.ts";
 export { productEnv, type Product } from "./product-env.ts";
 export { redact, type SnapshotValues } from "./snapshot.ts";
 export {

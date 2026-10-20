@@ -42,7 +42,7 @@ use super::files::{
     self, Evidence, Exception, ExceptionsFile, Feature, Kind, Status, StoryFile, Unreadable,
 };
 use super::scan::{Declaration, Level, Source};
-use crate::journeys::CatalogVariant;
+use crate::journeys::{CatalogVariant, ManualException};
 use crate::quarantine;
 use crate::results::{self, Outcome};
 
@@ -409,14 +409,6 @@ fn due(feature: &Feature, flagged: bool, variants: &[CatalogVariant]) -> Result<
         .map(|variant| variant.milestone)
         .min();
     Ok(Some(journey.map_or(own, |journey| journey.max(own))))
-}
-
-/// One exception with evidence `manual`: a step the owner test runs by
-/// hand.
-pub(crate) struct ManualException {
-    pub(crate) feature: String,
-    pub(crate) reason: String,
-    pub(crate) link: String,
 }
 
 /// Each exception with evidence `manual` in `features/exceptions.toml`

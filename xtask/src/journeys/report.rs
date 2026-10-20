@@ -29,7 +29,6 @@ use goodfetch_protocol::result_document::{self, JourneyOutcome, LoadedDocument};
 use serde::Serialize;
 
 use super::variants::{self, FOXHOUND_CLI, Variant};
-use crate::features::ManualException;
 use crate::results;
 
 /// The folder of a JUnit artifact that holds its result documents.
@@ -85,6 +84,14 @@ pub(super) struct Report {
     /// no store, or the store holds no Release run of `main`.
     pub(super) release_commit: Option<String>,
     pub(super) groups: Vec<Group>,
+}
+
+/// One exception with evidence `manual` in `features/exceptions.toml`: a
+/// step the owner test runs by hand.
+pub(crate) struct ManualException {
+    pub(crate) feature: String,
+    pub(crate) reason: String,
+    pub(crate) link: String,
 }
 
 /// What a variant's documents gave, before the absence of any is `unproved`.

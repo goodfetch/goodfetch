@@ -68,6 +68,8 @@ mod report;
 mod select;
 mod variants;
 
+pub(crate) use report::ManualException;
+
 /// The catalog's folder, from the root.
 const FOLDER: &str = "journeys";
 
@@ -80,6 +82,12 @@ const SCHEMA: &str = "journeys/journey.schema.json";
 /// The folder of the committed task lists, one per seed the catalog uses,
 /// which `tasks` writes from the Proving ground's own.
 const TASK_LISTS: &str = "journeys/tasks";
+
+/// Reads each `manual` exception whose Feature is due at a milestone, given
+/// every active variant: the Feature inventory's reader, passed in by the
+/// caller since `features` imports this module.
+pub(crate) type ManualExceptions =
+    fn(&Path, Milestone, &[CatalogVariant]) -> Result<Vec<ManualException>>;
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
@@ -196,7 +204,11 @@ pub(crate) struct Tasks {
     check: bool,
 }
 
-pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
+pub(crate) fn run(
+    command: &Command,
+    environment: &Environment,
+    manual_exceptions: ManualExceptions,
+) -> Result<ExitCode> {
     match command {
         Command::Check(arguments) => {
             let listings = arguments
@@ -220,7 +232,7 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
         Command::Report(arguments) => {
             let journeys = working_journeys(&environment.root)?;
             if let Some(milestone) = arguments.owner_test {
-                let exceptions = crate::features::manual_exceptions(
+                let exceptions = manual_exceptions(
                     &environment.root,
                     milestone,
                     &active_variants(&environment.root)?,

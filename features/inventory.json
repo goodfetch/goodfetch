@@ -102,7 +102,7 @@
     {
       "id": "error:address_family_unavailable",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2715,7 +2715,7 @@
     {
       "id": "setting:resolver.attempt_delay",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2726,7 +2726,7 @@
     {
       "id": "setting:resolver.resolution_delay",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5903,6 +5903,28 @@
     },
     {
       "id": "story:3-146",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-147",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-148",
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",

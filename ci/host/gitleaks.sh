@@ -35,8 +35,11 @@ if command -v sha256sum >/dev/null 2>&1; then
 else
   echo "$sha256  $archive" | shasum -a 256 -c -
 fi
-if [[ "$extension" == zip ]]; then
+if [[ "$extension" == zip ]] && command -v unzip >/dev/null 2>&1; then
   unzip -q -o "$archive" gitleaks.exe -d "$folder"
+elif [[ "$extension" == zip ]]; then
+  # The Windows runner image's 7-Zip, where Git Bash has no unzip.
+  7z x -y -o"$folder" "$archive" gitleaks.exe >/dev/null
 else
   tar -xzf "$archive" -C "$folder" gitleaks
 fi

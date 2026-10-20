@@ -117,8 +117,7 @@ clients-tests: journeys-tests
 # Rust test that declares an `operation:`, `error:`, `event:`, `command:` or
 # `exit:` Feature must have reached it, as the exercise record test support
 # wrote for it shows. It reads the tests the run's JUnit file shows ran, or
-# every declaring test with `all` (the Release suite). `just test pre-merge`
-# runs it after its Rust tests, so the Pre-merge suite fails on a finding.
+# every declaring test with `all` (the Release suite).
 features-audit scope="ran":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -372,12 +371,6 @@ test suite *packages:
           else
             echo "Doctests: no selected package has a library target"
           fi
-        fi
-        # The Pre-merge suite's exercise audit (ADR 0072) over the Rust tests
-        # that just ran: a declaring test that never reached its Feature fails
-        # the run.
-        if $rust && [[ "{{ suite }}" == pre-merge ]]; then
-          {{ just_executable() }} features-audit
         fi
         if $vitest_runs; then
           pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}

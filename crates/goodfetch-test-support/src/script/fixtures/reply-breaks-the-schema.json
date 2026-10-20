@@ -1,0 +1,25 @@
+{
+  "description": "A hello answered with a Product no catalog has, which the check refuses.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "bloodhound",
+          "product_version": "0.1.0"
+        }
+      }
+    }
+  ]
+}

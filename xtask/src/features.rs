@@ -8,7 +8,9 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+mod block_cause;
 mod check;
+mod command;
 mod contract;
 mod covers;
 mod entry;
@@ -20,6 +22,7 @@ mod page;
 mod report;
 mod row;
 mod scan;
+mod screen;
 mod story;
 
 use std::collections::BTreeSet;
@@ -32,6 +35,7 @@ use goodfetch_protocol::journey::Milestone;
 use crate::environment::Environment;
 use crate::{journeys, output};
 
+pub(crate) use command::{CommandLines, CommandTree, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
 

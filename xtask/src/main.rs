@@ -48,6 +48,7 @@ mod rate;
 mod release_suite;
 mod repeat;
 mod results;
+mod rss;
 mod scan;
 mod screenshots;
 mod self_hosted;
@@ -206,6 +207,12 @@ enum Command {
     Results {
         #[command(subcommand)]
         command: ResultsCommand,
+    },
+    /// The resident-memory check (ADRs 0071, 0094 and 0134): each
+    /// scenario's peak on each Product's executable, held to its ceiling.
+    Rss {
+        #[command(subcommand)]
+        command: rss::Command,
     },
     /// Reference screenshots (ADR 0073).
     Screenshots {
@@ -401,6 +408,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::Results { command } => run_results(command, environment),
+        Command::Rss { command } => rss::run(command, environment),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),

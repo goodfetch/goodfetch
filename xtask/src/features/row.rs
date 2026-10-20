@@ -11,7 +11,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use super::entry::{Entry, unreadable};
+use super::entry::{Carriers, Entry, unreadable};
 use super::files::{self, Kind, RowsFile, Status};
 
 pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
@@ -36,7 +36,7 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
             name: row.id,
             area: row.area,
             status: Status::Active,
-            section: None,
+            carriers: Carriers::Both,
         })
         .collect())
 }

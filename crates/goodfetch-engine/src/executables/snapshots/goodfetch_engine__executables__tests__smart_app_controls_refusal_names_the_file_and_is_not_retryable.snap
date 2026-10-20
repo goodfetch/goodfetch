@@ -1,0 +1,12 @@
+---
+source: crates/goodfetch-engine/src/executables/tests.rs
+expression: refusal
+---
+CallError {
+    code: "executable_blocked_by_smart_app_control",
+    message: "Windows refused to start C:\\Program Files\\Plugins\\ocr.exe: Smart App Control or an App Control policy blocks it",
+    retryable: false,
+    details: {
+        "file": String("C:\\Program Files\\Plugins\\ocr.exe"),
+    },
+}

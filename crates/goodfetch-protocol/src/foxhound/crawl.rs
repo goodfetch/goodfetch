@@ -11,10 +11,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
-    ProtocolVersion, Stability, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
+    ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 use crate::run::{RUN_ID_PATTERN, RunId, RunStarted, Tags};
+use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -90,6 +91,14 @@ pub struct CrawlStartParams {
     /// The requests the crawl starts from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub seeds: Seeds,
+    /// The Run's settings, nested by key: the run layer (ADR 0083).
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).
@@ -196,6 +205,70 @@ pub const HANDLER_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.handler` (ADRs 0080 and 0093).
+pub const TIMEOUT_HANDLER: Setting = Setting {
+    name: "timeout.handler",
+    description: "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+    kind: ValueKind::Duration,
+    default: one_minute,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.retry.max` (ADR 0093).
+pub const CRAWL_RETRY_MAX: Setting = Setting {
+    name: "crawl.retry.max",
+    description: "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+    kind: ValueKind::Count,
+    default: two,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.retry.handler_failed` (ADR 0093).
+pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
+    name: "crawl.retry.handler_failed",
+    description: "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.handler.concurrency` (ADR 0093).
+pub const CRAWL_HANDLER_CONCURRENCY: Setting = Setting {
+    name: "crawl.handler.concurrency",
+    description: "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+    kind: ValueKind::Count,
+    default: sixteen,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn one_minute() -> Value {
+    Value::from(60_000_u64)
+}
+
+fn two() -> Value {
+    Value::from(2_u64)
+}
+
+fn sixteen() -> Value {
+    Value::from(16_u64)
+}
+
+fn no() -> Value {
+    Value::Bool(false)
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -205,7 +278,12 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[HANDLER_FAILED, HANDLER_LOST],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[
+        TIMEOUT_HANDLER,
+        CRAWL_RETRY_MAX,
+        CRAWL_RETRY_HANDLER_FAILED,
+        CRAWL_HANDLER_CONCURRENCY,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

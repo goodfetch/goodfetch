@@ -12,6 +12,7 @@
 )]
 
 mod run;
+mod settings;
 
 use std::time::Duration;
 

@@ -11,6 +11,10 @@ use std::str::FromStr;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
+mod setting;
+
+pub use setting::{Authority, ValueKind};
+
 /// The protocol's version, `major.minor` (ADR 0030), written on the wire as
 /// that text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -423,12 +427,26 @@ pub struct Metric {
 }
 
 /// A Setting (ADR 0028), named by its key, which ADR 0087 refuses on a
-/// Product that lacks it.
+/// Product that lacks it: the kind of its values, its built-in default and
+/// who may set it, from which the settings schema is generated (ADR 0083).
 pub struct Setting {
-    /// Its key, a dotted `snake_case` path such as `crawl.max_pages`.
+    /// Its key, a dotted `snake_case` path with its area first, such as
+    /// `crawl.max_pages` (ADR 0083).
     pub name: &'static str,
     /// What the setting shapes.
     pub description: &'static str,
+    /// The kind of its values.
+    pub kind: ValueKind,
+    /// Its built-in default, the lowest layer; `null` when it has none.
+    pub default: fn() -> serde_json::Value,
+    /// Whether `null` clears it (ADR 0083's three states).
+    pub clearable: bool,
+    /// Which layers may set it, and how.
+    pub authority: Authority,
+    /// The values that weaken a guarantee class or switch off a costly
+    /// control, which the results it touches are marked with (ADR 0028);
+    /// `None` when no value does.
+    pub weakens: Option<fn(&serde_json::Value) -> bool>,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
 }

@@ -20,11 +20,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use goodfetch_protocol::browser_cache::{
-    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, NotCleaned,
-    PinnedBy, SettingsLayer,
+    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, NotCleaned, PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::json;

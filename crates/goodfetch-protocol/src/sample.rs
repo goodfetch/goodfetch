@@ -67,6 +67,10 @@ const SAMPLE_ECHOED: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
+fn one() -> serde_json::Value {
+    serde_json::json!(1)
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -118,6 +122,11 @@ pub const ENTRIES: Entries = Entries {
     settings: &[Setting {
         name: "sample.echo_repeats",
         description: "How many times the sample operation repeats a text.",
+        kind: crate::catalog::ValueKind::Count,
+        default: one,
+        clearable: false,
+        authority: crate::catalog::Authority::Every,
+        weakens: None,
         arrived_in: ARRIVED_IN,
     }],
     hook_stages: &[HookStage {

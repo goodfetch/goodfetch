@@ -13,10 +13,11 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, Product, ProtocolVersion,
-    Setting, Stability, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, Product,
+    ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 use crate::connection::StoppedBy;
+use crate::settings::{ProjectSettings, SettingLimit};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -356,6 +357,14 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Tags::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tags: Tags,
+    /// The Run's settings, nested by key: the run layer (ADR 0083).
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, serde_json::Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
 }
 
 /// Whether a start began its Run or found it.
@@ -422,6 +431,16 @@ pub struct RunReport {
     /// When it ended.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub ended_at: PointInTime,
+    /// The version of the Operator policy it ran under, when one applied
+    /// (ADR 0028).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy_version: Option<String>,
+    /// Every setting it ran with that weakens a guarantee class or switches
+    /// off a costly control, with its value and layer (ADR 0028).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub weakened_by: Vec<SettingLimit>,
 }
 
 /// `run.start`.
@@ -563,10 +582,19 @@ pub struct RunDetails {
     pub path: Option<String>,
 }
 
+fn no_folder() -> serde_json::Value {
+    serde_json::Value::Null
+}
+
 /// `run_state.location`.
 pub const RUN_STATE_LOCATION: Setting = Setting {
     name: "run_state.location",
     description: "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home.",
+    kind: ValueKind::Text,
+    default: no_folder,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -597,6 +625,12 @@ pub struct RunStateRow {
     pub started_at: PointInTime,
     /// When it ended.
     pub ended_at: Option<PointInTime>,
+    /// The version of the Operator policy it ran under (ADR 0028).
+    pub policy_version: Option<String>,
+    /// The settings it ran with that weaken a guarantee or switch off a
+    /// costly control, as a JSON list of each one's key, value and layer
+    /// (ADR 0028).
+    pub weakened_by: String,
 }
 
 /// One row of the Run index (ADR 0031): a Run, where its state is, and its

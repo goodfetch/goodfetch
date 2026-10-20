@@ -26,3 +26,4 @@ pub mod result_document;
 pub mod routing;
 pub mod run;
 pub mod sample;
+pub mod settings;

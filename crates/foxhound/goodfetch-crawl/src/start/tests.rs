@@ -129,9 +129,28 @@ impl Client {
     }
 }
 
-/// What the tests' engine runs on: the test's home, the test `Clock` and
-/// `Entropy`, and blocking work inline.
+/// Writes `policy` as the user configuration of the test's home, the way a
+/// test sets short durations (ADR 0059).
+pub(super) fn configure(env: &TestEnv, policy: CrawlPolicy) {
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("configuration.toml"),
+        format!(
+            "version = \"0.1\"\n\n[settings]\ntimeout.handler = {}\ncrawl.retry.max = {}\ncrawl.retry.handler_failed = {}\ncrawl.handler.concurrency = {}\n",
+            policy.handler_timeout.as_millis(),
+            policy.retry_max,
+            policy.retry_handler_failed,
+            policy.handler_concurrency,
+        ),
+    )
+    .unwrap();
+}
+
+/// What the tests' engine runs on: the test's home, configured with
+/// [`POLICY`], the test `Clock` and `Entropy`, and blocking work inline.
 pub(super) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
+    configure(env, POLICY);
     Dependencies {
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
@@ -142,9 +161,8 @@ pub(super) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Depende
     }
 }
 
-/// A Foxhound engine composed of the engine's operations and the crawl's,
-/// under `policy`.
-pub(super) fn engine_with(policy: CrawlPolicy) -> Engine {
+/// A Foxhound engine composed of the engine's operations and the crawl's.
+pub(super) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
@@ -152,14 +170,14 @@ pub(super) fn engine_with(policy: CrawlPolicy) -> Engine {
     };
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
-        .with(super::contribution_with(policy));
+        .with(super::contribution());
     Engine::new(identity, &composition).unwrap()
 }
 
 /// Runs the engine on `dependencies` while `talk` drives its Client from
 /// `hello` on, then closes the Connection.
 pub(super) fn crawl<T>(dependencies: Dependencies, talk: impl AsyncFnOnce(&mut Client) -> T) -> T {
-    let engine = engine_with(POLICY);
+    let engine = engine();
     goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
@@ -594,5 +612,86 @@ fn a_crawl_needs_foxhound_in_its_run_state_and_its_run_index_row() {
             ),
             "foxhound".to_owned(),
         )
+    );
+}
+
+/// A crawl's own settings, the run layer, shape its attempts.
+///
+/// Covers: story:3-86, setting:crawl.retry.max
+#[test]
+fn a_crawls_settings_shape_its_attempts() {
+    let env = TestEnv::new();
+
+    crawl(
+        dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "once",
+                        "seeds": seeds(1),
+                        "settings": { "crawl": { "retry": { "max": 0 } } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| Reply::Fails("retry_requested", true);
+            client
+                .call("run.finish", json!({ "run_id": "once" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!(
+        work_items(&run_file(&env, "once")),
+        vec![(
+            "1".to_owned(),
+            "failed".to_owned(),
+            1,
+            Some("retry_requested".to_owned())
+        )]
+    );
+}
+
+/// An Operator policy's cap tightened while a crawl goes on reaches it at
+/// its next admission point: the retry the crawl's settings allowed is not
+/// made (ADR 0028).
+///
+/// Covers: story:3-88, setting:crawl.retry.max, setting:crawl.handler.concurrency, setting:crawl.retry.handler_failed, setting:timeout.handler
+#[test]
+fn an_operator_policys_tightened_cap_reaches_a_crawl_already_going() {
+    let env = TestEnv::new();
+    let policy = env.home().join("1").join("operator-policy.toml");
+
+    crawl(
+        dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "capped", "seeds": seeds(1) }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| {
+                std::fs::write(&policy, "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 0\n")
+                    .unwrap();
+                Reply::Fails("retry_requested", true)
+            };
+            client
+                .call("run.finish", json!({ "run_id": "capped" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!(
+        work_items(&run_file(&env, "capped")),
+        vec![(
+            "1".to_owned(),
+            "failed".to_owned(),
+            1,
+            Some("retry_requested".to_owned())
+        )]
     );
 }

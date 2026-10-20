@@ -5,8 +5,12 @@
 //! `xtask codegen` writes the registry into the bundle as `formats`, which
 //! `xtask compat` reads.
 
+use schemars::{Schema, SchemaGenerator};
+use serde_json::{Map, Value, json};
+
 use crate::browser_cache::BrowserCacheEntry;
-use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, schema_of};
+use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, ValueKind, schema_of};
+use crate::entries::MODULES;
 use crate::jsonrpc::Message;
 use crate::run::{RunIndexRow, RunStateRow};
 
@@ -19,6 +23,8 @@ pub enum Storage {
     Sqlite,
     /// A protocol's recorded transcripts, one message per line.
     Transcript,
+    /// TOML documents, such as settings files.
+    Toml,
 }
 
 impl Storage {
@@ -28,6 +34,7 @@ impl Storage {
             Self::Json => "json",
             Self::Sqlite => "sqlite",
             Self::Transcript => "transcript",
+            Self::Toml => "toml",
         }
     }
 }
@@ -138,8 +145,166 @@ pub const RUN_INDEX: Format = Format {
     schema: schema_of::<RunIndexRow>,
 };
 
+/// The per-major Operator policy of Goodfetch home (ADRs 0028 and 0098):
+/// what it sets, locks and caps, nested by key, read by both Products.
+pub const OPERATOR_POLICY: Format = Format {
+    name: "operator-policy",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Toml,
+    rule: Rule::Default,
+    schema: operator_policy_schema,
+};
+
+/// The per-major user configuration of Goodfetch home (ADRs 0028 and
+/// 0098), whose shape a project configuration shares: the settings it
+/// sets, nested by key, read by both Products.
+pub const USER_CONFIGURATION: Format = Format {
+    name: "user-configuration",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Toml,
+    rule: Rule::Default,
+    schema: configuration_schema,
+};
+
 /// Every registered format.
-pub const FORMATS: &[&Format] = &[&PROTOCOL, &BROWSER_CACHE, &RUN_INDEX, &RUN_STATE];
+pub const FORMATS: &[&Format] = &[
+    &PROTOCOL,
+    &BROWSER_CACHE,
+    &RUN_INDEX,
+    &RUN_STATE,
+    &OPERATOR_POLICY,
+    &USER_CONFIGURATION,
+];
+
+/// A settings file's schema: its `version` and each of `tables`, a table
+/// of every key of either Product nested by its segments.
+/// One table of a settings file: its name, what it holds and which keys.
+struct Table {
+    name: &'static str,
+    description: &'static str,
+    holds: fn(&Setting) -> bool,
+}
+
+fn settings_file_schema(generator: &mut SchemaGenerator, tables: &[Table]) -> Schema {
+    let mut properties = Map::new();
+    properties.insert(
+        "version".to_owned(),
+        json!({
+            "allOf": [generator.subschema_for::<ProtocolVersion>()],
+            "description": "The version of this format the file was written in.",
+            "arrived_in": "0.1",
+        }),
+    );
+    for table in tables {
+        let mut schema = settings_table(table.holds);
+        schema["description"] = json!(table.description);
+        schema["arrived_in"] = json!("0.1");
+        properties.insert(table.name.to_owned(), schema);
+    }
+    Schema::try_from(json!({
+        "type": "object",
+        "properties": properties,
+        "required": ["version"],
+        "additionalProperties": false,
+    }))
+    .expect("invariant: a settings file's schema is an object")
+}
+
+fn configuration_schema(generator: &mut SchemaGenerator) -> Schema {
+    settings_file_schema(
+        generator,
+        &[Table {
+            name: "settings",
+            description: "The settings it sets, nested by key.",
+            holds: any_key,
+        }],
+    )
+}
+
+fn operator_policy_schema(generator: &mut SchemaGenerator) -> Schema {
+    settings_file_schema(
+        generator,
+        &[
+            Table {
+                name: "settings",
+                description: "The values it sets, which higher layers may change.",
+                holds: any_key,
+            },
+            Table {
+                name: "lock",
+                description: "The values it sets and locks: no higher layer changes them.",
+                holds: any_key,
+            },
+            Table {
+                name: "cap",
+                description: "The largest value a higher layer may give a count or a duration.",
+                holds: bounded_key,
+            },
+        ],
+    )
+}
+
+fn any_key(_: &Setting) -> bool {
+    true
+}
+
+/// A key a cap bounds: a count or a duration.
+fn bounded_key(setting: &Setting) -> bool {
+    matches!(setting.kind, ValueKind::Count | ValueKind::Duration)
+}
+
+/// Every key of either Product that `holds`, nested by its segments, its
+/// last holding a value of the key's kind.
+fn settings_table(holds: fn(&Setting) -> bool) -> Value {
+    let mut tree = Map::new();
+    for entries in MODULES {
+        for setting in entries.settings.iter().filter(|setting| holds(setting)) {
+            let mut table = &mut tree;
+            let mut segments = setting.name.split('.').peekable();
+            while let Some(segment) = segments.next() {
+                if segments.peek().is_none() {
+                    let mut leaf = setting.kind.schema();
+                    if setting.clearable {
+                        leaf = json!({ "anyOf": [leaf, { "type": "null" }] });
+                    }
+                    leaf["description"] = json!(setting.description);
+                    table.insert(segment.to_owned(), json!({ "leaf": leaf }));
+                } else {
+                    table = table
+                        .entry(segment.to_owned())
+                        .or_insert_with(|| json!({ "branch": {} }))
+                        .get_mut("branch")
+                        .and_then(Value::as_object_mut)
+                        .expect("invariant: no key's segment is another key's last");
+                }
+            }
+        }
+    }
+    table_schema(&tree)
+}
+
+fn table_schema(tree: &Map<String, Value>) -> Value {
+    let empty = Map::new();
+    let properties: Map<String, Value> = tree
+        .iter()
+        .map(|(segment, node)| {
+            let schema = match node.get("leaf") {
+                Some(leaf) => leaf.clone(),
+                None => table_schema(
+                    node.get("branch")
+                        .and_then(Value::as_object)
+                        .unwrap_or(&empty),
+                ),
+            };
+            (segment.clone(), schema)
+        })
+        .collect();
+    json!({
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": false,
+    })
+}
 
 #[cfg(test)]
 mod tests;

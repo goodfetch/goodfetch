@@ -5,6 +5,7 @@
 //! items.
 
 pub mod crawl;
+pub mod settings;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -67,6 +68,10 @@ const SAMPLE_CRAWLED: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
+fn one() -> serde_json::Value {
+    serde_json::json!(1)
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -115,6 +120,11 @@ pub const ENTRIES: Entries = Entries {
     settings: &[Setting {
         name: "crawl.sample_pages",
         description: "How many pages the sample crawl visits.",
+        kind: crate::catalog::ValueKind::Count,
+        default: one,
+        clearable: false,
+        authority: crate::catalog::Authority::Every,
+        weakens: None,
         arrived_in: ARRIVED_IN,
     }],
     hook_stages: &[HookStage {

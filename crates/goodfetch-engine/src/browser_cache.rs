@@ -29,11 +29,12 @@ use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
     ArtifactId, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED, BrowserCacheEntry,
     BrowserNotInstalledDetails, DownloadFailure, DownloadProgress, InstallOutcome, MissingBrowser,
-    PinnedBy, SettingLimit, SettingsLayer,
+    PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 pub use artifact::{BuildPlatform, Digest, MalformedDigest, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};

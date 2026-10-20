@@ -12,10 +12,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Event, Product, ProtocolVersion, Setting, Stability,
-    schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, Product, ProtocolVersion, Setting,
+    Stability, ValueKind, schema_of,
 };
 use crate::connection::ProductVersion;
+use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -202,40 +203,6 @@ pub struct ArtifactUnavailableOfflineDetails {
     pub fix: String,
 }
 
-/// A setting that decided an outcome: its key, its value and the layer that
-/// set it (ADRs 0028 and 0079).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct SettingLimit {
-    /// The setting's key.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub key: String,
-    /// Its value.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub value: serde_json::Value,
-    /// The layer that set it.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub layer: SettingsLayer,
-}
-
-/// The layers settings resolve through, lowest first (ADRs 0028 and 0083).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SettingsLayer {
-    /// The built-in default.
-    Default,
-    /// An Operator policy.
-    OperatorPolicy,
-    /// User configuration.
-    UserConfiguration,
-    /// Project configuration.
-    ProjectConfiguration,
-    /// A Recipe.
-    Recipe,
-    /// The run: a program's settings, a call's argument, a CLI flag or an
-    /// Integration's form.
-    Run,
-}
-
 /// A pinned download that failed (ADR 0115).
 pub const ARTIFACT_DOWNLOAD_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "artifact_download_failed",
@@ -310,10 +277,19 @@ pub const DOWNLOAD_PROGRESS: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
+fn thirty_days() -> serde_json::Value {
+    serde_json::json!(30_u64 * 24 * 60 * 60 * 1000)
+}
+
 /// `browser_cache.max_unused_age` (ADR 0098).
 pub const MAX_UNUSED_AGE: Setting = Setting {
     name: "browser_cache.max_unused_age",
     description: "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Duration,
+    default: thirty_days,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
     arrived_in: ARRIVED_IN,
 };
 

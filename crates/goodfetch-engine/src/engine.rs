@@ -16,6 +16,7 @@ use crate::product::Identity;
 use crate::rpc::{self, Dispatch};
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{Runs, RunsSetup};
+use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transport::{Connection, Network, TransportError};
 
@@ -84,8 +85,14 @@ impl Engine {
     ) -> Result<(), TransportError> {
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
+        let settings = Settings::new(
+            SettingsFiles::of(&dependencies.home, &self.identity().product_version),
+            self.identity().product,
+            owner.child(),
+        );
         let runs = Runs::start_registry(
             RunsSetup {
+                settings,
                 home: dependencies.home,
                 version: self.identity().product_version.clone(),
                 location: dependencies.run_state_location,

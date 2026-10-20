@@ -19,6 +19,29 @@ export type ArtifactKind =
  */
 export type Completeness = "complete" | "incomplete" | "unverified";
 /**
+ * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingsLayer".
+ */
+export type SettingsLayer =
+  "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+/**
+ * Where a run-layer value came from (ADR 0083).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunOrigin".
+ */
+export type RunOrigin = "argument" | "settings" | "flag" | "form";
+/**
+ * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
+ * writes it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Product".
+ */
+export type Product = "collie" | "foxhound";
+/**
  * Where a Run is (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -32,14 +55,6 @@ export type Lifecycle = "running" | "stopped" | "finished" | "failed";
  * via the `definition` "PointInTime".
  */
 export type PointInTime = string;
-/**
- * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
- * writes it.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Product".
- */
-export type Product = "collie" | "foxhound";
 /**
  * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
  *
@@ -180,6 +195,49 @@ export interface ArtifactId {
   name: string;
 }
 /**
+ * What `config.explain` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConfigExplainParams".
+ */
+export interface ConfigExplainParams {
+  /**
+   * The keys to explain, each a key or a prefix of keys, such as
+   * `timeout`; every key when empty.
+   */
+  keys?: string[];
+  /**
+   * The project configuration to explain with.
+   */
+  project?: ProjectSettings | null;
+  /**
+   * Run-layer values to explain with, as a Run's `settings` would give
+   * them.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * A project configuration's values, which a Client reads where it runs and
+ * sends with a scope it opens (ADR 0083).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProjectSettings".
+ */
+export interface ProjectSettings {
+  /**
+   * The file's path, as the Client found it.
+   */
+  path: string;
+  /**
+   * Its settings, nested as the file nests them.
+   */
+  settings: {
+    [k: string]: unknown;
+  };
+}
+/**
  * What `browser_cache.download_progress` reports.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -249,6 +307,59 @@ export interface EngineInfo {
  */
 export interface EngineInfoParams {}
 /**
+ * One setting as `config explain` shows it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExplainedSetting".
+ */
+export interface ExplainedSetting {
+  /**
+   * Whether this engine applies it: `false` for a key only the other
+   * Product honours, which a shared file may hold (ADR 0087).
+   */
+  applied: boolean;
+  /**
+   * An Operator policy's cap on it, if any.
+   */
+  cap?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its key.
+   */
+  key: string;
+  /**
+   * The layer that set it.
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * The layer that locked it, if any: an Operator policy's lock, a
+   * Recipe that declares it without exposing it, or the default for an
+   * honesty guarantee.
+   */
+  locked_by?: SettingsLayer | null;
+  /**
+   * For the run layer, where the value came from.
+   */
+  origin?: RunOrigin | null;
+  /**
+   * The Products that honour it, from its Product mark (ADR 0095).
+   */
+  products: Product[];
+  /**
+   * The effective value, or for a key this engine does not apply, the
+   * value its highest layer wrote.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+  /**
+   * Whether its value weakens a guarantee class or switches off a costly
+   * control, which the results it touches are marked with (ADR 0028).
+   */
+  weakens: boolean;
+}
+/**
  * What `run.finish` and `run.abort` take: the Run.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -281,6 +392,11 @@ export interface RunReport {
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**
+   * The version of the Operator policy it ran under, when one applied
+   * (ADR 0028).
+   */
+  policy_version?: string | null;
+  /**
    * The Run's ID.
    */
   run_id: string;
@@ -296,6 +412,34 @@ export interface RunReport {
    * Whether its own checks prove what it committed.
    */
   verdict: "verified" | "rejected" | "needs_review";
+  /**
+   * Every setting it ran with that weakens a guarantee class or switches
+   * off a costly control, with its value and layer (ADR 0028).
+   */
+  weakened_by?: SettingLimit[];
+}
+/**
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingLimit".
+ */
+export interface SettingLimit {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `run.start` takes.
@@ -305,11 +449,21 @@ export interface RunReport {
  */
 export interface RunStartParams {
   /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
+  /**
    * The Run's ID; the engine generates a lowercase ULID when it is
    * absent. An existing ID returns that Run when the caller and the
    * inputs match, and fails with `run_conflict` otherwise.
    */
   run_id?: string | null;
+  /**
+   * The Run's settings, nested by key: the run layer (ADR 0083).
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
   tags?: Tags;
 }
 /**
@@ -324,8 +478,8 @@ export interface RunStarted {
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**
-   * The Product it needs (ADR 0098): Collie until it uses an entry the
-   * catalog marks Foxhound's, Foxhound from then on.
+   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
+   * writes it.
    */
   needs: "collie" | "foxhound";
   /**
@@ -400,4 +554,48 @@ export interface SampleStorePutResult {
    * Whether a value was already kept under the key.
    */
   replaced: boolean;
+}
+/**
+ * What `config.explain` answers and `config explain --json` prints:
+ * every setting's effective value, the layer that set it and the layer
+ * that locked it (ADR 0028), and the files read.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingsExplanation".
+ */
+export interface SettingsExplanation {
+  /**
+   * The files of the configuration layers, lowest first.
+   */
+  files: SettingsFile[];
+  /**
+   * The Operator policy's version, `sha256:` and the first 16 hex digits
+   * of its file's digest, which the run report names; `None` without a
+   * policy.
+   */
+  policy_version?: string | null;
+  /**
+   * Each setting, by key.
+   */
+  settings: ExplainedSetting[];
+}
+/**
+ * A layer's file, as `config explain` names it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingsFile".
+ */
+export interface SettingsFile {
+  /**
+   * Whether it exists; a missing file sets nothing.
+   */
+  found: boolean;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its path.
+   */
+  path: string;
 }

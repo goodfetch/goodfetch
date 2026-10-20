@@ -15,5 +15,4 @@ mod start;
 mod work_items;
 
 pub use lease::Lease;
-pub use policy::CrawlPolicy;
-pub use start::{contribution, contribution_with};
+pub use start::contribution;

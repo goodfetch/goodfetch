@@ -235,7 +235,7 @@ fn a_session_bound_to_ipv6_cannot_reach_a_host_of_ipv4_addresses_alone() {
 ///
 /// Covers: story:3-148
 #[test]
-fn behind_a_proxy_the_race_is_to_the_proxys_address() {
+fn behind_a_proxy_the_race_is_to_the_address_of_the_proxy() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let proxy: SocketAddr = proving_ground.description().fixtures.proxies["open"]

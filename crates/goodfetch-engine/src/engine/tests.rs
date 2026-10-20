@@ -11,6 +11,7 @@
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
 )]
 
+mod events;
 mod run;
 
 use std::time::Duration;
@@ -557,8 +558,9 @@ impl std::io::Write for LogWriter {
     }
 }
 
-#[test]
-fn dispatch_records_each_requests_method_and_its_error_code() {
+/// The records dispatch emits while `run` runs, sorted, each from its
+/// target on.
+fn dispatch_records<T>(run: impl FnOnce() -> T) -> Vec<String> {
     let (sender, log) = std::sync::mpsc::channel();
     let writer = LogWriter(sender);
     let subscriber = tracing_subscriber::fmt()
@@ -567,17 +569,13 @@ fn dispatch_records_each_requests_method_and_its_error_code() {
         .without_time()
         .with_writer(move || writer.clone())
         .finish();
+    // With one dispatcher alive, tracing-core judges a callsite by the
+    // registering thread's own: another test's thread would cache that no
+    // one listens to a record this test reads. A second one, alive for the
+    // whole test, makes it judge every callsite by each thread's dispatcher.
+    let _second = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
 
-    tracing::subscriber::with_default(subscriber, || {
-        exchange(
-            &engine(Product::Collie),
-            &[
-                hello("collie", "0.1"),
-                request(1, "engine.info"),
-                request(2, "sample.crawl"),
-            ],
-        )
-    });
+    tracing::subscriber::with_default(subscriber, run);
 
     let mut records: Vec<String> = log
         .try_iter()
@@ -588,6 +586,22 @@ fn dispatch_records_each_requests_method_and_its_error_code() {
         })
         .collect();
     records.sort();
+    records
+}
+
+#[test]
+fn dispatch_records_each_requests_method_and_its_error_code() {
+    let records = dispatch_records(|| {
+        exchange(
+            &engine(Product::Collie),
+            &[
+                hello("collie", "0.1"),
+                request(1, "engine.info"),
+                request(2, "sample.crawl"),
+            ],
+        )
+    });
+
     assert_eq!(
         records,
         [

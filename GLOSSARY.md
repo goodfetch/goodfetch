@@ -172,6 +172,14 @@ _Avoid_: lock (for a Lease), claim, visibility timeout
 The number an engine takes when it becomes a Run's writer, higher than any before it; a write that carries an older one is refused, so a copy of the Run that lost its writer role commits nothing.
 _Avoid_: generation, term, fencing token (for the Run's)
 
+**Subscription**:
+One Client's stream of an engine's events, each at a position that only goes up, sent no faster than the credits the Client grants; a lossless event waits for room in its queue and is never dropped, and a telemetry event replaces the unsent one of its kind, counting it as dropped.
+_Avoid_: listener (for the engine's side), feed, channel
+
+**Body handle**:
+The name, path and size of a page body stored as a file in its run's folder, which a Client on the same machine reads directly and any other through `page.body`.
+_Avoid_: blob, attachment, body reference
+
 **Partitioned crawl**:
 One crawl carried out as several runs on several Group members of a Daemon group, or on several engines of Goodfetch Cloud, each owning part of the domains.
 _Avoid_: distributed crawl, sharded crawl

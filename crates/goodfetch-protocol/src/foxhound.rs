@@ -10,8 +10,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric, Operation,
-    OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage, Instrument, Metric,
+    Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
     SharedTypeValue, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
@@ -61,6 +61,7 @@ pub struct SamplePageFilterAdmitResult {
 const SAMPLE_CRAWLED: Event = Event {
     name: "sample.crawled",
     description: "The sample crawl finished.",
+    class: EventClass::Lossless,
     payload: schema_of::<SampleCrawled>,
     stability: Stability::Stable,
     deprecated: None,

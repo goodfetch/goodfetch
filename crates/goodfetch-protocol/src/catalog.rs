@@ -220,12 +220,36 @@ pub struct Operation {
     pub arrived_in: ProtocolVersion,
 }
 
+/// How an event travels when a subscriber reads slower than the engine
+/// produces (ADR 0024).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventClass {
+    /// Never dropped: while a subscription's queue is full, its producer
+    /// waits (axis changes, "Needs you" items).
+    Lossless,
+    /// Coalesced: a newer event of the same kind and scope replaces an
+    /// unsent one, which the one sent counts as `dropped` (progress, logs).
+    Telemetry,
+}
+
+impl EventClass {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lossless => "lossless",
+            Self::Telemetry => "telemetry",
+        }
+    }
+}
+
 /// An event the engine sends.
 pub struct Event {
     /// Its `snake_case` name, dotted by namespace.
     pub name: &'static str,
     /// What it reports.
     pub description: &'static str,
+    /// How it travels to a slow subscriber.
+    pub class: EventClass,
     /// The type of its payload.
     pub payload: SchemaOf,
     /// Its semver status.

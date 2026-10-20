@@ -31,6 +31,7 @@ pub struct StrictStdout {
     stderr_read: Vec<u8>,
     deadline: Duration,
     read: usize,
+    waiting: Option<io::Result<Chunk>>,
 }
 
 impl StrictStdout {
@@ -42,6 +43,7 @@ impl StrictStdout {
             stderr_read: Vec::new(),
             deadline: MESSAGE_DEADLINE,
             read: 0,
+            waiting: None,
         }
     }
 
@@ -93,7 +95,11 @@ impl StrictStdout {
     /// The line that is not one JSON-RPC message, or why no line came, with
     /// the child's stderr.
     pub fn try_next(&mut self) -> Result<Option<serde_json::Value>, StrictStdoutError> {
-        let chunk = match self.lines.recv_timeout(self.deadline) {
+        let received = match self.waiting.take() {
+            Some(waiting) => Ok(waiting),
+            None => self.lines.recv_timeout(self.deadline),
+        };
+        let chunk = match received {
             Ok(Ok(chunk)) => chunk,
             Ok(Err(error)) => return Err(self.fail(StrictStdoutErrorKind::Read(error))),
             Err(RecvTimeoutError::Timeout) => {
@@ -105,6 +111,24 @@ impl StrictStdout {
         message(chunk, self.read)
             .map(Some)
             .map_err(|kind| self.fail(kind))
+    }
+
+    /// Whether the child writes nothing on its stdout for `quiet`, a short
+    /// duration the test sets, such as while a call it has not let through
+    /// must stay unanswered. A line written meanwhile is kept for the next
+    /// read; a stdout that ended is not quiet.
+    pub fn is_quiet_for(&mut self, quiet: Duration) -> bool {
+        if self.waiting.is_some() {
+            return false;
+        }
+        match self.lines.recv_timeout(quiet) {
+            Ok(read) => {
+                self.waiting = Some(read);
+                false
+            }
+            Err(RecvTimeoutError::Timeout) => true,
+            Err(RecvTimeoutError::Disconnected) => false,
+        }
     }
 
     /// The failure of `kind`, with the child's stderr: all of it if the
@@ -277,6 +301,7 @@ fn read_stderr(stderr: impl Read + Send + 'static) -> Receiver<Vec<u8>> {
 }
 
 /// What the stdout reader thread read, without the newline.
+#[derive(Debug)]
 enum Chunk {
     /// A line its newline ended.
     Line(Vec<u8>),

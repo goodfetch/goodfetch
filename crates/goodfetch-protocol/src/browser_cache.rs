@@ -12,8 +12,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Event, Product, ProtocolVersion, Setting, Stability,
-    schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Product, ProtocolVersion, Setting,
+    Stability, schema_of,
 };
 use crate::connection::ProductVersion;
 
@@ -304,6 +304,7 @@ pub struct DownloadProgress {
 pub const DOWNLOAD_PROGRESS: Event = Event {
     name: "browser_cache.download_progress",
     description: "A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.",
+    class: EventClass::Telemetry,
     payload: schema_of::<DownloadProgress>,
     stability: Stability::Stable,
     deprecated: None,

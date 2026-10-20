@@ -62,6 +62,7 @@ use crate::environment::Environment;
 use crate::output;
 
 mod listings;
+mod report;
 mod select;
 mod variants;
 
@@ -92,6 +93,14 @@ pub(crate) enum Command {
     /// `check --listings` reads: `nextest.json`, `vitest.json`,
     /// `playwright.json` and `pytest.json`.
     Listings(Listings),
+    /// Prints each variant of an active Journey with its outcome on `main`'s
+    /// latest Release run in the results store, by milestone, area and
+    /// Product: `proved` or `failed` as its result documents give,
+    /// `rejected` when the reader refuses one, `unproved` when none was
+    /// kept. With `--out`, also writes `journeys.json` and `journeys.md`
+    /// there. With `--owner-test`, prints instead that milestone's owner
+    /// test's "Journeys to try".
+    Report(Report),
     /// Prints, one `<runner>\t<argument>` line each, the runners' filters
     /// that select the variants of active Journeys the flags choose: values
     /// of one flag add variants, different flags intersect. Fails when no
@@ -119,6 +128,21 @@ pub(crate) struct Listings {
     /// The Cargo profile nextest builds the tests with, the suite's own.
     #[arg(long)]
     cargo_profile: Option<String>,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct Report {
+    /// The results store's checkout; without it, no variant is proved.
+    #[arg(long)]
+    store: Option<PathBuf>,
+    /// The folder to write `journeys.json` and `journeys.md` to.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Prints the "Journeys to try" of this milestone's owner test, `M1` to
+    /// `M4`: both Products' Journeys with a variant due at it, their manual
+    /// steps, and the `manual` exceptions of its Features.
+    #[arg(long, value_parser = parse_milestone)]
+    owner_test: Option<Milestone>,
 }
 
 #[derive(clap::Args)]
@@ -191,6 +215,30 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
             )?;
             Ok(ExitCode::SUCCESS)
         }
+        Command::Report(arguments) => {
+            let journeys = working_journeys(&environment.root)?;
+            if let Some(milestone) = arguments.owner_test {
+                let exceptions = crate::features::manual_exceptions(
+                    &environment.root,
+                    milestone,
+                    &active_variants(&environment.root)?,
+                )?;
+                let text = report::journeys_to_try(&journeys, milestone, &exceptions);
+                output::line(text.trim_end_matches('\n'));
+                return Ok(ExitCode::SUCCESS);
+            }
+            let store = arguments
+                .store
+                .as_ref()
+                .map(|store| environment.path(store));
+            let built = report::build(&journeys, store.as_deref())?;
+            let markdown = report::markdown(&built);
+            if let Some(out) = &arguments.out {
+                write_report(&environment.path(out), &built, &markdown)?;
+            }
+            output::line(markdown.trim_end_matches('\n'));
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Select(arguments) => {
             let journeys = match &arguments.tag {
                 Some(tag) => tagged_journeys(&environment.root, tag)?,
@@ -234,6 +282,18 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
             }
         }
     }
+}
+
+/// Writes the report's `journeys.json` and `journeys.md` into `out`.
+fn write_report(out: &Path, built: &report::Report, markdown: &str) -> Result<()> {
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+    let mut json = serde_json::to_string_pretty(built)?;
+    json.push('\n');
+    for (name, contents) in [("journeys.json", json.as_str()), ("journeys.md", markdown)] {
+        let path = out.join(name);
+        std::fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// The task list the Proving ground prints for each seed the parsed

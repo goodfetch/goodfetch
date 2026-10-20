@@ -1,0 +1,18 @@
+id = "J-004"
+title = "A goal no longer run"
+goal = "A person reaches a goal Goodfetch no longer offers."
+area = 3
+product = "foxhound"
+status = "retired"
+reason = "Its goal moved to J-003."
+replaced_by = ["J-003"]
+covers = []
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Reach the old goal"
+
+[[expect]]
+text = "The old goal is reached"

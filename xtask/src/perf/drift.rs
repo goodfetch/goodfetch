@@ -54,7 +54,9 @@ struct Latest {
 type Key = (String, String);
 
 pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<ExitCode> {
-    let kept = results::read_kept(store, figures::FILE_NAME)?;
+    let kept = results::read_kept(store, |file| {
+        file.rsplit('/').next() == Some(figures::FILE_NAME)
+    })?;
     let on_main: Vec<&Kept> = kept
         .iter()
         .filter(|kept| kept.run.branch.as_deref() == Some(MAIN) || kept.run.event == MERGE_GROUP)

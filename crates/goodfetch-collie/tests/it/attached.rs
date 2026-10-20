@@ -60,6 +60,12 @@ impl Attached {
         Some(message)
     }
 
+    /// Whether the engine writes nothing on its stdout for `quiet`; a
+    /// message written meanwhile is kept for the next read.
+    pub(crate) fn is_quiet_for(&mut self, quiet: std::time::Duration) -> bool {
+        self.stdout.is_quiet_for(quiet)
+    }
+
     /// Ends the input and waits for the engine to exit, returning whatever
     /// it still sent.
     pub(crate) fn finish(mut self) -> (Vec<Value>, bool) {

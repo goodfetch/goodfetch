@@ -267,13 +267,13 @@ impl StateMachineTest for Subject {
         let vfs = CrashVfs::register(&format!("delivery-model-{folder}"), env.seed()).unwrap();
         let runtime = goodfetch_test_support::runtime();
         let owner = TaskOwner::root(BlockingPolicy::Inline);
-        let dependencies = dependencies(
-            &env,
-            RunStateOptions {
-                vfs: Some(vfs.name().to_owned()),
-            },
-        );
         let (reader, writer) = runtime.block_on(async {
+            let dependencies = dependencies(
+                &env,
+                RunStateOptions {
+                    vfs: Some(vfs.name().to_owned()),
+                },
+            );
             let (network, dialer) = transport::in_memory();
             let engine = engine_with(ONE_AT_A_TIME);
             owner.spawn(async move {

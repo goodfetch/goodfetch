@@ -18,8 +18,9 @@ use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{Client, attached_on, dependencies, engine_with, hello};
+use super::{Client, attached_on, attached_with, dependencies, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::engine::Dependencies;
 use crate::home::RunStateLocation;
 use crate::runs::{EndedBy, Ending, Start, Started};
 
@@ -144,7 +145,7 @@ fn a_run_starts_in_the_per_major_data_folder_under_its_writers_lock_and_is_liste
 
     let (started, live, report) = attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -205,7 +206,7 @@ fn a_generated_run_id_is_a_lowercase_ulid_from_the_clock_and_the_entropy() {
         let env = TestEnv::new();
         attached_on(
             &engine_with(Product::Collie, None),
-            dependencies(&env),
+            &env,
             |mut client| async move {
                 client.send(&[hello("collie", "0.1")]).await;
                 client.next().await;
@@ -235,12 +236,13 @@ fn a_generated_run_id_is_a_lowercase_ulid_from_the_clock_and_the_entropy() {
 fn run_state_location_puts_the_run_folders_where_it_names() {
     let env = TestEnv::new();
     let elsewhere = env.folder().join("elsewhere");
-    let mut dependencies = dependencies(&env);
-    dependencies.run_state_location = RunStateLocation::Folder(elsewhere.clone());
 
-    attached_on(
+    attached_with(
         &engine_with(Product::Collie, None),
-        dependencies,
+        || Dependencies {
+            run_state_location: RunStateLocation::Folder(elsewhere.clone()),
+            ..dependencies(&env)
+        },
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -272,7 +274,7 @@ fn a_run_id_that_could_name_another_folder_is_refused_and_nothing_is_written() {
 
     let refused = attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -303,7 +305,7 @@ fn the_end_of_the_connection_stops_its_live_runs_as_aborted_by_their_client() {
 
     attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -334,7 +336,7 @@ fn an_aborted_run_is_stopped_and_incomplete_and_a_start_under_its_run_id_returns
 
     let (report, again) = attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -370,7 +372,7 @@ fn finishing_a_run_no_engine_knows_is_run_not_found() {
 
     let refused = attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -390,7 +392,7 @@ fn a_run_that_uses_an_entry_only_foxhound_carries_needs_foxhound_from_then_on() 
 
     attached_on(
         &engine_with(Product::Foxhound, Some(use_foxhound())),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("foxhound", "0.1")]).await;
             client.next().await;
@@ -426,7 +428,7 @@ fn a_start_whose_run_folder_another_writer_locks_is_run_in_use() {
 
     let refused = attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -457,7 +459,7 @@ fn a_start_whose_run_state_cannot_be_read_is_run_state_unavailable() {
 
     let refused = attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
@@ -481,7 +483,7 @@ fn the_run_index_records_its_format_version() {
 
     attached_on(
         &engine_with(Product::Collie, None),
-        dependencies(&env),
+        &env,
         |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;

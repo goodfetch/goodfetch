@@ -17,7 +17,7 @@ use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Client, attached_on, dependencies, engine_with, hello};
+use super::{Client, attached_on, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
 use crate::events::EventsOptions;
@@ -175,7 +175,7 @@ fn a_subscriber_that_grants_no_credits_slows_the_runs_it_has_not_taken_and_loses
     let env = TestEnv::new();
     let engine = engine(options(QUEUE, 64));
 
-    let (held, events) = attached_on(&engine, dependencies(&env), |mut client| async move {
+    let (held, events) = attached_on(&engine, &env, |mut client| async move {
         open(&mut client, 1, json!({})).await;
         let starts: Vec<Value> = (0..RUNS)
             .map(|index| {
@@ -250,7 +250,7 @@ fn a_cancelled_subscription_no_longer_slows_the_runs_it_held() {
     let env = TestEnv::new();
     let engine = engine(options(1, 64));
 
-    let received = attached_on(&engine, dependencies(&env), |mut client| async move {
+    let received = attached_on(&engine, &env, |mut client| async move {
         open(&mut client, 1, json!({})).await;
         client
             .send(&[
@@ -290,7 +290,7 @@ fn telemetry_never_waits_and_coalesces_per_scope_counting_what_it_dropped() {
     let env = TestEnv::new();
     let engine = engine(options(1, 64));
 
-    let (published, events) = attached_on(&engine, dependencies(&env), |mut client| async move {
+    let (published, events) = attached_on(&engine, &env, |mut client| async move {
         open(&mut client, 1, json!({})).await;
         let steps: Vec<Value> = (1..=5)
             .map(|step| json!({ "scope": "a", "step": step }))
@@ -352,7 +352,7 @@ fn a_subscription_resumes_after_the_position_its_client_last_read() {
     let env = TestEnv::new();
     let engine = engine(options(64, 3));
 
-    let (first, resumed) = attached_on(&engine, dependencies(&env), |mut client| async move {
+    let (first, resumed) = attached_on(&engine, &env, |mut client| async move {
         let first = start_runs(&mut client, 1, &["one", "two", "three"]).await;
         client.send(&[cancel(1)]).await;
         let after = first[0]["position"].clone();
@@ -379,7 +379,7 @@ fn a_position_the_engine_no_longer_holds_starts_with_a_resync_then_the_stream() 
     let env = TestEnv::new();
     let engine = engine(options(64, 1));
 
-    let (first, gone, future) = attached_on(&engine, dependencies(&env), |mut client| async move {
+    let (first, gone, future) = attached_on(&engine, &env, |mut client| async move {
         let first = start_runs(&mut client, 1, &["one", "two"]).await;
         let last = first[1]["position"].as_u64().unwrap();
         client
@@ -436,7 +436,7 @@ fn a_page_body_is_a_file_in_its_runs_folder_and_page_body_sends_one_chunk_per_cr
     let engine = engine(EventsOptions::default());
 
     let (handle, chunks_beyond, chunks, read) =
-        attached_on(&engine, dependencies(&env), |mut client| async move {
+        attached_on(&engine, &env, |mut client| async move {
             client.send(&[hello("collie", "0.1")]).await;
             let _ = client.next().await;
             client
@@ -514,7 +514,7 @@ fn page_body_of_an_unknown_body_or_run_fails_with_body_not_found() {
     let engine = engine(EventsOptions::default());
     let unknown = "0".repeat(64);
 
-    let replies = attached_on(&engine, dependencies(&env), |mut client| async move {
+    let replies = attached_on(&engine, &env, |mut client| async move {
         client.send(&[hello("collie", "0.1")]).await;
         let _ = client.next().await;
         client
@@ -559,7 +559,7 @@ fn dispatch_records_each_event_it_sends_with_its_name() {
     let engine = engine(EventsOptions::default());
 
     let records = super::dispatch_records(|| {
-        attached_on(&engine, dependencies(&env), |mut client| async move {
+        attached_on(&engine, &env, |mut client| async move {
             start_runs(&mut client, 1, &["recorded"]).await
         })
     });

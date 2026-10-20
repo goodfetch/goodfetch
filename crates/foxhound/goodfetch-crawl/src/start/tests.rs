@@ -130,7 +130,8 @@ impl Client {
 }
 
 /// What the tests' engine runs on: the test's home, the test `Clock` and
-/// `Entropy`, and blocking work inline.
+/// `Entropy`, and blocking work inline. Made on the runtime the engine runs
+/// on, as the paused `Clock` must be.
 pub(super) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
     Dependencies {
         home: Home::new(env.home().to_owned()),
@@ -156,11 +157,16 @@ pub(super) fn engine_with(policy: CrawlPolicy) -> Engine {
     Engine::new(identity, &composition).unwrap()
 }
 
-/// Runs the engine on `dependencies` while `talk` drives its Client from
-/// `hello` on, then closes the Connection.
-pub(super) fn crawl<T>(dependencies: Dependencies, talk: impl AsyncFnOnce(&mut Client) -> T) -> T {
+/// Runs the engine on the `Dependencies` that `dependencies` makes on the
+/// runtime while `talk` drives its Client from `hello` on, then closes the
+/// Connection.
+pub(super) fn crawl<T>(
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> T {
     let engine = engine_with(POLICY);
     goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies();
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();
@@ -256,7 +262,7 @@ fn a_crawls_seeds_reach_the_handler_and_their_records_commit_once() {
     let env = TestEnv::new();
 
     let (started, report) = crawl(
-        dependencies(&env, RunStateOptions::default()),
+        || dependencies(&env, RunStateOptions::default()),
         async |client| {
             let started = client
                 .call(
@@ -318,7 +324,7 @@ fn a_handler_failure_that_is_retryable_is_tried_again_and_commits_once() {
     let env = TestEnv::new();
 
     crawl(
-        dependencies(&env, RunStateOptions::default()),
+        || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(
@@ -361,7 +367,7 @@ fn a_handlers_own_failure_commits_nothing_and_is_not_retried() {
     let env = TestEnv::new();
 
     crawl(
-        dependencies(&env, RunStateOptions::default()),
+        || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(
@@ -401,7 +407,7 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
     let env = TestEnv::new();
 
     crawl(
-        dependencies(&env, RunStateOptions::default()),
+        || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(
@@ -440,7 +446,7 @@ fn an_aborted_crawl_stops_incomplete_and_its_work_items_return_to_pending() {
     let env = TestEnv::new();
 
     let report = crawl(
-        dependencies(&env, RunStateOptions::default()),
+        || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(
@@ -487,7 +493,7 @@ fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_sa
     let env = TestEnv::new();
 
     let answers = crawl(
-        dependencies(&env, RunStateOptions::default()),
+        || dependencies(&env, RunStateOptions::default()),
         async |client| {
             let mut silent = |_: &Value| Reply::Silent;
             client
@@ -547,7 +553,7 @@ fn a_crawl_needs_foxhound_in_its_run_state_and_its_run_index_row() {
     let env = TestEnv::new();
 
     crawl(
-        dependencies(&env, RunStateOptions::default()),
+        || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(

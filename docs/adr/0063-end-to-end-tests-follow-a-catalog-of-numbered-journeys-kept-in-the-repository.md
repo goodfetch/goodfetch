@@ -94,6 +94,8 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 
   > Agent decision, pending owner review (#350, 2026-10-20): the Rust helper, `goodfetch-test-support`'s `JourneyRun`, adds `check(wording, body)` for a check that names no task, and `expect_task(task, submission)` submits the tool's result to the variant's Proving ground's oracle and records the answer and each check naming the task. A `foxhound-cli` variant in Collie's executable crate takes Foxhound's executable from the test tool manifest (`tools()`'s `foxhound` entry), since Collie's crate takes no Foxhound crate. The executable's Product and version in the document are those its `--version` reports. Each run writes `<id>@<surface>.json` into the folder `GOODFETCH_TEST_RESULT_DOCUMENTS` names, which `just test` sets to `target/result-documents/`, else into the test's own folder. `TESTING.md`, Journeys, has the rules.
 
+  > Agent decision, pending owner review (no ticket, 2026-10-20): each run also writes its document in the test's own folder, and `Finished::path()` names that copy. In the folder `GOODFETCH_TEST_RESULT_DOCUMENTS` names, two tests that run the same variant (the helper's own tests do) wrote one file, and a test read the other's document under load (`journey_run::a_complete_passing_run_is_proved_and_accepted` read `Failed`).
+
 ### The catalog check and report
 
 The "Test infrastructure" spec builds them. The check fails when:

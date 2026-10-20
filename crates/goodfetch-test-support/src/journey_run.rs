@@ -430,10 +430,10 @@ impl<C> JourneyRun<C> {
     }
 
     /// Hands what the run recorded to the constructor and writes the
-    /// document it returns as `<id>@<surface>.json`, into the folder
-    /// `GOODFETCH_TEST_RESULT_DOCUMENTS` names (which `just test` sets) or
-    /// else into the test's folder, which lives as long as the returned
-    /// value. The facts are a JSON object in the result document's field
+    /// document it returns as `<id>@<surface>.json`, into the test's
+    /// folder, which lives as long as the returned value, and into the folder
+    /// `GOODFETCH_TEST_RESULT_DOCUMENTS` names when it is set (`just test`
+    /// sets it). The facts are a JSON object in the result document's field
     /// names, deserialized into the constructor's argument.
     ///
     /// # Errors
@@ -475,18 +475,25 @@ impl<C> JourneyRun<C> {
         let argument = serde_json::from_value(facts).map_err(JourneyRunError::Facts)?;
         let document = construct(argument);
         let value = serde_json::to_value(&document).map_err(JourneyRunError::Document)?;
-        let folder = Variables::from_process()
-            .get(RESULT_DOCUMENTS_VARIABLE)
-            .map_or_else(|| env.folder().to_owned(), PathBuf::from);
-        let path = folder.join(format!("{variant}.json"));
+        let file = format!("{variant}.json");
         let mut bytes = serde_json::to_vec_pretty(&value).map_err(JourneyRunError::Document)?;
         bytes.push(b'\n');
-        std::fs::create_dir_all(&folder)
-            .and_then(|()| std::fs::write(&path, bytes))
-            .map_err(|source| JourneyRunError::Write {
-                path: path.clone(),
-                source,
-            })?;
+        // The test's own copy is the one `Finished` reads: in the suite's
+        // folder, another test running the same variant may write after it.
+        let path = env.folder().join(&file);
+        let suites = Variables::from_process()
+            .get(RESULT_DOCUMENTS_VARIABLE)
+            .map(|folder| PathBuf::from(folder).join(&file));
+        for written in std::iter::once(&path).chain(&suites) {
+            written
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::write(written, &bytes))
+                .map_err(|source| JourneyRunError::Write {
+                    path: written.clone(),
+                    source,
+                })?;
+        }
         Ok(Finished {
             outcome: value
                 .get("outcome")
@@ -700,7 +707,8 @@ impl<D> Finished<D> {
         &self.document
     }
 
-    /// Where it was written.
+    /// Where it was written in the test's folder: this run's document,
+    /// though another run of the variant writes the suite's folder after it.
     pub fn path(&self) -> &Path {
         &self.path
     }

@@ -70,7 +70,17 @@ export type TestSupportErrorCode =
   /** The Client closed its end, or the script ended, with a step of the Scripted engine's script unused (ADR 0069). */
   | "unused_step"
   /** A `reply` or `await_reply` step of a Scripted engine's script follows no request to answer (ADR 0069). */
-  | "nothing_to_answer";
+  | "nothing_to_answer"
+  /** The Console called an operation the test set no answer for (ADR 0068). */
+  | "call_unanswered"
+  /** The Console sent a message the committed bundle refuses, or one no engine of the Product takes (ADR 0068). */
+  | "request_invalid"
+  /** A test's answer to a call is not one the engine could send: it breaks the bundle, or names an Error code the catalog lacks (ADR 0068). */
+  | "answer_invalid"
+  /** A test pushed an event the engine could never send: unknown, breaking its payload's schema, or at a position that does not go up (ADR 0068). */
+  | "event_invalid"
+  /** The Console fetched a body by a handle the test never served (ADR 0068). */
+  | "body_unserved";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

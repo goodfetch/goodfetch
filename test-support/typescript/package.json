@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./features": "./src/features.ts",
     "./playwright": "./src/playwright.ts",
+    "./protocol-adapter": "./src/protocol-adapter.ts",
     "./screenshot": "./src/screenshot.ts",
     "./visual-config": "./src/visual-config.ts",
     "./vitest-browser": "./src/vitest-browser.ts",
@@ -20,6 +21,7 @@
   },
   "dependencies": {
     "@axe-core/playwright": "4.14.0",
+    "@goodfetch/collie-client": "workspace:*",
     "@guidepup/virtual-screen-reader": "0.33.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",

@@ -142,10 +142,12 @@ fn fixture_fuzz(bundle: &str) -> ProtocolFuzz {
 }
 
 /// Proptest's configuration on the test's seed, with enough cases that a
-/// flaw one call in a few hundred meets is found on every seed.
+/// flaw one call in a few hundred meets is found on every seed, and no
+/// regression file: these failures are the tests' expected outcome.
 fn config() -> Config {
     Config {
         cases: 256,
+        failure_persistence: None,
         ..proptest_config()
     }
 }

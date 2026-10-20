@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
 
-fn call(engine: &mut Attached, id: i64, method: &str, params: &Value) -> Value {
+pub(crate) fn call(engine: &mut Attached, id: i64, method: &str, params: &Value) -> Value {
     engine.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
     engine.next().unwrap()
 }

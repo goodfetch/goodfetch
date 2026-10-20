@@ -12,5 +12,7 @@ mod browsers;
 mod config;
 mod events;
 mod journeys;
+#[cfg(target_os = "linux")]
+mod lazyfs;
 mod log;
 mod run;

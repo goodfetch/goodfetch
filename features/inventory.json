@@ -12,7 +12,7 @@
       ]
     },
     {
-      "id": "command:browsers clean",
+      "id": "command:browsers.clean",
       "kind": "command",
       "area": 3,
       "milestone": null,
@@ -23,7 +23,7 @@
       ]
     },
     {
-      "id": "command:browsers install",
+      "id": "command:browsers.install",
       "kind": "command",
       "area": 3,
       "milestone": null,

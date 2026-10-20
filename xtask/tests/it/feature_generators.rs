@@ -108,7 +108,7 @@ fn each_command_of_both_executables_is_a_feature_with_its_products() {
         features_of_kind(&workspace, "command"),
         vec![
             ("command:attached-engine".to_owned(), both()),
-            ("command:browsers install".to_owned(), both()),
+            ("command:browsers.install".to_owned(), both()),
             ("command:crawl".to_owned(), foxhound()),
         ]
     );
@@ -141,7 +141,7 @@ fn a_removed_command_leaves_the_inventory() {
         features_of_kind(&workspace, "command"),
         vec![
             ("command:attached-engine".to_owned(), both()),
-            ("command:browsers install".to_owned(), both()),
+            ("command:browsers.install".to_owned(), both()),
         ]
     );
 }

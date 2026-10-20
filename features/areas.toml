@@ -135,7 +135,7 @@ prefix = "browser-cache"
 [[area]]
 number = 3
 kind = "command"
-prefix = "browsers "
+prefix = "browsers."
 
 # The hidden Attached-engine entry of both executables, which an SDK starts
 # (spec #213).

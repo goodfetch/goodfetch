@@ -1,6 +1,7 @@
 //! The `command:` Features: one per command path of each Product's
 //! executable, from clap's `Command` (ADR 0072), its names below the
-//! executable's joined by spaces, as a person types it (`browsers install`).
+//! executable's joined by dots (`browsers.install`): a Feature ID is also a
+//! test runner's tag, and Vitest refuses a tag name with a space.
 //! A command group is reached through the commands under it, so only a
 //! command with none below it is a Feature; a hidden command is one too.
 //! Foxhound's executable keeps every command of Collie's (ADRs 0090 and
@@ -44,7 +45,7 @@ impl CommandTree {
             let path = if prefix.is_empty() {
                 tree.name.clone()
             } else {
-                format!("{prefix} {}", tree.name)
+                format!("{prefix}.{}", tree.name)
             };
             if tree.commands.is_empty() {
                 paths.insert(path);

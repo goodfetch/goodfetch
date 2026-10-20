@@ -75,7 +75,8 @@ fn the_pick() -> DaemonOptions {
 
 /// Runs `engine` as a Daemon with `options` in `env` while `body` dials it,
 /// on the tests' paused runtime, and answers how it ended and what `body`
-/// answered.
+/// answered. As in `attached_with`, the test `tracing` subscriber writes the
+/// dispatch records into the test's exercise record (ADR 0072).
 fn daemon<F, Fut, T>(
     engine: &Engine,
     env: &TestEnv,
@@ -87,13 +88,23 @@ where
     Fut: Future<Output = T>,
 {
     goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies(env);
+        let clock = dependencies.clock;
+        let unset = tracing::dispatcher::get_default(
+            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
+        );
+        let _subscriber = unset.then(|| {
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }))
+        });
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)
             .listen(std::path::Path::new("daemon.sock"))
             .await
             .unwrap();
         tokio::join!(
-            engine.run_daemon(listener, dependencies(env), options),
+            engine.run_daemon(listener, dependencies, options),
             body(dialer)
         )
     })

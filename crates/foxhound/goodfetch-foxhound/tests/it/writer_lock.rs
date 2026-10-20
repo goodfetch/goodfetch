@@ -42,14 +42,14 @@ fn hello() -> Value {
     })
 }
 
-/// An Attached engine; `traced` logs at `trace` on a piped stderr, as
-/// `StrictStdout` wants, and otherwise its stderr goes nowhere, since
-/// nothing reads it before the kill.
-fn engine(env: &TestEnv, traced: bool) -> Process {
+/// An Attached engine logging at `trace`, into the home's log file as
+/// test support asks and on stderr: piped when `read`, as `StrictStdout`
+/// wants, and otherwise nowhere, since nothing reads it before the kill.
+fn engine(env: &TestEnv, read: bool) -> Process {
     let mut command = env.process_command(FOXHOUND);
-    command.arg("attached-engine");
-    if traced {
-        command.env("GOODFETCH_LOG", "trace").stderr(Stdio::piped());
+    command.arg("attached-engine").env("GOODFETCH_LOG", "trace");
+    if read {
+        command.stderr(Stdio::piped());
     } else {
         command.stderr(Stdio::null());
     }

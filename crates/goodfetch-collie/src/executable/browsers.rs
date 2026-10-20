@@ -10,7 +10,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -68,18 +67,12 @@ fn fetching(settings: &Resolved) -> Fetching {
         .get(NETWORK_OFFLINE.name)
         .filter(|offline| offline.value == serde_json::Value::Bool(true))
         .map(|offline| offline.layer);
-    let mut mapping = Resolve::new();
-    if let Some(hosts) = settings.value(NETWORK_RESOLVE.name).as_object() {
-        for (host, addresses) in hosts {
-            let addresses: Vec<IpAddr> = addresses
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|address| address.as_str()?.parse().ok())
-                .collect();
-            mapping = mapping.with(host.clone(), addresses);
-        }
-    }
+    let mapping = settings
+        .hosts(NETWORK_RESOLVE.name)
+        .into_iter()
+        .fold(Resolve::new(), |mapping, (host, addresses)| {
+            mapping.with(host, addresses)
+        });
     Fetching {
         offline,
         resolve: mapping,

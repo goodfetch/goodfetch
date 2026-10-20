@@ -7,6 +7,7 @@
 //! may only narrow it. A pure function of its layers.
 
 use std::collections::BTreeMap;
+use std::net::IpAddr;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, ValueKind};
@@ -189,6 +190,26 @@ impl Resolved {
     /// `key`'s value as a boolean, `None` when it is not one.
     pub fn boolean(&self, key: &str) -> Option<bool> {
         self.value(key).as_bool()
+    }
+
+    /// `key`'s value as host names, each with its addresses, as
+    /// `network.resolve` holds them (ADR 0059), from which a resolver's
+    /// mapping is built; empty when it holds none.
+    pub fn hosts(&self, key: &str) -> Vec<(String, Vec<IpAddr>)> {
+        self.value(key)
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(host, addresses)| {
+                let addresses = addresses
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|address| address.as_str()?.parse().ok())
+                    .collect();
+                (host.clone(), addresses)
+            })
+            .collect()
     }
 
     /// The version of the Operator policy it resolved under.

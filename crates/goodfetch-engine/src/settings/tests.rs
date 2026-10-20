@@ -244,6 +244,27 @@ fn a_locked_value_says_the_layer_that_locked_it() {
 }
 
 /// Covers: story:3-134, setting:network.resolve
+#[test]
+fn resolve_gives_each_host_its_addresses_for_a_resolvers_mapping() {
+    let effective = resolved(&only(
+        SettingsLayer::UserConfiguration,
+        "network.resolve",
+        &json!({ "staging.example": ["127.0.0.1", "::1"] }),
+    ));
+
+    assert_eq!(
+        effective.hosts("network.resolve"),
+        [(
+            "staging.example".to_owned(),
+            vec![
+                std::net::IpAddr::from([127, 0, 0, 1]),
+                std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST)
+            ]
+        )]
+    );
+}
+
+/// Covers: story:3-134, setting:network.resolve
 #[rstest]
 #[case::the_operator_policy(SettingsLayer::OperatorPolicy)]
 #[case::user_configuration(SettingsLayer::UserConfiguration)]

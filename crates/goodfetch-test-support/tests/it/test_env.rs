@@ -154,18 +154,19 @@ fn print_schemas_starts_nothing() {
     assert_eq!(
         schemas.keys().collect::<Vec<_>>(),
         [
-            "endpoint-table.schema.json",
-            "hostile-header-values.schema.json",
-            "hostile-limits.schema.json",
-            "hostile-paths.schema.json",
-            "hostile-schema-refs.schema.json",
-            "hostile-secret-redirects.schema.json",
-            "locales.schema.json",
-            "snapshot-filters.schema.json",
-            "ssrf-cases.schema.json",
-            "test-env-description.schema.json",
-            "test-tool-manifest.schema.json",
-            "unicode-record.schema.json"
+            "engine-scripts/script.schema.json",
+            "schemas/endpoint-table.schema.json",
+            "schemas/hostile-header-values.schema.json",
+            "schemas/hostile-limits.schema.json",
+            "schemas/hostile-paths.schema.json",
+            "schemas/hostile-schema-refs.schema.json",
+            "schemas/hostile-secret-redirects.schema.json",
+            "schemas/locales.schema.json",
+            "schemas/snapshot-filters.schema.json",
+            "schemas/ssrf-cases.schema.json",
+            "schemas/test-env-description.schema.json",
+            "schemas/test-tool-manifest.schema.json",
+            "schemas/unicode-record.schema.json"
         ]
     );
     let stderr = String::from_utf8(output.stderr).unwrap();

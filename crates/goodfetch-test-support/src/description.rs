@@ -1,8 +1,9 @@
 //! The description `goodfetch-test-env` prints (ADR 0062): one JSON line
 //! that gives a TypeScript or Python test the setup a Rust test gets from
 //! `TestEnv`. Its JSON Schema, with the schemas of the crate's other file
-//! types, is what `goodfetch-test-env --print-schemas` prints for
-//! `xtask codegen`, which commits it among `test-support/`'s shared fixtures.
+//! types, the Scripted engine's script format among them, is what
+//! `goodfetch-test-env --print-schemas` prints for `xtask codegen`, which
+//! commits it among `test-support/`'s shared fixtures.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ use crate::hostile::{
 };
 use crate::locales::LocaleTable;
 use crate::proving_ground::ProvingGroundDescription;
+use crate::script::Script;
 use crate::snapshot::SnapshotFilters;
 use crate::ssrf::SsrfTable;
 use crate::tools::Tools;
@@ -69,56 +71,62 @@ impl Description {
     }
 }
 
-/// The JSON Schemas of the file types this crate defines, by the file name
-/// `xtask codegen` commits each under.
+/// The JSON Schemas of the file types this crate defines, by the path
+/// `xtask codegen` commits each under, relative to `test-support/fixtures/`:
+/// `schemas/` for most, and the script format's among the engine scripts it
+/// describes (ADR 0069).
 pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
     BTreeMap::from([
         (
-            "endpoint-table.schema.json",
+            "engine-scripts/script.schema.json",
+            schemars::schema_for!(Script).to_value(),
+        ),
+        (
+            "schemas/endpoint-table.schema.json",
             schemars::schema_for!(EndpointTable).to_value(),
         ),
         (
-            "hostile-header-values.schema.json",
+            "schemas/hostile-header-values.schema.json",
             schemars::schema_for!(HostileTable<HeaderValue>).to_value(),
         ),
         (
-            "hostile-limits.schema.json",
+            "schemas/hostile-limits.schema.json",
             schemars::schema_for!(HostileTable<ResourceLimit>).to_value(),
         ),
         (
-            "hostile-paths.schema.json",
+            "schemas/hostile-paths.schema.json",
             schemars::schema_for!(HostileTable<PathName>).to_value(),
         ),
         (
-            "hostile-schema-refs.schema.json",
+            "schemas/hostile-schema-refs.schema.json",
             schemars::schema_for!(HostileTable<SchemaRef>).to_value(),
         ),
         (
-            "hostile-secret-redirects.schema.json",
+            "schemas/hostile-secret-redirects.schema.json",
             schemars::schema_for!(HostileTable<SecretRedirect>).to_value(),
         ),
         (
-            "locales.schema.json",
+            "schemas/locales.schema.json",
             schemars::schema_for!(LocaleTable).to_value(),
         ),
         (
-            "snapshot-filters.schema.json",
+            "schemas/snapshot-filters.schema.json",
             schemars::schema_for!(SnapshotFilters).to_value(),
         ),
         (
-            "ssrf-cases.schema.json",
+            "schemas/ssrf-cases.schema.json",
             schemars::schema_for!(SsrfTable).to_value(),
         ),
         (
-            "test-env-description.schema.json",
+            "schemas/test-env-description.schema.json",
             schemars::schema_for!(Description).to_value(),
         ),
         (
-            "test-tool-manifest.schema.json",
+            "schemas/test-tool-manifest.schema.json",
             schemars::schema_for!(Tools).to_value(),
         ),
         (
-            "unicode-record.schema.json",
+            "schemas/unicode-record.schema.json",
             schemars::schema_for!(UnicodeRecord).to_value(),
         ),
     ])

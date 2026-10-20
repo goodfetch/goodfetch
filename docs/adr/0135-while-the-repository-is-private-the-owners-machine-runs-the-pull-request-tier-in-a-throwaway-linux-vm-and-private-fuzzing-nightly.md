@@ -30,6 +30,8 @@ This ADR records those and settles what they and earlier ADRs imply. It builds o
 
 > Amended on 2026-10-19 (owner decision of 2026-10-19): GitHub Actions is turned off for the repository, and the owner runs CI locally. A pull request merges once `just quick all` and `just pre-merge all` pass in a checkout of its exact head (`AGENTS.md`, "Merging"). The workflows stay in `.github/workflows/`, unused, so turning Actions back on restores the setup this ADR describes.
 
+> Amended on 2026-10-20 (agent decision, pending owner review): `just merge` runs `just pre-merge all` alone, since it starts with `just quick all`'s lint and Quick suite on the same tree, so every check still runs, once. Its checkout of the exact head is one locked worktree at a fixed path, reset to the head and cleaned of every untracked file and every step's earlier output, keeping only the build caches, so Cargo and sccache stay warm. Inside `pre-merge`, `just perf` runs beside the other steps and must pass, and the checks that take seconds run before the suites.
+
 ### Where each job runs, and its included minutes
 
 | Job | Where it runs | Budget, Linux-equivalent minutes a month |

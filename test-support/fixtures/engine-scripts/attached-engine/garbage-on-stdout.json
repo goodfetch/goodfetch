@@ -1,0 +1,30 @@
+{
+  "description": "The engine writes a line that is not JSON-RPC on stdout after the hello.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "panicked at engine/src/lib.rs:1:1\n"
+      }
+    }
+  ]
+}

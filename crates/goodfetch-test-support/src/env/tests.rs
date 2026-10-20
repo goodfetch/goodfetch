@@ -199,7 +199,7 @@ fn an_unreadable_seed_fails_the_creation() {
 }
 
 #[test]
-fn map_turns_on_the_engines_json_log_with_the_dispatch_records() {
+fn map_turns_on_the_engines_json_log_with_the_dispatch_and_outcome_records() {
     let env = test_env("env::tests::log");
 
     let log = (
@@ -207,7 +207,13 @@ fn map_turns_on_the_engines_json_log_with_the_dispatch_records() {
         env.env()["GOODFETCH_LOG"].as_str(),
     );
 
-    assert_eq!(log, ("file", "info,goodfetch::rpc::dispatch=trace"));
+    assert_eq!(
+        log,
+        (
+            "file",
+            "info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace"
+        )
+    );
 }
 
 /// Under `just coverage`, every executable a test starts writes its

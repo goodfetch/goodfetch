@@ -71,6 +71,10 @@ export type TestSupportErrorCode =
   | "animations_running"
   /** `GOODFETCH_VISUAL_IMAGE` names another image than ci/visual/image.toml pins (ADR 0073). */
   | "visual_image_not_pinned"
+  /** `GOODFETCH_VISUAL_BROWSERS` names a browser the pinned image does not ship, or none (ADR 0073). */
+  | "visual_browser_unknown"
+  /** A repeatability measurement's Playwright run wrote no report it can read (ADR 0073). */
+  | "repeatability_unmeasured"
   /** A screenshot's page lacks a fixed setting: instant, locale, time zone, viewport, scale or motion (ADR 0073). */
   | "screenshot_unsettled"
   /** The Client sent the Scripted engine a message no step of its script expects (ADR 0069). */

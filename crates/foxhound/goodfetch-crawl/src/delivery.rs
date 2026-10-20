@@ -166,31 +166,43 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
         };
         retryable && policy.may_retry(leased.attempt)
     };
-    let written = match answer {
+    // `failed`: the Error code the work item records, which no reply carries.
+    let (written, failed) = match answer {
         Answer::Handled(handled) if lease.holds_at(run.clock().now()) => {
-            run.state()
+            let written = run
+                .state()
                 .write(move |connection| {
                     work_items::commit(connection, &id, epoch, &handled.records)
                 })
-                .await
+                .await;
+            (written, None)
         }
         Answer::Handled(_) | Answer::LeaseEnded | Answer::ClientGone => {
             let retry = retry(HANDLER_LOST.name, HANDLER_LOST.retryable);
-            run.state()
+            let written = run
+                .state()
                 .write(move |connection| {
                     work_items::fail(connection, &id, epoch, HANDLER_LOST.name, retry)
                 })
-                .await
+                .await;
+            (written, Some(HANDLER_LOST.name.to_owned()))
         }
         Answer::Failed { code, retryable } => {
             let retry = retry(&code, retryable);
-            run.state()
+            let recorded = code.clone();
+            let written = run
+                .state()
                 .write(move |connection| work_items::fail(connection, &id, epoch, &code, retry))
-                .await
+                .await;
+            (written, Some(recorded))
         }
     };
     match written {
-        Ok(true) => {}
+        Ok(true) => {
+            if let Some(code) = failed {
+                run.record_outcome(&code);
+            }
+        }
         Ok(false) => {
             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
         }

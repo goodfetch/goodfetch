@@ -48,6 +48,7 @@ activation = []
 # Which of `runs`'s own modules may import which.
 [submodules.runs]
 folder = []
+outcome = []
 
 # Which of `rpc`'s own modules may import which.
 [submodules.rpc]

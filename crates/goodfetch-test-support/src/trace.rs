@@ -2,8 +2,10 @@
 //! with a timer that reads simulated time from a closure the caller passes,
 //! such as the paused `Clock`'s wall reading, so traces carry no real
 //! timestamps. Under `just test`, it also writes `rpc`'s dispatch records
-//! as JSON lines into the running test's exercise record, which ADR 0072's
-//! audit reads for an in-process test over the in-memory transport.
+//! and the engine's outcome records (each Error code a Run recorded and no
+//! reply carries) as JSON lines into the running test's exercise record,
+//! which ADR 0072's audit reads for an in-process test over the in-memory
+//! transport.
 
 use std::fmt;
 use std::sync::Arc;
@@ -16,7 +18,7 @@ use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt as _;
 
-use crate::exercise::{DISPATCH_TARGET, ExerciseRecord};
+use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
 use crate::variables::Variables;
 
 /// Writes each event's time as RFC 3339, read from the closure.
@@ -30,7 +32,7 @@ impl<F: Fn() -> SystemTime> FormatTime for SimulatedTime<F> {
 }
 
 /// The subscriber a test installs: the test's output, timed by `now`, and
-/// the dispatch records in the test's exercise record.
+/// the dispatch and outcome records in the test's exercise record.
 ///
 /// # Panics
 ///
@@ -61,7 +63,11 @@ where
             .json()
             .with_timer(SimulatedTime(now.clone()))
             .with_writer(Arc::new(file))
-            .with_filter(Targets::new().with_target(DISPATCH_TARGET, LevelFilter::TRACE))
+            .with_filter(
+                Targets::new()
+                    .with_target(DISPATCH_TARGET, LevelFilter::TRACE)
+                    .with_target(OUTCOME_TARGET, LevelFilter::TRACE),
+            )
     });
     tracing_subscriber::registry()
         .with(

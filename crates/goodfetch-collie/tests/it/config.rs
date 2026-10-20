@@ -89,7 +89,7 @@ fn validate(output: &Value) {
     assert_eq!(errors, Vec::<String>::new());
 }
 
-/// Covers: story:3-89, story:3-142, operation:config.explain, command:config.explain
+/// Covers: story:3-89, story:3-142, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]
 fn config_explain_json_shows_each_value_with_the_layer_that_set_and_locked_it(#[case] mode: Mode) {

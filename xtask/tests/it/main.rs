@@ -64,6 +64,7 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod telemetry;
 mod test_tools;
 mod tlc;
 mod wording;

@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::catalog::{Operation, OperationClass, Product, Stability, schema_of};
 use goodfetch_protocol::run::{RunKind, Tags};
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -296,6 +297,38 @@ fn a_run_id_that_could_name_another_folder_is_refused_and_nothing_is_written() {
             env.home().join("1").exists()
         ),
         (&json!("run_id_invalid"), false)
+    );
+}
+
+/// Params, and each object inside them, are a JSON object (ADR 0038):
+/// serde's derived structs would also read them from an array, by
+/// position, and `serde_json`'s map from `null`, which protocol fuzzing
+/// found.
+#[rstest]
+#[case::params_by_position(json!(["fixed"]))]
+#[case::project_by_position(json!({ "run_id": "fixed", "project": ["", {}] }))]
+#[case::settings_null(json!({ "run_id": "fixed", "settings": null }))]
+fn a_start_whose_params_or_an_object_in_them_are_no_json_object_is_invalid_params_and_nothing_is_written(
+    #[case] params: Value,
+) {
+    let env = TestEnv::new();
+
+    let refused = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(&mut client, 1, "run.start", params).await
+        },
+    );
+
+    assert_eq!(
+        (
+            &refused["error"]["data"]["code"],
+            env.home().join("1").exists()
+        ),
+        (&json!("invalid_params"), false)
     );
 }
 

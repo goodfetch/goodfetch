@@ -11,6 +11,7 @@ mod attached;
 mod browsers;
 mod config;
 mod events;
+mod invalid_calls;
 mod journeys;
 #[cfg(target_os = "linux")]
 mod lazyfs;

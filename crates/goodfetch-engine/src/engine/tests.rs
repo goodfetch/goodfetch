@@ -176,7 +176,9 @@ where
 }
 
 /// [`attached`], on the `Dependencies` that `dependencies` makes on the
-/// runtime.
+/// runtime. The test `tracing` subscriber, timed by their `Clock`, writes
+/// the dispatch records into the test's exercise record (ADR 0072), unless
+/// the test installed its own, as [`dispatch_records`] does.
 fn attached_with<D, F, Fut, T>(engine: &Engine, dependencies: D, client: F) -> T
 where
     D: FnOnce() -> Dependencies,
@@ -185,6 +187,15 @@ where
 {
     goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
+        let clock = dependencies.clock;
+        let unset = tracing::dispatcher::get_default(
+            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
+        );
+        let _subscriber = unset.then(|| {
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }))
+        });
         let (network, dialer) = transport::in_memory();
         let talk = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();

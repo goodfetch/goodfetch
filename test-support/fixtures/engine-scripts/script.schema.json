@@ -1,0 +1,260 @@
+{
+  "$defs": {
+    "Call": {
+      "additionalProperties": false,
+      "description": "A method and its params.",
+      "properties": {
+        "method": {
+          "description": "The method.",
+          "type": "string"
+        },
+        "params": {
+          "description": "The params, absent when the message carries none."
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "type": "object"
+    },
+    "Exit": {
+      "additionalProperties": false,
+      "description": "How the engine's process exits.",
+      "properties": {
+        "code": {
+          "description": "The exit code.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
+    "Expectation": {
+      "additionalProperties": false,
+      "description": "What an `expect` step matches.",
+      "properties": {
+        "method": {
+          "description": "The method, such as `hello` or `engine.info`.",
+          "type": "string"
+        },
+        "params": {
+          "description": "The params, absent when the message carries none."
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "type": "object"
+    },
+    "Raw": {
+      "additionalProperties": false,
+      "description": "Bytes that are not JSON-RPC.",
+      "properties": {
+        "text": {
+          "description": "The text written as it is, with no newline added.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "Reply": {
+      "description": "An answer to a request: its result, or its failure as the wire's error\nobject (`code`, `message` and `data` with the Error code).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "What the call answered.",
+          "properties": {
+            "result": true
+          },
+          "required": [
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The failure.",
+          "properties": {
+            "error": true
+          },
+          "required": [
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Sent": {
+      "description": "A message the engine starts.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A request, whose ID the player chooses, answered by `await_reply`.",
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/Call"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A notification, such as an event.",
+          "properties": {
+            "notification": {
+              "$ref": "#/$defs/Call"
+            }
+          },
+          "required": [
+            "notification"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Step": {
+      "description": "One step of a script.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The next message from the Client: a request or a notification of\nthis method, whose params are these, compared as canonical JSON.",
+          "properties": {
+            "expect": {
+              "$ref": "#/$defs/Expectation"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine's answer to the request the last `expect` matched, which\ncarries that request's ID; a script never writes an ID.",
+          "properties": {
+            "reply": {
+              "$ref": "#/$defs/Reply"
+            }
+          },
+          "required": [
+            "reply"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A message the engine starts: a request to one of the Client's\nhandlers, or a notification such as an event.",
+          "properties": {
+            "send": {
+              "$ref": "#/$defs/Sent"
+            }
+          },
+          "required": [
+            "send"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The Client's answer to the request the last `send` sent, compared\nas canonical JSON.",
+          "properties": {
+            "await_reply": {
+              "$ref": "#/$defs/Reply"
+            }
+          },
+          "required": [
+            "await_reply"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine answers nothing more and waits until the Client closes\nits end, as an SDK's own short timeout makes it do; a message that\ncomes meanwhile is unexpected.",
+          "properties": {
+            "stall": {
+              "additionalProperties": false,
+              "type": "object"
+            }
+          },
+          "required": [
+            "stall"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine closes the connection.",
+          "properties": {
+            "close": {
+              "additionalProperties": false,
+              "type": "object"
+            }
+          },
+          "required": [
+            "close"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Bytes the engine writes that are not JSON-RPC, which the check skips.",
+          "properties": {
+            "raw": {
+              "$ref": "#/$defs/Raw"
+            }
+          },
+          "required": [
+            "raw"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine's process exits at once with this code, as a crash does.",
+          "properties": {
+            "exit": {
+              "$ref": "#/$defs/Exit"
+            }
+          },
+          "required": [
+            "exit"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One exchange of protocol messages a Scripted engine plays to a Client.",
+  "properties": {
+    "description": {
+      "description": "What the exchange shows, for people.",
+      "type": "string"
+    },
+    "steps": {
+      "description": "The steps, played in order; the player fails on a message no step\nexpects and on a step left unused.",
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "description",
+    "steps"
+  ],
+  "title": "Script",
+  "type": "object"
+}

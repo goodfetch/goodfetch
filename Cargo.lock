@@ -1280,6 +1280,7 @@ dependencies = [
  "insta",
  "jiff",
  "jsonschema",
+ "libc",
  "proptest",
  "regex",
  "rstest",

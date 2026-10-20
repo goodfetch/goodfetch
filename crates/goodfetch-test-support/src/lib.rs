@@ -12,7 +12,9 @@
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, the endpoint table with `EndpointRunner`, which applies it to a
 //! listener, and the SSRF case table with IANA's special-purpose registries,
-//! its runner and the Scripted resolver (ADR 0067); the shared snapshot
+//! its runner and the Scripted resolver, the hostile-input case tables, and
+//! `NoExec`, which starts a child that may start no other program on Linux
+//! (ADR 0067); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
 //! (ADRs 0062 and 0073); the Scripted engine's script format and its
@@ -28,10 +30,16 @@ mod description;
 mod endpoints;
 mod env;
 mod fuzz;
+mod hostile;
 mod invariants;
 mod journey_run;
 mod kill;
 mod locales;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod no_exec;
 mod observation;
 mod player;
 mod process;
@@ -60,12 +68,23 @@ pub use endpoints::{
 };
 pub use env::{START_TIME, TestEnv, TestEnvError, command};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
+pub use hostile::{
+    BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
+    HostileTableError, HostileTables, JsonChannel, LimitSetting, MessageChannel, Os, PathHazard,
+    PathName, PathTarget, RefKeyword, ResourceLimit, Schedule, SchemaRef, SchemaUse,
+    SecretPlacement, SecretRedirect, ServedBy, TableGap, TableGaps,
+};
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use journey_run::{
     BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,
 };
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 pub use locales::{TimeZoneCase, locales, time_zones};
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
 };

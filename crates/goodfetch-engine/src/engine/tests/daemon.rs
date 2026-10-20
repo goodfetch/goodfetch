@@ -402,42 +402,50 @@ fn an_attached_engine_answers_daemon_status_with_not_a_daemon() {
     assert_eq!(received[1]["error"]["data"]["code"], json!("not_a_daemon"));
 }
 
-/// A Daemon that refuses a Client by Product or version hands over to its
-/// major's pick only when it is not the pick and is idle; the refusal says
-/// so, and the Client waits for the pick (ADR 0098).
+/// A Daemon that refuses a Client by Product hands over to its major's pick
+/// only when it is not the pick and is idle; the refusal says so, and the
+/// Client waits for the pick (ADR 0098).
 ///
-/// Covers: story:3-5, story:3-138, error:not_in_product, error:protocol_version_unsupported
+/// Covers: story:3-5, story:3-138, error:not_in_product
 #[rstest]
-#[case::by_product_idle_and_not_the_pick(
-    hello_with("foxhound", "0.1", "sdk_typescript", Some(TOKEN)),
-    false,
-    false,
-    true
-)]
-#[case::by_version_idle_and_not_the_pick(
-    hello_with("collie", "0.2", "sdk_typescript", Some(TOKEN)),
-    false,
-    false,
-    true
-)]
-#[case::busy_and_not_the_pick(
-    hello_with("foxhound", "0.1", "sdk_typescript", Some(TOKEN)),
-    false,
-    true,
-    false
-)]
-#[case::already_the_pick(
-    hello_with("foxhound", "0.1", "sdk_typescript", Some(TOKEN)),
-    true,
-    false,
-    false
-)]
-fn a_refusing_daemon_hands_over_only_when_idle_and_not_the_pick(
-    #[case] refused: Value,
+#[case::idle_and_not_the_pick(false, false, true)]
+#[case::busy_and_not_the_pick(false, true, false)]
+#[case::already_the_pick(true, false, false)]
+fn a_daemon_refusing_a_product_hands_over_only_when_idle_and_not_the_pick(
     #[case] pick: bool,
     #[case] busy: bool,
     #[case] handover: bool,
 ) {
+    assert_eq!(
+        refusal(
+            hello_with("foxhound", "0.1", "sdk_typescript", Some(TOKEN)),
+            pick,
+            busy
+        ),
+        (json!(handover), true, u32::from(handover))
+    );
+}
+
+/// A Daemon that refuses a Client by version hands over to its major's pick
+/// when it is not the pick and is idle; the refusal says so (ADR 0098).
+///
+/// Covers: story:3-5, story:3-138, error:protocol_version_unsupported
+#[test]
+fn a_daemon_refusing_a_version_hands_over_when_idle_and_not_the_pick() {
+    assert_eq!(
+        refusal(
+            hello_with("collie", "0.2", "sdk_typescript", Some(TOKEN)),
+            false,
+            false
+        ),
+        (json!(true), true, 1)
+    );
+}
+
+/// Sends `refused` to a Collie Daemon that is the pick or not, with another
+/// Client connected when `busy`, and answers the refusal's `handover`,
+/// whether the connection then closed, and how many handovers began.
+fn refusal(refused: Value, pick: bool, busy: bool) -> (Value, bool, u32) {
     let handovers = no_handover();
 
     let counted = Arc::clone(&handovers);
@@ -463,14 +471,11 @@ fn a_refusing_daemon_hands_over_only_when_idle_and_not_the_pick(
         },
     );
 
-    assert_eq!(
-        (
-            answer.get("handover").cloned().unwrap_or(json!(false)),
-            closed,
-            begun
-        ),
-        (json!(handover), true, u32::from(handover))
-    );
+    (
+        answer.get("handover").cloned().unwrap_or(json!(false)),
+        closed,
+        begun,
+    )
 }
 
 /// A Daemon that is not its major's pick hands over once no Client but a

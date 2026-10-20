@@ -7,6 +7,9 @@
 //! prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
 //! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it.
+//! On Linux, `dns-namespace` runs a program in a network and mount
+//! namespace whose resolver is the DNS fixture (`DnsNamespace`), and exits
+//! with its status; it exits 125 when the namespace cannot be made.
 
 use std::io::{self, Read as _, Write as _};
 use std::process::ExitCode;
@@ -20,9 +23,13 @@ use goodfetch_test_support::{
 #[derive(Parser)]
 #[command(
     name = "goodfetch-test-env",
-    about = "Prepares one test's setup and prints its description"
+    about = "Prepares one test's setup and prints its description",
+    args_conflicts_with_subcommands = true
 )]
 struct Arguments {
+    #[cfg(target_os = "linux")]
+    #[command(subcommand)]
+    command: Option<Subcommand>,
     /// The locale tag whose `LANG` the environment takes, such as `tr-TR`.
     #[arg(long)]
     locale: Option<String>,
@@ -47,8 +54,75 @@ struct Arguments {
     print_canary_rule: bool,
 }
 
+#[cfg(target_os = "linux")]
+#[derive(clap::Subcommand)]
+enum Subcommand {
+    /// Runs a program in a network and mount namespace of its own, whose
+    /// resolver relays to the DNS fixture.
+    DnsNamespace(DnsNamespaceArguments),
+}
+
+#[cfg(target_os = "linux")]
+#[derive(clap::Args)]
+struct DnsNamespaceArguments {
+    /// The DNS fixture's address.
+    #[arg(long)]
+    dns: std::net::SocketAddr,
+    /// A folder whose files are each mounted over `/etc/<their name>`.
+    #[arg(long)]
+    etc: std::path::PathBuf,
+    /// The `<uid>:<gid>` to start the program as, when run as root
+    /// through sudo; without it, a user namespace is made too.
+    #[arg(long)]
+    user: Option<goodfetch_test_support::InsideUser>,
+    /// One variable of the program's environment, as `NAME=VALUE`.
+    #[arg(long = "env", value_name = "NAME=VALUE")]
+    env: Vec<String>,
+    /// The program and its arguments; with none, the namespace is made and
+    /// left.
+    #[arg(last = true)]
+    child: Vec<std::ffi::OsString>,
+}
+
+/// The status a namespace that cannot be made exits with, as `env` and
+/// `unshare` exit when they cannot run their command.
+#[cfg(target_os = "linux")]
+const NAMESPACE_FAILED: u8 = 125;
+
+#[cfg(target_os = "linux")]
+fn dns_namespace(arguments: DnsNamespaceArguments) -> ExitCode {
+    let inside = goodfetch_test_support::Inside {
+        dns: arguments.dns,
+        etc: arguments.etc,
+        user: arguments.user,
+        env: arguments.env,
+        child: arguments.child,
+    };
+    match inside.run() {
+        Ok(status) => ExitCode::from(u8::try_from(status).unwrap_or(u8::MAX)),
+        Err(error) => {
+            #[expect(
+                clippy::print_stderr,
+                reason = "goodfetch-test-env reports a namespace it could not make on its own stderr (ADR 0067)"
+            )]
+            {
+                eprintln!("goodfetch-test-env: dns-namespace: {error}");
+            }
+            ExitCode::from(NAMESPACE_FAILED)
+        }
+    }
+}
+
 fn main() -> ExitCode {
-    let arguments = Arguments::parse();
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(unused_mut, reason = "only Linux takes the subcommand out")
+    )]
+    let mut arguments = Arguments::parse();
+    #[cfg(target_os = "linux")]
+    if let Some(Subcommand::DnsNamespace(namespace)) = arguments.command.take() {
+        return dns_namespace(namespace);
+    }
     let result = if arguments.print_schemas {
         print_schemas()
     } else if arguments.print_canary_rule {

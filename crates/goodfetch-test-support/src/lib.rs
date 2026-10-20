@@ -14,6 +14,8 @@
 //! listener, and the SSRF case table with IANA's special-purpose registries,
 //! its runner and the Scripted resolver, the hostile-input case tables,
 //! `NoExec`, which starts a child that may start no other program on Linux,
+//! `DnsNamespace`, which starts a child on Linux whose resolver is the
+//! Proving ground's DNS fixture,
 //! and the Secret canaries, planted and searched for in every encoding
 //! with their `gitleaks` rule (ADR 0067); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
@@ -33,6 +35,8 @@ mod cli;
 mod crash_dumps;
 mod crash_vfs;
 mod description;
+#[cfg(target_os = "linux")]
+mod dns_namespace;
 mod endpoints;
 mod env;
 mod exercise;
@@ -75,6 +79,11 @@ pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
 };
 pub use description::{Description, schemas};
+#[cfg(target_os = "linux")]
+pub use dns_namespace::{
+    DNS_NAMESPACE_COMMAND, DnsNamespace, DnsNamespaceError, Inside, InsideUser, Mechanism,
+    MechanismRefusal,
+};
 pub use endpoints::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
@@ -140,6 +149,6 @@ pub use tools::{Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use variables::{
-    MAX_SEED, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE,
-    SeedError, Suite, SuiteError, TOOLS_VARIABLE, Variables, current_test,
+    DNS_NAMESPACE_VARIABLE, MAX_SEED, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
+    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, Variables, current_test,
 };

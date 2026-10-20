@@ -3,7 +3,8 @@
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
 //! manifest's path, the folder Journey variants write their result documents
 //! into, the exercise records' folder with the test's ID as nextest gives
-//! it, and on Windows the variables a child needs to start.
+//! it, the way a runner declares `DnsNamespace` comes up on it, and on
+//! Windows the variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
@@ -27,6 +28,11 @@ pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
 /// The folder of every test's exercise record, which `just test` sets
 /// (ADR 0072).
 pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
+
+/// The way a runner declares `DnsNamespace` comes up on it, `user_namespace`
+/// or `sudo`, so a silent fallback to the other fails (ADR 0067); unset, it
+/// tries the first, then the second.
+pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
 
 /// The binary ID of the test nextest runs (`<package>::<target>`).
 pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";
@@ -66,6 +72,7 @@ impl Variables {
             BINARY_ID_VARIABLE,
             TEST_NAME_VARIABLE,
             COVERAGE_VARIABLE,
+            DNS_NAMESPACE_VARIABLE,
         ]
         .into_iter()
         .chain(WINDOWS_VARIABLES)

@@ -4,6 +4,7 @@
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
 //! items.
 
+pub mod block;
 pub mod crawl;
 pub mod settings;
 
@@ -12,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage, Instrument, Metric,
-    Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
-    SharedTypeValue, Stability, schema_of,
+    Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Setting,
+    SharedType, SharedTypeValue, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
 
@@ -80,6 +81,7 @@ pub const ENTRIES: Entries = Entries {
         name: "sample.crawl",
         description: "Visits sample pages, each repeating a text.",
         class: OperationClass::Effect,
+        kind: OperationKind::RoundTrip,
         params: schema_of::<SampleCrawlParams>,
         result: schema_of::<SampleCrawlResult>,
         events: &[&SAMPLE_CRAWLED],

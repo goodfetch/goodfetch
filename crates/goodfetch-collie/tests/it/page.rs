@@ -20,13 +20,15 @@ use std::process::Command;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
 use goodfetch_protocol::page::{Navigated, PageOpened};
 use goodfetch_test_support::{
-    BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache,
+    BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache, cli,
     runtime,
 };
 use serde_json::{Map, Value, json};
 
 use crate::attached::{Attached, hello};
 use crate::run::call;
+
+const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 695;
@@ -88,7 +90,7 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
         &mut engine,
         3,
         "page.goto",
-        &json!({ "page": first.page, "url": url }),
+        &json!({ "page_id": first.page_id, "url": url }),
     );
     let second = opened(&call(
         &mut engine,
@@ -111,8 +113,8 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
                 .headers
                 .get("content-type")
                 .is_some_and(|value| value.starts_with("text/html")),
-            second.session == first.session,
-            second.page == first.page,
+            second.session_id == first.session_id,
+            second.page_id == first.page_id,
             &finished["result"]["lifecycle"],
             (rest, exited),
         ),
@@ -259,7 +261,7 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
         &mut engine,
         3,
         "page.goto",
-        &json!({ "page": page.page, "url": proving_ground.url("access.test", "/cdp-probe") }),
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("access.test", "/cdp-probe") }),
     );
     let browsers = browser_command_lines(&env);
     // The probe reports that it ran, then each side effect it saw, right
@@ -341,5 +343,62 @@ fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
             Vec::<String>::new(),
             vec![CHROME_FOR_TESTING_BUILD.to_owned()]
         )
+    );
+}
+
+/// `run new-page` through the command generated from the catalog: a Run
+/// the command's own Attached engine stopped as the command ended has no
+/// page to open, so the call fails typed (ADR 0099).
+/// Covers: command:run.new-page
+#[test]
+fn run_new_page_on_a_run_an_earlier_command_stopped_fails_with_run_not_found() {
+    let env = TestEnv::new();
+    let started = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first"])
+        .run()
+        .unwrap();
+    assert_eq!(started.exit, Some(0), "{started}");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", "new-page", "first", "--json"])
+        .json("CommandFailed")
+        .unwrap();
+
+    assert_eq!(
+        (
+            checked.output.exit,
+            &checked.documents[0]["error"]["code"],
+            &checked.documents[0]["error"]["operation"],
+        ),
+        (Some(3), &json!("run_not_found"), &json!("run.new_page"))
+    );
+}
+
+/// `page goto` through the command generated from the catalog: no engine
+/// holds a page the command names, so the call fails with `closed`.
+/// Covers: command:page.goto
+#[test]
+fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
+    let env = TestEnv::new();
+
+    let checked = cli(&env, COLLIE)
+        .args([
+            "page",
+            "goto",
+            "page-1",
+            "--url",
+            "http://catalog.test/",
+            "--json",
+        ])
+        .json("CommandFailed")
+        .unwrap();
+
+    assert_eq!(
+        (
+            checked.output.exit,
+            &checked.documents[0]["error"]["code"],
+            &checked.documents[0]["error"]["operation"],
+        ),
+        (Some(3), &json!("closed"), &json!("page.goto"))
     );
 }

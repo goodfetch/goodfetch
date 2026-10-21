@@ -43,6 +43,9 @@ const CASES: &str = include_str!("../../../conformance/protocol/cases.toml");
 /// a Collie program's pages over the protocol, on the Proving ground.
 const PAGE_CASES: &str = include_str!("../../../conformance/page/cases.toml");
 
+/// The delivery suite's case list, embedded the same way.
+const DELIVERY_CASES: &str = include_str!("../../../conformance/delivery/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,6 +73,12 @@ impl ProtocolSuite {
     /// `conformance/page/cases.toml`.
     pub fn page() -> Self {
         Self::read(PAGE_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/delivery/cases.toml`: a crawl's work items under their
+    /// leases, on Foxhound's executable.
+    pub fn delivery() -> Self {
+        Self::read(DELIVERY_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.
@@ -206,7 +215,7 @@ pub fn run_protocol_suite(
             }
             let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
             let mut checks = Checks::default();
-            if let Err(why) = case.run(&mut connection, &hello, &reached, &mut checks) {
+            if let Err(why) = case.run(&mut connection, target, &hello, &reached, &mut checks) {
                 checks.0.push(CaseCheck {
                     name: format!("the target answers the case's calls ({why})"),
                     passed: false,

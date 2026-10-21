@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::target::{BROWSER_DEADLINE, DEADLINE, Next, START_DEADLINE, Started};
+use super::target::{
+    BROWSER_DEADLINE, DEADLINE, EngineTarget, Next, START_DEADLINE, StartError, Started,
+};
 
 /// Why the Connection gave no more answers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,6 +108,18 @@ impl Connection {
     fn answer_within(&mut self, id: i64, deadline: Duration) -> Result<Answer, Gone> {
         let mut others = Vec::new();
         loop {
+            let message = self.next_within(deadline)?;
+            if message.get("method").is_none() && message.get("id") == Some(&json!(id)) {
+                return Ok(Answer { message, others });
+            }
+            others.push(message);
+        }
+    }
+
+    /// The next JSON message the target writes, within `deadline`; a line
+    /// that is no JSON is recorded and passed over.
+    pub(crate) fn next_within(&mut self, deadline: Duration) -> Result<Value, Gone> {
+        loop {
             let line = match self.started.next_line(deadline) {
                 Next::Line(line) => line,
                 Next::Closed => return Err(Gone::Closed),
@@ -119,11 +133,24 @@ impl Connection {
             };
             self.exchanged
                 .push(json!({ "from": "engine", "message": message }));
-            if message.get("method").is_none() && message.get("id") == Some(&json!(id)) {
-                return Ok(Answer { message, others });
-            }
-            others.push(message);
+            return Ok(message);
         }
+    }
+
+    /// Answers the engine's request `id` with `result`.
+    pub(crate) fn reply(&mut self, id: &Value, result: &Value) -> Result<(), Gone> {
+        self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
+    }
+
+    /// Opens a further Connection to the same target, before any `hello`,
+    /// its messages kept apart from this one's.
+    pub(crate) fn another(&self, target: &EngineTarget) -> Result<Self, StartError> {
+        Ok(Self::new(self.started.another(target)?))
+    }
+
+    /// Adds `messages`, exchanged on another Connection, to this one's.
+    pub(crate) fn keep(&mut self, messages: Vec<Value>) {
+        self.exchanged.extend(messages);
     }
 
     /// The messages exchanged since the last call, oldest first.

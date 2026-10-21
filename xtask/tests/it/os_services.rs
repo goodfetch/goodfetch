@@ -166,6 +166,51 @@ fn a_local_run_on_a_host_with_every_service_skips_nothing() {
     assert_eq!(workspace.read("skipped.txt"), None);
 }
 
+/// Outside Linux, `daemon install`'s tests install for real in the Release
+/// suite only, so a local run of another suite skips them.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn outside_the_release_suite_a_local_run_skips_the_service_manager_tests() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = workspace.xtask(&[
+        "os-services",
+        "check",
+        "--service-manager",
+        "--suite",
+        "pre-merge",
+        "--skipped",
+        "skipped.txt",
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "service_manager::\n");
+    assert_eq!(workspace.read_text("skipped.txt").lines().count(), 1);
+}
+
+/// On Linux, a host whose `PATH` has no `systemctl` has no user manager.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_host_without_systemctl_lacks_the_service_manager() {
+    let workspace = Workspace::from_fixture("empty");
+    let nothing = workspace.path().join("no-tools");
+    std::fs::create_dir(&nothing).unwrap();
+
+    let outcome = workspace.xtask_with_env(
+        &["os-services", "check", "--service-manager"],
+        &[("PATH", nothing.as_os_str())],
+    );
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "service-manager-missing",
+            "the user's service manager"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 #[test]
 fn an_address_not_on_the_host_fails_the_check() {
     let workspace = Workspace::from_fixture("empty");

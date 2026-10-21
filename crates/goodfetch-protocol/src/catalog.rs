@@ -161,6 +161,32 @@ impl OperationClass {
     }
 }
 
+/// The shape an operation takes on every surface (ADR 0099), from which
+/// each generator applies its one form, such as a method in each SDK or a
+/// CLI command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperationKind {
+    /// A call answered once with its result.
+    RoundTrip,
+    /// A call that opens a value the caller then names by its ID, such as a
+    /// Run: its result carries the new value's ID, `<namespace>_id`.
+    Opener,
+    /// A call that stays in flight and sends its answer as notifications,
+    /// such as an event subscription or a body read in chunks (ADR 0081).
+    Sequence,
+}
+
+impl OperationKind {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RoundTrip => "round_trip",
+            Self::Opener => "opener",
+            Self::Sequence => "sequence",
+        }
+    }
+}
+
 /// Whether an entry is under semver's promise (ADR 0030).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stability {
@@ -207,6 +233,8 @@ pub struct Operation {
     pub description: &'static str,
     /// What calling it does.
     pub class: OperationClass,
+    /// The shape it takes on every surface.
+    pub kind: OperationKind,
     /// The type of its params.
     pub params: SchemaOf,
     /// The type of its result.
@@ -285,7 +313,8 @@ pub struct HandlerRequest {
 }
 
 /// The seven groups of Error codes, named for their remedy (ADR 0079).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum ErrorGroup {
     /// The program is wrong.
     Program,
@@ -339,6 +368,20 @@ impl ErrorGroup {
             Self::DeadlineExceeded => -32005,
             Self::Unavailable => -32006,
             Self::Internal => -32007,
+        }
+    }
+
+    /// Its row of ADR 0069's exit-code table: the exit code of a CLI command
+    /// that fails with one of its codes that has no row of its own.
+    pub fn exit_code(self) -> u8 {
+        match self {
+            Self::Internal => 1,
+            Self::Program => 3,
+            Self::Refused => 4,
+            Self::Page => 5,
+            Self::Model => 6,
+            Self::DeadlineExceeded => 7,
+            Self::Unavailable => 8,
         }
     }
 
@@ -495,6 +538,8 @@ pub enum SharedType {
     LimitScope,
     /// What a Notification reports.
     NotificationEvent,
+    /// Why a site refused a page (ADR 0035).
+    BlockCause,
 }
 
 impl SharedType {
@@ -504,6 +549,7 @@ impl SharedType {
             Self::UsageKind => "usage_kind",
             Self::LimitScope => "limit_scope",
             Self::NotificationEvent => "notification_event",
+            Self::BlockCause => "block_cause",
         }
     }
 }

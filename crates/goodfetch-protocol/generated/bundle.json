@@ -109,6 +109,46 @@
       ],
       "type": "object"
     },
+    "BlockCause": {
+      "description": "Why a site refused a page (ADR 0035), on the wire as written.",
+      "oneOf": [
+        {
+          "const": "challenge",
+          "description": "A page that checks the browser before it lets it through.",
+          "type": "string"
+        },
+        {
+          "const": "captcha",
+          "description": "A page that asks a person to prove they are human.",
+          "type": "string"
+        },
+        {
+          "const": "rate_limit",
+          "description": "The site refused because too many requests came too fast.",
+          "type": "string"
+        },
+        {
+          "const": "ip_block",
+          "description": "The site refused the address the request came from.",
+          "type": "string"
+        },
+        {
+          "const": "decoy",
+          "description": "A trap page a person would never reach, such as a labyrinth of\nhidden links; only Foxhound's Frontier produces it (ADR 0095).",
+          "type": "string"
+        },
+        {
+          "const": "payment_required",
+          "description": "The site asked to be paid for the page (ADR 0045).",
+          "type": "string"
+        },
+        {
+          "const": "consent_required",
+          "description": "A wall that asks for consent before it shows the page (ADR 0048).",
+          "type": "string"
+        }
+      ]
+    },
     "BrowserCacheEntry": {
       "additionalProperties": false,
       "description": "One Pinned artifact's entry in the Browser cache, `entry.json` beside its\nfiles: what it is, the digest its files have, and when it was installed\nand last used, which the clean-up reads (ADR 0098).",
@@ -530,6 +570,60 @@
       ],
       "type": "object"
     },
+    "CommandError": {
+      "additionalProperties": true,
+      "description": "A failed command's error: what a Client's error object holds, with the\noperation the command called.",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "The Error code, or the name of the protocol failure.",
+          "type": "string"
+        },
+        "group": {
+          "$ref": "#/$defs/ErrorGroup",
+          "arrived_in": "0.1",
+          "description": "The group of the Error code, named for its remedy (ADR 0079)."
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What went wrong, for people; never matched on.",
+          "type": "string"
+        },
+        "operation": {
+          "arrived_in": "0.1",
+          "description": "The operation the command called, by its canonical name, such as\n`run.finish`.",
+          "type": "string"
+        },
+        "retryable": {
+          "arrived_in": "0.1",
+          "description": "Whether the same call may succeed when made again.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "group",
+        "retryable",
+        "message",
+        "operation"
+      ],
+      "type": "object"
+    },
+    "CommandFailed": {
+      "additionalProperties": false,
+      "description": "What a command prints under `--json` when it fails.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/CommandError",
+          "arrived_in": "0.1",
+          "description": "The failure."
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
     "Completeness": {
       "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
       "oneOf": [
@@ -823,9 +917,61 @@
         }
       ]
     },
+    "DaemonInstallOutput": {
+      "description": "What `daemon install --json` prints.",
+      "properties": {
+        "service": {
+          "$ref": "#/$defs/InstalledService",
+          "arrived_in": "0.1",
+          "description": "The service it registered."
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStopping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the Daemon running before answered when it was stopped so the\nservice could take its place, or `None` when none ran."
+        }
+      },
+      "required": [
+        "service"
+      ],
+      "type": "object"
+    },
     "DaemonParams": {
       "additionalProperties": false,
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
+      "type": "object"
+    },
+    "DaemonRotateTokenOutput": {
+      "description": "What `daemon rotate-token --json` prints.",
+      "properties": {
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStopping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the Daemon running with the old token answered when it was\nstopped, or `None` when none ran."
+        },
+        "token_file": {
+          "arrived_in": "0.1",
+          "description": "The file that holds the new persistent token, mode `0600`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token_file"
+      ],
       "type": "object"
     },
     "DaemonStartOutput": {
@@ -931,6 +1077,18 @@
           "arrived_in": "0.1",
           "description": "The runtime file of the executable's major.",
           "type": "string"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The per-user service `daemon install` registered for the major, or\n`None` when none is installed."
         }
       },
       "required": [
@@ -970,6 +1128,24 @@
       "required": [
         "live_runs"
       ],
+      "type": "object"
+    },
+    "DaemonUninstallOutput": {
+      "description": "What `daemon uninstall --json` prints.",
+      "properties": {
+        "removed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The service it removed, or `None` when none was installed."
+        }
+      },
       "type": "object"
     },
     "DownloadProgress": {
@@ -1067,6 +1243,46 @@
         "retryable"
       ],
       "type": "object"
+    },
+    "ErrorGroup": {
+      "description": "The seven groups of Error codes, named for their remedy (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "program",
+          "description": "The program is wrong.",
+          "type": "string"
+        },
+        {
+          "const": "refused",
+          "description": "A policy, a Limit, a lock or a person refused.",
+          "type": "string"
+        },
+        {
+          "const": "page",
+          "description": "The page or site never reached the state the call needed.",
+          "type": "string"
+        },
+        {
+          "const": "model",
+          "description": "The Model provider's answer was unusable.",
+          "type": "string"
+        },
+        {
+          "const": "deadline_exceeded",
+          "description": "The deadline passed.",
+          "type": "string"
+        },
+        {
+          "const": "unavailable",
+          "description": "Something Goodfetch depends on is unreachable or gone.",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "A bug in Goodfetch.",
+          "type": "string"
+        }
+      ]
     },
     "ErrorObject": {
       "additionalProperties": false,
@@ -1345,7 +1561,7 @@
       "additionalProperties": false,
       "description": "What `page.goto` takes: the page, and the URL it goes to.",
       "properties": {
-        "page": {
+        "page_id": {
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
@@ -1357,7 +1573,7 @@
         }
       },
       "required": [
-        "page",
+        "page_id",
         "url"
       ],
       "type": "object"
@@ -1570,6 +1786,50 @@
       "required": [
         "format_version",
         "executables"
+      ],
+      "type": "object"
+    },
+    "InstalledService": {
+      "additionalProperties": false,
+      "description": "The per-user service of one major that `daemon install` registered,\nrecorded in `daemon-service.json` in the major's per-major folder (ADRs\n0024, 0031 and 0098): what starts the major's pick, from which versioned\ncopy, and the socket its service manager listens on for it.",
+      "properties": {
+        "executable": {
+          "arrived_in": "0.1",
+          "description": "The versioned copy in the Browser cache that the service starts,\nwhich starts its major's pick.",
+          "type": "string"
+        },
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The files that define it to the service manager.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "manager": {
+          "$ref": "#/$defs/ServiceManager",
+          "arrived_in": "0.1",
+          "description": "The service manager it is registered with."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name there: a launch agent's label, a user unit's name without\nits suffix, or a logon task's path.",
+          "type": "string"
+        },
+        "socket": {
+          "arrived_in": "0.1",
+          "description": "The socket the service manager listens on and hands the Daemon it\nstarts at the first connection, or `None` where the OS has no socket\nactivation (Windows).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "manager",
+        "name",
+        "executable",
+        "files"
       ],
       "type": "object"
     },
@@ -2040,20 +2300,20 @@
     "PageOpened": {
       "description": "What `run.new_page` answers: the page, and the Session it belongs to,\nwhich `page.session()` returns.",
       "properties": {
-        "page": {
+        "page_id": {
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
         },
-        "session": {
+        "session_id": {
           "$ref": "#/$defs/SessionId",
           "arrived_in": "0.1",
           "description": "Its Session: the Run's default Session."
         }
       },
       "required": [
-        "page",
-        "session"
+        "page_id",
+        "session_id"
       ],
       "type": "object"
     },
@@ -2104,6 +2364,26 @@
       "description": "An event's position among every event of one engine, which only goes up.",
       "minimum": 0,
       "type": "integer"
+    },
+    "Presence": {
+      "description": "Whether the state a Run index row points at is there (ADRs 0031 and\n0036).",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "Its state is at its location.",
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "`runs reindex` found no state at its location; the row is kept.",
+          "type": "string"
+        },
+        {
+          "const": "erased",
+          "description": "The Run was discarded on purpose; `runs reindex` keeps its row\nerased.",
+          "type": "string"
+        }
+      ]
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -2483,6 +2763,26 @@
       ],
       "type": "object"
     },
+    "RunAbortParams": {
+      "additionalProperties": false,
+      "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
+      "properties": {
+        "forwarded": {
+          "arrived_in": "0.1",
+          "description": "Set by an engine that forwards the abort to the owner the Run index\nnames (ADR 0031): an engine that does not own the Run then answers\n`run_not_owned` instead of taking its writer role.",
+          "type": "boolean"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -2533,7 +2833,7 @@
       "type": "string"
     },
     "RunIndexRow": {
-      "description": "One row of the Run index (ADR 0031): a Run, where its state is, and its\nthree axes.",
+      "description": "One row of the Run index (ADR 0031): a Run, where its state is, its three\naxes and, while it is live, the engine that owns it.",
       "properties": {
         "completeness": {
           "anyOf": [
@@ -2573,6 +2873,21 @@
           "$ref": "#/$defs/Product",
           "description": "The Product it needs (ADR 0098)."
         },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonEndpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "While it is live, the endpoint of the engine that owns it, when that\nengine has one: a Daemon's. An engine that cannot take the Run's\nwriter lock forwards live actions there."
+        },
+        "presence": {
+          "$ref": "#/$defs/Presence",
+          "description": "Whether its state is at its location."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -2604,7 +2919,8 @@
         "needs",
         "tags",
         "lifecycle",
-        "started_at"
+        "started_at",
+        "presence"
       ],
       "type": "object"
     },
@@ -2912,6 +3228,44 @@
       ],
       "type": "object"
     },
+    "RunsReindexOutput": {
+      "description": "What `runs reindex --json` prints: the Run index it rebuilt, and how many\nof its rows are of each presence.",
+      "properties": {
+        "erased": {
+          "arrived_in": "0.1",
+          "description": "Rows of Runs discarded on purpose, kept erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "missing": {
+          "arrived_in": "0.1",
+          "description": "Rows it kept whose state it did not find.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "present": {
+          "arrived_in": "0.1",
+          "description": "Rows of Runs whose state it found.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_index": {
+          "arrived_in": "0.1",
+          "description": "The Run index's path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_index",
+        "present",
+        "missing",
+        "erased"
+      ],
+      "type": "object"
+    },
     "SampleCrawlParams": {
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
@@ -3094,6 +3448,26 @@
       },
       "minItems": 1,
       "type": "array"
+    },
+    "ServiceManager": {
+      "description": "The OS's service manager a Daemon is installed with (ADR 0024).",
+      "oneOf": [
+        {
+          "const": "launchd",
+          "description": "macOS's launchd, as a launch agent with socket activation.",
+          "type": "string"
+        },
+        {
+          "const": "systemd",
+          "description": "Linux's systemd, as a user unit with socket activation.",
+          "type": "string"
+        },
+        {
+          "const": "task_scheduler",
+          "description": "Windows' Task Scheduler, as a logon task.",
+          "type": "string"
+        }
+      ]
     },
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
@@ -3403,7 +3777,7 @@
         },
         {
           "const": "cli",
-          "description": "The CLI, as a Client of a Daemon.",
+          "description": "The CLI, as a Client of its own Attached engine or of a Daemon.",
           "type": "string"
         },
         {
@@ -3606,6 +3980,9 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "command_failed": {
+    "$ref": "#/$defs/CommandFailed"
+  },
   "connection": {
     "cancel": {
       "params": {
@@ -4951,8 +5328,14 @@
     "config.explain": {
       "$ref": "#/$defs/SettingsExplanation"
     },
+    "daemon.install": {
+      "$ref": "#/$defs/DaemonInstallOutput"
+    },
     "daemon.restart": {
       "$ref": "#/$defs/DaemonStartOutput"
+    },
+    "daemon.rotate-token": {
+      "$ref": "#/$defs/DaemonRotateTokenOutput"
     },
     "daemon.start": {
       "$ref": "#/$defs/DaemonStartOutput"
@@ -4962,8 +5345,19 @@
     },
     "daemon.stop": {
       "$ref": "#/$defs/DaemonStopOutput"
+    },
+    "daemon.uninstall": {
+      "$ref": "#/$defs/DaemonUninstallOutput"
+    },
+    "runs.reindex": {
+      "$ref": "#/$defs/RunsReindexOutput"
     }
   },
   "protocol_version": "0.1",
+  "shared_types": {
+    "block_cause": {
+      "$ref": "#/$defs/BlockCause"
+    }
+  },
   "title": "Goodfetch protocol"
 }

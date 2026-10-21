@@ -234,10 +234,44 @@ fn the_bundle_holds_each_commands_json_output() {
             "browsers.clean": { "$ref": "#/$defs/BrowsersCleanOutput" },
             "browsers.install": { "$ref": "#/$defs/BrowsersInstallOutput" },
             "config.explain": { "$ref": "#/$defs/SettingsExplanation" },
+            "daemon.install": { "$ref": "#/$defs/DaemonInstallOutput" },
             "daemon.restart": { "$ref": "#/$defs/DaemonStartOutput" },
+            "daemon.rotate-token": { "$ref": "#/$defs/DaemonRotateTokenOutput" },
             "daemon.start": { "$ref": "#/$defs/DaemonStartOutput" },
             "daemon.status": { "$ref": "#/$defs/DaemonStatusOutput" },
             "daemon.stop": { "$ref": "#/$defs/DaemonStopOutput" },
+            "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
+            "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
         })
+    );
+}
+
+#[rstest]
+#[case::round_trip("sample.echo", "round_trip")]
+#[case::opener("run.start", "opener")]
+#[case::sequence("events.subscribe", "sequence")]
+fn the_catalog_declares_each_operations_kind(#[case] operation: &str, #[case] kind: &str) {
+    let catalog = emit().catalog;
+
+    let entry = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == operation)
+        .unwrap();
+    assert_eq!(entry["kind"], json!(kind));
+}
+
+#[test]
+fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["command_failed"],
+        json!({ "$ref": "#/$defs/CommandFailed" })
+    );
+    assert_eq!(
+        emitted.bundle["$defs"]["CommandError"]["required"],
+        json!(["code", "group", "retryable", "message", "operation"])
     );
 }

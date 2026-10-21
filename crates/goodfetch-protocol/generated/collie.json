@@ -416,7 +416,7 @@
       "additionalProperties": false,
       "description": "What `page.goto` takes: the page, and the URL it goes to.",
       "properties": {
-        "page": {
+        "page_id": {
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
@@ -428,7 +428,7 @@
         }
       },
       "required": [
-        "page",
+        "page_id",
         "url"
       ],
       "type": "object"
@@ -536,20 +536,20 @@
     "PageOpened": {
       "description": "What `run.new_page` answers: the page, and the Session it belongs to,\nwhich `page.session()` returns.",
       "properties": {
-        "page": {
+        "page_id": {
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
         },
-        "session": {
+        "session_id": {
           "$ref": "#/$defs/SessionId",
           "arrived_in": "0.1",
           "description": "Its Session: the Run's default Session."
         }
       },
       "required": [
-        "page",
-        "session"
+        "page_id",
+        "session_id"
       ],
       "type": "object"
     },
@@ -662,6 +662,26 @@
       },
       "required": [
         "runs"
+      ],
+      "type": "object"
+    },
+    "RunAbortParams": {
+      "additionalProperties": false,
+      "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
+      "properties": {
+        "forwarded": {
+          "arrived_in": "0.1",
+          "description": "Set by an engine that forwards the abort to the owner the Run index\nnames (ADR 0031): an engine that does not own the Run then answers\n`run_not_owned` instead of taking its writer role.",
+          "type": "boolean"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
       ],
       "type": "object"
     },
@@ -1373,6 +1393,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_busy",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.",
       "exit_code": null,
       "group": "program",
@@ -1408,6 +1438,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "run_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_not_owned",
       "product": "collie",
       "retryable": false
     },
@@ -1594,6 +1634,7 @@
       "deprecated": null,
       "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
       "events": [],
+      "kind": "round_trip",
       "name": "config.explain",
       "params": {
         "$ref": "#/$defs/ConfigExplainParams"
@@ -1611,6 +1652,7 @@
       "deprecated": null,
       "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
       "events": [],
+      "kind": "round_trip",
       "name": "daemon.status",
       "params": {
         "$ref": "#/$defs/DaemonParams"
@@ -1628,6 +1670,7 @@
       "deprecated": null,
       "description": "Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed.",
       "events": [],
+      "kind": "round_trip",
       "name": "daemon.stop",
       "params": {
         "$ref": "#/$defs/DaemonParams"
@@ -1645,6 +1688,7 @@
       "deprecated": null,
       "description": "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
       "events": [],
+      "kind": "round_trip",
       "name": "engine.info",
       "params": {
         "$ref": "#/$defs/EngineInfoParams"
@@ -1665,6 +1709,7 @@
         "events.resync",
         "run.axes_changed"
       ],
+      "kind": "sequence",
       "name": "events.subscribe",
       "params": {
         "$ref": "#/$defs/EventsSubscribeParams"
@@ -1682,6 +1727,7 @@
       "deprecated": null,
       "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
       "events": [],
+      "kind": "sequence",
       "name": "page.body",
       "params": {
         "$ref": "#/$defs/PageBodyParams"
@@ -1699,6 +1745,7 @@
       "deprecated": null,
       "description": "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.",
       "events": [],
+      "kind": "round_trip",
       "name": "page.goto",
       "params": {
         "$ref": "#/$defs/GotoParams"
@@ -1714,11 +1761,12 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.",
+      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
       "events": [],
+      "kind": "round_trip",
       "name": "run.abort",
       "params": {
-        "$ref": "#/$defs/RunParams"
+        "$ref": "#/$defs/RunAbortParams"
       },
       "product": "collie",
       "result": {
@@ -1733,6 +1781,7 @@
       "deprecated": null,
       "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
       "events": [],
+      "kind": "round_trip",
       "name": "run.finish",
       "params": {
         "$ref": "#/$defs/RunParams"
@@ -1750,6 +1799,7 @@
       "deprecated": null,
       "description": "Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.",
       "events": [],
+      "kind": "round_trip",
       "name": "run.new_page",
       "params": {
         "$ref": "#/$defs/NewPageParams"
@@ -1767,6 +1817,7 @@
       "deprecated": null,
       "description": "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
       "events": [],
+      "kind": "opener",
       "name": "run.start",
       "params": {
         "$ref": "#/$defs/RunStartParams"
@@ -1789,6 +1840,7 @@
       "events": [
         "sample.echoed"
       ],
+      "kind": "round_trip",
       "name": "sample.echo",
       "params": {
         "$ref": "#/$defs/SampleEchoParams"
@@ -2235,6 +2287,48 @@
     }
   ],
   "shared_type_values": [
+    {
+      "arrived_in": "0.1",
+      "description": "A page that asks a person to prove they are human.",
+      "name": "captcha",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page that checks the browser before it lets it through.",
+      "name": "challenge",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A wall that asks for consent before it shows the page (ADR 0048).",
+      "name": "consent_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused the address the request came from.",
+      "name": "ip_block",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site asked to be paid for the page (ADR 0045).",
+      "name": "payment_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused because too many requests came too fast.",
+      "name": "rate_limit",
+      "product": "collie",
+      "type": "block_cause"
+    },
     {
       "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",

@@ -13,6 +13,14 @@
 //! joined by dots, are a `command:` Feature of `features/inventory.json`
 //! (`browsers install` is `browsers.install`); arguments that hold none are
 //! recorded as `unmatched`, which the audit reports.
+//!
+//! `json(schema)` checks a `--json` run: stdout holds exactly one document,
+//! valid against that schema of the committed JSON Schema bundle, read as a
+//! file; `json_lines(schema)` checks that every line of stdout is one
+//! document of that event type. The caller names the type, so test support
+//! stays on values. `mode(Mode::Daemon)` runs the command as a Client of a
+//! Daemon of the test's home, which the run starts and stops, so one rstest
+//! case per mode shares one snapshot.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support runs commands and writes the command record outside any async worker (ADR 0062)"
@@ -27,6 +35,7 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
+use crate::daemon::{DAEMON_DEADLINE, Daemon, DaemonError};
 use crate::env::{TestEnv, command, posix_locale};
 use crate::exercise::{COMMAND_TARGET, command_record};
 use crate::locales::{locales, time_zones};
@@ -34,6 +43,16 @@ use crate::snapshot::{SnapshotValues, snapshot_settings};
 
 /// The Feature inventory, whose `command:` Features name the commands.
 const INVENTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../features/inventory.json");
+
+/// The JSON Schema bundle `xtask codegen` commits, whose `$defs` hold each
+/// `--json` output's and each event's type.
+const BUNDLE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../goodfetch-protocol/generated/bundle.json"
+);
+
+/// The flag that makes a command a Client of the Daemon (ADR 0024).
+const DAEMON_FLAG: &str = "--daemon";
 
 /// The byte every ANSI escape sequence starts with.
 const ESCAPE: u8 = 0x1B;
@@ -44,6 +63,24 @@ pub struct Cli<'env> {
     command: assert_cmd::Command,
     arguments: Vec<String>,
     refused: Option<CliError>,
+    executable: PathBuf,
+    mode: Mode,
+}
+
+/// How a command reaches the engine (ADRs 0024 and 0069): every test of a
+/// command that runs the engine has one rstest case per mode, which share
+/// one snapshot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    /// In the executable's own process, as the CLI runs with no Daemon:
+    /// the arguments as the test gave them, in a home where none runs.
+    #[default]
+    Attached,
+    /// As a Client of the Daemon of the test's home: the run starts the
+    /// executable's Daemon, adds `--daemon` after the test's arguments,
+    /// and stops the Daemon once the command ended, failing when it still
+    /// runs or left its runtime file.
+    Daemon,
 }
 
 /// A run of `executable`, the path of the Product's executable the test
@@ -51,7 +88,7 @@ pub struct Cli<'env> {
 /// in the test's folder with its cleared environment, `NO_COLOR=1`,
 /// `COLUMNS=100` and `TERM=dumb`.
 pub fn cli(env: &TestEnv, executable: impl AsRef<OsStr>) -> Cli<'_> {
-    let mut command = command(env, executable);
+    let mut command = command(env, &executable);
     command
         .env("NO_COLOR", "1")
         .env("COLUMNS", "100")
@@ -61,6 +98,8 @@ pub fn cli(env: &TestEnv, executable: impl AsRef<OsStr>) -> Cli<'_> {
         command,
         arguments: Vec::new(),
         refused: None,
+        executable: PathBuf::from(executable.as_ref()),
+        mode: Mode::Attached,
     }
 }
 
@@ -123,8 +162,52 @@ impl Cli<'_> {
         self
     }
 
+    /// Runs the command in this mode; [`Mode::Attached`] unless set.
+    #[must_use]
+    pub fn mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Runs the executable as [`Cli::run`] does, then checks that its
+    /// stdout holds exactly one JSON document, valid against `schema`, a
+    /// type of the committed bundle's `$defs` (`SettingsExplanation` for
+    /// `config explain --json`). A schema the bundle lacks fails before
+    /// anything starts.
+    pub fn json(self, schema: &str) -> Result<CliJson, CliError> {
+        let validator = validator(schema)?;
+        let output = self.run()?;
+        let document = one_document(&output.stdout)?;
+        check(&validator, schema, None, &document)?;
+        Ok(CliJson::of(output, vec![document]))
+    }
+
+    /// Runs the executable as [`Cli::run`] does, then checks that each
+    /// line of its stdout is one JSON document valid against `schema`, the
+    /// command's declared event type, and nothing else is: JSON Lines. No
+    /// line at all is a stream of no event.
+    pub fn json_lines(self, schema: &str) -> Result<CliJson, CliError> {
+        let validator = validator(schema)?;
+        let output = self.run()?;
+        let mut documents = Vec::new();
+        for (index, line) in output.stdout.lines().enumerate() {
+            let number = Some(index + 1);
+            let document = serde_json::from_str(line).map_err(|error| CliError::NotJson {
+                line: number,
+                reason: error.to_string(),
+                stdout: output.stdout.clone(),
+            })?;
+            check(&validator, schema, number, &document)?;
+            documents.push(document);
+        }
+        Ok(CliJson::of(output, documents))
+    }
+
     /// Runs the executable to its end, appends the command and its exit
-    /// code to the test's command record, and returns its output; it fails
+    /// code to the test's command record, and returns its output; in
+    /// [`Mode::Daemon`] it starts the executable's Daemon first and stops
+    /// it once the command ended, failing with [`CliError::Daemon`] when
+    /// either fails. It fails
     /// when stdout or stderr is not UTF-8 or holds an escape byte, and
     /// before starting anything when a locale or time zone is outside the
     /// shared table.
@@ -132,7 +215,22 @@ impl Cli<'_> {
         if let Some(refused) = self.refused {
             return Err(refused);
         }
-        let output = self.command.output().map_err(CliError::Start)?;
+        let daemon = match self.mode {
+            Mode::Attached => None,
+            Mode::Daemon => {
+                self = self.arg(DAEMON_FLAG);
+                Some(Daemon::start_program(
+                    self.env,
+                    &self.executable,
+                    DAEMON_DEADLINE,
+                )?)
+            }
+        };
+        let output = self.command.output().map_err(CliError::Start);
+        if let Some(daemon) = daemon {
+            daemon.stop(self.env)?;
+        }
+        let output = output?;
         let exit = output.status.code();
         record_command(self.env, &self.arguments, exit)?;
         let stdout = text(Stream::Stdout, output.stdout)?;
@@ -142,6 +240,77 @@ impl Cli<'_> {
             stdout,
             stderr,
             values: SnapshotValues::of(self.env),
+        })
+    }
+}
+
+/// A validator of `schema`, one type of the committed bundle's `$defs`.
+fn validator(schema: &str) -> Result<jsonschema::Validator, CliError> {
+    let unreadable = |reason: String| CliError::Bundle {
+        path: PathBuf::from(BUNDLE),
+        reason,
+    };
+    let text = std::fs::read_to_string(BUNDLE).map_err(|error| unreadable(error.to_string()))?;
+    let bundle: Value =
+        serde_json::from_str(&text).map_err(|error| unreadable(error.to_string()))?;
+    let defs = bundle["$defs"]
+        .as_object()
+        .ok_or_else(|| unreadable("it holds no `$defs`".to_owned()))?;
+    if !defs.contains_key(schema) {
+        return Err(CliError::SchemaUnknown {
+            schema: schema.to_owned(),
+        });
+    }
+    let root = json!({
+        "$schema": bundle["$schema"],
+        "$defs": defs,
+        "$ref": format!("#/$defs/{schema}"),
+    });
+    jsonschema::validator_for(&root).map_err(|error| unreadable(error.to_string()))
+}
+
+/// The one JSON document `stdout` holds, with nothing but whitespace
+/// around it.
+fn one_document(stdout: &str) -> Result<Value, CliError> {
+    let not_json = |reason: String| CliError::NotJson {
+        line: None,
+        reason,
+        stdout: stdout.to_owned(),
+    };
+    let mut documents = serde_json::Deserializer::from_str(stdout).into_iter::<Value>();
+    let document = match documents.next() {
+        Some(Ok(document)) => document,
+        Some(Err(error)) => return Err(not_json(error.to_string())),
+        None => return Err(not_json("stdout holds no document".to_owned())),
+    };
+    match documents.next() {
+        None => Ok(document),
+        Some(Ok(_)) => Err(CliError::SecondDocument {
+            stdout: stdout.to_owned(),
+        }),
+        Some(Err(error)) => Err(not_json(error.to_string())),
+    }
+}
+
+/// Fails when `document`, stdout's or its line `line`'s, violates `schema`.
+fn check(
+    validator: &jsonschema::Validator,
+    schema: &str,
+    line: Option<usize>,
+    document: &Value,
+) -> Result<(), CliError> {
+    let errors: Vec<String> = validator
+        .iter_errors(document)
+        .map(|error| format!("{}: {error}", error.instance_path()))
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(CliError::SchemaViolated {
+            schema: schema.to_owned(),
+            line,
+            errors,
+            document: document.clone(),
         })
     }
 }
@@ -253,6 +422,30 @@ fn write_stream(formatter: &mut fmt::Formatter<'_>, text: &str) -> fmt::Result {
     Ok(())
 }
 
+/// A `--json` run that [`Cli::json`] or [`Cli::json_lines`] checked.
+#[derive(Clone, Debug)]
+pub struct CliJson {
+    /// The run's exit code and stderr, with stdout as its documents
+    /// pretty-printed one after another, which
+    /// [`assert_cli_snapshot!`](crate::assert_cli_snapshot) snapshots.
+    pub output: CliOutput,
+    /// The documents stdout held: the one document, or each line's.
+    pub documents: Vec<Value>,
+}
+
+impl CliJson {
+    fn of(output: CliOutput, documents: Vec<Value>) -> Self {
+        let stdout = documents
+            .iter()
+            .flat_map(|document| [format!("{document:#}"), "\n".to_owned()])
+            .collect();
+        Self {
+            output: CliOutput { stdout, ..output },
+            documents,
+        }
+    }
+}
+
 /// Snapshots a [`CliOutput`] (its exit code, stdout and stderr as one value)
 /// under the shared snapshot filters, as `insta::assert_snapshot!` does,
 /// with an optional snapshot name first or an inline snapshot after.
@@ -339,6 +532,54 @@ pub enum CliError {
     TimeZoneUnknown {
         /// Its name.
         zone: String,
+    },
+    /// The Daemon of a [`Mode::Daemon`] run did not start, or did not stop
+    /// cleanly.
+    #[error("the Daemon of the run's mode: {0}")]
+    Daemon(#[from] DaemonError),
+    /// The committed JSON Schema bundle cannot be read.
+    #[error("the JSON Schema bundle {} cannot be read: {reason}", path.display())]
+    Bundle {
+        /// Its path.
+        path: PathBuf,
+        /// Why.
+        reason: String,
+    },
+    /// The bundle's `$defs` hold no such type.
+    #[error("the JSON Schema bundle holds no type {schema}")]
+    SchemaUnknown {
+        /// The type's name.
+        schema: String,
+    },
+    /// Stdout, or one of its lines, is not exactly one JSON document: a
+    /// stray line, no document at all, or a blank line among JSON Lines.
+    #[error("stdout{} is not one JSON document ({reason}): {stdout:?}", line.map(|line| format!("'s line {line}")).unwrap_or_default())]
+    NotJson {
+        /// The line, among JSON Lines.
+        line: Option<usize>,
+        /// Why.
+        reason: String,
+        /// The whole stdout.
+        stdout: String,
+    },
+    /// Stdout holds a second document after the one a `--json` command
+    /// prints.
+    #[error("stdout holds a second JSON document: {stdout:?}")]
+    SecondDocument {
+        /// The whole stdout.
+        stdout: String,
+    },
+    /// A document violates the type the test named.
+    #[error("stdout{}'s document violates {schema}: {}; {document}", line.map(|line| format!(" line {line}")).unwrap_or_default(), errors.join("; "))]
+    SchemaViolated {
+        /// The type.
+        schema: String,
+        /// The line, among JSON Lines.
+        line: Option<usize>,
+        /// Each violation, at its place in the document.
+        errors: Vec<String>,
+        /// The document.
+        document: Value,
     },
     /// The Feature inventory cannot be read.
     #[error("the Feature inventory {} cannot be read: {reason}", path.display())]

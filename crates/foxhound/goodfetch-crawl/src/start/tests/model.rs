@@ -2,7 +2,9 @@
 //! tests and crashes in one process): a crawl on real SQLite through the
 //! crash VFS, on the test `Clock`, whose handler answers each attempt as
 //! the generated script says (Records, a retryable failure, its own
-//! failure, or silence until the lease ends), and which may crash or lose
+//! failure, silence until the lease ends, or Records sent only once the
+//! engine cancelled the attempt at its lease's end: a late commit, which
+//! commits nothing), and which may crash or lose
 //! power between attempts. A reference model of the Run's policy says which
 //! work item and attempt each handler request must be, and which Records
 //! each commit holds. After every step the run file holds every Record
@@ -46,6 +48,9 @@ enum Behaviour {
     FailsItself,
     /// Never answers, so the lease ends.
     Silent,
+    /// Answers this many Records only once the engine cancelled the
+    /// attempt at its lease's end: a late commit, which commits nothing.
+    Late(u8),
 }
 
 #[derive(Clone, Debug)]
@@ -117,6 +122,7 @@ impl ReferenceStateMachine for Model {
             1 => Just(Transition::Deliver(Behaviour::FailsRetryably)),
             1 => Just(Transition::Deliver(Behaviour::FailsItself)),
             1 => Just(Transition::Deliver(Behaviour::Silent)),
+            1 => (1_u8..3).prop_map(|count| Transition::Deliver(Behaviour::Late(count))),
             1 => prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)].prop_map(Transition::Crash),
         ]
         .boxed()
@@ -144,7 +150,7 @@ impl ReferenceStateMachine for Model {
                     .map(|number| record(index, attempt, number))
                     .collect();
             }
-            Behaviour::FailsRetryably | Behaviour::Silent => {
+            Behaviour::FailsRetryably | Behaviour::Silent | Behaviour::Late(_) => {
                 item.done = !ONE_AT_A_TIME.may_retry(attempt);
             }
             Behaviour::FailsItself => item.done = true,
@@ -163,6 +169,9 @@ struct Subject {
     writer: goodfetch_engine::transport::ConnectionWriter,
     delivered: usize,
     finished: bool,
+    /// The requests left unanswered, with the Records each answers once
+    /// the engine cancels it.
+    silent: Vec<(Value, Vec<Value>)>,
 }
 
 impl Subject {
@@ -294,6 +303,7 @@ impl StateMachineTest for Subject {
             writer,
             delivered: 0,
             finished: false,
+            silent: Vec::new(),
         };
         subject.send(&json!({
             "jsonrpc": "2.0", "id": "hello", "method": "hello",
@@ -359,7 +369,13 @@ impl StateMachineTest for Subject {
                         "jsonrpc": "2.0", "id": id,
                         "error": { "code": -32001, "message": "a bug", "data": { "code": "handler_failed", "retryable": true } },
                     })),
-                    Behaviour::Silent => {}
+                    Behaviour::Silent => subject.silent.push((id, Vec::new())),
+                    Behaviour::Late(count) => {
+                        let records: Vec<Value> = (0..count)
+                            .map(|number| json!({ "dataset": "pages", "data": record(index, attempt, number) }))
+                            .collect();
+                        subject.silent.push((id, records));
+                    }
                 }
             }
         }
@@ -379,7 +395,7 @@ impl StateMachineTest for Subject {
         if model.next().is_none() {
             subject.send(&json!({ "jsonrpc": "2.0", "id": "finish", "method": "run.finish", "params": { "run_id": "model" } }));
             let report = loop {
-                let message = subject.next();
+                let message = next_from_engine(&mut subject);
                 if message["id"] == "finish" {
                     break message;
                 }
@@ -398,9 +414,32 @@ impl StateMachineTest for Subject {
 
 /// The next message, a `crawl_request.handle` request.
 fn next_request(subject: &mut Subject) -> Value {
-    let message = subject.next();
+    let message = next_from_engine(subject);
     assert_eq!(message["method"], "crawl_request.handle", "{message}");
     message
+}
+
+/// The next message other than a `$/cancel`, which may only cancel a
+/// request left unanswered, and which that request's late answer follows.
+fn next_from_engine(subject: &mut Subject) -> Value {
+    loop {
+        let message = subject.next();
+        if message["method"] != "$/cancel" {
+            return message;
+        }
+        let id = &message["params"]["id"];
+        let position = subject
+            .silent
+            .iter()
+            .position(|(silent, _)| silent == id)
+            .unwrap_or_else(|| {
+                panic!("the engine cancelled a request it had an answer to: {message}")
+            });
+        let (id, records) = subject.silent.remove(position);
+        if !records.is_empty() {
+            subject.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
+        }
+    }
 }
 
 prop_state_machine! {

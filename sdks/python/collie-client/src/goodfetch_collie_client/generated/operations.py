@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, RunAbortParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -78,8 +78,8 @@ class AsyncCollieOperations:
         """
         return Navigated.model_construct(**_fields(await self._caller.call("page.goto", params)))
 
-    async def run_abort(self, params: RunParams) -> RunReport:
-        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.
+    async def run_abort(self, params: RunAbortParams) -> RunReport:
+        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -161,8 +161,8 @@ class CollieOperations:
         """
         return Navigated.model_construct(**_fields(self._caller.call("page.goto", params)))
 
-    def run_abort(self, params: RunParams) -> RunReport:
-        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.
+    def run_abort(self, params: RunAbortParams) -> RunReport:
+        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

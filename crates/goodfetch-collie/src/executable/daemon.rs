@@ -13,6 +13,15 @@
 //! any other refusal fails with a `fix` naming this executable's
 //! `daemon restart`. A Daemon that hands over starts the pick itself.
 //!
+//! Once `daemon install` registered the major's service with socket
+//! activation (macOS and Linux), a Client that finds no running Daemon
+//! connects to the service's socket with the persistent token, and that
+//! connection starts the Daemon (ADR 0031). The service runs `daemon
+//! launched --service`, which takes the place of the pick's copy when it
+//! is not the pick, takes the socket its service manager hands over, and
+//! leaves that socket to it; a Daemon a service activated hands over by
+//! stopping, so the next connection starts the pick.
+//!
 //! The `daemon` commands need Collie, which carries `daemon.*`, so either
 //! executable stops or asks a Daemon of either Product; a command that
 //! runs the engine needs its executable's own Product (spec #213).
@@ -23,31 +32,27 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{ExitCode, Stdio};
-use std::sync::Arc;
+use std::process::ExitCode;
 use std::time::Duration;
 
+use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{
     self, BROWSERS_PATH_VARIABLE, CacheLocation, HOME_FOLDER, MaxUnusedAge,
 };
-use goodfetch_engine::daemon::files::{DaemonFiles, FileLock, new_token};
-use goodfetch_engine::daemon::{
-    DaemonEnd, DaemonOptions, Holds, RefusedClient, RefusedExecutable, Succession, refusal_fix,
-};
+use goodfetch_engine::daemon::files::DaemonFiles;
+use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::{Home, major_name};
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick};
-use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
-use goodfetch_engine::{Dependencies, Engine, Identity};
-use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, MAX_UNUSED_AGE};
+use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
+use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     HelloParams, NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, Surface,
 };
 use goodfetch_protocol::daemon::{
-    DaemonRuntimeFile, DaemonStartOutput, DaemonStatus, DaemonStatusOutput, DaemonStopOutput,
-    DaemonStopping, IDLE_TIMEOUT,
+    DaemonEndpoint, DaemonRuntimeFile, DaemonStartOutput, DaemonStatus, DaemonStatusOutput,
+    DaemonStopOutput, DaemonStopping,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
@@ -56,7 +61,14 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, Lines};
 
-use super::{browsers, output};
+use goodfetch_cli::output;
+
+use super::browsers;
+
+mod launched;
+
+use launched::launch;
+pub(super) use launched::launched;
 
 /// How many times a Client looks for the Daemon again when the one it
 /// found went away, or handed over, before it gives up.
@@ -112,22 +124,22 @@ fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
 }
 
 impl Machine<'_> {
-    fn files(&self) -> DaemonFiles {
+    pub(super) fn files(&self) -> DaemonFiles {
         DaemonFiles::of(self.home, &self.identity.product_version)
     }
 
-    fn major(&self) -> String {
+    pub(super) fn major(&self) -> String {
         major_name(&self.identity.product_version)
     }
 
-    fn list(&self) -> InstalledList {
+    pub(super) fn list(&self) -> InstalledList {
         InstalledList::of(self.home)
     }
 
     /// The Browser cache the Daemon's copies go in: the one this executable
     /// uses, or `browsers` in Goodfetch home when that one cannot be
     /// written (ADR 0098's note under #259).
-    fn cache(&self) -> PathBuf {
+    pub(super) fn cache(&self) -> PathBuf {
         let location = CacheLocation::new(
             self.home.root(),
             self.environment
@@ -167,7 +179,7 @@ impl Machine<'_> {
     }
 
     /// The major's pick now.
-    fn pick(&self) -> Option<InstalledExecutable> {
+    pub(super) fn pick(&self) -> Option<InstalledExecutable> {
         let entries = self.list().read().unwrap_or_default();
         let cache = self.cache();
         let seen: Vec<Seen<'_>> = entries
@@ -192,35 +204,81 @@ impl Machine<'_> {
         })
     }
 
-    /// The running Daemon's runtime file, or one this starts: the pick,
-    /// under the start lock. `true` when this started it.
-    fn running_or_started(&self, keep_alive: bool) -> Result<(DaemonRuntimeFile, bool), Failure> {
-        let files = self.files();
-        let start = files
-            .start_lock()
-            .map_err(unavailable("the Daemon's start lock cannot be taken"))?;
-        if let Some(found) = files
+    /// The running Daemon, from its runtime file.
+    fn running(&self) -> Result<Option<Reach>, Failure> {
+        Ok(self
+            .files()
             .running()
             .map_err(unavailable("the Daemon's runtime file cannot be read"))?
-        {
+            .map(Reach::from))
+    }
+
+    /// The socket of the major's installed service and its persistent
+    /// token, whose first connection starts the Daemon; `None` when no
+    /// service with socket activation is installed.
+    pub(super) fn activated_service(&self) -> Result<Option<Reach>, Failure> {
+        let files = self.files();
+        let Some(socket) = files
+            .service()
+            .map_err(unavailable("the installed service's record cannot be read"))?
+            .and_then(|service| service.socket)
+        else {
+            return Ok(None);
+        };
+        let token = files
+            .read_token()
+            .map_err(unavailable("the Daemon's persistent token cannot be read"))?
+            .ok_or_else(|| {
+                Failure::Unavailable(format!(
+                    "the service of major {} has no persistent token at {}: run `daemon install` again",
+                    self.major(),
+                    files.token_file().display()
+                ))
+            })?;
+        Ok(Some(Reach {
+            endpoint: DaemonEndpoint::Unix(socket),
+            token,
+            service: true,
+        }))
+    }
+
+    /// The running Daemon, the installed service's socket, which starts
+    /// one at its first connection, or one this starts: the pick, under
+    /// the start lock. `true` when no Daemon ran before.
+    fn running_or_started(&self, keep_alive: bool) -> Result<(Reach, bool), Failure> {
+        if let Some(found) = self.running()? {
+            return Ok((found, false));
+        }
+        if let Some(service) = self.activated_service()? {
+            return Ok((service, true));
+        }
+        let start = self
+            .files()
+            .start_lock()
+            .map_err(unavailable("the Daemon's start lock cannot be taken"))?;
+        if let Some(found) = self.running()? {
             return Ok((found, false));
         }
         let started = self.start_pick(keep_alive)?;
         drop(start);
-        Ok((started, true))
+        Ok((Reach::from(started), true))
     }
 
-    /// Starts the major's pick from its versioned copy and waits for its
-    /// runtime file; whoever calls it holds the start lock.
-    fn start_pick(&self, keep_alive: bool) -> Result<DaemonRuntimeFile, Failure> {
-        let Some(picked) = self.pick() else {
-            return Err(Failure::Unavailable(format!(
-                "no installed executable can run the Daemon of major {}: install {} {} or newer",
-                self.major(),
-                self.identity.product.name(),
-                self.identity.product_version,
-            )));
-        };
+    /// The pick when it is not this executable, which a service's
+    /// `daemon launched` gives its place to.
+    pub(super) fn other_pick(&self) -> Option<InstalledExecutable> {
+        self.pick().filter(|picked| {
+            picked.product != self.identity.product
+                || picked.product_version != self.identity.product_version
+        })
+    }
+
+    /// The pick's versioned copy, placed in the Browser cache unless it is
+    /// there: the executable to run and its build.
+    pub(super) fn copy_of(
+        &self,
+        picked: &InstalledExecutable,
+    ) -> Result<(PathBuf, String), Failure> {
         let cache = self.cache();
         let copy = match &picked.copy {
             Some(copy) if browser_cache::entry_present(&cache, copy) => copy.clone(),
@@ -253,13 +311,22 @@ impl Machine<'_> {
             .join(&copy.build)
             .join("files")
             .join(file_name);
-        launch(
-            &executable,
-            &copy.build,
-            keep_alive,
-            self.environment,
-            self.home,
-        )
+        Ok((executable, copy.build))
+    }
+
+    /// Starts the major's pick from its versioned copy and waits for its
+    /// runtime file; whoever calls it holds the start lock.
+    pub(super) fn start_pick(&self, keep_alive: bool) -> Result<DaemonRuntimeFile, Failure> {
+        let Some(picked) = self.pick() else {
+            return Err(Failure::Unavailable(format!(
+                "no installed executable can run the Daemon of major {}: install {} {} or newer",
+                self.major(),
+                self.identity.product.name(),
+                self.identity.product_version,
+            )));
+        };
+        let (executable, build) = self.copy_of(&picked)?;
+        launch(&executable, &build, keep_alive, self.environment, self.home)
     }
 
     /// A Connection to the Daemon that `hello` opened, needing `needs`: the
@@ -274,9 +341,7 @@ impl Machine<'_> {
             let found = if start {
                 Some(self.running_or_started(false)?.0)
             } else {
-                self.files()
-                    .running()
-                    .map_err(unavailable("the Daemon's runtime file cannot be read"))?
+                self.running()?
             };
             let Some(found) = found else {
                 return Ok(None);
@@ -286,9 +351,18 @@ impl Machine<'_> {
                     return Ok(Some(Connected {
                         runtime,
                         connection,
-                        found,
+                        endpoint: found.endpoint,
                         next: 1,
                     }));
+                }
+                // The service's socket answers no connection: its service
+                // manager does not listen there.
+                Err(Opening::Unreachable) if found.service => {
+                    return Err(Failure::Unavailable(format!(
+                        "the service of major {} does not answer at {}: run `daemon install` again to repair it, or `daemon uninstall`",
+                        self.major(),
+                        found.endpoint
+                    )));
                 }
                 // It hands over: once the start lock is free, the pick runs.
                 Err(Opening::HandOver) => drop(
@@ -297,7 +371,7 @@ impl Machine<'_> {
                         .map_err(unavailable("the Daemon's start lock cannot be taken"))?,
                 ),
                 // It went away in between: look again.
-                Err(Opening::Gone) => {}
+                Err(Opening::Gone | Opening::Unreachable) => {}
                 Err(Opening::Refused(error)) => return Err(self.refused(&error)),
             }
         }
@@ -307,10 +381,10 @@ impl Machine<'_> {
         )))
     }
 
-    async fn open(&self, found: &DaemonRuntimeFile, needs: Product) -> Result<Opened, Opening> {
+    async fn open(&self, found: &Reach, needs: Product) -> Result<Opened, Opening> {
         let connection = transport::connect_daemon(&found.endpoint)
             .await
-            .map_err(|_| Opening::Gone)?;
+            .map_err(|_| Opening::Unreachable)?;
         let mut opened = Opened::new(connection);
         let hello = HelloParams {
             protocol_version: PROTOCOL_VERSION,
@@ -389,7 +463,7 @@ impl Machine<'_> {
 
     /// Asks the running Daemon to stop and waits until it has; `None` when
     /// none runs.
-    fn stop(&self) -> Result<Option<DaemonStopping>, Failure> {
+    pub(super) fn stop(&self) -> Result<Option<DaemonStopping>, Failure> {
         let Some(mut connected) = self.connect(false, Product::Collie)? else {
             return Ok(None);
         };
@@ -416,10 +490,31 @@ impl Machine<'_> {
     }
 }
 
+/// Where a Client reaches the Daemon, and the token its `hello` carries.
+pub(super) struct Reach {
+    endpoint: DaemonEndpoint,
+    token: String,
+    /// Whether it is the installed service's socket, which starts the
+    /// Daemon at its first connection.
+    service: bool,
+}
+
+impl From<DaemonRuntimeFile> for Reach {
+    fn from(found: DaemonRuntimeFile) -> Self {
+        Self {
+            endpoint: found.endpoint,
+            token: found.token,
+            service: false,
+        }
+    }
+}
+
 /// Why opening a Connection to a found Daemon failed.
 enum Opening {
     /// It refused this Client and hands over to its major's pick.
     HandOver,
+    /// Nothing answered at its endpoint.
+    Unreachable,
     /// It went away.
     Gone,
     /// It refused this Client.
@@ -430,7 +525,7 @@ enum Opening {
 pub(super) struct Connected {
     runtime: tokio::runtime::Runtime,
     connection: Opened,
-    found: DaemonRuntimeFile,
+    endpoint: DaemonEndpoint,
     next: i64,
 }
 
@@ -454,7 +549,7 @@ impl Connected {
             }),
             Err(None) => Err(Failure::Unavailable(format!(
                 "the Daemon at {} closed the Connection before it answered `{method}`",
-                self.found.endpoint
+                self.endpoint
             ))),
             Err(Some(error)) => Err(Failure::Refused {
                 code: error.data.code.clone(),
@@ -525,215 +620,6 @@ impl Opened {
                 _ => {}
             }
         }
-    }
-}
-
-/// Starts the Daemon's process from `executable`, the versioned copy of
-/// build `build`, and waits for the runtime file it prints once ready.
-fn launch(
-    executable: &Path,
-    build: &str,
-    keep_alive: bool,
-    environment: &BTreeMap<OsString, OsString>,
-    home: &Home,
-) -> Result<DaemonRuntimeFile, Failure> {
-    std::fs::create_dir_all(home.root()).map_err(unavailable("Goodfetch home cannot be made"))?;
-    let mut command = std::process::Command::new(executable);
-    command
-        .args(["daemon", "launched", "--copy", build])
-        .args(keep_alive.then_some("--keep-alive"))
-        .env_clear()
-        .envs(environment)
-        .current_dir(home.root())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    detach(&mut command);
-    let mut child = command
-        .spawn()
-        .map_err(unavailable("the Daemon's process cannot start"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .expect("invariant: the Daemon's stdout is piped");
-    let mut ready = String::new();
-    let read = BufReader::new(stdout).read_line(&mut ready);
-    // The Daemon outlives this process: it is never waited for here.
-    drop(child);
-    match read {
-        Ok(read) if read > 0 => serde_json::from_str(&ready).map_err(|error| {
-            Failure::Unavailable(format!(
-                "the Daemon printed no runtime file once ready: {error}"
-            ))
-        }),
-        _ => Err(Failure::Unavailable(format!(
-            "the Daemon exited before it was ready; its log is in {}",
-            home.root().join("logs").display()
-        ))),
-    }
-}
-
-/// Starts the Daemon's process outside this process's group, so a signal
-/// to this command's terminal never reaches it.
-#[cfg(unix)]
-fn detach(command: &mut std::process::Command) {
-    use std::os::unix::process::CommandExt as _;
-    command.process_group(0);
-}
-
-#[cfg(windows)]
-fn detach(command: &mut std::process::Command) {
-    use std::os::windows::process::CommandExt as _;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-}
-
-#[cfg(not(any(unix, windows)))]
-fn detach(_command: &mut std::process::Command) {}
-
-/// The Daemon's process, started by [`launch`] from the copy of build
-/// `copy`: waits for the serving lock, listens, publishes its runtime file
-/// and prints it, serves until it stops, and starts the pick when it hands
-/// over.
-pub(super) fn launched(
-    engine: &Engine,
-    dependencies: Dependencies,
-    machine: &Machine<'_>,
-    copy: Option<&str>,
-    keep_alive: bool,
-) -> ExitCode {
-    let files = machine.files();
-    let identity = engine.identity();
-    let _copy = copy.and_then(|build| {
-        let id = ArtifactId {
-            kind: ArtifactKind::ExecutableCopy,
-            name: format!("goodfetch-{}", identity.product.as_str()),
-            build: build.to_owned(),
-        };
-        browser_cache::hold_copy(&machine.cache(), &id)
-            .ok()
-            .flatten()
-    });
-    let serving = match files.serving_lock() {
-        Ok(serving) => serving,
-        Err(error) => {
-            return unavailable("the Daemon's serving lock cannot be taken")(error).report();
-        }
-    };
-    let idle_timeout =
-        browsers::machine_settings(machine.home, identity.product, &identity.product_version)
-            .ok()
-            .and_then(|settings| settings.value(IDLE_TIMEOUT.name).as_u64())
-            .map_or(Duration::from_secs(600), Duration::from_millis);
-    let (socket, _socket_folder) = match files.socket_place() {
-        Ok(place) => place,
-        Err(error) => return unavailable("the Daemon's socket has no folder")(error).report(),
-    };
-    let token = match new_token() {
-        Ok(token) => token,
-        Err(error) => {
-            tracing::error!(%error, "the OS generator gave no token");
-            return ExitCode::FAILURE;
-        }
-    };
-    let pid = std::process::id();
-    let runtime = multi_thread_runtime();
-    let ended = runtime.block_on(async {
-        let (listener, endpoint) = Network::Os
-            .listen(&socket)
-            .await
-            .map_err(unavailable("the Daemon cannot listen"))?;
-        let published = DaemonRuntimeFile {
-            endpoint: endpoint.clone(),
-            token: token.clone(),
-            version: identity.product_version.clone(),
-            pid,
-        };
-        files
-            .publish(&published)
-            .map_err(unavailable("the Daemon's runtime file cannot be written"))?;
-        output::json(&published);
-        tracing::info!(%endpoint, pid, "the Daemon serves");
-        let options = DaemonOptions {
-            token,
-            endpoint,
-            pid,
-            idle_timeout,
-            keep_alive,
-            holds: Holds::new(),
-            succession: Arc::new(OnTheMachine {
-                files: files.clone(),
-                home: machine.home.clone(),
-                cache: machine.cache(),
-                product: identity.product,
-                version: identity.product_version.clone(),
-                max_unused_age: machine.max_unused_age(),
-                pid,
-            }),
-        };
-        Ok::<_, Failure>(engine.run_daemon(listener, dependencies, options).await)
-    });
-    runtime.shutdown_background();
-    let ended = match ended {
-        Ok(ended) => ended,
-        Err(failure) => return failure.report(),
-    };
-    if let Err(error) = files.unpublish(pid) {
-        tracing::warn!(%error, "the Daemon's runtime file cannot be removed");
-    }
-    drop(serving);
-    match ended {
-        DaemonEnd::HandedOver(start_lock) => {
-            let started = machine.start_pick(false);
-            drop(start_lock);
-            match started {
-                Ok(_) => ExitCode::SUCCESS,
-                Err(failure) => failure.report(),
-            }
-        }
-        DaemonEnd::ListenerFailed => ExitCode::FAILURE,
-        DaemonEnd::Idle | DaemonEnd::Stopped => ExitCode::SUCCESS,
-    }
-}
-
-/// The pick and the handover on this machine (ADR 0098).
-struct OnTheMachine {
-    files: DaemonFiles,
-    home: Home,
-    cache: PathBuf,
-    product: Product,
-    version: goodfetch_protocol::connection::ProductVersion,
-    max_unused_age: MaxUnusedAge,
-    pid: u32,
-}
-
-impl Succession for OnTheMachine {
-    fn is_pick(&self) -> bool {
-        let entries = InstalledList::of(&self.home).read().unwrap_or_default();
-        let seen: Vec<Seen<'_>> = entries
-            .iter()
-            .map(|entry| Seen::look(entry, &self.cache))
-            .collect();
-        pick(&seen, &self.version, None, now(), self.max_unused_age).is_none_or(|picked| {
-            picked.product == self.product && picked.product_version == self.version
-        })
-    }
-
-    fn begin_handover(&self) -> Box<dyn Send> {
-        let lock: Option<FileLock> = match self.files.start_lock() {
-            Ok(lock) => Some(lock),
-            Err(error) => {
-                tracing::warn!(%error, "the Daemon hands over without the start lock");
-                None
-            }
-        };
-        if let Err(error) = self.files.unpublish(self.pid) {
-            tracing::warn!(%error, "the Daemon's runtime file cannot be removed");
-        }
-        tracing::info!("the Daemon hands over to its major's pick");
-        Box::new(lock)
     }
 }
 
@@ -811,10 +697,12 @@ pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
         Ok(None) => None,
         Err(failure) => return failure.report(),
     };
+    let service = machine.files().service().ok().flatten();
     if json {
         output::json(&DaemonStatusOutput {
             runtime_file: machine.files().runtime_file().display().to_string(),
             daemon,
+            service,
         });
     } else {
         match &daemon {
@@ -824,6 +712,9 @@ pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
                 describe(status)
             )),
             None => output::line(&format!("No Daemon of major {} runs", machine.major())),
+        }
+        if let Some(service) = &service {
+            output::line(&super::service::describe(service));
         }
     }
     ExitCode::SUCCESS

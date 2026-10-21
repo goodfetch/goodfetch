@@ -25,8 +25,9 @@
 //! player, and the Daemon's runtime file (ADRs 0024 and 0069);
 //! `goodfetch-test-env`, which gives the same setup to TypeScript and
 //! Python as one JSON description; the CLI helper, `cli`, which runs a
-//! Product's executable and records each command it ran, with the shared
-//! table's locale cases, and `pty`, which runs it on a pseudo-terminal, with
+//! Product's executable and records each command it ran, checks `--json`
+//! output against the committed bundle, runs a command in its `attached`
+//! and `daemon` modes, with the shared table's locale cases, and `pty`, which runs it on a pseudo-terminal, with
 //! the colour property cases; and
 //! `goodfetch-scripted-engine`, which plays a script over its stdio, as a
 //! Daemon found through the runtime file, or on loopback TCP. It
@@ -86,7 +87,7 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
     Sighting, gitleaks_rule,
 };
-pub use cli::{Cli, CliError, CliOutput, Stream, cli, record_command};
+pub use cli::{Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command};
 pub use colour::{ColourError, ColourProperty};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{

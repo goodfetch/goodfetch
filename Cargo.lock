@@ -1123,11 +1123,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-cli"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "goodfetch-collie"
 version = "0.0.0"
 dependencies = [
  "clap",
  "dirs",
+ "goodfetch-cli",
  "goodfetch-collie",
  "goodfetch-engine",
  "goodfetch-page",
@@ -1180,6 +1195,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1199,6 +1215,7 @@ dependencies = [
  "hyper-util",
  "insta",
  "jiff",
+ "libc",
  "mimalloc",
  "proptest",
  "proptest-state-machine",
@@ -1235,6 +1252,7 @@ dependencies = [
  "gungraun",
  "insta",
  "mimalloc",
+ "rstest",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -1311,6 +1329,7 @@ dependencies = [
  "serde_json_canonicalizer",
  "sha1",
  "sha2",
+ "socket2",
  "time",
  "tokio",
  "tokio-rustls",

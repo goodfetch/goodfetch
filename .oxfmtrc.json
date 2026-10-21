@@ -9,6 +9,7 @@
     "**/fixtures/schemas/**",
     "**/fixtures/engine-scripts/script.schema.json",
     "proving-ground/fixtures/archive/**",
+    "crates/goodfetch-collie/src/block_detection/fixtures/**",
     "**/journeys/journey.schema.json",
     "**/compat/**",
     ".agents/**",

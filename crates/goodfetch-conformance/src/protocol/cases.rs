@@ -1,9 +1,15 @@
 //! The exchanges the protocol and page suites' case IDs name, each judged
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
-//! failures, its Error codes and its operations' types.
+//! failures, its Error codes and its operations' types. A crawl's delivery
+//! cases are `delivery`'s.
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
-use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL, HelloResult};
+mod delivery;
+
+use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
+use goodfetch_protocol::connection::{
+    CALL_CANCELLED, CANCEL, HELLO, HelloParams, HelloResult, PROTOCOL_VERSION_UNSUPPORTED,
+    ProductVersion, Surface,
+};
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo};
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -13,6 +19,7 @@ use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
 use super::connection::{Connection, Gone};
+use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
 use crate::proving_ground::TaskList;
 
 /// A method no Product carries, which every target must refuse.
@@ -27,6 +34,10 @@ pub(crate) enum Case {
     InvalidParams,
     CancelInFlight,
     CancelAnswered,
+    FabricatedHello,
+    AtLeastOnce,
+    ExactlyOnce,
+    LateCommit,
     PagesShareTheDefaultSession,
     GotoAnswersTheResponse,
 }
@@ -100,17 +111,24 @@ impl Case {
             "params-the-operation-does-not-take-are-invalid-params" => Self::InvalidParams,
             "a-call-in-flight-cancelled-ends-with-call-cancelled" => Self::CancelInFlight,
             "cancelling-an-answered-call-leaves-the-connection-answering" => Self::CancelAnswered,
+            "a-fabricated-hello-is-refused-before-any-other-message-and-the-connection-closes" => {
+                Self::FabricatedHello
+            }
+            "a-work-item-whose-lease-ends-unanswered-is-delivered-again" => Self::AtLeastOnce,
+            "a-work-item-answered-in-time-commits-once" => Self::ExactlyOnce,
+            "an-answer-after-the-lease-ended-is-a-late-commit-and-refused" => Self::LateCommit,
             "pages-open-in-the-runs-default-session" => Self::PagesShareTheDefaultSession,
             "goto-answers-the-documents-response" => Self::GotoAnswersTheResponse,
             _ => return None,
         })
     }
 
-    /// Runs the case on the open Connection, whose `hello` the engine
-    /// answered with `hello`, against `site`.
+    /// Runs the case on the open Connection to `target`, whose `hello` the
+    /// engine answered with `hello`, against `site`.
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         hello: &HelloResult,
         site: &Site,
         checks: &mut Checks,
@@ -141,6 +159,10 @@ impl Case {
             }
             Self::CancelInFlight => cancel_in_flight(connection, checks),
             Self::CancelAnswered => cancel_answered(connection, checks),
+            Self::FabricatedHello => fabricated_hello(connection, target, hello, checks),
+            Self::AtLeastOnce => delivery::at_least_once(connection, checks),
+            Self::ExactlyOnce => delivery::exactly_once(connection, checks),
+            Self::LateCommit => delivery::late_commit(connection, checks),
             Self::PagesShareTheDefaultSession => default_session(connection, site, checks),
             Self::GotoAnswersTheResponse => goto(connection, site, checks),
         }
@@ -250,6 +272,56 @@ fn cancel_answered(connection: &mut Connection, checks: &mut Checks) -> Result<(
     Ok(())
 }
 
+/// On a Connection of its own, a `hello` naming a protocol major the engine
+/// cannot speak, followed at once by another call, is refused with
+/// `protocol_version_unsupported` before any other message, and the engine
+/// then closes the Connection (ADR 0066).
+fn fabricated_hello(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    hello: &HelloResult,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut other = connection
+        .another(target)
+        .map_err(|error| Gone::Failed(error.to_string()))?;
+    let params = HelloParams {
+        protocol_version: ProtocolVersion {
+            major: PROTOCOL_VERSION.major + 1,
+            minor: 0,
+        },
+        surface: Surface::Rust,
+        token: other.token().map(ToOwned::to_owned),
+        needs: Some(hello.product),
+        product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+            .expect("invariant: the workspace's version is a Product version"),
+    };
+    let refused = (|| {
+        let id = other.request(
+            HELLO,
+            &serde_json::to_value(params).expect("invariant: `hello` serializes"),
+        )?;
+        other.request(ENGINE_INFO.name, &json!({}))?;
+        let first = other.next_within(START_DEADLINE)?;
+        checks.check(
+            "the first message answers the `hello`",
+            first.get("method").is_none() && first["id"] == json!(id),
+        );
+        checks.check(
+            format!("it refuses it with `{}`", PROTOCOL_VERSION_UNSUPPORTED.name),
+            first["error"]["data"]["code"] == json!(PROTOCOL_VERSION_UNSUPPORTED.name),
+        );
+        checks.check(
+            "nothing else is answered and the engine closes the Connection",
+            other.next_within(DEADLINE) == Err(Gone::Closed),
+        );
+        Ok(())
+    })();
+    connection.keep(other.take_exchanged());
+    other.close();
+    refused
+}
+
 /// Starts the Run `run_id`, its `network.resolve` mapping the site's hosts.
 fn start_run(
     connection: &mut Connection,
@@ -306,9 +378,9 @@ fn default_session(
     if let (Some(first), Some(second)) = (first, second) {
         checks.check(
             "the second page is in the first page's Session",
-            first.session == second.session,
+            first.session_id == second.session_id,
         );
-        checks.check("the two pages are two", first.page != second.page);
+        checks.check("the two pages are two", first.page_id != second.page_id);
     }
     finish_run(connection, run_id)
 }
@@ -325,7 +397,10 @@ fn goto(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result
     };
     start_run(connection, site, run_id, checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
-        let id = connection.request(PAGE_GOTO.name, &json!({ "page": page.page, "url": url }))?;
+        let id = connection.request(
+            PAGE_GOTO.name,
+            &json!({ "page_id": page.page_id, "url": url }),
+        )?;
         let answer = connection.browser_answer(id)?.message;
         let response = answer
             .get("result")

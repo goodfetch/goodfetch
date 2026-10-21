@@ -3,10 +3,13 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
-//! `config explain` and `daemon start|stop|restart|status`, with the hidden
-//! `daemon launched` a start runs; the CLI's other commands join with area
-//! 11. Every command but `daemon launched` first records the executable in
-//! the list of installed executables (ADR 0098).
+//! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token`,
+//! with the hidden `daemon launched` a start or the installed service
+//! runs, and `runs reindex`, beside the commands `goodfetch-cli` generates
+//! from the catalog for every other namespace, such as `run start` and
+//! `engine info`; the CLI's other commands join with area 11. Every
+//! command but `daemon launched` first records the executable in the list
+//! of installed executables (ADR 0098).
 //!
 //! `main` reads the environment once and passes the map (ADR 0059); every
 //! `GOODFETCH_` variable in it must be a deployment variable, or the
@@ -33,6 +36,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
+use goodfetch_cli::generated::{Call, Generated};
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
@@ -51,7 +55,8 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 mod browsers;
 mod config;
 mod daemon;
-mod output;
+mod runs;
+mod service;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -100,6 +105,25 @@ enum Command {
         #[command(subcommand)]
         command: DaemonCommand,
     },
+    /// Works on the runs of this executable's major, of both Products.
+    Runs {
+        #[command(subcommand)]
+        command: RunsCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum RunsCommand {
+    /// Rebuilds the Run index from the run folders: the configured
+    /// locations and the given paths. A run it does not find stays listed
+    /// as missing; a run discarded on purpose stays erased.
+    Reindex {
+        /// Run folders, or folders of run folders, to look in as well.
+        paths: Vec<std::path::PathBuf>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -134,7 +158,30 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Runs as the Daemon a start launched, from a versioned copy.
+    /// Registers the major's Daemon as a per-user service, which starts
+    /// the major's pick: a launch agent on macOS and a systemd user unit on
+    /// Linux, each started by the first connection to its socket, and a
+    /// logon task on Windows.
+    Install {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Removes the major's per-user service, stopping its Daemon.
+    Uninstall {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Replaces the persistent token of the service's Daemon, which stops
+    /// with every Connection that opened with the old one.
+    RotateToken {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Runs as the Daemon a start or the installed service launched, from a
+    /// versioned copy.
     #[command(hide = true)]
     Launched {
         /// The build of the versioned copy it runs from.
@@ -143,6 +190,15 @@ enum DaemonCommand {
         /// Never stops it after `daemon.idle_timeout` with no Client.
         #[arg(long)]
         keep_alive: bool,
+        /// Started by the major's service: starts the pick in its place
+        /// when it is not the pick, and takes the socket its service
+        /// manager hands over.
+        #[arg(long)]
+        service: bool,
+        /// A deployment variable the service passes, as `NAME=VALUE`;
+        /// repeatable.
+        #[arg(long = "environment", value_name = "NAME=VALUE")]
+        environment: Vec<String>,
     },
 }
 
@@ -229,29 +285,35 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
-    let command_line = command_line(start.product).version(start.version);
+    let (command_line, generated) = command_line(start.product);
+    let command_line = command_line.version(start.version);
     let binary = command_line.get_name().to_owned();
     let parsed = command_line
         .try_get_matches_from(&start.arguments)
-        .and_then(|matches| CommandLine::from_arg_matches(&matches));
-    let command_line = match parsed {
-        Ok(command_line) => command_line,
+        .and_then(|matches| match generated.call(&matches) {
+            Some(call) => Ok(Parsed::Generated(call)),
+            None => CommandLine::from_arg_matches(&matches)
+                .map(|command_line| Parsed::HandWritten(command_line.command)),
+        });
+    let parsed = match parsed {
+        Ok(parsed) => parsed,
         Err(error) => {
             let _ = error.print();
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2));
         }
     };
-    let home = home(&start.environment);
-    let filter = start.environment.get(OsStr::new(LOG_VARIABLE));
+    let environment = with_passed_variables(&start.environment, &parsed);
+    let home = home(&environment);
+    let filter = environment.get(OsStr::new(LOG_VARIABLE));
     // A Daemon a start launched has no terminal: it logs to its file
     // (ADR 0122).
     let launched = matches!(
-        command_line.command,
-        Command::Daemon {
+        parsed,
+        Parsed::HandWritten(Command::Daemon {
             command: DaemonCommand::Launched { .. }
-        }
+        })
     );
-    match log_file(&binary, &start.environment, home.as_ref(), launched) {
+    match log_file(&binary, &environment, home.as_ref(), launched) {
         Ok(file) => install_logs(filter, file),
         Err(problem) => {
             install_logs(filter, None);
@@ -259,7 +321,7 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    if let Err(error) = check_environment(&start.environment) {
+    if let Err(error) = check_environment(&environment) {
         tracing::error!(code = error.code(), "{error}");
         return ExitCode::FAILURE;
     }
@@ -307,46 +369,78 @@ pub fn main(start: &Start) -> ExitCode {
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
     };
-    run(
-        command_line.command,
-        &engine,
-        dependencies,
-        pinned_by,
-        start,
-    )
+    run(parsed, &engine, dependencies, pinned_by, &environment)
 }
 
-/// Runs `command` on `engine`, once the executable is set up.
+/// What the command line asks for: a hand-written command, or one
+/// generated from the catalog.
+enum Parsed {
+    HandWritten(Command),
+    Generated(Call),
+}
+
+/// `start`'s environment with the deployment variables a service passes
+/// to `daemon launched` as arguments, since a logon task sets none; only
+/// those a service passes are taken.
+fn with_passed_variables(
+    environment: &BTreeMap<OsString, OsString>,
+    parsed: &Parsed,
+) -> BTreeMap<OsString, OsString> {
+    let mut environment = environment.clone();
+    if let Parsed::HandWritten(Command::Daemon {
+        command: DaemonCommand::Launched {
+            environment: passed,
+            ..
+        },
+    }) = parsed
+    {
+        for pair in passed {
+            if let Some((name, value)) = pair.split_once('=')
+                && goodfetch_engine::daemon::service::PASSED_VARIABLES.contains(&name)
+            {
+                environment.insert(name.into(), value.into());
+            }
+        }
+    }
+    environment
+}
+
+/// Runs the command `parsed` asks for on `engine`, once the executable is
+/// set up.
 fn run(
-    command: Command,
+    parsed: Parsed,
     engine: &Engine,
     dependencies: Dependencies,
     pinned_by: PinnedBy,
-    start: &Start,
+    environment: &BTreeMap<OsString, OsString>,
 ) -> ExitCode {
     let home = dependencies.home.clone();
     let machine = daemon::Machine {
         identity: engine.identity(),
         home: &home,
-        environment: &start.environment,
+        environment,
         executable: std::env::current_exe().ok(),
     };
     if !matches!(
-        command,
-        Command::Daemon {
+        parsed,
+        Parsed::HandWritten(Command::Daemon {
             command: DaemonCommand::Launched { .. }
-        }
+        })
     ) {
         machine.record();
     }
+    let command = match parsed {
+        Parsed::Generated(call) => return call.run(engine, dependencies),
+        Parsed::HandWritten(command) => command,
+    };
     match command {
         Command::AttachedEngine => run_attached(engine, dependencies),
         Command::Browsers {
             command: BrowsersCommand::Install { json },
-        } => browsers::install(pinned_by, &start.environment, json),
+        } => browsers::install(pinned_by, environment, json),
         Command::Browsers {
             command: BrowsersCommand::Clean { dry_run, json },
-        } => browsers::clean(pinned_by, &start.environment, dry_run, json),
+        } => browsers::clean(pinned_by, environment, dry_run, json),
         Command::Config {
             command:
                 ConfigCommand::Explain {
@@ -364,10 +458,32 @@ fn run(
                 daemon::restart(&machine, keep_alive, json)
             }
             DaemonCommand::Status { json } => daemon::status(&machine, json),
-            DaemonCommand::Launched { copy, keep_alive } => {
-                daemon::launched(engine, dependencies, &machine, copy.as_deref(), keep_alive)
-            }
+            DaemonCommand::Install { json } => service::install(&machine, json),
+            DaemonCommand::Uninstall { json } => service::uninstall(&machine, json),
+            DaemonCommand::RotateToken { json } => service::rotate_token(&machine, json),
+            DaemonCommand::Launched {
+                copy,
+                keep_alive,
+                service,
+                environment: _,
+            } => daemon::launched(
+                engine,
+                dependencies,
+                &machine,
+                copy.as_deref(),
+                keep_alive,
+                service,
+            ),
         },
+        Command::Runs {
+            command: RunsCommand::Reindex { paths, json },
+        } => {
+            let Ok(folder) = std::env::current_dir() else {
+                tracing::error!("the working folder cannot be read");
+                return ExitCode::FAILURE;
+            };
+            runs::reindex(engine.identity(), &home, &folder, paths, json)
+        }
     }
 }
 
@@ -432,14 +548,15 @@ fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
 /// ```
 #[must_use]
 pub fn command(product: Product) -> clap::Command {
-    let mut command = command_line(product);
+    let (mut command, _) = command_line(product);
     command.build();
     command
 }
 
 /// The command line [`main`] parses, whose commands clap builds as it
-/// reaches them.
-fn command_line(product: Product) -> clap::Command {
+/// reaches them: the hand-written commands, and those generated from the
+/// catalog for every namespace no hand-written group takes.
+fn command_line(product: Product) -> (clap::Command, Generated) {
     let (binary, about) = match product {
         Product::Collie => (
             "goodfetch-collie",
@@ -450,10 +567,12 @@ fn command_line(product: Product) -> clap::Command {
             "Foxhound, Goodfetch's Product for crawling, which contains Collie.",
         ),
     };
-    CommandLine::command()
+    let hand_written = CommandLine::command()
         .name(binary)
         .bin_name(binary)
-        .about(about)
+        .about(about);
+    let generated = Generated::beside(&hand_written);
+    (generated.add_to(hand_written), generated)
 }
 
 fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {
@@ -538,3 +657,6 @@ fn install_logs(filter: Option<&OsString>, file: Option<File>) {
         .with(file)
         .init();
 }
+
+#[cfg(test)]
+mod tests;

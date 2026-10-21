@@ -13,8 +13,10 @@
 //! decisions put in the bundle
 //! joins here once its types exist, through the same `xtask codegen`: the
 //! exit-code table (ADR 0069) and the Feature inventory schemas (ADR 0072).
-//! The bundle's `outputs` maps each command's path, such as `daemon.start`,
-//! to the type of its `--json` output (ADR 0069). The
+//! The bundle's `outputs` maps each hand-written command's path, such as
+//! `daemon.start`, to the type of its `--json` output (ADR 0069); a command
+//! generated from an operation prints the operation's `result`, and every
+//! command that fails prints the bundle's `command_failed`. The
 //! format registry is the bundle's `formats`, which `xtask compat` reads: an
 //! array of `{name, version, storage, rule, schema}`, where `storage` is
 //! `json`, `sqlite` or `transcript`. The bundle's `connection` holds the
@@ -29,14 +31,19 @@ use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
+use crate::block::BlockCause;
 use crate::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
 use crate::case_log::CaseLogEntry;
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
     Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
+use crate::cli::CommandFailed;
 use crate::connection::{CancelParams, HelloParams, HelloResult};
-use crate::daemon::{DaemonStartOutput, DaemonStatusOutput, DaemonStopOutput};
+use crate::daemon::{
+    DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput, DaemonStatusOutput,
+    DaemonStopOutput, DaemonUninstallOutput,
+};
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
@@ -44,6 +51,7 @@ use crate::journey::{Journey, JourneyCatalog};
 use crate::page::Chunk;
 use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
+use crate::run::RunsReindexOutput;
 use crate::settings::SettingsExplanation;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
@@ -93,11 +101,17 @@ pub fn emit() -> Emitted {
         "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
         "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
         "config.explain": generator.subschema_for::<SettingsExplanation>(),
+        "daemon.install": generator.subschema_for::<DaemonInstallOutput>(),
         "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),
+        "daemon.rotate-token": generator.subschema_for::<DaemonRotateTokenOutput>(),
         "daemon.start": generator.subschema_for::<DaemonStartOutput>(),
         "daemon.status": generator.subschema_for::<DaemonStatusOutput>(),
         "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
+        "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
+        "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
     });
+    let command_failed = generator.subschema_for::<CommandFailed>();
+    let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
@@ -114,6 +128,8 @@ pub fn emit() -> Emitted {
             "formats": formats,
             "connection": connection,
             "outputs": outputs,
+            "command_failed": command_failed,
+            "shared_types": shared_types,
             "documents": {
                 "result_document": result_document,
                 "case_log_entry": case_log_entry,
@@ -236,6 +252,7 @@ fn operation_entry(
         "product": product.as_str(),
         "description": operation.description,
         "class": operation.class.as_str(),
+        "kind": operation.kind.as_str(),
         "params": (operation.params)(generator),
         "result": (operation.result)(generator),
         "events": operation.events.iter().map(|event| event.name).collect::<Vec<_>>(),

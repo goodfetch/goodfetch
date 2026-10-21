@@ -36,7 +36,7 @@ pub enum Surface {
     SdkPython,
     /// A Rust program, through a Product's crate.
     Rust,
-    /// The CLI, as a Client of a Daemon.
+    /// The CLI, as a Client of its own Attached engine or of a Daemon.
     Cli,
     /// The MCP server, as a Client of a Daemon.
     Mcp,

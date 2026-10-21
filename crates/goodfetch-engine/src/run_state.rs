@@ -110,6 +110,7 @@ type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> Completion + 
 pub struct RunState {
     mailbox: mpsc::Sender<QueuedWrite>,
     path: PathBuf,
+    epoch: u64,
 }
 
 impl RunState {
@@ -146,12 +147,21 @@ impl RunState {
                 commit_group(&mut connection, &actor_path, epoch, group);
             })
             .map_err(|error| sqlite_error(&path, &error))?;
-        Ok(Self { mailbox, path })
+        Ok(Self {
+            mailbox,
+            path,
+            epoch,
+        })
     }
 
     /// The run file's path.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The run epoch it writes under, which each of its commits checks.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Runs `work` in the writer's next commit, grouped with every write
@@ -208,6 +218,31 @@ impl RunState {
     {
         self.write(work).await
     }
+}
+
+/// Takes the next run epoch of the run file at `path` (ADR 0003): one
+/// higher than the one it holds, written and synced before the new writer
+/// opens it with [`RunState::open`], so a writer of an earlier epoch commits
+/// nothing more. Only the holder of the Run's writer lock calls it. It
+/// blocks: run it under a blocking policy.
+///
+/// # Errors
+///
+/// As [`RunState::open`], and `Sqlite` when the file holds no Run.
+pub(crate) fn next_epoch(
+    path: &Path,
+    options: &RunStateOptions,
+    tables: &[RunStateTables],
+) -> Result<u64, RunStateError> {
+    let connection = open_file(path, options.vfs.as_deref(), tables)?;
+    let epoch: i64 = connection
+        .query_row(
+            "UPDATE run SET epoch = epoch + 1 RETURNING epoch",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| sqlite_error(path, &error))?;
+    Ok(u64::try_from(epoch).unwrap_or_default())
 }
 
 fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {

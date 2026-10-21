@@ -111,9 +111,11 @@ pub enum StartError {
 /// One line the target wrote, or why its stream ended in a failure.
 type Line = io::Result<String>;
 
-/// A started target and the one Connection the harness holds to it.
+/// A started target and one Connection the harness holds to it: the
+/// process it started, or, for a further Connection to a Daemon it
+/// started, none.
 pub(crate) struct Started {
-    child: Child,
+    child: Option<Child>,
     link: Link,
     /// The lines of the Connection.
     lines: Receiver<Line>,
@@ -122,6 +124,8 @@ pub(crate) struct Started {
     exited: Option<Receiver<Line>>,
     /// The token the Daemon's runtime file names.
     pub(crate) token: Option<String>,
+    /// The Daemon's endpoint, which a further Connection reaches.
+    endpoint: Option<DaemonEndpoint>,
 }
 
 /// Where the harness writes.
@@ -170,11 +174,12 @@ impl Started {
             EngineMode::Attached => {
                 let stdin = child.stdin.take();
                 Ok(Self {
-                    child,
+                    child: Some(child),
                     link: Link::Stdin(stdin),
                     lines: read_lines(stdout),
                     exited: None,
                     token: None,
+                    endpoint: None,
                 })
             }
             EngineMode::Daemon => Self::connect_daemon(child, stdout),
@@ -185,11 +190,12 @@ impl Started {
     /// its endpoint.
     fn connect_daemon(child: Child, stdout: ChildStdout) -> Result<Self, StartError> {
         let mut started = Self {
-            child,
+            child: Some(child),
             link: Link::Stdin(None),
             lines: mpsc::channel().1,
             exited: Some(read_lines(stdout)),
             token: None,
+            endpoint: None,
         };
         let ready = started
             .exited
@@ -216,32 +222,30 @@ impl Started {
                 });
             }
         };
-        let connect_error = |source| StartError::Connect {
-            endpoint: runtime.endpoint.to_string(),
-            source,
-        };
-        let (link, reader): (Link, Box<dyn Read + Send>) = match &runtime.endpoint {
-            DaemonEndpoint::Tcp(address) => {
-                let stream =
-                    TcpStream::connect_timeout(address, DEADLINE).map_err(connect_error)?;
-                let reader = stream.try_clone().map_err(connect_error)?;
-                (Link::Tcp(stream), Box::new(reader))
-            }
-            #[cfg(unix)]
-            DaemonEndpoint::Unix(path) => {
-                let stream = UnixStream::connect(path).map_err(connect_error)?;
-                let reader = stream.try_clone().map_err(connect_error)?;
-                (Link::Unix(stream), Box::new(reader))
-            }
-            #[cfg(not(unix))]
-            DaemonEndpoint::Unix(_) => {
-                return Err(connect_error(io::Error::from(io::ErrorKind::Unsupported)));
-            }
-        };
+        let (link, reader) = connect(&runtime.endpoint)?;
         started.link = link;
         started.lines = read_lines(reader);
         started.token = Some(runtime.token);
+        started.endpoint = Some(runtime.endpoint);
         Ok(started)
+    }
+
+    /// Opens a further Connection to the same target, before any `hello`:
+    /// a process of its own for an Attached engine, and the same Daemon's
+    /// endpoint for a Daemon.
+    pub(crate) fn another(&self, target: &EngineTarget) -> Result<Self, StartError> {
+        let Some(endpoint) = &self.endpoint else {
+            return Self::start(target);
+        };
+        let (link, reader) = connect(endpoint)?;
+        Ok(Self {
+            child: None,
+            link,
+            lines: read_lines(reader),
+            exited: None,
+            token: self.token.clone(),
+            endpoint: None,
+        })
     }
 
     /// Writes one line.
@@ -276,6 +280,9 @@ impl Started {
     /// when it has not by the deadline.
     pub(crate) fn close(mut self) {
         self.close_link();
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
         let ends = self.exited.as_ref().unwrap_or(&self.lines);
         let exited = loop {
             match ends.recv_timeout(DEADLINE) {
@@ -286,9 +293,9 @@ impl Started {
         };
         if !exited {
             // A target that outlives the deadline is stopped, never left.
-            let _ = self.child.kill();
+            let _ = child.kill();
         }
-        let _ = self.child.wait();
+        let _ = child.wait();
     }
 
     fn close_link(&mut self) {
@@ -305,11 +312,36 @@ impl Started {
 impl Drop for Started {
     /// A target the harness gives up on early is stopped, never left.
     fn drop(&mut self) {
-        if matches!(self.child.try_wait(), Ok(None)) {
-            self.close_link();
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+        self.close_link();
+        if let Some(child) = &mut self.child
+            && matches!(child.try_wait(), Ok(None))
+        {
+            let _ = child.kill();
+            let _ = child.wait();
         }
+    }
+}
+
+/// Connects to a Daemon's endpoint.
+fn connect(endpoint: &DaemonEndpoint) -> Result<(Link, Box<dyn Read + Send>), StartError> {
+    let connect_error = |source| StartError::Connect {
+        endpoint: endpoint.to_string(),
+        source,
+    };
+    match endpoint {
+        DaemonEndpoint::Tcp(address) => {
+            let stream = TcpStream::connect_timeout(address, DEADLINE).map_err(connect_error)?;
+            let reader = stream.try_clone().map_err(connect_error)?;
+            Ok((Link::Tcp(stream), Box::new(reader)))
+        }
+        #[cfg(unix)]
+        DaemonEndpoint::Unix(path) => {
+            let stream = UnixStream::connect(path).map_err(connect_error)?;
+            let reader = stream.try_clone().map_err(connect_error)?;
+            Ok((Link::Unix(stream), Box::new(reader)))
+        }
+        #[cfg(not(unix))]
+        DaemonEndpoint::Unix(_) => Err(connect_error(io::Error::from(io::ErrorKind::Unsupported))),
     }
 }
 

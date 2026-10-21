@@ -5,6 +5,9 @@
 #                    deny and its first test step: starts the services, then
 #                    checks them (`xtask os-services check`). A service that
 #                    does not come up fails the job; no test is skipped.
+#                    `--without-service-manager` leaves the user's service
+#                    manager out, for a caller whose tests do not include
+#                    `service_manager::` (`just linux`, ci/linux.sh).
 #   skipped <file>   for `just test`: in CI (`CI` set) the same check, failing
 #                    on a missing service; on a local host, appends each
 #                    missing service to <file> and prints the test-name
@@ -27,6 +30,12 @@
 #     own system, `tc` gets it as a file capability, so the tests, run as the
 #     runner's user, shape only their own network namespace's loopback.
 #   - Windows and Linux: 127.0.0.0/8 answers already; the check confirms it.
+#   - Linux also: systemd's user manager, which `daemon install`'s tests
+#     register services with for real in the Pre-merge suite (spec #213). A
+#     host booted with systemd keeps the user's manager running through
+#     lingering; a container that does not boot systemd has none, and the
+#     check fails. On macOS and Windows those tests run in the Release suite
+#     only, so a local `just test` of another suite skips them.
 #
 # It keeps to bash 3.2, which stock macOS runs on the owner's machine.
 set -euo pipefail
@@ -42,7 +51,7 @@ for ((i = 2; i <= EXTRA_LOOPBACK_COUNT + 1; i++)); do addresses+=("127.0.0.$i");
 RUNTIME=${RUNNER_TEMP:-/tmp}/goodfetch-os-services
 
 services=(--loopback "${addresses[@]}")
-[[ "$(uname -s)" == Linux ]] && services+=(--secret-service --netem)
+[[ "$(uname -s)" == Linux ]] && services+=(--secret-service --netem --service-manager)
 
 xtask_check() {
   (cd "$root" && cargo run --quiet --locked -p xtask -- os-services check "${services[@]}" "$@")
@@ -92,6 +101,12 @@ setup_linux() {
   } >"$RUNTIME/env"
   if [[ -n "${GITHUB_ENV:-}" ]]; then cat "$RUNTIME/env" >>"$GITHUB_ENV"; fi
   echo "Started a D-Bus session and gnome-keyring's Secret Service, unlocked."
+
+  # The user's systemd manager, kept running by lingering, when systemd
+  # booted this host; `systemctl --user` reaches it through its own bus.
+  if [[ -d /run/systemd/system ]] && command -v loginctl >/dev/null; then
+    as_root loginctl enable-linger "$(id -un)" || true
+  fi
 }
 
 setup_macos() {
@@ -108,6 +123,16 @@ setup_macos() {
 
 case "${1:-}" in
   setup)
+    if [[ "${2:-}" == --without-service-manager ]]; then
+      kept=()
+      for service in "${services[@]}"; do
+        [[ "$service" == --service-manager ]] || kept+=("$service")
+      done
+      services=("${kept[@]}")
+    elif [[ -n "${2:-}" ]]; then
+      echo "usage: ci/os-services.sh setup [--without-service-manager]" >&2
+      exit 2
+    fi
     case "$(uname -s)" in
       Linux) setup_linux ;;
       Darwin) setup_macos ;;
@@ -121,6 +146,9 @@ case "${1:-}" in
       xtask_check >&2
     else
       mkdir -p "$(dirname "$file")"
+      if [[ "$(uname -s)" != Linux ]]; then
+        services+=(--service-manager --suite "${GOODFETCH_TEST_SUITE:-quick}")
+      fi
       xtask_check --skipped "$file"
     fi
     ;;
@@ -128,7 +156,7 @@ case "${1:-}" in
     printf '%s\n' "${addresses[@]}"
     ;;
   *)
-    echo "usage: ci/os-services.sh setup|skipped <file>|addresses" >&2
+    echo "usage: ci/os-services.sh setup [--without-service-manager]|skipped <file>|addresses" >&2
     exit 2
     ;;
 esac

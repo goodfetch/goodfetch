@@ -562,7 +562,7 @@ export interface GotoParams {
   /**
    * The page.
    */
-  page: string;
+  page_id: string;
   /**
    * The URL.
    */
@@ -709,11 +709,11 @@ export interface PageOpened {
   /**
    * The page.
    */
-  page: string;
+  page_id: string;
   /**
    * Its Session: the Run's default Session.
    */
-  session: string;
+  session_id: string;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream
@@ -752,6 +752,24 @@ export interface RunAxes {
    * Whether its own checks prove what it committed, once it ended.
    */
   verdict?: Verdict | null;
+}
+/**
+ * What `run.abort` takes: the Run, and whether the abort was forwarded.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunAbortParams".
+ */
+export interface RunAbortParams {
+  /**
+   * Set by an engine that forwards the abort to the owner the Run index
+   * names (ADR 0031): an engine that does not own the Run then answers
+   * `run_not_owned` instead of taking its writer role.
+   */
+  forwarded?: boolean;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
 }
 /**
  * What `run.finish` and `run.abort` take: the Run.

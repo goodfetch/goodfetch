@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
-    ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    OperationKind, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 use crate::run::{RUN_ID_PATTERN, RunId, RunStarted, Tags};
 use crate::settings::ProjectSettings;
@@ -165,6 +165,7 @@ pub const CRAWL_START: Operation = Operation {
     name: "crawl.start",
     description: "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
     class: OperationClass::IdempotentWrite,
+    kind: OperationKind::Opener,
     params: schema_of::<CrawlStartParams>,
     result: schema_of::<RunStarted>,
     events: &[],
@@ -177,7 +178,7 @@ pub const CRAWL_START: Operation = Operation {
 /// `crawl_request.handle`.
 pub const CRAWL_REQUEST_HANDLE: HandlerRequest = HandlerRequest {
     name: "crawl_request.handle",
-    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy.",
+    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
     params: schema_of::<CrawlRequestHandleParams>,
     result: schema_of::<CrawlRequestHandled>,
     stability: Stability::Experimental,
@@ -199,6 +200,16 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 pub const HANDLER_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "handler_lost",
     description: "The attempt's lease ended with no answer from the program's handler: its process ended, its Connection dropped, or it hung. The attempt committed nothing and counts against `crawl.retry.max`.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A commit refused because its attempt's lease ended (ADR 0003).
+pub const LEASE_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "lease_lost",
+    description: "The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.",
     group: ErrorGroup::Unavailable,
     retryable: true,
     exit_code: None,
@@ -275,7 +286,7 @@ pub const ENTRIES: Entries = Entries {
     operations: &[CRAWL_START],
     events: &[],
     handler_requests: &[CRAWL_REQUEST_HANDLE],
-    error_codes: &[HANDLER_FAILED, HANDLER_LOST],
+    error_codes: &[HANDLER_FAILED, HANDLER_LOST, LEASE_LOST],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

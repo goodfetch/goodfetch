@@ -355,7 +355,7 @@ class Surface(StrEnum):
     rust = "rust"
     """A Rust program, through a Product's crate."""
     cli = "cli"
-    """The CLI, as a Client of a Daemon."""
+    """The CLI, as a Client of its own Attached engine or of a Daemon."""
     mcp = "mcp"
     """The MCP server, as a Client of a Daemon."""
     console = "console"
@@ -612,7 +612,7 @@ class GotoParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    page: PageId
+    page_id: PageId
     """The page."""
     url: str
     """The URL."""
@@ -698,10 +698,26 @@ class PageOpened(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    page: PageId
+    page_id: PageId
     """The page."""
-    session: SessionId
+    session_id: SessionId
     """Its Session: the Run's default Session."""
+
+
+class RunAbortParams(BaseModel):
+    """What `run.abort` takes: the Run, and whether the abort was forwarded."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    forwarded: bool | None = None
+    """
+    Set by an engine that forwards the abort to the owner the Run index
+    names (ADR 0031): an engine that does not own the Run then answers
+    `run_not_owned` instead of taking its writer role.
+    """
+    run_id: RunId
+    """The Run's ID."""
 
 
 class RunAxes(BaseModel):

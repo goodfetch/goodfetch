@@ -2,7 +2,7 @@
 [modules]
 browsers = ["env", "variables"]
 canaries = ["proving_ground"]
-cli = ["env", "exercise", "locales", "snapshot"]
+cli = ["daemon", "env", "exercise", "locales", "snapshot"]
 colour = ["env", "pty"]
 crash_dumps = []
 crash_vfs = []

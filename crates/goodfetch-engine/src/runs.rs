@@ -9,6 +9,14 @@
 //! Run index row, then is published as `run.axes_changed`, a lossless event
 //! that a full subscriber's queue makes wait (ADR 0024).
 //!
+//! An abort of a Run no engine runs takes its writer role (ADR 0031): the
+//! writer lock, then the next run epoch, then the end. When the lock is
+//! held, the abort goes to the owner the Run index names, and when that
+//! owner does not take it, the lock is retried with backoff, since a
+//! reader's test may hold it for a moment (the `writer` module), before the
+//! abort fails as busy. `runs reindex` rebuilds the Run index from the run
+//! folders ([`reindex`]).
+//!
 //! A Run's driver, such as Foxhound's crawl, holds a [`Run`]: its run
 //! state's writer, its clock, its cancellation, its tasks and its page
 //! bodies. On a Daemon, each Run belongs to the Connection that started it,
@@ -20,14 +28,16 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
+use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, PointInTime, RunAxes, RunId, RunIndexRow, RunKind, RunReport,
-    RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
+    Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow, RunKind,
+    RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
 use rusqlite::Connection;
@@ -35,10 +45,15 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+pub use self::reindex::{Reindexed, reindex};
+pub use self::writer::{Writer, test_writer};
+
 use self::folder::{
-    Found, LockError, RunRow, canonical_inputs, input_differences, point_in_time, read_found,
-    read_report, take_lock, text,
+    Found, RunRow, canonical_inputs, input_differences, point_in_time, read_found, read_report,
+    text, write_end,
 };
+use self::takeover::TakeOver;
+use self::writer::{LockError, take_lock};
 use crate::body;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
@@ -51,9 +66,6 @@ use crate::tasks::TaskOwner;
 
 /// A Run's state, in its folder.
 const RUN_FILE: &str = "run.sqlite";
-
-/// The writer's lock file, beside the Run's state (ADR 0031).
-const LOCK_FILE: &str = "run.lock";
 
 /// Who a Connection acts for: the OS user on a single-user install (ADR
 /// 0102), the only caller until accounts arrive (area 12).
@@ -82,6 +94,28 @@ pub(crate) struct RunsSetup {
     pub(crate) events: Events,
     /// The engine's settings, which each Run resolves its own under.
     pub(crate) settings: Settings,
+    /// The engine's Product, which a Run must not need more than for the
+    /// engine to take its writer role (ADR 0098).
+    pub(crate) product: Product,
+    /// Where other engines reach this one, which the Run index names as
+    /// the owner of its live Runs: a Daemon's endpoint, none on an Attached
+    /// engine.
+    pub(crate) endpoint: Option<DaemonEndpoint>,
+    /// How a live action reaches the owner the Run index names.
+    pub(crate) forwarder: Arc<dyn Forwarder>,
+}
+
+/// How a live action reaches the engine that owns a Run (ADR 0031).
+pub(crate) trait Forwarder: Send + Sync {
+    /// Asks the engine at `owner` to abort `run_id` as its owner, its
+    /// blocking work under `tasks`, and answers the Run report it answered;
+    /// `None` when it did not answer, answered `run_not_owned`, or failed.
+    fn abort<'a>(
+        &'a self,
+        owner: &'a DaemonEndpoint,
+        run_id: &'a RunId,
+        tasks: &'a TaskOwner,
+    ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>>;
 }
 
 /// Writes a new Run's first rows, beside the engine's own, in the
@@ -175,9 +209,48 @@ pub enum RunError {
     /// No Run has this Run ID.
     #[error("no Run has the Run ID `{0}`")]
     NotFound(RunId),
+    /// Another engine held the Run's writer lock through every retry, and
+    /// the owner the Run index names did not take the action.
+    #[error("another engine holds the writer lock of `{run_id}`")]
+    Busy {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+    },
+    /// The action came forwarded to this engine as the Run's owner, and
+    /// this engine does not own it.
+    #[error("this engine does not own the Run `{0}`")]
+    NotOwned(RunId),
+    /// The Run needs a Product this engine is not, so it does not take its
+    /// writer role (ADR 0098).
+    #[error("the Run `{run_id}` needs {needs:?}")]
+    NotInProduct {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Product it needs.
+        needs: Product,
+    },
+    /// The Run's state cannot be read or written.
+    #[error("the state of `{run_id}` is unavailable: {error}")]
+    Unavailable {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+        /// What failed.
+        error: String,
+    },
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
+}
+
+/// What an abort waits for: a Run this engine ends, or one whose writer
+/// role it takes.
+enum Waiting {
+    Report(watch::Receiver<Option<RunReport>>),
+    TakeOver(oneshot::Receiver<Result<RunReport, RunError>>),
 }
 
 /// How a Run's driver ends it.
@@ -213,7 +286,8 @@ enum Command {
     Abort(
         RunId,
         StoppedBy,
-        oneshot::Sender<Result<watch::Receiver<Option<RunReport>>, RunError>>,
+        Forwarded,
+        oneshot::Sender<Result<Waiting, RunError>>,
     ),
     End(RunId, End),
     Uses(RunId, Product),
@@ -226,6 +300,16 @@ enum Command {
     LiveCount(oneshot::Sender<usize>),
     Folder(RunId, oneshot::Sender<PathBuf>),
     Live(RunId, oneshot::Sender<Result<Run, RunError>>),
+}
+
+/// Whether an abort came forwarded from another engine, which counts on
+/// this one to own the Run (ADR 0031).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Forwarded {
+    /// A Client asked this engine.
+    No,
+    /// Another engine forwarded it to this one as the Run's owner.
+    Yes,
 }
 
 /// The Connection of a Daemon a Run belongs to (ADR 0078): its end stops
@@ -463,23 +547,37 @@ impl Runs {
 
     /// Stops the Run `run_id` at its next safe point, `stopped` and
     /// `incomplete`, and answers its Run report; an ended Run's report is
-    /// answered as it is.
+    /// answered as it is. A Run whose engine died is stopped by this one,
+    /// which takes its writer role; a Run another engine writes is stopped
+    /// by that engine, the owner the Run index names. A `forwarded` abort
+    /// stops only a Run this engine owns.
     ///
     /// # Errors
     ///
-    /// `NotFound` when no Run has this Run ID.
+    /// `NotFound` when no Run has this Run ID, `Busy` when another engine
+    /// keeps its writer lock and its owner did not stop it, `NotOwned` for a
+    /// forwarded abort of a Run this engine does not own, `NotInProduct`
+    /// when the Run needs a Product this engine is not, `Unavailable` when
+    /// its state cannot be read or written.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after the abort was sent still stops the Run.
-    pub async fn abort(&self, run_id: RunId, by: StoppedBy) -> Result<RunReport, RunError> {
+    pub async fn abort(
+        &self,
+        run_id: RunId,
+        by: StoppedBy,
+        forwarded: Forwarded,
+    ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Abort(run_id, by, answer))
+            .send(Command::Abort(run_id, by, forwarded, answer))
             .await
             .map_err(|_| RunError::Stopped)?;
-        let report = answered.await.map_err(|_| RunError::Stopped)??;
-        wait_for(report).await
+        match answered.await.map_err(|_| RunError::Stopped)?? {
+            Waiting::Report(report) => wait_for(report).await,
+            Waiting::TakeOver(taken) => taken.await.map_err(|_| RunError::Stopped)?,
+        }
     }
 
     /// The folder of the Run `run_id`, whether or not it exists.
@@ -566,6 +664,16 @@ impl Runs {
     }
 }
 
+/// A Run's folder as the Run index records it: relative to the per-major
+/// folder `per_major` when inside it, absolute otherwise.
+fn location(per_major: &Path, folder: &Path) -> String {
+    folder
+        .strip_prefix(per_major)
+        .unwrap_or(folder)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 async fn wait_for(mut report: watch::Receiver<Option<RunReport>>) -> Result<RunReport, RunError> {
     let ended = report
         .wait_for(Option::is_some)
@@ -614,11 +722,8 @@ impl Registry {
                 Command::Finish(run_id, answer) => {
                     let _ = answer.send(self.finish(&run_id).await);
                 }
-                Command::Abort(run_id, by, answer) => {
-                    let report = self
-                        .end_or_report(&run_id, End::Stopped(StopReason::Abort { by }))
-                        .await;
-                    let _ = answer.send(report);
+                Command::Abort(run_id, by, forwarded, answer) => {
+                    let _ = answer.send(self.abort(&run_id, by, forwarded).await);
                 }
                 Command::End(run_id, end) => {
                     let _ = self.end_or_report(&run_id, end).await;
@@ -697,12 +802,7 @@ impl Registry {
     /// The Run's folder as the Run index records it: relative to the
     /// per-major folder when inside it.
     fn location(&self, folder: &Path) -> String {
-        let per_major = self.setup.home.per_major(&self.setup.version);
-        folder
-            .strip_prefix(&per_major)
-            .unwrap_or(folder)
-            .to_string_lossy()
-            .replace('\\', "/")
+        location(&self.setup.home.per_major(&self.setup.version), folder)
     }
 
     fn now(&self) -> PointInTime {
@@ -930,6 +1030,11 @@ impl Registry {
             completeness: report.map(|report| report.completeness),
             started_at: live.started_at.clone(),
             ended_at: report.map(|report| report.ended_at.clone()),
+            owner: match report {
+                Some(_) => None,
+                None => self.setup.endpoint.clone(),
+            },
+            presence: Presence::Present,
         }
     }
 
@@ -997,6 +1102,7 @@ impl Registry {
                     verdict: Some(report.verdict),
                     completeness: Some(report.completeness),
                     ended_at: Some(report.ended_at.clone()),
+                    owner: None,
                     ..row
                 };
                 if let Err(error) = run_index::write(&index, &ended) {
@@ -1037,6 +1143,48 @@ impl Registry {
             Ok(Some(report)) => Ok(watch::Sender::new(Some(report)).subscribe()),
             Ok(None) | Err(_) => Err(RunError::NotFound(run_id.clone())),
         }
+    }
+
+    /// Stops a live Run of this engine's, answers the report of one it
+    /// ended, or, unless the abort came forwarded, takes the writer role of
+    /// one no engine of its own runs, in a task of its own, since a held
+    /// lock is retried for about a second.
+    async fn abort(
+        &mut self,
+        run_id: &RunId,
+        by: StoppedBy,
+        forwarded: Forwarded,
+    ) -> Result<Waiting, RunError> {
+        if self.live.contains_key(run_id) || self.ended.contains_key(run_id) {
+            return self
+                .end_or_report(run_id, End::Stopped(StopReason::Abort { by }))
+                .await
+                .map(Waiting::Report);
+        }
+        if forwarded == Forwarded::Yes {
+            return Err(RunError::NotOwned(run_id.clone()));
+        }
+        let folder = self.folder(run_id);
+        let take_over = TakeOver {
+            run_id: run_id.clone(),
+            location: self.location(&folder),
+            folder,
+            by,
+            product: self.setup.product,
+            run_state: self.setup.run_state.clone(),
+            tables: self.setup.tables.clone(),
+            clock: self.setup.clock,
+            entropy: self.setup.entropy.fork(),
+            index: self.setup.home.run_index(&self.setup.version),
+            events: self.setup.events.clone(),
+            forwarder: Arc::clone(&self.setup.forwarder),
+            owner: Arc::new(self.ending_owner.child()),
+        };
+        let (answer, answered) = oneshot::channel();
+        self.ending_owner.spawn(async move {
+            let _ = answer.send(take_over.abort().await);
+        });
+        Ok(Waiting::TakeOver(answered))
     }
 
     async fn uses(&mut self, run_id: &RunId, product: Product) {
@@ -1114,22 +1262,7 @@ impl Closing {
         let state = run.state.clone();
         drop(run);
         if let Err(error) = state
-            .write(move |connection| {
-                connection
-                    .execute(
-                        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5",
-                        (
-                            written.lifecycle.as_str(),
-                            written
-                                .stop_reason
-                                .map(|reason| serde_json::to_string(&reason).expect("invariant: a stop reason encodes")),
-                            written.verdict.as_str(),
-                            written.completeness.as_str(),
-                            written.ended_at.as_str(),
-                        ),
-                    )
-                    .map(drop)
-            })
+            .write(move |connection| write_end(connection, &written))
             .await
         {
             tracing::warn!(%error, "the Run's end was not written to its run state");
@@ -1143,3 +1276,6 @@ impl Closing {
 
 mod folder;
 pub mod outcome;
+mod reindex;
+mod takeover;
+mod writer;

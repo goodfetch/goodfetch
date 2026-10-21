@@ -323,3 +323,35 @@ fn recording_the_same_executable_again_updates_its_one_entry() {
         [again, executable(Product::Foxhound, "1.5.0")]
     );
 }
+
+/// `daemon uninstall` forgets the copy its service ran, and only that
+/// entry, keeping what a newer engine wrote beside it.
+///
+/// Covers: story:3-21, story:3-139
+#[test]
+fn forgetting_an_executable_removes_its_one_entry_and_keeps_the_rest() {
+    let env = TestEnv::new();
+    let list = InstalledList::of(&Home::new(env.home().to_owned()));
+    let kept = executable(Product::Collie, "1.4.0");
+    let forgotten = executable(Product::Foxhound, "1.4.0");
+    list.record(&kept).unwrap();
+    list.record(&forgotten).unwrap();
+    let mut document: Value = serde_json::from_slice(&std::fs::read(list.path()).unwrap()).unwrap();
+    document["executables"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "a_kind_of_a_newer_engine" }));
+    std::fs::write(list.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+
+    list.forget(&forgotten).unwrap();
+    list.forget(&forgotten).unwrap();
+
+    let document: Value = serde_json::from_slice(&std::fs::read(list.path()).unwrap()).unwrap();
+    assert_eq!(
+        (
+            list.read().unwrap(),
+            document["executables"].as_array().unwrap().len()
+        ),
+        (vec![kept], 2)
+    );
+}

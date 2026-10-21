@@ -107,8 +107,8 @@ impl Pages {
             },
         );
         Ok(PageOpened {
-            page,
-            session: run_pages.session.clone(),
+            page_id: page,
+            session_id: run_pages.session.clone(),
         })
     }
 
@@ -154,13 +154,16 @@ impl Pages {
             .lock()
             .await
             .pages
-            .get(&params.page)
+            .get(&params.page_id)
             .cloned()
             .ok_or_else(|| {
                 CallError::new(
                     &CLOSED,
-                    format!("the page `{}` is closed, or its Run ended", params.page.0),
-                    &json!({ "page": params.page }),
+                    format!(
+                        "the page `{}` is closed, or its Run ended",
+                        params.page_id.0
+                    ),
+                    &json!({ "page_id": params.page_id }),
                 )
             })?;
         let response = page.driver.goto(&params.url).await?;

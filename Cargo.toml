@@ -43,6 +43,9 @@ expectrl = { version = "0.9.0", default-features = false }
 getrandom = { version = "0.3.4", default-features = false }
 # The pinned Chromium's CDP bindings and the client's connection (spec #577).
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
+# Both executables' command line, which Foxhound's reaches without Collie's
+# executable crate (ADR 0090).
+goodfetch-cli = { path = "crates/goodfetch-cli" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }
@@ -141,6 +144,9 @@ serde_json = { version = "1.0.154", default-features = false, features = ["std"]
 serde_json_canonicalizer = { version = "0.3.2", default-features = false }
 sha1 = { version = "0.10.6", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
+# The Proving ground's stop test shrinks the buffers of the socket `serve`
+# writes its first line to, so the line's end waits until the test reads it.
+socket2 = { version = "0.6.5", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
 tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }

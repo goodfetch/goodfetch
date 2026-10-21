@@ -9,11 +9,14 @@
 
 use std::sync::Arc;
 
+use goodfetch_protocol::daemon::DaemonEndpoint;
+
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
+use crate::forward::ToDaemon;
 use crate::home::{Home, RunStateLocation};
 use crate::product::Identity;
 use crate::rpc::{self, Dispatch};
@@ -113,7 +116,7 @@ impl Engine {
     ) -> DaemonEnd {
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
-        let (runs, events) = self.start_runs(dependencies, &owner);
+        let (runs, events) = self.start_runs(dependencies, &owner, Some(options.endpoint.clone()));
         let ended = daemon::serve(
             daemon::Serving {
                 dispatch: Arc::clone(&self.dispatch),
@@ -132,17 +135,31 @@ impl Engine {
         ended
     }
 
-    /// The engine's event stream and Runs registry, tasks of `owner`.
-    fn start_runs(&self, dependencies: Dependencies, owner: &TaskOwner) -> (Runs, Events) {
+    /// The engine's event stream and Runs registry, tasks of `owner`; the
+    /// Run index names `endpoint` as the owner of its live Runs.
+    fn start_runs(
+        &self,
+        dependencies: Dependencies,
+        owner: &TaskOwner,
+        endpoint: Option<DaemonEndpoint>,
+    ) -> (Runs, Events) {
         let events = Events::start(self.events, owner);
         let settings = Settings::new(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
             owner.child(),
         );
+        let forwarder = Arc::new(ToDaemon {
+            home: dependencies.home.clone(),
+            version: self.identity().product_version.clone(),
+            clock: dependencies.clock,
+        });
         let runs = Runs::start_registry(
             RunsSetup {
                 settings,
+                product: self.identity().product,
+                endpoint,
+                forwarder,
                 home: dependencies.home,
                 version: self.identity().product_version.clone(),
                 location: dependencies.run_state_location,
@@ -171,7 +188,7 @@ impl Engine {
     ) -> Result<(), TransportError> {
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
-        let (runs, events) = self.start_runs(dependencies, &owner);
+        let (runs, events) = self.start_runs(dependencies, &owner, None);
         let connection_owner = owner.child();
         self.serve(connection, &connection_owner, runs.clone(), events)
             .await;

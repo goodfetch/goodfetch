@@ -17,8 +17,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, ProtocolVersion,
-    Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Stability, schema_of,
 };
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
@@ -112,6 +112,7 @@ pub const PAGE_BODY: Operation = Operation {
     name: "page.body",
     description: "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
     class: OperationClass::Read,
+    kind: OperationKind::Sequence,
     params: schema_of::<PageBodyParams>,
     result: schema_of::<PageBodyRead>,
     events: &[],
@@ -150,10 +151,10 @@ pub struct NewPageParams {
 pub struct PageOpened {
     /// The page.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub page: PageId,
+    pub page_id: PageId,
     /// Its Session: the Run's default Session.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub session: SessionId,
+    pub session_id: SessionId,
 }
 
 /// What `page.goto` takes: the page, and the URL it goes to.
@@ -162,7 +163,7 @@ pub struct PageOpened {
 pub struct GotoParams {
     /// The page.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub page: PageId,
+    pub page_id: PageId,
     /// The URL.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
@@ -273,6 +274,7 @@ pub const RUN_NEW_PAGE: Operation = Operation {
     name: "run.new_page",
     description: "Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.",
     class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<NewPageParams>,
     result: schema_of::<PageOpened>,
     events: &[],
@@ -287,6 +289,7 @@ pub const PAGE_GOTO: Operation = Operation {
     name: "page.goto",
     description: "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.",
     class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<GotoParams>,
     result: schema_of::<Navigated>,
     events: &[],

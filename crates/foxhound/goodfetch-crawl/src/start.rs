@@ -4,9 +4,9 @@
 //! admitted by the Frontier as its first work items, and each seed's
 //! answer kept, in the transaction that records the Run, and hands the Run
 //! to its delivery on the starting Connection's Client. A start whose
-//! every seed was refused still starts, and its Run finishes at once. A Run ID that names a crawl of the same seeds returns it as it
-//! is; one of other seeds, or of a Run that is no crawl, fails with
-//! `run_conflict`.
+//! every seed was refused still starts, and its Run finishes at once. A
+//! Run ID that names a crawl of the same seeds returns it as it is; one of
+//! other seeds, or of a Run that is no crawl, fails with `run_conflict`.
 
 use std::collections::BTreeMap;
 

@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 goodfetch-engine.workspace = true
+goodfetch-frontier.workspace = true
 goodfetch-protocol.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
@@ -17,7 +18,6 @@ tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 tracing.workspace = true
 
 [dev-dependencies]
-goodfetch-frontier.workspace = true
 goodfetch-test-support.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true

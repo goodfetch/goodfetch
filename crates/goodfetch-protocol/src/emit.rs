@@ -253,6 +253,7 @@ fn operation_entry(
         "description": operation.description,
         "class": operation.class.as_str(),
         "kind": operation.kind.as_str(),
+        "reach": operation.reach.as_str(),
         "params": (operation.params)(generator),
         "result": (operation.result)(generator),
         "events": operation.events.iter().map(|event| event.name).collect::<Vec<_>>(),

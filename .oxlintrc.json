@@ -87,6 +87,19 @@
             "object": "Reflect",
             "property": "defineProperty",
             "message": "Redefines a property (ADR 0068); set browser state through Playwright, or pass the value as an option."
+          },
+          {
+            "property": "addCookies",
+            "message": "Writes a cookie the Console did not set (ADR 0068); sign in through the signIn fixture of @goodfetch/test-support/playwright."
+          },
+          {
+            "property": "setStorageState",
+            "message": "Writes cookies and storage the Console did not set (ADR 0068); sign in through the signIn fixture of @goodfetch/test-support/playwright."
+          },
+          {
+            "object": "document",
+            "property": "cookie",
+            "message": "Touches a cookie in the page (ADR 0068); sign in through the signIn fixture of @goodfetch/test-support/playwright."
           }
         ]
       }

@@ -336,6 +336,47 @@ fn block_detection_rule_source_without_a_license_or_a_source_fails(
     assert_eq!(outcome.code, 1);
 }
 
+/// A block-detection rule's source that is a watchlist, by its name or by
+/// where its source is, fails the check whatever license it states: the
+/// watchlists give vendor names only, and a rule is written from the
+/// vendor's documentation and Goodfetch's captures (story 61).
+///
+/// Covers: story:8-61
+#[rstest]
+#[case::by_name(
+    "Scrapfly's Antibot-Detector",
+    "https://example.invalid/detectors",
+    "block-detection-rules Scrapfly's Antibot-Detector@1"
+)]
+#[case::by_source(
+    "vendor markers",
+    "https://github.com/enthec/webappanalyzer/blob/1/src/technologies/d.json",
+    "block-detection-rules vendor markers@1"
+)]
+fn block_detection_rule_source_that_is_a_watchlist_fails(
+    #[case] name: &str,
+    #[case] source: &str,
+    #[case] subject: &str,
+) {
+    let workspace = installed_workspace();
+    workspace.append(
+        "block-detection/third-party.toml",
+        &format!(
+            "\n[[input]]\nname = \"{name}\"\nversion = \"1\"\nlicense = \"MIT\"\nsource = \"{source}\"\nuse = \"modified\"\n"
+        ),
+    );
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("watchlist-source", subject)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 /// A further file of inputs, such as the list a Goodfetch Chromium build
 /// writes with the variations seed (ADR 0043), joins the inventory and its
 /// check; the seed's license is on no allowlist yet.

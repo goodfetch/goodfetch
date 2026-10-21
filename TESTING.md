@@ -332,6 +332,7 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
 ### Real processes
 
 - **Kill real processes at seeded moments** chosen from observed protocol events: `kill -9` on Linux and macOS, `TerminateProcess` on Windows, for engines, Clients, sink processes and Script sandbox workers.
+  - To prove an Attached engine dies with its Client, not with its stdin, start it through a stand-in parent whose pipes the test holds (`/bin/sh -c '"$@"; exit $?'`, `cmd /d /c` on Windows), kill the stand-in, and wait for the engine's stdout to close (Collie's `tests/it/parent_death.rs`).
 - **Power-cut the real binary with LazyFS on Linux:** mount the run folder and the Goodfetch home through it, kill, clear its cache, resume, check as above. Name the test module `lazyfs` in the crate's `tests/it`: nextest's profiles leave `lazyfs::` integration tests out, and the Release suite's `linux-x64-gnu` cell runs them (`ci/release/cell.sh lazyfs`, on the LazyFS `ci/host/lazyfs.sh` builds before the deny); `just lazyfs-test` runs them locally.
 - **Assert `fullfsync` on macOS**, which no tool can observe reaching the drive.
 - **Cut off engines and partition Group members with Toxiproxy**, reached through each engine's `resolve` mapping. Give each engine's listeners a loopback address of their own (`resolve` maps names, not ports). Keep Valkey's durations short.

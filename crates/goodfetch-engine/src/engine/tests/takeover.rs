@@ -18,7 +18,6 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{Operation, OperationClass, Product, Stability, schema_of};
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_test_support::TestEnv;
-use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -275,17 +274,40 @@ fn a_forwarded_abort_of_a_run_this_engine_does_not_own_answers_run_not_owned() {
 }
 
 /// A Collie engine reads a Run that needs Foxhound like any other, and
-/// refuses to take its writer role, leaving its run file as it was; a
-/// Foxhound engine takes it (ADR 0098).
+/// refuses to take its writer role, leaving its run file as it was (ADR 0098).
 /// Covers: story:3-141, error:not_in_product, operation:run.abort
-#[rstest]
-#[case::collie(Product::Collie, json!({ "error": "not_in_product", "lifecycle": "running", "epoch": 1 }), true)]
-#[case::foxhound(Product::Foxhound, json!({ "error": null, "lifecycle": "stopped", "epoch": 2 }), false)]
-fn only_an_engine_of_the_product_a_run_needs_takes_its_writer_role(
-    #[case] product: Product,
-    #[case] expected: Value,
-    #[case] unchanged: bool,
-) {
+#[test]
+fn a_collie_engine_refuses_the_writer_role_of_a_run_that_needs_foxhound() {
+    assert_eq!(
+        abort_of_a_foxhound_run_by(Product::Collie),
+        (
+            json!(["product"]),
+            json!({ "error": "not_in_product", "lifecycle": "running", "epoch": 1 }),
+            true
+        )
+    );
+}
+
+/// A Foxhound engine takes the writer role of a Run that needs Foxhound and
+/// stops it at the next epoch (ADR 0098).
+/// Covers: story:3-141, operation:run.abort
+#[test]
+fn a_foxhound_engine_takes_the_writer_role_of_a_run_that_needs_foxhound() {
+    assert_eq!(
+        abort_of_a_foxhound_run_by(Product::Foxhound),
+        (
+            json!(["product"]),
+            json!({ "error": null, "lifecycle": "stopped", "epoch": 2 }),
+            false
+        )
+    );
+}
+
+/// Aborts, from an engine of `product`, a Run of a killed engine that needs
+/// Foxhound: the differences `run.start` names, the abort's Error code with
+/// the Run index row's lifecycle and epoch after it, and whether the run file
+/// is unchanged.
+fn abort_of_a_foxhound_run_by(product: Product) -> (Value, Value, bool) {
     let env = TestEnv::new();
     killed_after(&env, &[("test.grow", json!({}))]);
     let folder = run_folder(&env, "grows");
@@ -302,16 +324,13 @@ fn only_an_engine_of_the_product_a_run_needs_takes_its_writer_role(
 
     let after = digest(&folder);
     let row = run_row(&folder);
-    assert_eq!(
-        (
-            started["error"]["data"]["differences"].clone(),
-            json!({
-                "error": aborted["error"]["data"]["code"],
-                "lifecycle": row["lifecycle"],
-                "epoch": row["epoch"],
-            }),
-            after == before,
-        ),
-        (json!(["product"]), expected, unchanged)
-    );
+    (
+        started["error"]["data"]["differences"].clone(),
+        json!({
+            "error": aborted["error"]["data"]["code"],
+            "lifecycle": row["lifecycle"],
+            "epoch": row["epoch"],
+        }),
+        after == before,
+    )
 }

@@ -3,8 +3,8 @@
 //! `daemon.address`, writes no runtime file, never stops idle and logs
 //! JSON lines to stdout; it refuses an address that is not loopback; and on
 //! `SIGTERM` it checkpoints each run as resumable and exits, its runs
-//! resuming on its next start. On Linux it runs as PID 1 of a PID
-//! namespace and reaps every browser descendant.
+//! resuming on its next start. On Linux x64 it runs as PID 1 of a PID
+//! namespace, a container's, and reaps every browser descendant.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests start processes, signal them, and read the Daemon's files and logs themselves"
@@ -64,9 +64,13 @@ impl Foreground {
         let mut command = env.process_command(executable);
         command
             .args(["daemon", "run"])
-            .envs(variables.iter().copied())
-            .stderr(Stdio::null());
-        let process = env.spawn(&mut command).unwrap();
+            .envs(variables.iter().copied());
+        Self::spawned(env, &mut command)
+    }
+
+    /// Starts `command`, which runs `daemon run`, in `env`.
+    pub(crate) fn spawned(env: &TestEnv, command: &mut std::process::Command) -> Self {
+        let process = env.spawn(command.stderr(Stdio::null())).unwrap();
         let stdout = process.child().stdout.take().unwrap();
         let (sent, lines) = mpsc::channel();
         std::thread::spawn(move || {
@@ -110,12 +114,23 @@ impl Foreground {
     /// Sends it `SIGTERM`, and waits for it to exit, reading the rest of its
     /// log; whether it exited with 0.
     pub(crate) fn terminate(&mut self) -> bool {
+        self.signal();
+        self.exited()
+    }
+
+    /// Sends it `SIGTERM`, through `kill -TERM`.
+    pub(crate) fn signal(&self) {
         let pid = self.process.child().id().to_string();
         let sent = std::process::Command::new("kill")
             .args(["-TERM", &pid])
             .status()
             .unwrap();
         assert!(sent.success(), "`kill -TERM {pid}` failed");
+    }
+
+    /// Waits for it to exit, reading the rest of its log; whether it exited
+    /// with 0.
+    pub(crate) fn exited(&mut self) -> bool {
         let exited = self.process.child().wait().unwrap();
         while let Ok(line) = self.lines.recv_timeout(LOG_DEADLINE) {
             self.logged.push(line);
@@ -272,4 +287,139 @@ fn on_sigterm_daemon_run_checkpoints_each_run_and_its_next_start_resumes_them() 
             true
         )
     );
+}
+
+/// The foreground Daemon as PID 1 of a container (ADR 0049).
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod pid_one {
+    use std::time::{Duration, Instant};
+
+    use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, stand_in_browser_cache};
+    use serde_json::json;
+
+    use super::{COLLIE, Foreground, free_address, opened};
+
+    /// A browser that leaves a descendant behind: the shell it starts puts
+    /// `sleep` in the background and exits at once, so `sleep` has no
+    /// parent left, and the browser itself exits before any debugging pipe
+    /// answers.
+    const LEAVES_A_DESCENDANT: &str = "#!/bin/sh\nsh -c 'sleep 1 &'\nexit 0\n";
+
+    /// How long the test waits for every descendant to be gone; a failure,
+    /// never a measure.
+    const DEADLINE: Duration = Duration::from_secs(60);
+
+    /// A process as `/proc/<pid>/stat` gives it: its name, state and parent.
+    struct Stat {
+        pid: u32,
+        name: String,
+        state: char,
+        parent: u32,
+    }
+
+    fn stat(pid: u32) -> Option<Stat> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let (name, rest) = stat.split_once(" (")?.1.rsplit_once(") ")?;
+        let mut fields = rest.split(' ');
+        let state = fields.next()?.chars().next()?;
+        let parent = fields.next()?.parse().ok()?;
+        Some(Stat {
+            pid,
+            name: name.to_owned(),
+            state,
+            parent,
+        })
+    }
+
+    /// Every process under `root`, as its name and whether it is a zombie.
+    fn under(root: u32) -> Vec<(String, bool)> {
+        let all: Vec<Stat> = std::fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
+            .filter_map(stat)
+            .collect();
+        let mut found = vec![root];
+        let mut under = Vec::new();
+        while let Some(parent) = found.pop() {
+            for child in all.iter().filter(|stat| stat.parent == parent) {
+                found.push(child.pid);
+                under.push((child.name.clone(), child.state == 'Z'));
+            }
+        }
+        under.sort();
+        under
+    }
+
+    /// Run as PID 1 of a PID namespace of its own, as a container runs it,
+    /// with no `tini`, `daemon run` reaps every descendant its browser
+    /// leaves behind: once the browser exited, only its own processes are
+    /// left, none of them a zombie. It drains on `SIGTERM` there too.
+    ///
+    /// Covers: story:3-100
+    #[test]
+    fn as_pid_one_of_a_container_daemon_run_reaps_every_browser_descendant() {
+        let env = TestEnv::new();
+        let cache = stand_in_browser_cache(&env, LEAVES_A_DESCENDANT).unwrap();
+        env.user_configuration(&format!("daemon.address = \"{}\"\n", free_address()));
+        let mut command = env.process_command("unshare");
+        command
+            .args([
+                "--user",
+                "--map-root-user",
+                "--pid",
+                "--fork",
+                "--kill-child",
+                "--mount-proc",
+            ])
+            .arg(COLLIE)
+            .args(["daemon", "run"])
+            .env(BROWSERS_PATH_VARIABLE, &cache);
+        let mut daemon = Foreground::spawned(&env, &mut command);
+        let endpoint = daemon.serving();
+        let unshare = daemon.process.child().id();
+        let mut client = opened(&env, &endpoint);
+        let started = client.call(1, "run.start", &json!({ "run_id": "reaped" }));
+        assert!(started.get("result").is_some(), "{started}");
+        let launched = client.call(2, "run.new_page", &json!({ "run_id": "reaped" }));
+
+        let began = Instant::now();
+        let left = loop {
+            let left = under(unshare);
+            let only_its_own = left
+                .iter()
+                .all(|(name, zombie)| name.starts_with("goodfetch-colli") && !zombie);
+            if only_its_own || began.elapsed() > DEADLINE {
+                break left;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        drop(client);
+        let pid_one = std::fs::read_to_string(format!("/proc/{unshare}/task/{unshare}/children"))
+            .unwrap()
+            .trim()
+            .to_owned();
+        let sent = std::process::Command::new("kill")
+            .args(["-TERM", &pid_one])
+            .status()
+            .unwrap();
+        let exited = daemon.process.child().wait().unwrap();
+
+        assert_eq!(
+            (
+                launched["error"]["data"]["code"].clone(),
+                left,
+                sent.success(),
+                exited.success(),
+            ),
+            (
+                json!("browser_launch_failed"),
+                vec![
+                    ("goodfetch-colli".to_owned(), false),
+                    ("goodfetch-colli".to_owned(), false),
+                ],
+                true,
+                true,
+            )
+        );
+    }
 }

@@ -80,6 +80,8 @@ mod trace;
 mod unicode;
 mod variables;
 
+#[cfg(unix)]
+pub use browsers::stand_in_browser_cache;
 pub use browsers::{
     BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_BUILD, browser_cache,
 };

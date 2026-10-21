@@ -36,7 +36,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::{
-    failure_line, handshake, line, not_in_product, notification_line, record, success_line,
+    failure_line, handshake, line, not_in_product, notification_line, record, record_cancel,
+    success_line,
 };
 use crate::client::{Client, Outgoing};
 use crate::composition::{
@@ -489,6 +490,7 @@ impl Session<'_> {
                 if let Some(call) = self.in_flight.get(&id)
                     && call.cancellable
                 {
+                    record_cancel(CANCEL);
                     call.token.cancel();
                 }
             }

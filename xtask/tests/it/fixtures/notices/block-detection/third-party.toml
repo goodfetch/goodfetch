@@ -1,0 +1,16 @@
+set = "block-detection-rules"
+
+# The sources Collie's block-detection rules are seeded from (ADR 0035).
+[[input]]
+name = "wafw00f"
+version = "69fbe39"
+license = "BSD-3-Clause"
+source = "https://github.com/EnableSecurity/wafw00f/tree/69fbe39/wafw00f/plugins"
+use = "modified"
+
+[[input]]
+name = "identYwaf"
+version = "3e535b7"
+license = "MIT"
+source = "https://github.com/stamparm/identYwaf/blob/3e535b7/data.json"
+use = "modified"

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Goodfetch protocol",
+  "protocol_version": "2.3",
+  "formats": [
+    {
+      "name": "sample-protocol",
+      "version": "2.3",
+      "storage": "transcript",
+      "rule": "default",
+      "hello_from": ["client", "browser_host", "group_member"],
+      "schema": { "$ref": "#/$defs/Message" }
+    },
+    {
+      "name": "sample-file",
+      "version": "1.4",
+      "storage": "json",
+      "rule": "default",
+      "hello_from": [],
+      "schema": { "type": "object" }
+    },
+    {
+      "name": "sample-ledger",
+      "version": "0.2",
+      "storage": "json",
+      "rule": "frozen_major",
+      "hello_from": [],
+      "schema": { "type": "object" }
+    },
+    {
+      "name": "sample-store",
+      "version": "1.2",
+      "storage": "sqlite",
+      "rule": "shared_store",
+      "hello_from": [],
+      "schema": { "type": "object" }
+    }
+  ],
+  "$defs": {
+    "Message": { "type": "object" },
+    "Product": {
+      "oneOf": [
+        { "const": "collie", "type": "string" },
+        { "const": "foxhound", "type": "string" }
+      ]
+    }
+  }
+}

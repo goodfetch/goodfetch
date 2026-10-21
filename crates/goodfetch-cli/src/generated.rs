@@ -4,7 +4,8 @@
 //! its params, `--<parameter>` in kebab-case, a value-bound command taking
 //! its value's ID (`run_id` for `run`) as its first positional argument,
 //! a `timeout` param being `--timeout <duration>` or `--timeout none`
-//! (ADR 0080), and `--json` printing the result as JSON. A sequence's
+//! (ADR 0080), and `--json` printing the result as JSON; an operation that
+//! takes `settings` takes them as the [`SettingsFlags`]. A sequence's
 //! command takes `--follow`. Help comes from the catalog's descriptions.
 //! Foxhound's executable carries these commands unchanged (ADR 0090).
 //!
@@ -21,7 +22,7 @@
 
 use std::process::ExitCode;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Args as _, Command, FromArgMatches as _};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{
     Deprecation, ErrorGroup, Operation, OperationKind, Product, Reach, SDK_ONLY,
@@ -34,6 +35,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
 use crate::engine_choice::{self, Answer, CommandCall, Follower};
+use crate::settings_flags::{self, SettingsFlags};
 use crate::{exit_codes, output};
 
 /// The Product whose catalog the commands come from: Collie's, which both
@@ -53,6 +55,10 @@ const TIMEOUT: &str = "timeout";
 
 /// The command line's spelling of no timeout, the null form (ADR 0080).
 const NO_TIMEOUT: &str = "none";
+
+/// The param that takes the run layer's settings (ADR 0083), which a
+/// command takes as its [`SettingsFlags`].
+const SETTINGS: &str = "settings";
 
 /// The generated commands beside an executable's hand-written ones.
 pub struct Generated {
@@ -173,11 +179,7 @@ fn members_of(group: Command, operations: impl Iterator<Item = &'static Operatio
 /// The command of `operation`, its help in the form of the hand-written
 /// commands': the description with no closing period.
 fn command(operation: &'static Operation) -> Command {
-    let mut command =
-        Command::new(spelled(member(operation))).about(sentence(operation.description));
-    if let Some(deprecated) = operation.deprecated {
-        command = command.after_help(deprecation(deprecated));
-    }
+    let mut command = Command::new(spelled(member(operation)));
     let json_help = if offer(operation) == Some(Offer::Follow) {
         command = command.arg(
             Arg::new(FOLLOW)
@@ -190,15 +192,25 @@ fn command(operation: &'static Operation) -> Command {
     } else {
         "Prints the result as JSON"
     };
-    parameters(operation)
+    let command = parameters(operation)
         .into_iter()
-        .fold(command, |command, parameter| command.arg(parameter.arg()))
+        .fold(command, |command, parameter| match parameter.form {
+            Form::Settings => SettingsFlags::augment_args(command),
+            _ => command.arg(parameter.arg()),
+        })
         .arg(
             Arg::new(JSON)
                 .long(JSON)
                 .action(ArgAction::SetTrue)
                 .help(json_help),
         )
+        // After the settings flags, whose derived arguments set an `about`
+        // of their own.
+        .about(sentence(operation.description));
+    match operation.deprecated {
+        Some(deprecated) => command.after_help(deprecation(deprecated)),
+        None => command,
+    }
 }
 
 /// ADR 0030's text for a deprecation, which the warning and `--help` share:
@@ -218,30 +230,15 @@ fn duration(text: &str) -> Result<Value, String> {
     if text == NO_TIMEOUT {
         return Ok(Value::Null);
     }
-    let digits = text.find(|character: char| !character.is_ascii_digit());
-    let (count, unit) = text.split_at(digits.unwrap_or(text.len()));
-    let unit_milliseconds: u64 = match unit {
-        "" | "ms" => 1,
-        "s" => 1_000,
-        "m" => 60_000,
-        "h" => 3_600_000,
-        _ => {
-            return Err(format!(
-                "`{unit}` is no unit of a duration: use ms, s, m or h"
-            ));
-        }
-    };
-    let milliseconds = count
-        .parse::<u64>()
-        .ok()
-        .and_then(|count| count.checked_mul(unit_milliseconds))
-        .ok_or_else(|| format!("`{text}` is no duration: give milliseconds, or 45s, 2m, 1h"))?;
-    if milliseconds == 0 {
-        return Err(format!(
+    match settings_flags::milliseconds(text) {
+        Some(0) => Err(format!(
             "a timeout of 0 would end the call at once: give `--timeout {NO_TIMEOUT}` for no timeout"
-        ));
+        )),
+        Some(milliseconds) => Ok(Value::from(milliseconds)),
+        None => Err(format!(
+            "`{text}` is no duration: give milliseconds, or a whole number with `ms`, `s`, `m` or `h`, such as `45s`, `2m` or `1h`, or `{NO_TIMEOUT}`"
+        )),
     }
-    Ok(Value::from(milliseconds))
 }
 
 /// `text` on one line, with no closing period, as clap shows doc comments.
@@ -280,6 +277,9 @@ enum Form {
     Repeated { json: bool },
     /// The call's timeout (ADR 0080), read by [`duration`].
     Timeout,
+    /// The run layer's `settings`: `--set` and `--settings`, the
+    /// [`SettingsFlags`].
+    Settings,
 }
 
 impl Parameter {
@@ -294,7 +294,7 @@ impl Parameter {
                 .long(spelled(&self.name))
                 .required(self.required)
                 .action(ArgAction::Set),
-            Form::Repeated { .. } => arg
+            Form::Repeated { .. } | Form::Settings => arg
                 .long(spelled(&self.name))
                 .required(self.required)
                 .action(ArgAction::Append),
@@ -328,6 +328,10 @@ impl Parameter {
                 .get_many::<String>(&self.name)
                 .map(|values| Value::Array(values.map(|text| read(text, json)).collect())),
             Form::Timeout => matches.get_one::<Value>(&self.name).cloned(),
+            Form::Settings => {
+                let run_layer = SettingsFlags::from_arg_matches(matches).ok()?.run_layer();
+                (!run_layer.is_empty()).then_some(Value::Object(run_layer))
+            }
         }
     }
 }
@@ -357,6 +361,8 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
                 Form::Value
             } else if name == TIMEOUT {
                 Form::Timeout
+            } else if name == SETTINGS {
+                Form::Settings
             } else {
                 match type_name(type_of) {
                     Some("boolean") => Form::Switch,

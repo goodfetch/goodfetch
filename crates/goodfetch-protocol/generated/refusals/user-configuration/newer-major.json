@@ -1,0 +1,7 @@
+{
+  "format": "user-configuration",
+  "rule": "shared_store",
+  "reader": "0.1",
+  "found": "1.0",
+  "compatibility": "newer_major"
+}

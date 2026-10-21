@@ -9,9 +9,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ValidateFunction } from "ajv/dist/2020.js";
-import { parse } from "smol-toml";
 import type { TestTagDefinition } from "vitest";
 import type { Reporter, TestCase } from "vitest/node";
+import { parseCaseList } from "./case-list.ts";
 import { TestSupportError } from "./errors.ts";
 import type {
   CaseCheck,
@@ -37,56 +37,13 @@ export interface ClientCase {
 
 /**
  * The cases of a case list's text, such as `conformance/clients/cases.toml`'s,
- * in its order; `case_list_invalid` when it is no TOML or a capability has no
- * name or a case no ID. Its other fields are `xtask clients check`'s and the
- * writer's.
+ * in its order; `case_list_invalid` when `parseCaseList` refuses it. Its
+ * other fields are `xtask clients check`'s and the writer's.
  */
 export function parseClientCases(text: string): ClientCase[] {
-  let document: Record<string, unknown>;
-  try {
-    document = parse(text);
-  } catch (error) {
-    throw new TestSupportError("case_list_invalid", "the case list is no TOML", { cause: error });
-  }
-  return tables(document["capability"], "capability").flatMap((capability, index) => {
-    const name = capability["name"];
-    if (typeof name !== "string") {
-      throw new TestSupportError(
-        "case_list_invalid",
-        `capability ${index + 1} of the case list has no name`,
-      );
-    }
-    return tables(capability["case"], `${name}'s case`).map((declared, at) => {
-      const id = declared["id"];
-      if (typeof id !== "string") {
-        throw new TestSupportError(
-          "case_list_invalid",
-          `case ${at + 1} of capability ${name} has no ID`,
-        );
-      }
-      return { id, capability: name };
-    });
-  });
-}
-
-function tables(value: unknown, what: string): Record<string, unknown>[] {
-  if (value === undefined) {
-    return [];
-  }
-  const items: unknown[] = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!Array.isArray(value) || !isTable(item)) {
-      throw new TestSupportError(
-        "case_list_invalid",
-        `the case list's ${what} is no array of tables`,
-      );
-    }
-    return item;
-  });
-}
-
-function isTable(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return parseCaseList(text).capabilities.flatMap(({ name, cases }) =>
+    cases.map(({ id }) => ({ id, capability: name })),
+  );
 }
 
 /** The cases of the case list at `path`; none when there is no list yet. */
@@ -146,6 +103,11 @@ export function hostPlatform(): Platform {
 /** The runtime the cases run on, such as `node-24`. */
 export function hostRuntime(): string {
   return `node-${process.versions.node.split(".")[0]}`;
+}
+
+/** The runtime a Playwright test runs on: its browser and the browser's major version, such as `chromium-141`. */
+export function browserRuntime(browserName: string, version: string): string {
+  return `${browserName}-${version.split(".")[0] ?? ""}`;
 }
 
 /** What a test recorded of the case it runs, which the reporter reads from the test's meta. */

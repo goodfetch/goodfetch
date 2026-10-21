@@ -30,6 +30,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "version": format["version"],
                 "storage": format["storage"],
                 "rule": format["rule"],
+                "hello_from": format["hello_from"],
                 "tables": format["schema"]["properties"].as_object().unwrap().keys().collect::<Vec<_>>(),
             })
         })
@@ -42,14 +43,16 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "name": "operator-policy",
                 "version": "0.1",
                 "storage": "toml",
-                "rule": "default",
+                "rule": "shared_store",
+                "hello_from": [],
                 "tables": ["cap", "lock", "settings", "version"],
             }),
             json!({
                 "name": "user-configuration",
                 "version": "0.1",
                 "storage": "toml",
-                "rule": "default",
+                "rule": "shared_store",
+                "hello_from": [],
                 "tables": ["settings", "version"],
             }),
         ]
@@ -62,6 +65,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "version": "0.1",
                 "storage": "transcript",
                 "rule": "default",
+                "hello_from": ["client", "browser_host"],
                 "schema": { "$ref": "#/$defs/Message" },
             },
             {
@@ -69,13 +73,15 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "version": "0.1",
                 "storage": "json",
                 "rule": "default",
+                "hello_from": [],
                 "schema": { "$ref": "#/$defs/BrowserCacheEntry" },
             },
             {
                 "name": "run-index",
                 "version": "0.1",
                 "storage": "sqlite",
-                "rule": "default",
+                "rule": "shared_store",
+                "hello_from": [],
                 "schema": { "$ref": "#/$defs/RunIndexRow" },
             },
             {
@@ -83,6 +89,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "version": "0.1",
                 "storage": "sqlite",
                 "rule": "default",
+                "hello_from": [],
                 "schema": { "$ref": "#/$defs/RunStateRow" },
             },
             {
@@ -90,6 +97,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "version": "0.1",
                 "storage": "json",
                 "rule": "frozen_major",
+                "hello_from": [],
                 "schema": { "$ref": "#/$defs/InstalledExecutables" },
             },
         ])

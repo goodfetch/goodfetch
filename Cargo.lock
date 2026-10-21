@@ -1116,6 +1116,7 @@ dependencies = [
  "clap",
  "goodfetch-engine",
  "goodfetch-protocol",
+ "goodfetch-test-support",
  "proptest",
  "rstest",
  "schemars",
@@ -1148,6 +1149,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]

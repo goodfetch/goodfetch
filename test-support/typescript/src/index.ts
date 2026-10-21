@@ -25,7 +25,29 @@ export {
   type JourneyFacts,
   type JourneyResultDocument,
 } from "./journey-document.ts";
-export { journeyVectors, type JourneyVariant, type JourneyVector } from "./outcome-vectors.ts";
+export {
+  conformanceDocument,
+  writeConformanceDocument,
+  type CapabilityFacts,
+  type CaseFacts,
+  type ConformanceFacts,
+  type ConformanceHeader,
+  type ConformanceResultDocument,
+} from "./conformance-document.ts";
+export {
+  parseCaseList,
+  readCaseList,
+  type CaseList,
+  type DeclaredCapability,
+  type DeclaredCase,
+} from "./case-list.ts";
+export {
+  conformanceVectors,
+  journeyVectors,
+  type ConformanceVector,
+  type JourneyVariant,
+  type JourneyVector,
+} from "./outcome-vectors.ts";
 export {
   playScript,
   type Ending,

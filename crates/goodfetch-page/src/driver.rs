@@ -7,6 +7,8 @@
 //! later. `Runtime` is never enabled, and the guard's script lives in an
 //! isolated world no page script reaches (ADR 0019).
 
+mod world;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -325,27 +327,7 @@ impl Turn<'_> {
             *self.world = Some(made.execution_context_id);
             made.execution_context_id
         };
-        let called = self
-            .send(&runtime::CallFunctionOnParams {
-                function_declaration: function.to_owned(),
-                object_id: None,
-                arguments: Some(vec![runtime::CallArgument {
-                    value: Some(argument),
-                    unserializable_value: None,
-                    object_id: None,
-                }]),
-                silent: Some(true),
-                return_by_value: Some(true),
-                generate_preview: None,
-                user_gesture: None,
-                await_promise: Some(true),
-                execution_context_id: Some(context),
-                object_group: None,
-                throw_on_side_effect: None,
-                unique_context_id: None,
-                serialization_options: None,
-            })
-            .await?;
+        let called = self.send(&world::call(function, argument, context)).await?;
         if let Some(thrown) = called.exception_details {
             return Err(Unanswered::Failed(CallError::protocol(
                 ProtocolFailure::InternalError,

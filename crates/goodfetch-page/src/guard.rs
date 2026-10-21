@@ -12,6 +12,7 @@
 //! with every match, anything else `deadline_exceeded` naming the step it
 //! waited for.
 
+mod check;
 mod keys;
 mod target;
 
@@ -25,12 +26,9 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{TARGET_NOT_UNIQUE, TargetMatch, TargetNotUniqueDetails};
 use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
-use serde_json::json;
 
+use self::check::{CHECK, Seen};
 use crate::driver::{PageDriver, Turn, Unanswered};
-
-/// The check and arm, a function the guard's world calls.
-const CHECK: &str = include_str!("guard/check.js");
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -39,9 +37,6 @@ const DISARM: &str = include_str!("guard/disarm.js");
 /// navigation that replaced the document, or the call's cancellation, is
 /// seen within it.
 const SLICE: Duration = Duration::from_secs(1);
-
-/// The events of a click the interception listener checks.
-const CLICK_EVENTS: [&str; 5] = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
 
 /// What an action does once its target is ready.
 pub(crate) enum Action {
@@ -98,24 +93,6 @@ pub(crate) struct Request<'a> {
     pub(crate) surface: Surface,
 }
 
-/// What one check saw.
-#[derive(Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-enum Seen {
-    /// The target is ready: for a pointer action, armed, and the point to
-    /// press.
-    Ready { x: Option<f64>, y: Option<f64> },
-    /// It is not, at the step `step`.
-    Waiting {
-        step: String,
-        observed: String,
-        #[serde(default)]
-        matches: Vec<String>,
-    },
-    /// The selector is no CSS the page parses.
-    Invalid { message: String },
-}
-
 /// Where a gesture landed.
 #[derive(Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -156,14 +133,13 @@ pub(crate) async fn act(
             let elapsed = clock.now() - started;
             return Err(at_deadline(&request, last, elapsed));
         }
-        let argument = json!({
-            "selector": request.selector,
-            "action": request.action.kind(),
-            "events": CLICK_EVENTS,
-            "slice": u64::try_from(remaining.min(SLICE).as_millis()).unwrap_or(u64::MAX),
-        });
+        let argument = check::argument(
+            request.selector,
+            request.action.kind(),
+            remaining.min(SLICE),
+        );
         let seen = match turn.call(CHECK, argument).await {
-            Ok(value) => read::<Seen>(&value)?,
+            Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
             Err(Unanswered::WorldGone) => continue,
             Err(Unanswered::Failed(error)) => return Err(error),
         };
@@ -209,7 +185,7 @@ pub(crate) async fn act(
 /// landed, since nothing was left to cancel it.
 async fn landed(turn: &mut Turn<'_>) -> Result<Landed, CallError> {
     match turn.call(DISARM, serde_json::Value::Null).await {
-        Ok(value) => read::<Landed>(&value),
+        Ok(value) => Landed::deserialize(&value).map_err(|error| unreadable(&value, &error)),
         Err(Unanswered::WorldGone) => Ok(Landed::Landed),
         Err(Unanswered::Failed(error)) => Err(error),
     }
@@ -230,14 +206,13 @@ async fn fill(turn: &mut Turn<'_>, value: &str) -> Result<(), CallError> {
     Ok(())
 }
 
-/// The guard's answer as the type the script returns.
-fn read<T: for<'de> Deserialize<'de>>(value: &serde_json::Value) -> Result<T, CallError> {
-    T::deserialize(value).map_err(|error| {
-        CallError::protocol(
-            ProtocolFailure::InternalError,
-            format!("the guard's script answered {value}, which does not read: {error}"),
-        )
-    })
+/// The guard's script answered `value`, which does not read as what it
+/// returns.
+fn unreadable(value: &serde_json::Value, error: &serde_json::Error) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InternalError,
+        format!("the guard's script answered {value}, which does not read: {error}"),
+    )
 }
 
 /// The error of an action whose deadline passed with `last` its last

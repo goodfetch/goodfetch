@@ -6,20 +6,56 @@
 # whose SHA-256 differs from its pin; `xtask tlc run` refuses a kept file
 # that differs.
 #
-# The pair is TLA+ 1.8.0 (TLC2 Version 2026.10.15.145915, rev 932d35e) with
-# CommunityModules 202610131629, checked on 2026-10-19 to run etcd's style of
-# NDJSON trace validation (`ndJsonDeserialize`, `IOEnv`, `TLCGet("queue")`,
-# `-lncheck final`): a matching trace passes and a diverging one fails.
-# Stable 1.7.4 cannot pair with any CommunityModules release since 2024-09:
-# its overrides fail to load (NoClassDefFoundError for KSubsetValue).
-# 1.8.0 is a prerelease whose `tla2tools.jar` asset GitHub replaces at each
-# new build, so a fresh download fails its pin once upstream rebuilds: move
-# both pins together, after checking the new pair, in one pull request.
+# The pair is TLA+ 1.8.0 (TLC2 Version 2026.10.20.183001, rev d2e1472) with
+# CommunityModules 202610131629, checked on 2026-10-21: every model passes
+# (`small` and `large`, and the self-test variants fail as expected), and
+# `trace-probe/`, etcd's style of NDJSON trace validation (`ndJsonDeserialize`,
+# `IOEnv`, `TLCGet("queue")`, `-lncheck final`), passes its matching trace and
+# fails its diverging one. Stable 1.7.4 cannot pair with any CommunityModules
+# release since 2024-09: its overrides fail to load (NoClassDefFoundError for
+# KSubsetValue).
+#
+# THIS PIN BREAKS AT THE NEXT UPSTREAM BUILD. 1.8.0 is a prerelease, and
+# TLA+'s build replaces its `tla2tools.jar` asset at every commit to master
+# (the nightly site's copy too), so a fresh `just tlc-fetch` then fails with
+# `digest-mismatch`; copies already in `target/tla-tools/` keep working. No
+# immutable copy of a current build exists: TLA+'s per-build git tags carry
+# no files, Maven Central has only `1.8.0-SNAPSHOT`, whose timestamped builds
+# Sonatype deletes after 90 days and whose jar lacks Gson and JavaMail, and
+# the nightly site's one per-commit file, `tla2tools-1a92ec7.jar`, is a
+# hand-placed build of 2023-09 that predates three years of TLC fixes.
+# CommunityModules releases are dated tags, which stay.
+#
+# To move the pin, in one pull request, from the repository root:
+# 1. Download the current pair into an empty folder, `$new`:
+#      curl -fsSL -o "$new/tla2tools.jar" \
+#        https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+#      tag=$(gh release view --repo tlaplus/CommunityModules --json tagName --jq .tagName)
+#      curl -fsSL -o "$new/CommunityModules-deps.jar" \
+#        "https://github.com/tlaplus/CommunityModules/releases/download/$tag/CommunityModules-deps-$tag.jar"
+# 2. Read their digests and TLC's build:
+#      shasum -a 256 "$new"/*.jar
+#      java -cp "$new/tla2tools.jar" tlc2.TLC 2>&1 | head -1
+# 3. Write each `url` and `sha256` below, the build and date above, and the
+#    same in ADR 0060's note on the pair.
+# 4. Fetch into an empty folder and check every model:
+#      rm -rf target/tla-tools && just tlc-fetch
+#      just tlc --all && just tlc --all --config large && just tlc-self-test
+#      just tlc run-fencing --config zombie --expect invariant-violated
+# 5. Run the trace-validation probe; the first exits 0, the second 12:
+#      cd test-support/models/trace-probe
+#      tools=../../../target/tla-tools/tla2tools.jar:../../../target/tla-tools/CommunityModules-deps.jar
+#      JSON=match.ndjson java -Dtlc2.tool.queue.IStateQueue=StateDeque -cp "$tools" \
+#        tlc2.TLC -lncheck final -noGenerateSpecTE -cleanup -metadir ../../../target/tlc/trace-probe/match \
+#        -config TraceProbe.cfg TraceProbe.tla
+#      JSON=diverge.ndjson java -Dtlc2.tool.queue.IStateQueue=StateDeque -cp "$tools" \
+#        tlc2.TLC -lncheck final -noGenerateSpecTE -cleanup -metadir ../../../target/tlc/trace-probe/diverge \
+#        -config TraceProbe.cfg TraceProbe.tla
 
 [[tool]]
 name = "tla2tools.jar"
 url = "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar"
-sha256 = "15d103b7e5617780bcc904c0af12f1ad242e2b345c0301136c5be4588f17edac"
+sha256 = "5bd7b64db99ae4c6c35f290de5e809c0ee41af43f8699cf696099ffb6452b1e2"
 
 [[tool]]
 name = "CommunityModules-deps.jar"

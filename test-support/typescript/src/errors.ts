@@ -67,8 +67,12 @@ export type TestSupportErrorCode =
   | "page_errors"
   /** `features/inventory.json` cannot be read, or fails its committed schema (ADR 0072). */
   | "inventory_invalid"
-  /** The Client conformance case list is no TOML, or a capability has no name or a case no ID (ADR 0069). */
+  /** A suite's case list cannot be read, is no TOML, or lacks its suite's name and version, a capability's name, or a case's ID or `covers` (ADRs 0033 and 0069). */
   | "case_list_invalid"
+  /** A Console conformance test's `capability` annotation and title name no case the suite's case list declares (ADR 0068). */
+  | "conformance_case_unknown"
+  /** Two tests of one Console conformance target report different targets, platforms, runtimes or Proving grounds (ADR 0068). */
+  | "conformance_target_mismatch"
   /** A case log entry fails the bundle's `case_log_entry` schema, such as by setting an outcome (ADR 0069). */
   | "case_log_entry_invalid"
   /** A test carries a `client_case/` tag naming no case of the reporter's case list (ADR 0069). */

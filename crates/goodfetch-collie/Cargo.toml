@@ -54,6 +54,8 @@ rstest.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+# `block_detection`'s check of its rules' sources against its `third-party.toml`.
+toml.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
 ureq.workspace = true

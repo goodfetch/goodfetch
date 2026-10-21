@@ -143,7 +143,7 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
                 name: name.to_owned(),
                 version: version.to_owned(),
                 license: license.clone(),
-                source,
+                source: Some(source),
                 usage: Usage::Unmodified,
             });
         }

@@ -104,7 +104,7 @@ pub use endpoints::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
-pub use env::{START_TIME, TestEnv, TestEnvError, command};
+pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{COMMAND_RECORD, COMMAND_TARGET, DISPATCH_TARGET, OUTCOME_TARGET};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use hostile::{
@@ -149,7 +149,7 @@ pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{
-    DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
+    ConsoleState, DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
     RuntimeFileError, SCRIPTED_DAEMON_TOKEN,
 };
 pub use script::{

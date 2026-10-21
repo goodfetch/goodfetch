@@ -291,6 +291,27 @@ fn license_allowed_for_one_package_fails_on_another() {
     assert_eq!(outcome.code, 1);
 }
 
+/// A license may be allowed for several packages, one entry each, as
+/// OFL-1.1 is for the Console's two fonts.
+#[test]
+fn license_allowed_for_two_packages_passes_on_each() {
+    let workspace = installed_workspace();
+    workspace.edit(
+        PERMISSIVE_DIST,
+        "License-Expression: BSD-3-Clause",
+        "License-Expression: PSF-2.0",
+    );
+    workspace.append(
+        "license-allowlist.toml",
+        "\n[[license]]\nid = \"PSF-2.0\"\nonly = { ecosystem = \"python\", package = \"permissive-dist\" }\n",
+    );
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
 #[test]
 fn dependency_without_a_license_fails() {
     let workspace = installed_workspace();

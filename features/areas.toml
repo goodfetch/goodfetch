@@ -127,8 +127,18 @@ prefix = "handler_"
 
 [[area]]
 number = 3
+kind = "operation"
+prefix = "crawl.serve"
+
+[[area]]
+number = 3
 kind = "error"
 prefix = "lease_lost"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "client_gone"
 
 [[area]]
 number = 3
@@ -379,6 +389,18 @@ prefix = "closed"
 number = 11
 kind = "error"
 prefix = "engine_"
+
+# Area 12, the Console (spec #592): its address and the Error code of its
+# port taken (#811).
+[[area]]
+number = 12
+kind = "error"
+prefix = "console_"
+
+[[area]]
+number = 12
+kind = "setting"
+prefix = "console."
 
 # Area 11, the Client surfaces (spec #608): the commands generated from the
 # catalog (#1174).

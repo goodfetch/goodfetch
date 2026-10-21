@@ -74,6 +74,11 @@ impl<'env> Attached<'env> {
         Some(message)
     }
 
+    /// The engine's process ID, which names its log file.
+    pub(crate) fn pid(&self) -> u32 {
+        self.process.child().id()
+    }
+
     /// Whether the engine writes nothing on its stdout for `quiet`; a
     /// message written meanwhile is kept for the next read.
     pub(crate) fn is_quiet_for(&mut self, quiet: std::time::Duration) -> bool {
@@ -134,15 +139,22 @@ fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input
     let mut engine = Attached::start(&env);
 
     engine.send(&hello("collie", "0.1"));
-    let reply = engine.next().unwrap();
+    let mut reply = engine.next().unwrap();
+    let private_endpoint = reply["result"]
+        .as_object_mut()
+        .unwrap()
+        .remove("private_endpoint");
 
     assert_eq!(
-        reply,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": { "protocol_version": "0.1", "product": "collie", "product_version": "0.0.0" },
-        })
+        (reply, private_endpoint.is_some_and(|it| it.is_object())),
+        (
+            json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "0.0.0" },
+            }),
+            true
+        )
     );
     assert_eq!(engine.finish(), (vec![], true));
 }

@@ -7,10 +7,6 @@
 //! the Daemon at most once (ADR 0098). Collie's executable comes from the
 //! test tool manifest.
 #![expect(
-    clippy::disallowed_methods,
-    reason = "the tests start processes and write the Daemon's configuration themselves"
-)]
-#![expect(
     clippy::disallowed_types,
     reason = "a test's own Client reaches the Daemon's socket from outside the engine (ADR 0060)"
 )]
@@ -41,13 +37,7 @@ fn collie() -> PathBuf {
 /// A user configuration whose `daemon.idle_timeout` bounds a Daemon a test
 /// forgets.
 fn short_idle(env: &TestEnv) {
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
-    std::fs::write(
-        major.join("configuration.toml"),
-        "version = \"0.1\"\n\n[settings]\ndaemon.idle_timeout = 60000\n",
-    )
-    .unwrap();
+    env.user_configuration("daemon.idle_timeout = 60000\n");
 }
 
 /// Stops the test home's Daemon when the test ends.

@@ -396,9 +396,30 @@
       ]
     },
     {
+      "id": "error:client_gone",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:closed",
       "kind": "error",
       "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:console_port_in_use",
+      "kind": "error",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -838,6 +859,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:crawl.serve",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -2887,6 +2918,17 @@
       "id": "setting:consent.domains",
       "kind": "setting",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:console.address",
+      "kind": "setting",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -7838,6 +7880,28 @@
       "kind": "story",
       "area": 11,
       "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-128",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-3",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",

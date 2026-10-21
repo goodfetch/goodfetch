@@ -25,6 +25,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, Surface};
+use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonParams, DaemonStatus, DaemonStopping, NOT_A_DAEMON, NotADaemonDetails,
     STATUS, STOP,
@@ -39,7 +40,7 @@ use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
-use crate::transport::{DaemonListener, TransportError};
+use crate::transport::{ConsoleListener, DaemonListener, TransportError};
 
 /// How long a Daemon asked to stop waits for the asking Client to read the
 /// answer and close before it closes that Connection itself.
@@ -63,6 +64,25 @@ pub struct DaemonOptions {
     pub holds: Holds,
     /// Which executable is its major's pick, and how it hands over.
     pub succession: Arc<dyn Succession>,
+    /// Its Console: the listener it serves its engine's Console build on,
+    /// or why it has none.
+    pub console: DaemonConsole,
+}
+
+/// A Daemon's Console, as its starter set it up (ADR 0031).
+pub enum DaemonConsole {
+    /// The Console's listener, bound at `console.address`, and the URL it
+    /// is reached at.
+    Listening {
+        /// The listener.
+        listener: ConsoleListener,
+        /// Its URL, such as `http://127.0.0.1:7801/`.
+        url: String,
+    },
+    /// The Console did not start; the Daemon still serves its Clients.
+    Failed(ConsoleFailure),
+    /// No Console, as for a Daemon a test runs in process.
+    Absent,
 }
 
 /// Which executable is the Daemon's major's pick, and what a handover takes
@@ -147,6 +167,8 @@ pub(crate) struct Serving {
     pub(crate) runs: Runs,
     pub(crate) events: Events,
     pub(crate) clock: Clock,
+    /// Where its Console is served, or why it is not.
+    pub(crate) console: ConsoleState,
 }
 
 /// The Clients connected now.
@@ -172,6 +194,7 @@ struct Shared {
     keep_alive: bool,
     holds: Holds,
     succession: Arc<dyn Succession>,
+    console: ConsoleState,
     presence: watch::Sender<Presence>,
     runs: Runs,
     blocking: TaskOwner,
@@ -181,6 +204,30 @@ struct Shared {
 }
 
 impl Shared {
+    fn new(
+        serving: &Serving,
+        options: DaemonOptions,
+        blocking: TaskOwner,
+        endings: mpsc::Sender<Ending>,
+    ) -> Self {
+        Self {
+            identity: Arc::clone(&serving.dispatch.identity),
+            token: options.token,
+            endpoint: options.endpoint,
+            pid: options.pid,
+            idle_timeout: options.idle_timeout,
+            keep_alive: options.keep_alive,
+            holds: options.holds,
+            succession: options.succession,
+            console: serving.console.clone(),
+            presence: watch::Sender::new(Presence::default()),
+            runs: serving.runs.clone(),
+            blocking,
+            endings,
+            deciding: Mutex::new(false),
+        }
+    }
+
     fn kept_alive(&self) -> bool {
         self.keep_alive || self.holds.held()
     }
@@ -273,6 +320,7 @@ impl DaemonSide for ConnectionSide {
                 live_runs: count(shared.runs.live_count().await),
                 kept_alive: shared.kept_alive(),
                 idle_timeout: u64::try_from(shared.idle_timeout.as_millis()).unwrap_or(u64::MAX),
+                console: shared.console.clone(),
             }
         })
     }
@@ -303,21 +351,7 @@ pub(crate) async fn serve(
     owner: &TaskOwner,
 ) -> DaemonEnd {
     let (endings, mut ending) = mpsc::channel(1);
-    let shared = Arc::new(Shared {
-        identity: Arc::clone(&serving.dispatch.identity),
-        token: options.token,
-        endpoint: options.endpoint,
-        pid: options.pid,
-        idle_timeout: options.idle_timeout,
-        keep_alive: options.keep_alive,
-        holds: options.holds,
-        succession: options.succession,
-        presence: watch::Sender::new(Presence::default()),
-        runs: serving.runs.clone(),
-        blocking: owner.child(),
-        endings,
-        deciding: Mutex::new(false),
-    });
+    let shared = Arc::new(Shared::new(&serving, options, owner.child(), endings));
     let connections_owner = owner.child();
     let (ended, mut endings_of_connections) = mpsc::unbounded_channel::<ConnectionId>();
     let mut open: BTreeMap<ConnectionId, CancellationToken> = BTreeMap::new();
@@ -361,15 +395,14 @@ pub(crate) async fn serve(
                         tokio::select! {
                             biased;
                             () = token.cancelled() => {}
-                            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, Some(side)) => {}
+                            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, rpc::Access::Daemon(side)) => {}
                         }
                         its_owner.stop().await;
                         runs.stop_connection(id).await;
                         let _ = ended.send(id);
                     });
                 }
-                // Every in-memory dialer is gone: no Client connects again,
-                // and the Daemon goes on with those it has.
+                // Every in-memory dialer is gone: it goes on with its Clients.
                 Err(TransportError::DialerClosed) => accepting = false,
                 Err(error) => {
                     tracing::error!(%error, "the Daemon's listener failed");

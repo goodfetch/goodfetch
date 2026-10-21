@@ -9,7 +9,6 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -19,7 +18,9 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
+pub use crate::connection::DaemonEndpoint;
 use crate::connection::ProductVersion;
+use crate::console::ConsoleState;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -41,26 +42,10 @@ pub struct DaemonRuntimeFile {
     /// Its process ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pid: u32,
-}
-
-/// Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
-/// Linux, loopback TCP on Windows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DaemonEndpoint {
-    /// A Unix socket's path.
-    Unix(#[schemars(with = "String")] PathBuf),
-    /// A loopback address and port.
-    Tcp(#[schemars(with = "String")] SocketAddr),
-}
-
-impl std::fmt::Display for DaemonEndpoint {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unix(path) => write!(formatter, "{}", path.display()),
-            Self::Tcp(address) => write!(formatter, "{address}"),
-        }
-    }
+    /// Where its Console is served, with the port it bound when
+    /// `console.address` asks for port 0.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console: ConsoleState,
 }
 
 fn ten_minutes() -> serde_json::Value {
@@ -131,6 +116,9 @@ pub struct DaemonStatus {
     /// Its `daemon.idle_timeout`, in milliseconds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub idle_timeout: u64,
+    /// Where its Console is served, or why it is not.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console: ConsoleState,
 }
 
 /// What `daemon.stop` answers, before the Daemon stops.

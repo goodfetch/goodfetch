@@ -19,8 +19,7 @@ use crate::catalog::{
     OperationClass, OperationKind, Product, ProtocolVersion, Reach, Setting, Stability, ValueKind,
     schema_of,
 };
-use crate::connection::StoppedBy;
-use crate::daemon::DaemonEndpoint;
+use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -762,12 +761,35 @@ pub struct RunIndexRow {
     pub started_at: PointInTime,
     /// When it ended.
     pub ended_at: Option<PointInTime>,
-    /// While it is live, the endpoint of the engine that owns it, when that
-    /// engine has one: a Daemon's. An engine that cannot take the Run's
-    /// writer lock forwards live actions there.
-    pub owner: Option<DaemonEndpoint>,
+    /// While it is live, where the engine that owns it is reached: a
+    /// Daemon's endpoint, or an Attached engine's private endpoint. An
+    /// engine that cannot take the Run's writer lock forwards live actions
+    /// there.
+    pub owner: Option<RunOwner>,
     /// Whether its state is at its location.
     pub presence: Presence,
+}
+
+/// Where the engine that owns a live Run is reached (ADR 0031).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RunOwner {
+    /// A Daemon, at the endpoint of its runtime file, which also holds its
+    /// token.
+    Daemon(DaemonEndpoint),
+    /// An Attached engine, at its private endpoint.
+    Attached(PrivateEndpoint),
+}
+
+impl fmt::Display for RunOwner {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Daemon(endpoint) => write!(formatter, "the Daemon at {endpoint}"),
+            Self::Attached(private) => {
+                write!(formatter, "the Attached engine at {}", private.address)
+            }
+        }
+    }
 }
 
 /// What `runs reindex --json` prints: the Run index it rebuilt, and how many

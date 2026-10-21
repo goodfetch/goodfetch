@@ -34,10 +34,9 @@ use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
-use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow, RunKind,
+    Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow, RunKind, RunOwner,
     RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
@@ -101,9 +100,9 @@ pub(crate) struct RunsSetup {
     /// engine to take its writer role (ADR 0098).
     pub(crate) product: Product,
     /// Where other engines reach this one, which the Run index names as
-    /// the owner of its live Runs: a Daemon's endpoint, none on an Attached
-    /// engine.
-    pub(crate) endpoint: Option<DaemonEndpoint>,
+    /// the owner of its live Runs: a Daemon's endpoint, or an Attached
+    /// engine's private endpoint; none when it has neither.
+    pub(crate) reached_at: Option<RunOwner>,
     /// How a live action reaches the owner the Run index names.
     pub(crate) forwarder: Arc<dyn Forwarder>,
 }
@@ -115,7 +114,7 @@ pub(crate) trait Forwarder: Send + Sync {
     /// `None` when it did not answer, answered `run_not_owned`, or failed.
     fn abort<'a>(
         &'a self,
-        owner: &'a DaemonEndpoint,
+        owner: &'a RunOwner,
         run_id: &'a RunId,
         tasks: &'a TaskOwner,
     ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>>;
@@ -1083,7 +1082,7 @@ impl Registry {
             ended_at: report.map(|report| report.ended_at.clone()),
             owner: match report {
                 Some(_) => None,
-                None => self.setup.endpoint.clone(),
+                None => self.setup.reached_at.clone(),
             },
             presence: Presence::Present,
         }

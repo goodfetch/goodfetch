@@ -1,5 +1,8 @@
 //! Collie's executable, `goodfetch-collie` (ADR 0090): Collie's composition,
-//! a list, passed to the engine at start (ADR 0087).
+//! a list, passed to the engine at start (ADR 0087), with Collie's Console
+//! build (ADR 0057).
+
+mod console_build;
 
 use std::process::ExitCode;
 
@@ -13,7 +16,7 @@ fn main() -> ExitCode {
     start(&Start {
         product: Product::Collie,
         version: env!("CARGO_PKG_VERSION"),
-        composition: goodfetch_collie::composition,
+        composition: console_build::composition,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

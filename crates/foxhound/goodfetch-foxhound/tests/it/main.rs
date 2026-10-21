@@ -13,4 +13,5 @@ mod daemon;
 mod journeys;
 mod outcomes;
 mod service_manager;
+mod workers;
 mod writer_lock;

@@ -45,6 +45,8 @@ disallowed-methods = [
   # A synchronous crate (`xtask`) states its exception on the module that blocks.
   { path = "std::thread::sleep", reason = "never block an async worker (STYLE.md)" },
   { path = "std::process::Command::new", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
+  # The engine starts every child process through its `children` module, in a group or Job Object of its own that dies with it (ADR 0024).
+  { path = "tokio::process::Command::spawn", reason = "start the engine's children through goodfetch-engine's `children` module (ADR 0024)", allow-invalid = true },
   { path = "std::fs::read", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
   { path = "std::fs::read_to_string", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },
   { path = "std::fs::read_dir", reason = "never block an async worker; use the tasks module's blocking policy (STYLE.md)" },

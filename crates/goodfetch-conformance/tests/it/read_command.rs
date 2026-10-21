@@ -10,6 +10,8 @@ use goodfetch_protocol::result_document::{
     CheckOutcome, CheckResult, Executable, JourneyDocument, JourneyFacts, OracleAnswer,
     OracleOutcome, ResultDocument, StepOutcome, StepResult, TaskResult,
 };
+use std::process::Output;
+
 use goodfetch_test_support::{TestEnv, command};
 use serde_json::{Map, json};
 
@@ -80,4 +82,87 @@ fn read_refuses_a_document_stored_as_proved_beside_a_false_success() {
     let read = command(&env, READ).arg("read").arg(&file).output().unwrap();
 
     assert_eq!(read.status.code(), Some(1), "{read:?}");
+}
+
+/// J-951, a Journey of two steps whose one check names `catalog/1`.
+const J951: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/it/fixtures/journey-run/J-951.toml"
+);
+
+const VERSION_STEP: &str = "Ask the executable for its version";
+const READ_STEP: &str = "Read every product the catalog lists, from its first listing page";
+
+/// A J-951 variant that recorded `steps`, each passed, its task verified.
+fn j951_document(steps: &[&str]) -> ResultDocument {
+    let task = TaskId::try_from("catalog/1".to_owned()).unwrap();
+    ResultDocument::Journey(JourneyDocument::new(JourneyFacts {
+        journey_id: JourneyId::try_from("J-951".to_owned()).unwrap(),
+        surface: "console".to_owned(),
+        executable: Executable {
+            product: Product::Collie,
+            version: "0.0.0".to_owned(),
+        },
+        surface_package: None,
+        platform: platform(),
+        runtime: "chromium-141".to_owned(),
+        proving_ground: None,
+        steps: steps
+            .iter()
+            .map(|text| StepResult {
+                text: (*text).to_owned(),
+                outcome: StepOutcome::Passed,
+            })
+            .collect(),
+        checks: vec![CheckResult {
+            text: "The oracle verifies the catalog's Records".to_owned(),
+            task: Some(task.clone()),
+            outcome: CheckOutcome::Passed,
+        }],
+        tasks: vec![TaskResult {
+            id: task.clone(),
+            answer: Some(OracleAnswer {
+                task,
+                outcome: OracleOutcome::Verified,
+                details: Map::new(),
+            }),
+            observations: Vec::new(),
+        }],
+    }))
+}
+
+/// Writes `document` into the test's folder and runs `read` on it, then `arguments`.
+fn read_with(env: &TestEnv, document: &ResultDocument, arguments: &[&str]) -> Output {
+    let file = env.folder().join("journey.json");
+    std::fs::write(&file, serde_json::to_vec(document).unwrap()).unwrap();
+    command(env, READ)
+        .arg("read")
+        .arg(&file)
+        .args(arguments)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn read_with_its_journey_refuses_a_document_that_left_a_step_out() {
+    let env = TestEnv::new();
+    let document = j951_document(&[READ_STEP]);
+
+    let read = read_with(&env, &document, &["--journey", J951]);
+
+    assert_eq!(read.status.code(), Some(1), "{read:?}");
+    assert!(
+        String::from_utf8_lossy(&read.stderr).contains("step"),
+        "{read:?}"
+    );
+}
+
+#[test]
+fn read_with_its_journey_accepts_a_document_holding_its_steps() {
+    let env = TestEnv::new();
+    let document = j951_document(&[VERSION_STEP, READ_STEP]);
+
+    let read = read_with(&env, &document, &["--journey", J951]);
+
+    assert_eq!(read.status.code(), Some(0), "{read:?}");
 }

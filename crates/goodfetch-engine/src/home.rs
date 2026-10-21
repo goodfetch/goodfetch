@@ -15,6 +15,9 @@ const RUNS: &str = "runs";
 /// The Run index's file in the per-major folder.
 const RUN_INDEX: &str = "run-index.sqlite";
 
+/// The Usage ledger's file, outside the per-major folders (ADR 0041).
+const USAGE_LEDGER: &str = "usage-ledger.sqlite";
+
 /// One user's Goodfetch data folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Home {
@@ -48,6 +51,12 @@ impl Home {
     /// The per-major Run index's file.
     pub fn run_index(&self, version: &ProductVersion) -> PathBuf {
         self.per_major(version).join(RUN_INDEX)
+    }
+
+    /// The per-user Usage ledger's file, outside the per-major folders, which
+    /// every engine of every major and of both Products opens (ADR 0041).
+    pub fn usage_ledger(&self) -> PathBuf {
+        self.root.join(USAGE_LEDGER)
     }
 }
 

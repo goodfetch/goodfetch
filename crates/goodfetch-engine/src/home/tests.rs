@@ -35,3 +35,14 @@ fn the_run_folders_and_the_run_index_sit_in_the_per_major_folder() {
         )
     );
 }
+
+/// Covers: story:3-67
+#[test]
+fn the_usage_ledger_sits_in_the_home_outside_every_per_major_folder() {
+    let home = Home::new(PathBuf::from("home"));
+
+    assert_eq!(
+        home.usage_ledger(),
+        PathBuf::from("home").join("usage-ledger.sqlite")
+    );
+}

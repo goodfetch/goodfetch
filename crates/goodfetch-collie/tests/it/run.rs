@@ -110,3 +110,58 @@ fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
         (true, false)
     );
 }
+
+/// A Run past its `timeout.run` stops at its next safe point, at once for a
+/// Run its program drives, `stopped` and `incomplete` with the stop reason
+/// `timeout` and no Error code of its own; the test sets a short value, as
+/// every duration the engine waits on is a setting (ADR 0059).
+///
+/// Covers: story:3-52, setting:timeout.run, operation:events.subscribe, event:run.axes_changed
+#[test]
+fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    engine.send(
+        &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
+    );
+    engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "events", "credits": 16 } }));
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "run.start",
+        "params": { "run_id": "timed", "settings": { "timeout": { "run": 200 } } },
+    }));
+
+    let stopped = loop {
+        let message = engine.next().unwrap();
+        let events = message["params"]["events"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if let Some(event) = events
+            .into_iter()
+            .find(|event| event["data"]["lifecycle"] == "stopped")
+        {
+            break event;
+        }
+    };
+    let report = call(&mut engine, 1, "run.finish", &json!({ "run_id": "timed" }));
+    let (_, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            &stopped["data"]["run_id"],
+            &report["result"]["lifecycle"],
+            &report["result"]["completeness"],
+            &report["result"]["stop_reason"],
+            exited,
+        ),
+        (
+            &json!("timed"),
+            &json!("stopped"),
+            &json!("incomplete"),
+            &json!({ "kind": "timeout" }),
+            true,
+        )
+    );
+}

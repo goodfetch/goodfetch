@@ -20,6 +20,7 @@ use goodfetch_engine::browser_cache::{
     BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CacheLocation, HeldArtifact, Pins,
     Platform, PlatformNotice, browser_source, installed_browser,
 };
+use goodfetch_engine::children::Children;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
@@ -250,10 +251,9 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
         ))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let (connection, driver, child) = start(&mut command)
-        .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
+        .stderr(Stdio::null());
+    let (connection, driver, child) =
+        start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let (exits, exit) = watch::channel(None);
     run.spawn(supervise(
         run.clone(),
@@ -273,21 +273,43 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
 /// The driver of a browser's connection, which its supervisor runs.
 type Driving = std::pin::Pin<Box<dyn Future<Output = goodfetch_cdp::Ended> + Send>>;
 
+/// The browser's process, started through the engine's `children` module
+/// in a process group of its own, which dies with the value (ADR 0024).
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "the debugging pipe starts no browser on this OS yet"
+    )
+)]
+pub(crate) struct Process {
+    child: Child,
+    _group: Children,
+}
+
 /// Starts `command` with its debugging pipe: the browser's connection,
 /// its driver, and its process.
 #[cfg(unix)]
-fn start(command: &mut Command) -> std::io::Result<(Connection, Driving, Child)> {
-    let (engine, browser) = pipe::attach(command)?;
-    let child = command.spawn()?;
+fn start(mut command: Command) -> std::io::Result<(Connection, Driving, Process)> {
+    let (engine, browser) = pipe::attach(&mut command)?;
+    let mut group = Children::new()?;
+    let child = group.spawn(command)?;
     // The parent's copies of the browser's ends close now, so its end of the
     // pipe closes when it exits.
     drop(browser);
     let (connection, driver) = Connection::new(engine.reader, engine.writer);
-    Ok((connection, Box::pin(driver.run()), child))
+    Ok((
+        connection,
+        Box::pin(driver.run()),
+        Process {
+            child,
+            _group: group,
+        },
+    ))
 }
 
 #[cfg(not(unix))]
-fn start(_command: &mut Command) -> std::io::Result<(Connection, Driving, Child)> {
+fn start(_command: Command) -> std::io::Result<(Connection, Driving, Process)> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "the debugging pipe is not built on this OS yet",
@@ -298,12 +320,16 @@ fn start(_command: &mut Command) -> std::io::Result<(Connection, Driving, Child)
 /// Run to stop, closes it then, and releases its build and profile.
 async fn supervise(
     run: Run,
-    mut child: Child,
+    process: Process,
     (connection, driver): (Connection, Driving),
     exits: watch::Sender<Option<BrowserExit>>,
     held: Option<HeldArtifact>,
     profile: PathBuf,
 ) {
+    let Process {
+        mut child,
+        _group: group,
+    } = process;
     let stopping = run.cancellation().clone();
     let (_, status) = tokio::join!(driver, async {
         let status = tokio::select! {
@@ -329,6 +355,8 @@ async fn supervise(
         code: None,
         signal: None,
     })));
+    // The group goes with its last process, and the build is released.
+    drop(group);
     drop(held);
     run.owner()
         .blocking(move || {

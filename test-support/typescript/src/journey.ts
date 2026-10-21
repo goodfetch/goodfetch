@@ -22,26 +22,22 @@
 // surface in its body, the CLI through `cli(args)`, the executable run in
 // the variant's home and cleared environment. Once the body ends, the test
 // fails unless the run is `proved`. Whatever happened, the run's facts are
-// attached to the test, and test support's `JourneyReporter` writes the
+// attached to the test, and test support's `ResultDocumentReporter` writes the
 // variant's `journey` document from them.
 import type { BrowserContext, Page, TestInfo } from "@playwright/test";
-import { hostPlatform } from "./case-log.ts";
+import { browserRuntime, hostPlatform } from "./case-log.ts";
+import { daemonCommand, reportedVersion, type CliOutput } from "./daemon-command.ts";
 import { TestSupportError } from "./errors.ts";
 import type { OracleAnswer } from "./generated/result-document.ts";
-import { journeyDocument, type JourneyFacts } from "./journey-document.ts";
+import { journeyDocument } from "./journey-document.ts";
 import { JOURNEY_CATALOG, readJourneyFile, type JourneyFile } from "./journey-file.ts";
-import { JOURNEY_FACTS } from "./journey-reporter.ts";
 import { JourneyRun, type JourneyBody, type TaskSubmission } from "./journey-run.ts";
 import { test as served, type ServedDaemon, type SignIn } from "./playwright.ts";
 import { ProcessRecord } from "./process-record.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
+import { JOURNEY_FACTS } from "./result-document-reporter.ts";
 
-/** What a command of the executable gave. */
-export interface CliOutput {
-  readonly code: number | null;
-  readonly stdout: string;
-  readonly stderr: string;
-}
+export type { CliOutput } from "./daemon-command.ts";
 
 /** What a variant's body takes. */
 export interface JourneyContext {
@@ -92,14 +88,15 @@ const variantTest = served.extend<{ journeyVariant: Variant | undefined; variant
       throw new Error("invariant: `journey` sets the variant of every test it declares");
     }
     const processes = new ProcessRecord();
-    const cli = (args: readonly string[]): Promise<CliOutput> => command(processes, daemon, args);
+    const cli = (args: readonly string[]): Promise<CliOutput> =>
+      daemonCommand(processes, daemon, args);
     try {
       const run = new JourneyRun({
         journey: journeyVariant.journey,
         surface: journeyVariant.surface,
         executable: await reportedVersion(cli, daemon.executable),
         platform: hostPlatform(),
-        runtime: `${browserName}-${browser.version().split(".")[0] ?? ""}`,
+        runtime: browserRuntime(browserName, browser.version()),
         provingGround: daemon.provingGround,
       });
       try {
@@ -185,46 +182,4 @@ async function attachFacts(testInfo: TestInfo, run: JourneyRun): Promise<void> {
     body: JSON.stringify(run.facts()),
     contentType: "application/json",
   });
-}
-
-/** Runs the Daemon's executable with `args` in the test's home and cleared environment. */
-async function command(
-  processes: ProcessRecord,
-  daemon: ServedDaemon,
-  args: readonly string[],
-): Promise<CliOutput> {
-  const started = processes.spawn(daemon.executable, args, { env: daemon.env });
-  started.child.stdin.end();
-  let stdout = "";
-  let stderr = "";
-  started.child.stdout.setEncoding("utf8");
-  started.child.stderr.setEncoding("utf8");
-  started.child.stdout.on("data", (chunk: string) => {
-    stdout += chunk;
-  });
-  started.child.stderr.on("data", (chunk: string) => {
-    stderr += chunk;
-  });
-  const { code } = await started.exit;
-  return { code, stdout, stderr };
-}
-
-/** The Product and Product version the executable reports through `--version`, `goodfetch-<product> <version>`. */
-async function reportedVersion(
-  cli: (args: readonly string[]) => Promise<CliOutput>,
-  executable: string,
-): Promise<JourneyFacts["executable"]> {
-  const output = await cli(["--version"]);
-  const [binary, version] = output.stdout.trim().split(" ");
-  const product = binary?.replace(/^goodfetch-/, "");
-  if (
-    output.code !== 0 ||
-    version === undefined ||
-    (product !== "collie" && product !== "foxhound")
-  ) {
-    throw new Error(
-      `the executable ${executable} reports no \`goodfetch-<product> <version>\` through \`--version\`: \`${output.stdout}\``,
-    );
-  }
-  return { product, version };
 }

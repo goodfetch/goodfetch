@@ -1,6 +1,9 @@
 //! The real OS services the tests meet (ADR 0059; TESTING.md, Storage,
 //! network and OS services): the extra loopback addresses, the Secret
-//! Service and `tc netem` on Linux's loopback. `ci/os-services.sh` starts them in every test job of CI, then
+//! Service, `tc netem` on Linux's loopback, and the user's service manager,
+//! which `daemon install` registers with for real: systemd's user manager
+//! on Linux in the Pre-merge suite, launchd and Task Scheduler on macOS and
+//! Windows in the Release suite only (spec #213). `ci/os-services.sh` starts them in every test job of CI, then
 //! checks them here, so a service that did not come up fails the job; a
 //! local `just test` lists the ones its host lacks and skips the tests that
 //! need them.
@@ -57,6 +60,15 @@ pub(crate) struct Services {
     /// `CAP_NET_ADMIN` in this network namespace and a free root.
     #[arg(long)]
     netem: bool,
+    /// Checks the user's service manager: systemd's user manager answers
+    /// on Linux; on macOS and Windows, where the tests install for real in
+    /// the Release suite only, `--suite release` and launchd's or Task
+    /// Scheduler's answer.
+    #[arg(long)]
+    service_manager: bool,
+    /// The running suite, `GOODFETCH_TEST_SUITE`'s value.
+    #[arg(long)]
+    suite: Option<String>,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -138,6 +150,7 @@ enum Missing {
     LoopbackAddress(Ipv4Addr, String),
     SecretService(String),
     Netem(String),
+    ServiceManager(String),
 }
 
 impl Missing {
@@ -152,6 +165,11 @@ impl Missing {
                 Finding::new("secret-service-missing", "Secret Service", problem.clone())
             }
             Self::Netem(problem) => Finding::new("netem-missing", "tc netem", problem.clone()),
+            Self::ServiceManager(problem) => Finding::new(
+                "service-manager-missing",
+                "the user's service manager",
+                problem.clone(),
+            ),
         }
     }
 
@@ -163,6 +181,7 @@ impl Missing {
             Self::LoopbackAddress(..) => "extra_loopback::",
             Self::SecretService(_) => "keychain::",
             Self::Netem(_) => "tc_netem::",
+            Self::ServiceManager(_) => "service_manager::",
         }
     }
 }
@@ -187,7 +206,66 @@ fn missing(services: &Services) -> Vec<Missing> {
     {
         missing.push(Missing::Netem(problem));
     }
+    if services.service_manager
+        && let Err(problem) = service_manager(services.suite.as_deref())
+    {
+        missing.push(Missing::ServiceManager(problem));
+    }
     missing
+}
+
+/// The user's service manager answers: systemd's user manager on Linux,
+/// which `systemctl --user is-system-running` reaches through the
+/// session's bus; on macOS and Windows, only in the Release suite, the
+/// user's launchd domain or Task Scheduler.
+fn service_manager(suite: Option<&str>) -> Result<(), String> {
+    if cfg!(target_os = "linux") {
+        let output = Process::new("systemctl")
+            .args(["--user", "is-system-running"])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| format!("systemctl did not run ({error})"))?;
+        // It exits non-zero while degraded, which still runs units.
+        let state = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        return match state.as_str() {
+            "running" | "degraded" | "starting" | "initializing" => Ok(()),
+            _ => Err(format!(
+                "systemd's user manager does not answer ({}; it needs a session booted with systemd)",
+                if state.is_empty() {
+                    String::from_utf8_lossy(&output.stderr).trim().to_owned()
+                } else {
+                    state
+                }
+            )),
+        };
+    }
+    if suite != Some("release") {
+        return Err(
+            "`daemon install` installs for real on this OS in the Release suite only".to_owned(),
+        );
+    }
+    let (program, args): (&str, Vec<String>) = if cfg!(windows) {
+        ("schtasks", vec!["/Query".to_owned()])
+    } else {
+        let uid = Process::new("id")
+            .arg("-u")
+            .output()
+            .map_err(|error| format!("id did not run ({error})"))?;
+        let uid = String::from_utf8_lossy(&uid.stdout).trim().to_owned();
+        ("launchctl", vec!["print".to_owned(), format!("user/{uid}")])
+    };
+    let status = Process::new(program)
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("{program} did not run ({error})"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{program} {} failed", args.join(" ")))
+    }
 }
 
 /// Appends one line per group of skipped tests to the local run's list, with

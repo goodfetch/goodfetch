@@ -823,9 +823,61 @@
         }
       ]
     },
+    "DaemonInstallOutput": {
+      "description": "What `daemon install --json` prints.",
+      "properties": {
+        "service": {
+          "$ref": "#/$defs/InstalledService",
+          "arrived_in": "0.1",
+          "description": "The service it registered."
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStopping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the Daemon running before answered when it was stopped so the\nservice could take its place, or `None` when none ran."
+        }
+      },
+      "required": [
+        "service"
+      ],
+      "type": "object"
+    },
     "DaemonParams": {
       "additionalProperties": false,
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
+      "type": "object"
+    },
+    "DaemonRotateTokenOutput": {
+      "description": "What `daemon rotate-token --json` prints.",
+      "properties": {
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonStopping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the Daemon running with the old token answered when it was\nstopped, or `None` when none ran."
+        },
+        "token_file": {
+          "arrived_in": "0.1",
+          "description": "The file that holds the new persistent token, mode `0600`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token_file"
+      ],
       "type": "object"
     },
     "DaemonStartOutput": {
@@ -931,6 +983,18 @@
           "arrived_in": "0.1",
           "description": "The runtime file of the executable's major.",
           "type": "string"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The per-user service `daemon install` registered for the major, or\n`None` when none is installed."
         }
       },
       "required": [
@@ -970,6 +1034,24 @@
       "required": [
         "live_runs"
       ],
+      "type": "object"
+    },
+    "DaemonUninstallOutput": {
+      "description": "What `daemon uninstall --json` prints.",
+      "properties": {
+        "removed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The service it removed, or `None` when none was installed."
+        }
+      },
       "type": "object"
     },
     "DownloadProgress": {
@@ -1549,6 +1631,50 @@
       "required": [
         "format_version",
         "executables"
+      ],
+      "type": "object"
+    },
+    "InstalledService": {
+      "additionalProperties": false,
+      "description": "The per-user service of one major that `daemon install` registered,\nrecorded in `daemon-service.json` in the major's per-major folder (ADRs\n0024, 0031 and 0098): what starts the major's pick, from which versioned\ncopy, and the socket its service manager listens on for it.",
+      "properties": {
+        "executable": {
+          "arrived_in": "0.1",
+          "description": "The versioned copy in the Browser cache that the service starts,\nwhich starts its major's pick.",
+          "type": "string"
+        },
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The files that define it to the service manager.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "manager": {
+          "$ref": "#/$defs/ServiceManager",
+          "arrived_in": "0.1",
+          "description": "The service manager it is registered with."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name there: a launch agent's label, a user unit's name without\nits suffix, or a logon task's path.",
+          "type": "string"
+        },
+        "socket": {
+          "arrived_in": "0.1",
+          "description": "The socket the service manager listens on and hands the Daemon it\nstarts at the first connection, or `None` where the OS has no socket\nactivation (Windows).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "manager",
+        "name",
+        "executable",
+        "files"
       ],
       "type": "object"
     },
@@ -2978,6 +3104,26 @@
       },
       "minItems": 1,
       "type": "array"
+    },
+    "ServiceManager": {
+      "description": "The OS's service manager a Daemon is installed with (ADR 0024).",
+      "oneOf": [
+        {
+          "const": "launchd",
+          "description": "macOS's launchd, as a launch agent with socket activation.",
+          "type": "string"
+        },
+        {
+          "const": "systemd",
+          "description": "Linux's systemd, as a user unit with socket activation.",
+          "type": "string"
+        },
+        {
+          "const": "task_scheduler",
+          "description": "Windows' Task Scheduler, as a logon task.",
+          "type": "string"
+        }
+      ]
     },
     "SettingLimit": {
       "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
@@ -4831,8 +4977,14 @@
     "config.explain": {
       "$ref": "#/$defs/SettingsExplanation"
     },
+    "daemon.install": {
+      "$ref": "#/$defs/DaemonInstallOutput"
+    },
     "daemon.restart": {
       "$ref": "#/$defs/DaemonStartOutput"
+    },
+    "daemon.rotate-token": {
+      "$ref": "#/$defs/DaemonRotateTokenOutput"
     },
     "daemon.start": {
       "$ref": "#/$defs/DaemonStartOutput"
@@ -4842,6 +4994,9 @@
     },
     "daemon.stop": {
       "$ref": "#/$defs/DaemonStopOutput"
+    },
+    "daemon.uninstall": {
+      "$ref": "#/$defs/DaemonUninstallOutput"
     }
   },
   "protocol_version": "0.1",

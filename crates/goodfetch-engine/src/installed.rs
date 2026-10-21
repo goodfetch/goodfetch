@@ -66,6 +66,50 @@ impl InstalledList {
     /// When the file cannot be read or written, or it is of another major,
     /// which this engine never rewrites.
     pub fn record(&self, executable: &InstalledExecutable) -> io::Result<()> {
+        self.rewrite(|entries| {
+            let mut recorded = serde_json::to_value(executable)
+                .expect("invariant: an entry serializes")
+                .as_object()
+                .cloned()
+                .expect("invariant: an entry is an object");
+            let found = entries
+                .iter_mut()
+                .find(|stored| same_executable(stored, executable));
+            match found {
+                Some(Value::Object(stored)) => {
+                    let same_file = stored.get("size") == recorded.get("size")
+                        && stored.get("modified_at") == recorded.get("modified_at");
+                    if executable.copy.is_none() {
+                        match stored.get("copy") {
+                            Some(copy) if same_file => {
+                                recorded.insert("copy".to_owned(), copy.clone());
+                            }
+                            _ => {
+                                stored.remove("copy");
+                            }
+                        }
+                    }
+                    stored.extend(recorded);
+                }
+                _ => entries.push(Value::Object(recorded)),
+            }
+        })
+    }
+
+    /// Forgets the entry of `executable`'s kind, path and Product version,
+    /// keeping every other entry and every field this engine does not know;
+    /// nothing when there is none.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be read or written, or it is of another major,
+    /// which this engine never rewrites.
+    pub fn forget(&self, executable: &InstalledExecutable) -> io::Result<()> {
+        self.rewrite(|entries| entries.retain(|stored| !same_executable(stored, executable)))
+    }
+
+    /// Rewrites the list's entries with `change` under the list's lock.
+    fn rewrite(&self, change: impl FnOnce(&mut Vec<Value>)) -> io::Result<()> {
         fs::create_dir_all(self.path.parent().unwrap_or(Path::new(".")))?;
         let lock = File::options()
             .create(true)
@@ -96,35 +140,11 @@ impl InstalledList {
         if !entries.is_array() {
             *entries = Value::Array(Vec::new());
         }
-        let entries = entries
-            .as_array_mut()
-            .expect("invariant: `executables` was just made an array");
-        let mut recorded = serde_json::to_value(executable)
-            .expect("invariant: an entry serializes")
-            .as_object()
-            .cloned()
-            .expect("invariant: an entry is an object");
-        let found = entries
-            .iter_mut()
-            .find(|stored| same_executable(stored, executable));
-        match found {
-            Some(Value::Object(stored)) => {
-                let same_file = stored.get("size") == recorded.get("size")
-                    && stored.get("modified_at") == recorded.get("modified_at");
-                if executable.copy.is_none() {
-                    match stored.get("copy") {
-                        Some(copy) if same_file => {
-                            recorded.insert("copy".to_owned(), copy.clone());
-                        }
-                        _ => {
-                            stored.remove("copy");
-                        }
-                    }
-                }
-                stored.extend(recorded);
-            }
-            _ => entries.push(Value::Object(recorded)),
-        }
+        change(
+            entries
+                .as_array_mut()
+                .expect("invariant: `executables` was just made an array"),
+        );
         let text = serde_json::to_vec_pretty(&Value::Object(document))
             .expect("invariant: the list serializes");
         let partial = self.path.with_extension("json.partial");

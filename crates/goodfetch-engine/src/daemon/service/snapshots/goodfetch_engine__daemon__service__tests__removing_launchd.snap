@@ -1,0 +1,5 @@
+---
+source: crates/goodfetch-engine/src/daemon/service/tests.rs
+expression: "lines.join(\"\\n\")"
+---
+launchctl bootout gui/501/dev.goodfetch.daemon.1.cfa77cf6 (true)

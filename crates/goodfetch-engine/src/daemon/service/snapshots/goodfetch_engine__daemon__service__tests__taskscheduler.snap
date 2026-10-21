@@ -1,0 +1,41 @@
+---
+source: crates/goodfetch-engine/src/daemon/service/tests.rs
+expression: "format!(\"{}\\n{}\", files.join(\"\\n\"), commands.join(\"\\n\"))"
+---
+--- /Users/ada/Goodfetch é home/1/service/goodfetch-daemon-1-cfa77cf6.xml
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Goodfetch&apos;s Daemon of major 1, for /Users/ada/Goodfetch é home</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>WORKSTATION\ada</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>WORKSTATION\ada</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>/Users/ada/Goodfetch é home/browsers/executable_copy/goodfetch-collie/1.4.0-0123456789abcdef/files/goodfetch-collie</Command>
+      <Arguments>daemon launched --service --copy 1.4.0-0123456789abcdef --environment &quot;GOODFETCH_HOME=/Users/ada/Goodfetch é home&quot; --environment GOODFETCH_LOG=info,goodfetch=debug</Arguments>
+      <WorkingDirectory>/Users/ada/Goodfetch é home</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+
+$ schtasks /Create | /TN | Goodfetch\goodfetch-daemon-1-cfa77cf6 | /XML | /Users/ada/Goodfetch é home/1/service/goodfetch-daemon-1-cfa77cf6.xml | /F
+$ schtasks /Run | /TN | Goodfetch\goodfetch-daemon-1-cfa77cf6

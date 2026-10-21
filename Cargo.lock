@@ -1183,6 +1183,7 @@ dependencies = [
  "hyper-util",
  "insta",
  "jiff",
+ "libc",
  "mimalloc",
  "proptest",
  "proptest-state-machine",

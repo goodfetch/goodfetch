@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage,
     Instrument, Metric, Operation, OperationClass, OperationKind, PluginKind, PluginMethod,
-    ProtocolVersion, Setting, SharedType, SharedTypeValue, Stability, schema_of,
+    ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -80,6 +80,7 @@ pub const ENTRIES: Entries = Entries {
         description: "Repeats a text back to the caller.",
         class: OperationClass::Read,
         kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
         params: schema_of::<SampleEchoParams>,
         result: schema_of::<SampleEchoResult>,
         events: &[&SAMPLE_ECHOED],

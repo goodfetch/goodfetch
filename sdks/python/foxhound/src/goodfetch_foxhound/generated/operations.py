@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
-from goodfetch_collie_client.generated.models import RunStarted
+from goodfetch_collie_client.generated.models import RunParams, RunReport, RunStarted
 from .models import CrawlRequestOutcomes, CrawlStartParams, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, SampleCrawlParams, SampleCrawlResult
 
 
@@ -24,6 +24,13 @@ class AsyncFoxhoundOperations:
     def __init__(self, caller: AsyncCaller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    async def crawl_serve(self, params: RunParams) -> RunReport:
+        """Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("crawl.serve", params)))
 
     async def crawl_start(self, params: CrawlStartParams) -> RunStarted:
         """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.
@@ -57,6 +64,13 @@ class FoxhoundOperations:
     def __init__(self, caller: Caller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    def crawl_serve(self, params: RunParams) -> RunReport:
+        """Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("crawl.serve", params)))
 
     def crawl_start(self, params: CrawlStartParams) -> RunStarted:
         """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.

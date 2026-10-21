@@ -75,8 +75,9 @@ class DaemonEndpoint2(BaseModel):
 class DaemonEndpoint(RootModel[DaemonEndpoint1 | DaemonEndpoint2]):
     root: DaemonEndpoint1 | DaemonEndpoint2
     """
-    Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
-    Linux, loopback TCP on Windows.
+    Where a Daemon or an Attached engine's private endpoint listens (ADR
+    0024): a `0600` Unix socket on macOS and Linux, loopback TCP on
+    Windows.
     """
 
 
@@ -140,6 +141,23 @@ class PointInTime(RootModel[AwareDatetime]):
 class Position(RootModel[int]):
     root: Annotated[int, Field(ge=0)]
     """An event's position among every event of one engine, which only goes up."""
+
+
+class PrivateEndpoint(BaseModel):
+    """
+    An Attached engine's private endpoint (ADRs 0024 and 0031): where it
+    listens, a `0600` Unix socket on macOS and Linux or loopback TCP on
+    Windows, and the `0600` file holding the token that each Connection's
+    `hello` there carries, as a Daemon's does.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    address: DaemonEndpoint
+    """Where it listens."""
+    token_file: str
+    """The path of the file holding its token."""
 
 
 class Product(StrEnum):
@@ -619,6 +637,12 @@ class HelloResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    private_endpoint: PrivateEndpoint | None = None
+    """
+    An Attached engine's private endpoint, reported to the Client of its
+    stdio alone: where that Client's `workers=N` handler processes, and a
+    Daemon forwarding a live action, connect (ADRs 0024 and 0031).
+    """
     product: Product
     """The engine's Product."""
     product_version: ProductVersion

@@ -5,7 +5,8 @@
 //! `{code, message, data: {code, retryable, …}}`. Dispatch emits one
 //! `tracing` record per request, at `trace` under the target
 //! [`DISPATCH_TARGET`], with its method and its reply's Error code, and one
-//! per event sent, with its name, which ADR 0072's exercise audit reads.
+//! per event sent, with its name, which ADR 0072's exercise audit reads,
+//! and one per `$/cancel` that stops a call in flight.
 //! The streaming calls, `events.subscribe` and `page.body`, send their
 //! events and chunks as the credits the Client grants with `$/credit` allow.
 
@@ -26,7 +27,7 @@ use crate::composition::CallError;
 use crate::product::{Identity, Requested};
 
 pub use connection::REFUSAL_TARGET;
-pub(crate) use connection::{Dispatch, serve};
+pub(crate) use connection::{Access, Dispatch, serve};
 pub(crate) use stream::handlers;
 
 /// The `tracing` target of dispatch's records.
@@ -40,6 +41,11 @@ fn record(method: &str, error_code: Option<&str>) {
             tracing::trace!(target: DISPATCH_TARGET, method, error_code, "request failed");
         }
     }
+}
+
+/// Records a `$/cancel` that stopped a call in flight.
+fn record_cancel(notification: &str) {
+    tracing::trace!(target: DISPATCH_TARGET, notification, "cancel received");
 }
 
 /// Records one event sent to a Client: its name.

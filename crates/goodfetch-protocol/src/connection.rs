@@ -11,6 +11,8 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
@@ -198,6 +200,48 @@ pub struct HelloResult {
     /// The engine's Product version.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product_version: ProductVersion,
+    /// An Attached engine's private endpoint, reported to the Client of its
+    /// stdio alone: where that Client's `workers=N` handler processes, and a
+    /// Daemon forwarding a live action, connect (ADRs 0024 and 0031).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub private_endpoint: Option<PrivateEndpoint>,
+}
+
+/// Where a Daemon or an Attached engine's private endpoint listens (ADR
+/// 0024): a `0600` Unix socket on macOS and Linux, loopback TCP on
+/// Windows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonEndpoint {
+    /// A Unix socket's path.
+    Unix(#[schemars(with = "String")] PathBuf),
+    /// A loopback address and port.
+    Tcp(#[schemars(with = "String")] SocketAddr),
+}
+
+impl fmt::Display for DaemonEndpoint {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unix(path) => write!(formatter, "{}", path.display()),
+            Self::Tcp(address) => write!(formatter, "{address}"),
+        }
+    }
+}
+
+/// An Attached engine's private endpoint (ADRs 0024 and 0031): where it
+/// listens, a `0600` Unix socket on macOS and Linux or loopback TCP on
+/// Windows, and the `0600` file holding the token that each Connection's
+/// `hello` there carries, as a Daemon's does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PrivateEndpoint {
+    /// Where it listens.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub address: DaemonEndpoint,
+    /// The path of the file holding its token.
+    #[schemars(with = "String", extend("arrived_in" = "0.1"))]
+    pub token_file: PathBuf,
 }
 
 /// What `$/cancel` names: the call to stop.

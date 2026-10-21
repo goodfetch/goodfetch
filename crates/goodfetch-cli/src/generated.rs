@@ -1,36 +1,44 @@
-//! The commands generated from Collie's catalog (ADR 0099): every round trip
-//! and opener of Collie whose namespace no hand-written command group
-//! takes is `<namespace> <member>`, words joined by `-`, whose flags are its
-//! params, `--<parameter>` in kebab-case, a value-bound command taking its
-//! value's ID (`run_id` for `run`) as its first positional argument, and
-//! `--json` printing the result as JSON; an operation that takes `settings`
-//! takes them as the [`SettingsFlags`]. Help comes from the catalog's
-//! descriptions. Foxhound's executable carries these commands unchanged
-//! (ADR 0090).
+//! The commands generated from Collie's catalog (ADR 0099): every operation
+//! [`offer`] gives a command, whose namespace no hand-written command group
+//! takes, is `<namespace> <member>`, words joined by `-`, whose flags are
+//! its params, `--<parameter>` in kebab-case, a value-bound command taking
+//! its value's ID (`run_id` for `run`) as its first positional argument,
+//! a `timeout` param being `--timeout <duration>` or `--timeout none`
+//! (ADR 0080), and `--json` printing the result as JSON; an operation that
+//! takes `settings` takes them as the [`SettingsFlags`]. A sequence's
+//! command takes `--follow`. Help comes from the catalog's descriptions.
+//! Foxhound's executable carries these commands unchanged (ADR 0090).
 //!
 //! A command calls its operation on the engine [`engine_choice`] gives it
 //! and prints the result: an opener prints the new value's ID, any other
 //! the result's fields one per line, a point in time in the local zone,
 //! and `--json` the result itself, in UTC. While the call runs, its words
-//! show as progress on a terminal. A
-//! failure prints its message, code, retryability and `fix` on stderr, or
-//! under `--json` [`CommandFailed`] on stdout, and exits with its row of
-//! [`exit_codes`]. A deprecated command warns on stderr.
+//! show as progress on a terminal. Under `--follow` it prints each event or
+//! chunk the call sends as it arrives, `name=value` fields on one line, or
+//! one JSON object per line under `--json`, until the call ends. A failure
+//! prints its message, code, retryability and `fix` on stderr, or under
+//! `--json` [`CommandFailed`] on stdout, and exits with its row of
+//! [`exit_codes`]; an interrupt exits with [`exit_codes::INTERRUPTED`]. A
+//! deprecated command warns on stderr with ADR 0030's text, which its
+//! `--help` shows too.
 
 use std::process::ExitCode;
 
 use clap::{Arg, ArgAction, ArgMatches, Args as _, Command, FromArgMatches as _};
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::catalog::{ErrorGroup, Operation, OperationKind, Product};
+use goodfetch_protocol::catalog::{
+    Deprecation, ErrorGroup, Operation, OperationKind, Product, Reach, SDK_ONLY,
+};
 use goodfetch_protocol::cli::{CommandError, CommandFailed};
 use goodfetch_protocol::entries::operations_of;
+use goodfetch_protocol::events::EVENTS;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
-use crate::engine_choice::{self, Answer};
+use crate::engine_choice::{self, Answer, CommandCall, Follower};
 use crate::output::Human;
-use crate::settings_flags::SettingsFlags;
+use crate::settings_flags::{self, SettingsFlags};
 use crate::{exit_codes, output};
 
 /// The Product whose catalog the commands come from: Collie's, which both
@@ -39,6 +47,17 @@ const PRODUCT: Product = Product::Collie;
 
 /// The flag that prints the result as JSON.
 const JSON: &str = "json";
+
+/// The flag that runs a sequence, printing what it sends as it arrives.
+const FOLLOW: &str = "follow";
+
+/// The param that is a call's own timeout (ADR 0080): an operation that may
+/// wait takes it, in milliseconds or `null` for none, and one that never
+/// waits does not.
+const TIMEOUT: &str = "timeout";
+
+/// The command line's spelling of no timeout, the null form (ADR 0080).
+const NO_TIMEOUT: &str = "none";
 
 /// The param that takes the run layer's settings (ADR 0083), which a
 /// command takes as its [`SettingsFlags`].
@@ -85,29 +104,43 @@ impl Generated {
         let (member, member_matches) = group_matches.subcommand()?;
         let name = format!("{namespace}.{}", member.replace('-', "_"));
         let operation = commands().find(|operation| operation.name == name)?;
-        let params = parameters(operation)
-            .into_iter()
-            .filter_map(|parameter| {
-                let value = parameter.value(member_matches)?;
-                Some((parameter.name, value))
-            })
-            .collect();
-        Some(Call {
-            operation,
-            params,
-            json: member_matches.get_flag(JSON),
-        })
+        Some(Call::of(operation, member_matches))
+    }
+}
+
+/// How the CLI offers an operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offer {
+    /// A command that prints the call's result.
+    Command,
+    /// A command that takes `--follow` and prints what the call sends as
+    /// it arrives, until the call ends: a sequence.
+    Follow,
+}
+
+/// How the CLI offers `operation`, if it does (ADR 0099): every round trip,
+/// query, read and opener is a command and every sequence one with
+/// `--follow`, unless the catalog keeps it off the CLI, to the SDKs or to
+/// a person; a waiter or an event is none. An operation the catalog's
+/// [`SDK_ONLY`] list names is none whatever its marker, so an entry added
+/// without one never becomes a command.
+pub fn offer(operation: &Operation) -> Option<Offer> {
+    if operation.reach != Reach::AllSurfaces || SDK_ONLY.contains(&operation.name) {
+        return None;
+    }
+    match operation.kind {
+        OperationKind::RoundTrip
+        | OperationKind::Query
+        | OperationKind::Read
+        | OperationKind::Opener => Some(Offer::Command),
+        OperationKind::Sequence => Some(Offer::Follow),
+        OperationKind::Waiter | OperationKind::Event => None,
     }
 }
 
 /// The operations that are commands, in the catalog's order.
 fn commands() -> impl Iterator<Item = &'static Operation> {
-    operations_of(PRODUCT).filter(|operation| {
-        matches!(
-            operation.kind,
-            OperationKind::RoundTrip | OperationKind::Opener
-        )
-    })
+    operations_of(PRODUCT).filter(|operation| offer(operation).is_some())
 }
 
 fn namespace(operation: &Operation) -> &'static str {
@@ -131,9 +164,16 @@ fn spelled(name: &str) -> String {
 
 /// The commands of the group `group`, one per operation of its namespace.
 fn members(group: Command) -> Command {
+    members_of(group, operations_of(PRODUCT))
+}
+
+/// The commands of the group `group`, one per operation of `operations` in
+/// its namespace that the CLI offers.
+fn members_of(group: Command, operations: impl Iterator<Item = &'static Operation>) -> Command {
     let namespace = group.get_name().replace('-', "_");
     group.subcommands(
-        commands()
+        operations
+            .filter(|operation| offer(operation).is_some())
             .filter(|operation| self::namespace(operation) == namespace)
             .map(command),
     )
@@ -142,30 +182,65 @@ fn members(group: Command) -> Command {
 /// The command of `operation`, its help in the form of the hand-written
 /// commands': the description with no closing period.
 fn command(operation: &'static Operation) -> Command {
+    let mut command = Command::new(spelled(member(operation)));
+    let json_help = if offer(operation) == Some(Offer::Follow) {
+        command = command.arg(
+            Arg::new(FOLLOW)
+                .long(FOLLOW)
+                .action(ArgAction::SetTrue)
+                .required(true)
+                .help("Prints what the call sends as it arrives, until it ends"),
+        );
+        "Prints what the call sends as one JSON object per line"
+    } else {
+        "Prints the result as JSON"
+    };
     let command = parameters(operation)
         .into_iter()
-        .fold(
-            Command::new(spelled(member(operation))),
-            |command, parameter| match parameter.form {
-                Form::Settings => SettingsFlags::augment_args(command),
-                _ => command.arg(parameter.arg()),
-            },
-        )
+        .fold(command, |command, parameter| match parameter.form {
+            Form::Settings => SettingsFlags::augment_args(command),
+            _ => command.arg(parameter.arg()),
+        })
         .arg(
             Arg::new(JSON)
                 .long(JSON)
                 .action(ArgAction::SetTrue)
-                .help("Prints the result as JSON"),
+                .help(json_help),
         )
         // After the settings flags, whose derived arguments set an `about`
         // of their own.
         .about(sentence(operation.description));
     match operation.deprecated {
-        Some(deprecated) => command.after_help(format!(
-            "Deprecated since {}: {}",
-            deprecated.since, deprecated.note
-        )),
+        Some(deprecated) => command.after_help(deprecation(deprecated)),
         None => command,
+    }
+}
+
+/// ADR 0030's text for a deprecation, which the warning and `--help` share:
+/// since when, the earliest removal, and the note naming the replacement.
+fn deprecation(deprecated: Deprecation) -> String {
+    format!(
+        "Deprecated since protocol {}, and removed no earlier than the next major: {}",
+        deprecated.since, deprecated.note
+    )
+}
+
+/// A call's timeout as the command line gives it (ADR 0080): `none` for no
+/// timeout, or a positive duration in milliseconds or with a unit (`250ms`,
+/// `45s`, `2m`, `1h`), as milliseconds. `0` reads as "at once", so it is
+/// refused, as is anything that is not a positive duration.
+fn duration(text: &str) -> Result<Value, String> {
+    if text == NO_TIMEOUT {
+        return Ok(Value::Null);
+    }
+    match settings_flags::milliseconds(text) {
+        Some(0) => Err(format!(
+            "a timeout of 0 would end the call at once: give `--timeout {NO_TIMEOUT}` for no timeout"
+        )),
+        Some(milliseconds) => Ok(Value::from(milliseconds)),
+        None => Err(format!(
+            "`{text}` is no duration: give milliseconds, or a whole number with `ms`, `s`, `m` or `h`, such as `45s`, `2m` or `1h`, or `{NO_TIMEOUT}`"
+        )),
     }
 }
 
@@ -203,6 +278,8 @@ enum Form {
     Json,
     /// A repeatable flag, each value read as `Text` or `Json`.
     Repeated { json: bool },
+    /// The call's timeout (ADR 0080), read by [`duration`].
+    Timeout,
     /// The run layer's `settings`: `--set` and `--settings`, the
     /// [`SettingsFlags`].
     Settings,
@@ -224,6 +301,12 @@ impl Parameter {
                 .long(spelled(&self.name))
                 .required(self.required)
                 .action(ArgAction::Append),
+            Form::Timeout => arg
+                .long(spelled(&self.name))
+                .value_name("DURATION")
+                .required(self.required)
+                .action(ArgAction::Set)
+                .value_parser(duration),
         }
     }
 
@@ -247,6 +330,7 @@ impl Parameter {
             Form::Repeated { json } => matches
                 .get_many::<String>(&self.name)
                 .map(|values| Value::Array(values.map(|text| read(text, json)).collect())),
+            Form::Timeout => matches.get_one::<Value>(&self.name).cloned(),
             Form::Settings => {
                 let run_layer = SettingsFlags::from_arg_matches(matches).ok()?.run_layer();
                 (!run_layer.is_empty()).then_some(Value::Object(run_layer))
@@ -278,6 +362,8 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
             let type_of = resolved(schema, &definitions);
             let form = if *name == value_id && required {
                 Form::Value
+            } else if name == TIMEOUT {
+                Form::Timeout
             } else if name == SETTINGS {
                 Form::Settings
             } else {
@@ -360,32 +446,53 @@ pub struct Call {
     operation: &'static Operation,
     params: Map<String, Value>,
     json: bool,
+    follow: bool,
 }
 
 impl Call {
+    /// The call of `operation` that its command's parse `matches` gives.
+    fn of(operation: &'static Operation, matches: &ArgMatches) -> Self {
+        let params = parameters(operation)
+            .into_iter()
+            .filter_map(|parameter| {
+                let value = parameter.value(matches)?;
+                Some((parameter.name, value))
+            })
+            .collect();
+        Self {
+            operation,
+            params,
+            json: matches.get_flag(JSON),
+            follow: offer(operation) == Some(Offer::Follow) && matches.get_flag(FOLLOW),
+        }
+    }
+
     /// Calls the operation on an Attached engine in this process, `engine`
-    /// on `dependencies`, prints what it answered as `human` shows it, and
-    /// answers the exit code.
+    /// on `dependencies`, prints what it answered as `human` shows it, or
+    /// under `--follow` what it sent, and answers the exit code.
     pub fn run(mut self, engine: &Engine, dependencies: Dependencies, human: &Human) -> ExitCode {
         let words = self.operation.name.replace('.', " ").replace('_', "-");
         if let Some(deprecated) = self.operation.deprecated {
-            human.warning(&format!(
-                "`{words}` is deprecated since {}: {}",
-                deprecated.since, deprecated.note
-            ));
+            human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
         }
-        let progress = human.progress(&words);
-        let answer = engine_choice::call_attached(
-            engine,
-            dependencies,
-            PRODUCT,
-            self.operation.name,
-            Value::Object(std::mem::take(&mut self.params)),
-        );
+        let json = self.json;
+        let mut print_sent = |method: &str, sent: &Value| follow(json, method, sent);
+        let call = CommandCall {
+            method: self.operation.name,
+            params: Value::Object(std::mem::take(&mut self.params)),
+            cancellable: self.operation.cancellable,
+            follower: self.follow.then_some(&mut print_sent as Follower<'_>),
+        };
+        // A followed call prints as it runs, so only a call that prints at
+        // its end shows its words as progress until then.
+        let progress = (!self.follow).then(|| human.progress(&words));
+        let answer = engine_choice::call_attached(engine, dependencies, PRODUCT, call);
         drop(progress);
         match answer {
             Answer::Result(result) => {
-                self.print(&result, human);
+                if !self.follow {
+                    self.print(&result, human);
+                }
                 ExitCode::from(exit_codes::SUCCESS)
             }
             Answer::Error(error) => self.fail(error, human),
@@ -393,6 +500,7 @@ impl Call {
                 tracing::error!("{problem}");
                 ExitCode::from(exit_codes::unanswered())
             }
+            Answer::Interrupted => ExitCode::from(exit_codes::INTERRUPTED),
         }
     }
 
@@ -456,6 +564,39 @@ impl Call {
     }
 }
 
+/// Prints what a followed call sent in the notification `method`, one item
+/// per line, as JSON under `--json`, and answers how many items, each the
+/// credit it took: each event of an event batch, or the notification's
+/// params as one item, such as a chunk of a body.
+fn follow(json: bool, method: &str, sent: &Value) -> u32 {
+    let items: Vec<&Value> = match &sent["events"] {
+        Value::Array(events) if method == EVENTS => events.iter().collect(),
+        _ => vec![sent],
+    };
+    for item in &items {
+        if json {
+            output::json(item);
+        } else {
+            output::line(&fields(item));
+        }
+    }
+    u32::try_from(items.len()).unwrap_or(u32::MAX)
+}
+
+/// An item a followed call sent, as human output shows it on one line:
+/// `name=value` for each field but the call's own `id`.
+fn fields(item: &Value) -> String {
+    match item {
+        Value::Object(fields) => fields
+            .iter()
+            .filter(|(name, _)| name.as_str() != "id")
+            .map(|(name, value)| format!("{name}={}", text(value)))
+            .collect::<Vec<_>>()
+            .join(" "),
+        value => text(value),
+    }
+}
+
 /// A value as human output shows it: text as it is, anything else as JSON.
 fn text(value: &Value) -> String {
     match value {
@@ -486,3 +627,6 @@ fn group(error: &ErrorObject) -> ErrorGroup {
         })
         .unwrap_or(ErrorGroup::Internal)
 }
+
+#[cfg(test)]
+mod tests;

@@ -513,7 +513,7 @@
       "type": "object"
     },
     "DaemonEndpoint": {
-      "description": "Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and\nLinux, loopback TCP on Windows.",
+      "description": "Where a Daemon or an Attached engine's private endpoint listens (ADR\n0024): a `0600` Unix socket on macOS and Linux, loopback TCP on\nWindows.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -1973,6 +1973,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "client_gone",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
       "exit_code": null,
       "group": "program",
@@ -2412,10 +2422,30 @@
         "$ref": "#/$defs/ConfigExplainParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SettingsExplanation"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl.serve",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",
@@ -2430,6 +2460,7 @@
         "$ref": "#/$defs/CrawlStartParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -2448,6 +2479,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStatus"
       },
@@ -2466,6 +2498,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStopping"
       },
@@ -2484,6 +2517,7 @@
         "$ref": "#/$defs/EngineInfoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/EngineInfo"
       },
@@ -2505,6 +2539,7 @@
         "$ref": "#/$defs/EventsSubscribeParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
       },
@@ -2523,6 +2558,7 @@
         "$ref": "#/$defs/PageBodyParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
       },
@@ -2541,6 +2577,7 @@
         "$ref": "#/$defs/RunAbortParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -2559,6 +2596,7 @@
         "$ref": "#/$defs/RunFailedRequestsParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/FailedRequests"
       },
@@ -2577,6 +2615,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -2595,6 +2634,7 @@
         "$ref": "#/$defs/RunOutcomesParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/CrawlRequestOutcomes"
       },
@@ -2613,6 +2653,7 @@
         "$ref": "#/$defs/RunStartParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -2633,6 +2674,7 @@
         "$ref": "#/$defs/SampleCrawlParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleCrawlResult"
       },
@@ -2656,6 +2698,7 @@
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
       },

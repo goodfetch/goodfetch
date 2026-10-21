@@ -16,11 +16,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
-    OperationClass, OperationKind, Product, ProtocolVersion, Setting, Stability, ValueKind,
+    OperationClass, OperationKind, Product, ProtocolVersion, Reach, Setting, Stability, ValueKind,
     schema_of,
 };
-use crate::connection::StoppedBy;
-use crate::daemon::DaemonEndpoint;
+use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -502,6 +501,7 @@ pub const RUN_START: Operation = Operation {
     description: "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
+    reach: Reach::AllSurfaces,
     params: schema_of::<RunStartParams>,
     result: schema_of::<RunStarted>,
     events: &[],
@@ -517,6 +517,7 @@ pub const RUN_FINISH: Operation = Operation {
     description: "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<RunParams>,
     result: schema_of::<RunReport>,
     events: &[],
@@ -532,6 +533,7 @@ pub const RUN_ABORT: Operation = Operation {
     description: "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<RunAbortParams>,
     result: schema_of::<RunReport>,
     events: &[],
@@ -762,12 +764,35 @@ pub struct RunIndexRow {
     pub started_at: PointInTime,
     /// When it ended.
     pub ended_at: Option<PointInTime>,
-    /// While it is live, the endpoint of the engine that owns it, when that
-    /// engine has one: a Daemon's. An engine that cannot take the Run's
-    /// writer lock forwards live actions there.
-    pub owner: Option<DaemonEndpoint>,
+    /// While it is live, where the engine that owns it is reached: a
+    /// Daemon's endpoint, or an Attached engine's private endpoint. An
+    /// engine that cannot take the Run's writer lock forwards live actions
+    /// there.
+    pub owner: Option<RunOwner>,
     /// Whether its state is at its location.
     pub presence: Presence,
+}
+
+/// Where the engine that owns a live Run is reached (ADR 0031).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RunOwner {
+    /// A Daemon, at the endpoint of its runtime file, which also holds its
+    /// token.
+    Daemon(DaemonEndpoint),
+    /// An Attached engine, at its private endpoint.
+    Attached(PrivateEndpoint),
+}
+
+impl fmt::Display for RunOwner {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Daemon(endpoint) => write!(formatter, "the Daemon at {endpoint}"),
+            Self::Attached(private) => {
+                write!(formatter, "the Attached engine at {}", private.address)
+            }
+        }
+    }
 }
 
 /// What `runs reindex --json` prints: the Run index it rebuilt, and how many

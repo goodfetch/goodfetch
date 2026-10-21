@@ -19,6 +19,7 @@ A program says how long things may take with one `timeout`, a duration in its la
   - Omitted, the setting's default applies. Python's omitted value is a `not_given` sentinel, as in openai-python.
   - An explicit null means no timeout: `null` in TypeScript, `None` in Python, `.no_timeout()` in Rust. An enclosing timeout still applies.
   - `0`, a negative value or a non-finite number fails with a `ProgramError` whose fix names the null form, because `0` reads as "at once".
+  > Note (agent decision, pending owner review), 2026-10-21, [#1180](https://github.com/goodfetch/goodfetch/issues/1180): a call's own timeout is its operation's `timeout` param, in milliseconds or `null` for none, absent for the setting's default; an operation that may wait declares it and a query does not (ADR 0099). The CLI's `--timeout <duration>` is that param: milliseconds (`45000`) or a count with a unit (`250ms`, `45s`, `2m`, `1h`), and `--timeout none` the null form; `0`, a negative or a malformed duration is a usage error (exit `2`) before any engine call, its message naming `--timeout none`. No operation of the catalog takes `timeout` yet, so no command shows the flag until one does.
 - **Every phase has a finite default**, held as a setting (ADR 0028) that can be set where the Run, Session or page is opened, overridden per call and shown by `goodfetch config explain`:
   - connect: 30 s
   - action, the guard's window (ADR 0019): 30 s

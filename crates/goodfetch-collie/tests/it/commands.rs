@@ -6,21 +6,60 @@
 //! warnings and failures go to stderr; a failure exits with its group's
 //! row. One snapshot per command holds its exit code, stdout and stderr.
 
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
 use goodfetch_test_support::{
     SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
 };
 use serde_json::json;
+use sha2::{Digest as _, Sha256};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// Starts the Run `run_id` with `run start`, on an Attached engine that
 /// stops it as the command ends.
-fn start(env: &TestEnv, run_id: &str) {
+pub(crate) fn start(env: &TestEnv, run_id: &str) {
     let output = cli(env, COLLIE)
         .args(["run", "start", "--run-id", run_id])
         .run()
         .unwrap();
     assert_eq!(output.exit, Some(0), "{output}");
+}
+
+/// The folder of the Run `run_id` that `run start` made in the test's
+/// Goodfetch home: `runs/<run_id>` under the folder of the executable's
+/// major.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test finds the Run's folder in its own Goodfetch home"
+)]
+pub(crate) fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
+    std::fs::read_dir(env.home())
+        .unwrap()
+        .map(|entry| entry.unwrap().path().join("runs").join(run_id))
+        .find(|folder| folder.is_dir())
+        .unwrap()
+}
+
+/// Stores `bytes` as a body of the Run `run_id` the way the engine does, a
+/// file of `bodies/` named by their lowercase hex SHA-256, and answers its
+/// ID.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test lays out a body by hand, as the engine stores one"
+)]
+pub(crate) fn store_body(env: &TestEnv, run_id: &str, bytes: &[u8]) -> String {
+    let id = Sha256::digest(bytes)
+        .iter()
+        .fold(String::new(), |mut id, byte| {
+            let _ = write!(id, "{byte:02x}");
+            id
+        });
+    let bodies = run_folder(env, run_id).join("bodies");
+    std::fs::create_dir_all(&bodies).unwrap();
+    std::fs::write(bodies.join(&id), bytes).unwrap();
+    id
 }
 
 /// Covers: story:11-197, command:engine.info
@@ -166,29 +205,6 @@ fn run_abort_prints_the_report_of_an_ended_run_one_field_per_line() {
     "#);
 }
 
-/// Covers: story:11-204, command:sample.echo
-#[test]
-fn a_deprecated_commands_warning_reaches_stderr_and_never_stdout() {
-    let env = TestEnv::new();
-
-    let checked = cli(&env, COLLIE)
-        .args(["sample", "echo", "--text", "hello", "--json"])
-        .json("SampleEchoResult")
-        .unwrap();
-
-    assert_cli_snapshot!(checked.output, @r#"
-    exit: 0
-    ----- stdout -----
-    {
-      "text": "hello"
-    }
-    ----- stderr -----
-    warning: `sample echo` is deprecated since 0.1: A sample entry, which the real catalog replaces.
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="sample.echo"
-    "#);
-}
-
 /// Covers: story:11-204, command:run.finish
 #[test]
 fn a_failed_call_under_json_prints_the_error_with_its_code_group_and_operation() {
@@ -228,4 +244,28 @@ fn a_failed_call_prints_its_message_code_and_retryability_on_stderr() {
 
     assert_eq!((output.exit, output.stdout.as_str()), (Some(3), ""));
     assert_cli_snapshot!(output);
+}
+
+/// Covers: story:11-198, command:page.body
+#[test]
+fn page_body_follow_prints_each_chunk_on_one_line_as_it_arrives() {
+    let env = TestEnv::new();
+    start(&env, "first");
+    let body = store_body(&env, "first", b"hello");
+
+    let output = cli(&env, COLLIE)
+        .args([
+            "page", "body", "--run-id", "first", "--body", &body, "--follow",
+        ])
+        .run()
+        .unwrap();
+
+    assert_cli_snapshot!(output, @r#"
+    exit: 0
+    ----- stdout -----
+    data=aGVsbG8= offset=0
+    ----- stderr -----
+    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
+    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="page.body"
+    "#);
 }

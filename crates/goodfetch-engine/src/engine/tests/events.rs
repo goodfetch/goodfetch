@@ -11,7 +11,8 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{
-    Event, EventClass, Operation, OperationClass, OperationKind, Product, Stability, schema_of,
+    Event, EventClass, Operation, OperationClass, OperationKind, Product, Reach, Stability,
+    schema_of,
 };
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_test_support::TestEnv;
@@ -41,6 +42,7 @@ const PROGRESS: Operation = Operation {
     description: "Publishes progress.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<Value>,
     result: schema_of::<Value>,
     events: &[&TEST_PROGRESS],

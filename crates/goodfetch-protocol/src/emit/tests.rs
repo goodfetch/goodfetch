@@ -270,6 +270,21 @@ fn the_catalog_declares_each_operations_kind(#[case] operation: &str, #[case] ki
     assert_eq!(entry["kind"], json!(kind));
 }
 
+#[rstest]
+#[case::engine_info("engine.info")]
+#[case::page_body("page.body")]
+fn the_catalog_declares_each_operations_reach(#[case] operation: &str) {
+    let catalog = emit().catalog;
+
+    let entry = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == operation)
+        .unwrap();
+    assert_eq!(entry["reach"], json!("all_surfaces"));
+}
+
 #[test]
 fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
     let emitted = emit();

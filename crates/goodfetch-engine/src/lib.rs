@@ -9,8 +9,10 @@
 //! in run state.
 
 pub mod admission;
+mod attached;
 mod body;
 pub mod browser_cache;
+pub mod children;
 pub mod client;
 pub mod clock;
 mod composition;

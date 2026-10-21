@@ -339,7 +339,7 @@ class SettingUnknownError(ProgramError):
 
 
 class UpgradeSourceUnsupportedError(RefusedError):
-    """`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, which `fix` says to upgrade through first, or a newer major than the executable's, which `fix` says to upgrade to. No file is changed."""
+    """`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""

@@ -420,7 +420,7 @@ export class SettingUnknownError extends ProgramError {
 }
 
 /**
- * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, which `fix` says to upgrade through first, or a newer major than the executable's, which `fix` says to upgrade to. No file is changed.
+ * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
  */
 export class UpgradeSourceUnsupportedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {

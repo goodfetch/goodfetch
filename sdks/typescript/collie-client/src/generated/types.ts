@@ -107,6 +107,13 @@ export type PointInTime = string;
  */
 export type ProductVersion = string;
 /**
+ * A program's own status line about its Run (RT-15).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProgressMessage".
+ */
+export type ProgressMessage = string;
+/**
  * A version `major.minor` (ADR 0030).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1006,6 +1013,27 @@ export interface RunParams {
   run_id: string;
 }
 /**
+ * A Run's progress as it is now (ADR 0102): what `run.progress` reports.
+ * The Run's progress ticket adds the rest of ADR 0102's `RunProgress`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunProgress".
+ */
+export interface RunProgress {
+  /**
+   * Where it is.
+   */
+  lifecycle: "running" | "stopped" | "finished" | "failed";
+  /**
+   * The program's own status line, once it set one.
+   */
+  message?: ProgressMessage | null;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
  * What a Run states about itself when it ends (ADR 0102): its three axes
  * (ADR 0029) and when it ran.
  *
@@ -1109,6 +1137,22 @@ export interface RunResumeParams {
   settings?: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `run.set_progress_message` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunSetProgressMessageParams".
+ */
+export interface RunSetProgressMessageParams {
+  /**
+   * A program's own status line about its Run (RT-15).
+   */
+  message: string;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
 }
 /**
  * What `run.start` takes.

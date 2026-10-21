@@ -17,7 +17,9 @@
 //! refused with `lease_lost`. An attempt whose Connection ended is
 //! `client_gone`, never the handler's own `handler_failed`, and is retried
 //! on a Connection still serving. Once every work item is done, it
-//! finishes the Run. When the Run is asked to stop at its next safe point,
+//! finishes the Run; with `crawl.keep_alive` (RT-12) it waits for new work
+//! instead until `run.finish` lets the Run finish, so its idle time counts
+//! toward its `timeout.run`. When the Run is asked to stop at its next safe point,
 //! such as once its `timeout.run` passed, it admits nothing new, lets each
 //! attempt in flight commit or be abandoned under its lease, and then stops
 //! the Run. When the Run stops at once, by an abort, the attempts in flight
@@ -31,12 +33,12 @@ use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{Ending, Run};
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
-    CLIENT_GONE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
-    HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
+    CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
+    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
 use goodfetch_protocol::run::StopReason;
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
@@ -201,8 +203,12 @@ async fn deliver(
                 Ok(Idle::Admit) => continue,
                 Ok(Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    run.end(Ending::Finished).await;
-                    return;
+                    match drained(run, &resolved, servers, joined).await {
+                        Drained::Ended => return,
+                        Drained::Stop(reason) => stop = Some(reason),
+                        Drained::Again => {}
+                    }
+                    continue;
                 }
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
@@ -314,6 +320,49 @@ fn site_timed_out(code: &str, details: &Map<String, Value>) -> bool {
             .and_then(|limit| limit.get("key"))
             .and_then(Value::as_str)
             .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key))
+}
+
+/// What a crawl with no work item left does next.
+enum Drained {
+    /// It ended the Run, or the Run stopped at once.
+    Ended,
+    /// The Run is asked to stop at its next safe point.
+    Stop(StopReason),
+    /// `run.finish` let it finish, or a Connection joined to serve it:
+    /// look for work once more.
+    Again,
+}
+
+/// Finishes a crawl with no work item left, unless `crawl.keep_alive`,
+/// read at each admission point as its policy is, holds it until
+/// `run.finish` lets it finish: until then it waits for new work, as the
+/// Run's own timeout and a stop still end it (RT-12).
+async fn drained(
+    run: &Run,
+    resolved: &Resolved,
+    servers: &mut Vec<Serving>,
+    joined: &mut mpsc::UnboundedReceiver<Server>,
+) -> Drained {
+    let keeps_alive = resolved
+        .boolean(CRAWL_KEEP_ALIVE.name)
+        .expect("invariant: `crawl.keep_alive` resolves to a boolean");
+    if !keeps_alive || run.is_let_finish() {
+        run.end(Ending::Finished).await;
+        return Drained::Ended;
+    }
+    tokio::select! {
+        biased;
+        () = run.cancellation().cancelled() => {
+            release(run).await;
+            Drained::Ended
+        }
+        reason = run.stopping() => Drained::Stop(reason),
+        () = run.let_finish() => Drained::Again,
+        Some(server) = joined.recv() => {
+            servers.push(Serving::joined(server));
+            Drained::Again
+        }
+    }
 }
 
 /// What a crawl with no attempt in flight does next.

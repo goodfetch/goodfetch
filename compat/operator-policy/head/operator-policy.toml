@@ -64,6 +64,7 @@ max_requests_per_minute = 4
 [settings.crawl]
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
+keep_alive = true
 
 [settings.crawl.retry]
 max = 4
@@ -146,6 +147,7 @@ max_requests_per_minute = 4
 [lock.crawl]
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
+keep_alive = true
 
 [lock.crawl.retry]
 max = 4

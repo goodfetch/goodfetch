@@ -220,6 +220,8 @@ pub(super) struct Recorded {
     pub(super) inputs: String,
     /// Its report, once it ended.
     pub(super) report: Option<RunReport>,
+    /// The program's own status line, once it set one.
+    pub(super) progress_message: Option<String>,
 }
 
 /// What the Run's state at `file` records of the Run, or `None` when there
@@ -230,7 +232,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
     };
     let found = connection
         .query_row(
-            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by, inputs FROM run",
+            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by, inputs, progress_message FROM run",
             [],
             |row| {
                 Ok((
@@ -243,12 +245,19 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
                     PointInTime::from_rfc3339(row.get(4)?),
                     row.get::<_, Option<String>>(5)?,
                     (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
+                    row.get::<_, Option<String>>(8)?,
                 ))
             },
         )
         .optional()?;
-    let Some((run_id, (kind, needs, lifecycle), started_at, policy_version, (weakened_by, inputs))) =
-        found
+    let Some((
+        run_id,
+        (kind, needs, lifecycle),
+        started_at,
+        policy_version,
+        (weakened_by, inputs),
+        progress_message,
+    )) = found
     else {
         return Ok(None);
     };
@@ -269,6 +278,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         weakened_by: serde_json::from_str(&weakened_by).map_err(decode)?,
         inputs,
         report: report(&connection)?,
+        progress_message,
     }))
 }
 

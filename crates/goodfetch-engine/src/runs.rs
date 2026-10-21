@@ -29,7 +29,10 @@
 //!
 //! A Run's driver, such as Foxhound's crawl, holds a [`Run`]: its run
 //! state's writer, its clock, its cancellation, its tasks and its page
-//! bodies. On a Daemon, each Run belongs to the Connection that started it,
+//! bodies, and whether `run.finish` let it finish, which a keep-alive crawl
+//! waits for (RT-12). The program's own status line about its Run (RT-15)
+//! is kept in its run state, which a resume reads back, written into its
+//! Run index row and published as `run.progress`. On a Daemon, each Run belongs to the Connection that started it,
 //! whose end stops it (ADR 0078).
 //!
 //! Size: one registry actor, its handles and the commands it answers, kept
@@ -51,8 +54,9 @@ use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow,
-    RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
+    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, ProgressMessage, RUN_PROGRESS,
+    RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, StartInput,
+    StartedAs, StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
 use rusqlite::Connection;
@@ -440,7 +444,13 @@ enum Command {
     ),
     Finish(
         RunId,
+        Letting,
         oneshot::Sender<Result<watch::Receiver<Option<RunReport>>, RunError>>,
+    ),
+    ProgressMessage(
+        RunId,
+        ProgressMessage,
+        oneshot::Sender<Result<RunProgress, RunError>>,
     ),
     Abort(
         RunId,
@@ -478,6 +488,17 @@ enum Command {
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
+}
+
+/// Whether a wait for a Run's end lets it finish (ADR 0102): `run.finish`
+/// does, `crawl.serve` only waits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Letting {
+    /// It lets the Run finish: a Run its program drives ends at once, and
+    /// its driver is told, which a keep-alive crawl waits for.
+    Finish,
+    /// It only waits for the end.
+    Wait,
 }
 
 /// Whether an abort came forwarded from another engine, which counts on
@@ -521,10 +542,17 @@ pub struct Run {
     state: RunState,
     clock: Clock,
     gates: Option<Arc<dyn Gates>>,
-    stop: Arc<watch::Sender<Option<StopReason>>>,
+    asked: Arc<Asked>,
     owner: Arc<TaskOwner>,
     runs: Runs,
     settings: Option<Arc<RunSettings>>,
+}
+
+/// What a live Run's driver is asked: to stop at its next safe point, for
+/// the first reason given, and whether `run.finish` let it finish.
+struct Asked {
+    stop: watch::Sender<Option<StopReason>>,
+    finish: watch::Sender<bool>,
 }
 
 impl std::fmt::Debug for Run {
@@ -578,11 +606,30 @@ impl Run {
     ///
     /// Dropping the future loses nothing; a later call answers the same.
     pub async fn stopping(&self) -> StopReason {
-        let mut stop = self.stop.subscribe();
+        let mut stop = self.asked.stop.subscribe();
         let asked = stop.wait_for(Option::is_some).await.map(|reason| *reason);
         match asked {
             Ok(Some(reason)) => reason,
             _ => std::future::pending().await,
+        }
+    }
+
+    /// Whether `run.finish` let the Run finish: a driver that waits for new
+    /// work while it has none, as a keep-alive crawl does, then ends it once
+    /// its work is done.
+    pub fn is_let_finish(&self) -> bool {
+        *self.asked.finish.borrow()
+    }
+
+    /// Answers once `run.finish` lets the Run finish.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing; a later call answers the same.
+    pub async fn let_finish(&self) {
+        let mut finish = self.asked.finish.subscribe();
+        if finish.wait_for(|finish| *finish).await.is_err() {
+            std::future::pending::<()>().await;
         }
     }
 
@@ -613,7 +660,7 @@ impl Run {
     /// Asks the Run to stop at its next safe point for `reason`; the first
     /// reason asked stays.
     fn stop_at_safe_point(&self, reason: StopReason) {
-        self.stop.send_if_modified(|stop| {
+        self.asked.stop.send_if_modified(|stop| {
             let unset = stop.is_none();
             if unset {
                 *stop = Some(reason);
@@ -814,13 +861,56 @@ impl Runs {
     ///
     /// Dropping the future ends only the wait.
     pub async fn finish(&self, run_id: RunId) -> Result<RunReport, RunError> {
+        self.finish_or_wait(run_id, Letting::Finish).await
+    }
+
+    /// Answers the Run report of `run_id` once it ended, without letting it
+    /// finish: a keep-alive crawl goes on waiting for new work.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` when no Run has this Run ID.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future ends only the wait.
+    pub async fn ended(&self, run_id: RunId) -> Result<RunReport, RunError> {
+        self.finish_or_wait(run_id, Letting::Wait).await
+    }
+
+    async fn finish_or_wait(&self, run_id: RunId, letting: Letting) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Finish(run_id, answer))
+            .send(Command::Finish(run_id, letting, answer))
             .await
             .map_err(|_| RunError::Stopped)?;
         let report = answered.await.map_err(|_| RunError::Stopped)??;
         wait_for(report).await
+    }
+
+    /// Sets the program's own status line about the live Run `run_id`
+    /// (RT-15): kept in its run state, written into its Run index row and
+    /// published as `run.progress`; answers its progress.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` when this engine runs no Run of this Run ID,
+    /// `Unavailable` when its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent still sets the message.
+    pub async fn set_progress_message(
+        &self,
+        run_id: RunId,
+        message: ProgressMessage,
+    ) -> Result<RunProgress, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::ProgressMessage(run_id, message, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        answered.await.map_err(|_| RunError::Stopped)?
     }
 
     /// Stops the Run `run_id` at its next safe point, `stopped` and
@@ -1111,6 +1201,8 @@ struct Live {
     connection: Option<ConnectionId>,
     /// The last Checkpoint written of it.
     checkpoint: Option<Checkpoint>,
+    /// The program's own status line, once it set one.
+    progress_message: Option<ProgressMessage>,
 }
 
 struct Registry {
@@ -1135,8 +1227,11 @@ impl Registry {
                     let started = self.start(*start, connection).await;
                     let _ = answer.send(started);
                 }
-                Command::Finish(run_id, answer) => {
-                    let _ = answer.send(self.finish(&run_id).await);
+                Command::Finish(run_id, letting, answer) => {
+                    let _ = answer.send(self.finish(&run_id, letting).await);
+                }
+                Command::ProgressMessage(run_id, message, answer) => {
+                    let _ = answer.send(self.progress_message(&run_id, message).await);
                 }
                 Command::Abort(run_id, by, forwarded, answer) => {
                     let _ = answer.send(self.abort(&run_id, by, forwarded).await);
@@ -1436,6 +1531,7 @@ impl Registry {
             lock: Arc::new(lock),
             connection,
             checkpoint: None,
+            progress_message: None,
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -1479,6 +1575,10 @@ impl Registry {
                 None => self.setup.reached_at.clone(),
             },
             presence: Presence::Present,
+            progress_message: live
+                .progress_message
+                .as_ref()
+                .map(|message| message.as_str().to_owned()),
         }
     }
 
@@ -1496,12 +1596,64 @@ impl Registry {
     async fn finish(
         &mut self,
         run_id: &RunId,
+        letting: Letting,
     ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
-        match self.live.get(run_id).map(|live| live.ended_by) {
-            Some(EndedBy::Driver) => Ok(self.live[run_id].report.subscribe()),
-            Some(EndedBy::Finish) => self.end_or_report(run_id, End::Finished).await,
-            None => self.report_of(run_id).await,
+        let Some(live) = self.live.get(run_id) else {
+            return self.report_of(run_id).await;
+        };
+        match (live.ended_by, letting) {
+            (EndedBy::Finish, Letting::Finish) => self.end_or_report(run_id, End::Finished).await,
+            (EndedBy::Driver, Letting::Finish) => {
+                if let Some(run) = &live.run {
+                    run.asked.finish.send_replace(true);
+                }
+                Ok(live.report.subscribe())
+            }
+            (_, Letting::Wait) => Ok(live.report.subscribe()),
         }
+    }
+
+    /// Sets the program's status line about the live Run `run_id`, as
+    /// [`Runs::set_progress_message`] says.
+    async fn progress_message(
+        &mut self,
+        run_id: &RunId,
+        message: ProgressMessage,
+    ) -> Result<RunProgress, RunError> {
+        let Some(state) = self
+            .live
+            .get(run_id)
+            .and_then(|live| live.run.as_ref())
+            .map(|run| run.state.clone())
+        else {
+            return Err(RunError::NotFound(run_id.clone()));
+        };
+        let text = message.as_str().to_owned();
+        state
+            .write(move |connection| {
+                connection
+                    .execute("UPDATE run SET progress_message = ?1", [text])
+                    .map(drop)
+            })
+            .await
+            .map_err(|error| RunError::of_state(run_id, &self.folder(run_id), error))?;
+        if let Some(live) = self.live.get_mut(run_id) {
+            live.progress_message = Some(message.clone());
+        }
+        if let Some(live) = self.live.get(run_id) {
+            let row = self.index_row(live, Lifecycle::Running, None);
+            self.write_index(row).await;
+        }
+        let progress = RunProgress {
+            run_id: run_id.clone(),
+            lifecycle: Lifecycle::Running,
+            message: Some(message),
+        };
+        self.setup
+            .events
+            .publish(&RUN_PROGRESS, Some(run_id.as_str()), &progress)
+            .await;
+        Ok(progress)
     }
 
     /// A handle to the registry for a Run of `connection`.
@@ -1521,7 +1673,10 @@ impl Registry {
             state,
             clock: self.setup.clock,
             gates: self.setup.gates.clone(),
-            stop: Arc::new(watch::Sender::new(None)),
+            asked: Arc::new(Asked {
+                stop: watch::Sender::new(None),
+                finish: watch::Sender::new(false),
+            }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
@@ -1885,6 +2040,10 @@ impl Registry {
             lock: Arc::new(lock),
             connection,
             checkpoint: None,
+            progress_message: recorded
+                .progress_message
+                .as_deref()
+                .and_then(ProgressMessage::parse),
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;

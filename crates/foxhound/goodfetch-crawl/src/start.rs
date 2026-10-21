@@ -80,7 +80,7 @@ async fn serve(
     };
     context
         .runs()
-        .finish(params.run_id)
+        .ended(params.run_id)
         .await
         .map_err(|error| run_error(error, context.identity()))
 }

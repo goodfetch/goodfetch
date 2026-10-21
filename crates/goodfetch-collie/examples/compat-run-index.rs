@@ -1,9 +1,9 @@
 //! The Run index's writer for the Compatibility corpus (ADR 0066): runs a
 //! fixed scenario against Collie's engine over the in-memory network, on the
 //! test `Clock` and a fixed `Entropy` seed, in a home of its own (a Run that
-//! finishes and one that is aborted, both tagged, on an Attached engine, then
-//! a Run a Daemon owns while the Daemon is killed, whose row names the
-//! Daemon's endpoint), and writes the Run index it leaves, as SQL text, into
+//! finishes with a progress message and one that is aborted, both tagged,
+//! on an Attached engine, then a Run a Daemon owns while the Daemon is
+//! killed, whose row names the Daemon's endpoint), and writes the Run index it leaves, as SQL text, into
 //! the folder given as the only argument, as `run-index.sql`. `xtask compat
 //! write` runs it.
 #![expect(
@@ -42,13 +42,18 @@ fn scenario() -> Vec<Value> {
             "run.start",
             json!({ "run_id": "finished-run", "tags": ["schedule:nightly", "team:shop"] }),
         ),
-        call(2, "run.finish", json!({ "run_id": "finished-run" })),
         call(
-            3,
+            2,
+            "run.set_progress_message",
+            json!({ "run_id": "finished-run", "message": "Read 3 of 3 pages" }),
+        ),
+        call(3, "run.finish", json!({ "run_id": "finished-run" })),
+        call(
+            4,
             "run.start",
             json!({ "run_id": "aborted-run", "tags": ["manual"] }),
         ),
-        call(4, "run.abort", json!({ "run_id": "aborted-run" })),
+        call(5, "run.abort", json!({ "run_id": "aborted-run" })),
     ]
 }
 

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, PageParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, PageParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -114,7 +114,7 @@ class AsyncCollieOperations:
         return Checkpoint.model_construct(**_fields(await self._caller.call("run.checkpoint", params)))
 
     async def run_finish(self, params: RunParams) -> RunReport:
-        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -147,6 +147,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunStarted.model_construct(**_fields(await self._caller.call("run.resume", params)))
+
+    async def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
+        """Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(await self._caller.call("run.set_progress_message", params)))
 
     async def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
@@ -246,7 +253,7 @@ class CollieOperations:
         return Checkpoint.model_construct(**_fields(self._caller.call("run.checkpoint", params)))
 
     def run_finish(self, params: RunParams) -> RunReport:
-        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -279,6 +286,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunStarted.model_construct(**_fields(self._caller.call("run.resume", params)))
+
+    def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
+        """Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(self._caller.call("run.set_progress_message", params)))
 
     def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.

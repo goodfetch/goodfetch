@@ -145,5 +145,6 @@ fn found_row(
         ended_at: report.map(|report| report.ended_at.clone()),
         owner,
         presence: Presence::Present,
+        progress_message: recorded.progress_message.clone(),
     })
 }

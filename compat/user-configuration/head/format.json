@@ -115,6 +115,10 @@
                 },
                 "type": "object"
               },
+              "keep_alive": {
+                "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                "type": "boolean"
+              },
               "retry": {
                 "additionalProperties": false,
                 "properties": {

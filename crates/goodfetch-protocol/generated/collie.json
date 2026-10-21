@@ -762,6 +762,11 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
       "type": "string"
     },
+    "ProgressMessage": {
+      "description": "A program's own status line about its Run (RT-15).",
+      "maxLength": 512,
+      "type": "string"
+    },
     "ProjectSettings": {
       "additionalProperties": false,
       "description": "A project configuration's values, which a Client reads where it runs and\nsends with a scope it opens (ADR 0083).",
@@ -994,6 +999,38 @@
       ],
       "type": "object"
     },
+    "RunProgress": {
+      "description": "A Run's progress as it is now (ADR 0102): what `run.progress` reports.\nThe Run's progress ticket adds the rest of ADR 0102's `RunProgress`.",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is."
+        },
+        "message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProgressMessage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The program's own status line, once it set one."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle"
+      ],
+      "type": "object"
+    },
     "RunReport": {
       "description": "What a Run states about itself when it ends (ADR 0102): its three axes\n(ADR 0029) and when it ran.",
       "properties": {
@@ -1116,6 +1153,27 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "RunSetProgressMessageParams": {
+      "additionalProperties": false,
+      "description": "What `run.set_progress_message` takes.",
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/ProgressMessage",
+          "arrived_in": "0.1",
+          "description": "The program's status line, which replaces the one before."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "message"
       ],
       "type": "object"
     },
@@ -2028,6 +2086,18 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
+      "deprecated": null,
+      "description": "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
+      "name": "run.progress",
+      "payload": {
+        "$ref": "#/$defs/RunProgress"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
       "description": "A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.",
@@ -2310,7 +2380,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
       "events": [],
       "kind": "round_trip",
       "name": "run.finish",
@@ -2404,6 +2474,27 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.",
+      "events": [
+        "run.progress"
+      ],
+      "kind": "round_trip",
+      "name": "run.set_progress_message",
+      "params": {
+        "$ref": "#/$defs/RunSetProgressMessageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunProgress"
       },
       "stability": "experimental"
     },

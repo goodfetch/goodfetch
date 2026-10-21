@@ -169,3 +169,80 @@ fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
         )
     );
 }
+
+/// The program's own status line on Collie's executable (RT-15): carried
+/// on `run.progress`, in the Run's state and in its Run index row.
+///
+/// Covers: story:3-129, operation:run.set_progress_message, event:run.progress
+#[test]
+fn a_progress_message_on_collies_executable_is_carried_on_progress_and_kept() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    engine.send(
+        &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
+    );
+    engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "events", "credits": 16 } }));
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "run.start", "params": { "run_id": "noted" },
+    }));
+    while engine.next().unwrap()["id"] != "start" {}
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "message", "method": "run.set_progress_message",
+        "params": { "run_id": "noted", "message": "Reading page 3 of 10" },
+    }));
+
+    let (mut answer, mut progress) = (None, None);
+    while answer.is_none() || progress.is_none() {
+        let message = engine.next().unwrap();
+        if message["id"] == "message" {
+            answer = Some(message);
+            continue;
+        }
+        let events = message["params"]["events"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if let Some(event) = events
+            .into_iter()
+            .find(|event| event["event"] == "run.progress")
+        {
+            progress = Some(event["data"].clone());
+        }
+    }
+    let (_, exited) = engine.finish();
+
+    let per_major = env.home().join("0.0");
+    let in_index: Option<String> = Connection::open(per_major.join("run-index.sqlite"))
+        .unwrap()
+        .query_row(
+            "SELECT progress_message FROM runs WHERE run_id = 'noted'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let in_state: Option<String> =
+        Connection::open(per_major.join("runs").join("noted").join("run.sqlite"))
+            .unwrap()
+            .query_row("SELECT progress_message FROM run", [], |row| row.get(0))
+            .unwrap();
+    let expected =
+        json!({ "run_id": "noted", "lifecycle": "running", "message": "Reading page 3 of 10" });
+    assert_eq!(
+        (
+            answer.unwrap()["result"].clone(),
+            progress.unwrap(),
+            in_state,
+            in_index,
+            exited,
+        ),
+        (
+            expected.clone(),
+            expected,
+            Some("Reading page 3 of 10".to_owned()),
+            Some("Reading page 3 of 10".to_owned()),
+            true,
+        )
+    );
+}

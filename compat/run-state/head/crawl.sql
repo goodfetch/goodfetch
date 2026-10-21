@@ -13,7 +13,7 @@ CREATE TABLE domains (
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "domains" VALUES('shop.test',1767603602000,1);
+INSERT INTO "domains" VALUES('shop.test',1767603602000,0);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE outcomes (

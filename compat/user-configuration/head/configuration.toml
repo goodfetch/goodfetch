@@ -58,6 +58,13 @@ handler = 30000
 [settings.admission]
 max_requests_per_minute = 4
 
+[settings.politeness]
+sharing = "shared"
+
+[settings.politeness.domain]
+concurrency = 4
+delay = 30000
+
 [settings.crawl]
 sample_pages = 4
 domain_keys = { "example.test" = "example" }

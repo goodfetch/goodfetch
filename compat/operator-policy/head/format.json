@@ -96,6 +96,43 @@
             },
             "type": "object"
           },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "resolver": {
             "additionalProperties": false,
             "properties": {
@@ -369,6 +406,51 @@
                   }
                 ],
                 "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+              }
+            },
+            "type": "object"
+          },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "sharing": {
+                "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                "enum": [
+                  "shared",
+                  "per_daemon",
+                  "run"
+                ]
               }
             },
             "type": "object"
@@ -757,6 +839,51 @@
                   }
                 ],
                 "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+              }
+            },
+            "type": "object"
+          },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "sharing": {
+                "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                "enum": [
+                  "shared",
+                  "per_daemon",
+                  "run"
+                ]
               }
             },
             "type": "object"

@@ -766,7 +766,7 @@
     {
       "id": "format:politeness-file",
       "kind": "format",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3049,7 +3049,7 @@
     {
       "id": "setting:politeness.domain.concurrency",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3059,7 +3059,7 @@
     {
       "id": "setting:politeness.domain.delay",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3069,7 +3069,7 @@
     {
       "id": "setting:politeness.sharing",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

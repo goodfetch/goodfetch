@@ -490,11 +490,13 @@ fn errors(layer: &Layer) -> String {
     }
     let mut registry = Vec::new();
     for code in &layer.error_codes {
-        let group = group_class(&code.group);
+        // A code named like its group is raised as its group's class,
+        // which every code the registry lacks falls back to, as in
+        // TypeScript: the group's class takes the code's fields.
         if code.name == code.group {
-            registry.push((code.name.clone(), group));
             continue;
         }
+        let group = group_class(&code.group);
         let class = format!("{}Error", pascal(&code.name));
         let _ = write!(text, "\n\nclass {class}({group}):\n");
         text.push_str(&docstring(

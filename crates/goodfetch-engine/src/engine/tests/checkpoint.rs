@@ -292,6 +292,13 @@ where
 {
     let engine = engine();
     goodfetch_test_support::runtime().block_on(async {
+        // The test `tracing` subscriber writes the dispatch records into the
+        // test's exercise record (ADR 0072), as `attached_with`'s does.
+        let clock = crate::clock::Clock::paused(first.start_time());
+        let _subscriber =
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }));
         let (first_network, first_dialer) = transport::in_memory();
         let (second_network, second_dialer) = transport::in_memory();
         let connect = |dialer: transport::InMemoryDialer| async move {

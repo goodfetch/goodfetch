@@ -1226,6 +1226,7 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "webpki-roots",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

@@ -127,7 +127,7 @@
       "type": "object"
     },
     "DaemonEndpoint": {
-      "description": "Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and\nLinux, loopback TCP on Windows.",
+      "description": "Where a Daemon or an Attached engine's private endpoint listens (ADR\n0024): a `0600` Unix socket on macOS and Linux, loopback TCP on\nWindows.",
       "oneOf": [
         {
           "additionalProperties": false,

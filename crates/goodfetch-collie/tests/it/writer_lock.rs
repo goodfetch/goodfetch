@@ -102,7 +102,7 @@ fn an_abort_of_a_run_the_daemon_writes_goes_to_the_daemon_the_run_index_names() 
             row(&env, "live"),
         ),
         (
-            serde_json::to_value(&found.endpoint).unwrap(),
+            json!({ "daemon": serde_json::to_value(&found.endpoint).unwrap() }),
             json!("stopped"),
             json!({ "lifecycle": "stopped", "owner": null, "presence": "present", "location": "runs/live" }),
         )

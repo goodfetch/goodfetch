@@ -106,8 +106,18 @@ prefix = "handler_"
 
 [[area]]
 number = 3
+kind = "operation"
+prefix = "crawl.serve"
+
+[[area]]
+number = 3
 kind = "error"
 prefix = "lease_lost"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "client_gone"
 
 [[area]]
 number = 3

@@ -33,7 +33,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).
 toml_edit.workspace = true
-tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "time", "fs", "net"] }
+tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "time", "fs", "net", "process"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
@@ -41,9 +41,15 @@ ulid.workspace = true
 webpki-roots.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 
-# Frees the buffer launchd answers the Daemon's activated sockets in.
+# Frees the buffer launchd answers the Daemon's activated sockets in, and
+# watches an Attached engine's parent (prctl, kqueue).
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+# Ties an Attached engine to its parent and its children to itself through
+# kill-on-close Job Objects (ADR 0024).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

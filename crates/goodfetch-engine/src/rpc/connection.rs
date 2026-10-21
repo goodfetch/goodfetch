@@ -12,17 +12,21 @@
 //! goes to the Client as `$/cancel`, and the reply that still comes is
 //! routed the same way. The Connection's end fails those still waiting. A `$/credit` adds credits to the streaming call it names.
 //!
-//! A Daemon's Connection must open with a `hello` carrying the Daemon's
-//! token: anything else is closed without an answer, so a stranger learns
-//! nothing (ADR 0024). Each refusal is logged under [`REFUSAL_TARGET`],
-//! with its reason, until the Audit log records it (area 4).
+//! A Connection to a Daemon or to an Attached engine's private endpoint
+//! must open with a `hello` carrying that listener's token: anything else
+//! is closed without an answer, so a stranger learns nothing (ADRs 0024 and
+//! 0031). Each refusal is logged under [`REFUSAL_TARGET`], with its
+//! listener and its reason, until the Audit log records it (area 4). Only
+//! the Client of an Attached engine's stdio is told its private endpoint,
+//! in the reply to its `hello`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams, StoppedBy,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
+    PrivateEndpoint, StoppedBy,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -58,13 +62,45 @@ const MAX_IN_FLIGHT: usize = 256;
 /// How many lines wait for the writer before their senders wait.
 const OUTGOING_LINES: usize = 64;
 
-/// The `tracing` target of a Daemon's refusals of a Connection.
-pub const REFUSAL_TARGET: &str = "goodfetch::daemon::refusal";
+/// The `tracing` target of a listener's refusals of a Connection.
+pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
 
 /// What every Connection of an engine dispatches to.
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
+}
+
+/// How a Connection reached the engine, which says what its `hello` must
+/// carry and what its reply tells.
+pub(crate) enum Access {
+    /// An Attached engine's stdio, or an in-process Connection: no token;
+    /// its reply names the engine's private endpoint, when it has one.
+    Attached(Option<PrivateEndpoint>),
+    /// A Daemon's listener: its token, and what else the Daemon gives.
+    Daemon(Arc<dyn DaemonSide>),
+    /// An Attached engine's private endpoint: its token.
+    PrivateEndpoint(Arc<str>),
+}
+
+impl Access {
+    /// The token its `hello` must carry, if any.
+    fn token(&self) -> Option<&str> {
+        match self {
+            Self::Attached(_) => None,
+            Self::Daemon(daemon) => Some(daemon.token()),
+            Self::PrivateEndpoint(token) => Some(token),
+        }
+    }
+
+    /// Its listener's name in the endpoint table (ADR 0067).
+    fn listener(&self) -> &'static str {
+        match self {
+            Self::Attached(_) => "stdio",
+            Self::Daemon(_) => "daemon_socket",
+            Self::PrivateEndpoint(_) => "private_endpoint",
+        }
+    }
 }
 
 /// Serves `connection` until it ends, its tasks those of `owner`.
@@ -79,13 +115,17 @@ pub(crate) async fn serve(
     owner: &TaskOwner,
     runs: Runs,
     events: Events,
-    daemon: Option<Arc<dyn DaemonSide>>,
+    access: Access,
 ) {
     let (mut reader, writer) = connection.split();
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
     owner.spawn(write_lines(writer, lines));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
     let (client, requests) = Client::new();
+    let daemon = match &access {
+        Access::Daemon(daemon) => Some(Arc::clone(daemon)),
+        Access::Attached(_) | Access::PrivateEndpoint(_) => None,
+    };
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&dispatch.identity),
         client,
@@ -107,6 +147,7 @@ pub(crate) async fn serve(
         pending: BTreeMap::new(),
         next_request: 0,
         opened_client: None,
+        access,
     };
     session.run(&mut reader).await;
     session.cancel_in_flight();
@@ -156,6 +197,8 @@ struct Session<'owner> {
     next_request: i64,
     /// On a Daemon, the count of this Client, held while it is open.
     opened_client: Option<Box<dyn Send + Sync>>,
+    /// How the Connection reached the engine.
+    access: Access,
 }
 
 /// A handler request the engine sent, waiting for its reply.
@@ -217,11 +260,11 @@ impl Session<'_> {
             Frame::TooLarge => Err(DecodeError::too_large()),
             Frame::Line(line) => decode(&line),
         };
-        if !self.opened && self.connection.daemon.is_some() {
+        if !self.opened && self.access.token().is_some() {
             if let Ok(Incoming::Request(request)) = incoming {
                 return self.open(request).await;
             }
-            refused("hello_not_first");
+            self.refused("hello_not_first");
             return Flow::Close;
         }
         match (incoming, self.opened) {
@@ -305,12 +348,12 @@ impl Session<'_> {
     }
 
     /// The first request, which must be `hello`, carrying the token on a
-    /// Daemon.
+    /// Daemon and on a private endpoint.
     async fn open(&mut self, request: Request) -> Flow {
         let daemon = self.connection.daemon.clone();
         if request.method != HELLO {
-            if daemon.is_some() {
-                refused("hello_not_first");
+            if self.access.token().is_some() {
+                self.refused("hello_not_first");
                 return Flow::Close;
             }
             let error = CallError::protocol(
@@ -322,15 +365,15 @@ impl Session<'_> {
             return Flow::Close;
         }
         let hello = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null));
-        if let Some(daemon) = &daemon {
+        if let Some(expected) = self.access.token() {
             let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
             match token {
                 None => {
-                    refused("token_missing");
+                    self.refused("token_missing");
                     return Flow::Close;
                 }
-                Some(token) if !same_token(token, daemon.token()) => {
-                    refused("token_wrong");
+                Some(token) if !same_token(token, expected) => {
+                    self.refused("token_wrong");
                     return Flow::Close;
                 }
                 Some(_) => {}
@@ -355,11 +398,17 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((accepted, surface)) => {
+            Ok((mut accepted, surface)) => {
                 record(HELLO, None);
                 self.opened = true;
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
+                if let Access::Attached(private_endpoint) = &self.access {
+                    accepted
+                        .result
+                        .private_endpoint
+                        .clone_from(private_endpoint);
+                }
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
                 if self.send(success_line(request.id, result)).await {
@@ -522,9 +571,12 @@ impl Session<'_> {
     }
 }
 
-/// Logs a Daemon's refusal of a Connection, with its reason.
-fn refused(reason: &'static str) {
-    tracing::warn!(target: REFUSAL_TARGET, reason, "the Daemon closed a Connection that did not open with `hello` and its token");
+impl Session<'_> {
+    /// Logs the listener's refusal of the Connection, with its reason.
+    fn refused(&self, reason: &'static str) {
+        let listener = self.access.listener();
+        tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` and its token was closed");
+    }
 }
 
 /// Whether two tokens are equal, in time that depends only on their

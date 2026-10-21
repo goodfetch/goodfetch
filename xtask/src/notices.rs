@@ -1,8 +1,9 @@
 //! The third-party notice inventory (ADRs 0018 and 0047; spec #130's `xtask
 //! notices`): every dependency of each ecosystem and every declared input
 //! with the license it is used under and where its source is, checked
-//! against ADR 0018's allowlist. A license the allowlist refuses for its use
-//! is a finding naming the dependency and its ecosystem.
+//! against ADR 0018's allowlist. A license the allowlist refuses for its use,
+//! or a declared input that states no source, is a finding naming the
+//! dependency and its ecosystem.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -43,7 +44,7 @@ struct Notice<'a> {
     /// The license it is used under: the stated one, or for a compiled
     /// Filter list the license of the adaptation.
     license: String,
-    source: &'a str,
+    source: Option<&'a str>,
     #[serde(rename = "use")]
     usage: Usage,
 }
@@ -82,12 +83,19 @@ pub(crate) fn check(
                 entry.license.clone().unwrap_or_default()
             }
         };
+        if entry.source.is_none() {
+            findings.push(Finding::new(
+                "source-unknown",
+                subject(entry),
+                "it states no place its source is; state one",
+            ));
+        }
         notices.push(Notice {
             ecosystem: entry.ecosystem,
             name: &entry.name,
             version: &entry.version,
             license,
-            source: &entry.source,
+            source: entry.source.as_deref(),
             usage: entry.usage,
         });
     }

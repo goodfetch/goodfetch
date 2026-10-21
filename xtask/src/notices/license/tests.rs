@@ -26,7 +26,7 @@ fn judge_package(ecosystem: Ecosystem, name: &str, stated: Option<&str>, usage: 
         name: name.to_owned(),
         version: "1.0.0".to_owned(),
         license: stated.map(str::to_owned),
-        source: "https://example.invalid".to_owned(),
+        source: Some("https://example.invalid".to_owned()),
         usage,
     })
 }

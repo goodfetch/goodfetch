@@ -5,9 +5,11 @@
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
 //! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, and `runs reindex`; the CLI's other commands join with area 11.
-//! Every command but `daemon launched` first records the executable in
-//! the list of installed executables (ADR 0098).
+//! runs, and `runs reindex`, beside the commands `goodfetch-cli` generates
+//! from the catalog for every other namespace, such as `run start` and
+//! `engine info`; the CLI's other commands join with area 11. Every
+//! command but `daemon launched` first records the executable in the list
+//! of installed executables (ADR 0098).
 //!
 //! `main` reads the environment once and passes the map (ADR 0059); every
 //! `GOODFETCH_` variable in it must be a deployment variable, or the
@@ -34,6 +36,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
+use goodfetch_cli::generated::{Call, Generated};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -51,7 +54,6 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 mod browsers;
 mod config;
 mod daemon;
-mod output;
 mod runs;
 mod service;
 
@@ -282,28 +284,33 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
-    let command_line = command_line(start.product).version(start.version);
+    let (command_line, generated) = command_line(start.product);
+    let command_line = command_line.version(start.version);
     let binary = command_line.get_name().to_owned();
     let parsed = command_line
         .try_get_matches_from(&start.arguments)
-        .and_then(|matches| CommandLine::from_arg_matches(&matches));
-    let command_line = match parsed {
-        Ok(command_line) => command_line,
+        .and_then(|matches| match generated.call(&matches) {
+            Some(call) => Ok(Parsed::Generated(call)),
+            None => CommandLine::from_arg_matches(&matches)
+                .map(|command_line| Parsed::HandWritten(command_line.command)),
+        });
+    let parsed = match parsed {
+        Ok(parsed) => parsed,
         Err(error) => {
             let _ = error.print();
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2));
         }
     };
-    let environment = with_passed_variables(&start.environment, &command_line.command);
+    let environment = with_passed_variables(&start.environment, &parsed);
     let home = home(&environment);
     let filter = environment.get(OsStr::new(LOG_VARIABLE));
     // A Daemon a start launched has no terminal: it logs to its file
     // (ADR 0122).
     let launched = matches!(
-        command_line.command,
-        Command::Daemon {
+        parsed,
+        Parsed::HandWritten(Command::Daemon {
             command: DaemonCommand::Launched { .. }
-        }
+        })
     );
     match log_file(&binary, &environment, home.as_ref(), launched) {
         Ok(file) => install_logs(filter, file),
@@ -361,13 +368,14 @@ pub fn main(start: &Start) -> ExitCode {
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
     };
-    run(
-        command_line.command,
-        &engine,
-        dependencies,
-        pinned_by,
-        &environment,
-    )
+    run(parsed, &engine, dependencies, pinned_by, &environment)
+}
+
+/// What the command line asks for: a hand-written command, or one
+/// generated from the catalog.
+enum Parsed {
+    HandWritten(Command),
+    Generated(Call),
 }
 
 /// `start`'s environment with the deployment variables a service passes
@@ -375,15 +383,15 @@ pub fn main(start: &Start) -> ExitCode {
 /// those a service passes are taken.
 fn with_passed_variables(
     environment: &BTreeMap<OsString, OsString>,
-    command: &Command,
+    parsed: &Parsed,
 ) -> BTreeMap<OsString, OsString> {
     let mut environment = environment.clone();
-    if let Command::Daemon {
+    if let Parsed::HandWritten(Command::Daemon {
         command: DaemonCommand::Launched {
             environment: passed,
             ..
         },
-    } = command
+    }) = parsed
     {
         for pair in passed {
             if let Some((name, value)) = pair.split_once('=')
@@ -396,9 +404,10 @@ fn with_passed_variables(
     environment
 }
 
-/// Runs `command` on `engine`, once the executable is set up.
+/// Runs the command `parsed` asks for on `engine`, once the executable is
+/// set up.
 fn run(
-    command: Command,
+    parsed: Parsed,
     engine: &Engine,
     dependencies: Dependencies,
     pinned_by: PinnedBy,
@@ -412,13 +421,17 @@ fn run(
         executable: std::env::current_exe().ok(),
     };
     if !matches!(
-        command,
-        Command::Daemon {
+        parsed,
+        Parsed::HandWritten(Command::Daemon {
             command: DaemonCommand::Launched { .. }
-        }
+        })
     ) {
         machine.record();
     }
+    let command = match parsed {
+        Parsed::Generated(call) => return call.run(engine, dependencies),
+        Parsed::HandWritten(command) => command,
+    };
     match command {
         Command::AttachedEngine => run_attached(engine, dependencies),
         Command::Browsers {
@@ -531,14 +544,15 @@ fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
 /// ```
 #[must_use]
 pub fn command(product: Product) -> clap::Command {
-    let mut command = command_line(product);
+    let (mut command, _) = command_line(product);
     command.build();
     command
 }
 
 /// The command line [`main`] parses, whose commands clap builds as it
-/// reaches them.
-fn command_line(product: Product) -> clap::Command {
+/// reaches them: the hand-written commands, and those generated from the
+/// catalog for every namespace no hand-written group takes.
+fn command_line(product: Product) -> (clap::Command, Generated) {
     let (binary, about) = match product {
         Product::Collie => (
             "goodfetch-collie",
@@ -549,10 +563,12 @@ fn command_line(product: Product) -> clap::Command {
             "Foxhound, Goodfetch's Product for crawling, which contains Collie.",
         ),
     };
-    CommandLine::command()
+    let hand_written = CommandLine::command()
         .name(binary)
         .bin_name(binary)
-        .about(about)
+        .about(about);
+    let generated = Generated::beside(&hand_written);
+    (generated.add_to(hand_written), generated)
 }
 
 fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {
@@ -637,3 +653,6 @@ fn install_logs(filter: Option<&OsString>, file: Option<File>) {
         .with(file)
         .init();
 }
+
+#[cfg(test)]
+mod tests;

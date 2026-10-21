@@ -1,8 +1,9 @@
 //! `xtask notices`: the third-party notice inventory (ADRs 0018 and 0047).
 //! It lists every dependency of Cargo, npm and Python and every declared
-//! input (the Console's bundled assets, the Goodfetch Chromium's inputs and
-//! the Clean-up rules' inputs) with its license, and fails on a license
-//! outside ADR 0018's allowlist, naming the dependency and its ecosystem.
+//! input (the Console's bundled assets, the Goodfetch Chromium's inputs, the
+//! Clean-up rules' inputs and the block-detection rules' sources) with its
+//! license, and fails on a license outside ADR 0018's allowlist, naming the
+//! dependency and its ecosystem.
 //! Covers: story:1-62, story:1-101
 
 use rstest::rstest;
@@ -116,6 +117,12 @@ fn allowed_dependencies_and_inputs_pass() {
     r#"license = "Apache-2.0 AND MPL-2.0""#,
     r#"license = "CC-BY-SA-4.0""#,
     "clean-up-rules DuckDuckGo's tracker surrogates@1d2e3f4"
+)]
+#[case::block_detection_rule_source(
+    "block-detection/third-party.toml",
+    r#"license = "BSD-3-Clause""#,
+    r#"license = "SSPL-1.0""#,
+    "block-detection-rules wafw00f@69fbe39"
 )]
 fn license_outside_the_allowlist_fails_with_the_dependency_and_its_ecosystem(
     #[case] file: &str,
@@ -315,6 +322,35 @@ fn dependency_without_a_license_fails() {
     assert_eq!(
         outcome.findings(),
         vec![finding("license-unknown", "npm permissive-package@1.0.0")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A block-detection rule's source that states no license, or no place its
+/// source is, fails the check, so the inventory names every rule's source
+/// and license (story 60).
+///
+/// Covers: story:8-60
+#[rstest]
+#[case::no_license("license = \"BSD-3-Clause\"\n", "license-unknown")]
+#[case::no_source(
+    "source = \"https://github.com/EnableSecurity/wafw00f/tree/69fbe39/wafw00f/plugins\"\n",
+    "source-unknown"
+)]
+fn block_detection_rule_source_without_a_license_or_a_source_fails(
+    #[case] line: &str,
+    #[case] kind: &str,
+) {
+    let workspace = installed_workspace();
+    workspace.edit("block-detection/third-party.toml", line, "");
+
+    let outcome = workspace.xtask(&["notices"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(kind, "block-detection-rules wafw00f@69fbe39")],
         "{}",
         outcome.stderr
     );

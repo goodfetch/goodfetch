@@ -344,6 +344,23 @@ number = 12
 kind = "setting"
 prefix = "console."
 
+# Area 11, the Client surfaces (spec #608): the commands generated from the
+# catalog (#1174).
+[[area]]
+number = 11
+kind = "command"
+prefix = "engine."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "run."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "sample."
+
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).
 [[area]]

@@ -62,7 +62,9 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, Lines};
 
-use super::{browsers, output};
+use goodfetch_cli::output;
+
+use super::browsers;
 
 mod launched;
 

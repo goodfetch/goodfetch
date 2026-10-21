@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Entries, Event, EventClass, Operation, OperationClass, ProtocolVersion, Stability, schema_of,
+    Entries, Event, EventClass, Operation, OperationClass, OperationKind, ProtocolVersion,
+    Stability, schema_of,
 };
 use crate::jsonrpc::RequestId;
 use crate::run::{RUN_AXES_CHANGED, RunAxes};
@@ -146,6 +147,7 @@ pub const EVENTS_SUBSCRIBE: Operation = Operation {
     name: "events.subscribe",
     description: "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.",
     class: OperationClass::Read,
+    kind: OperationKind::Sequence,
     params: schema_of::<EventsSubscribeParams>,
     result: schema_of::<SubscriptionEnded>,
     events: &[&RESYNC, &RUN_AXES_CHANGED],

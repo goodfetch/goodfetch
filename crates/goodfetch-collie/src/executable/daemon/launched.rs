@@ -36,7 +36,9 @@ use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT
 use goodfetch_protocol::settings::SETTING_INVALID;
 
 use super::{Failure, Machine, multi_thread_runtime, now, unavailable};
-use crate::executable::{browsers, output};
+use goodfetch_cli::output;
+
+use crate::executable::browsers;
 
 /// Starts the Daemon's process from `executable`, the versioned copy of
 /// build `build`, and waits for the runtime file it prints once ready.

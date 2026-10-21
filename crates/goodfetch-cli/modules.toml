@@ -1,0 +1,6 @@
+# Which of goodfetch-cli's top-level modules may import which (ADR 0126).
+[modules]
+engine_choice = []
+exit_codes = []
+generated = ["engine_choice", "exit_codes", "output"]
+output = []

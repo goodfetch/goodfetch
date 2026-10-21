@@ -4,6 +4,12 @@
 // the requests it makes carry the client hints the page's `Accept-CH` asks
 // for, which the server observes beside them. A headless browser that
 // shows its window's identity reports the same values as with a window.
+
+// A report holds no empty value.
+const shown = (value) =>
+  value === undefined || value === null || value === "" ? "none" : String(value);
+const brands = (list) => (list ?? []).map((brand) => `${brand.brand}/${brand.version}`).join(", ");
+
 (() => {
   "use strict";
   const script = document.currentScript;
@@ -16,11 +22,6 @@
       body: JSON.stringify({ page, check: reported, observed }),
       keepalive: true,
     }).catch(() => {});
-  // A report holds no empty value.
-  const shown = (value) =>
-    value === undefined || value === null || value === "" ? "none" : String(value);
-  const brands = (list) =>
-    (list ?? []).map((brand) => `${brand.brand}/${brand.version}`).join(", ");
 
   const run = async () => {
     const data = navigator.userAgentData;

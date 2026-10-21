@@ -25,6 +25,7 @@ export {
   type JourneyFacts,
   type JourneyResultDocument,
 } from "./journey-document.ts";
+export { journeyVectors, type JourneyVariant, type JourneyVector } from "./outcome-vectors.ts";
 export {
   playScript,
   type Ending,

@@ -8,6 +8,8 @@
     ".": "./src/index.ts",
     "./case-log": "./src/case-log.ts",
     "./features": "./src/features.ts",
+    "./journey": "./src/journey.ts",
+    "./journey-reporter": "./src/journey-reporter.ts",
     "./playwright": "./src/playwright.ts",
     "./protocol-adapter": "./src/protocol-adapter.ts",
     "./screenshot": "./src/screenshot.ts",

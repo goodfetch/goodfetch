@@ -65,7 +65,14 @@ const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>(
   fullyParallel: true,
   timeout: 300_000,
   reportSlowTests: { max: 0, threshold: 30_000 },
-  reporter: [["list"], ["junit", { outputFile: "target/junit/playwright.xml" }]],
+  // Test support's Journey reporter writes each `console` variant's
+  // `journey` document into GOODFETCH_TEST_RESULT_DOCUMENTS, which `just
+  // test` sets (ADR 0063).
+  reporter: [
+    ["list"],
+    ["junit", { outputFile: "target/junit/playwright.xml" }],
+    ["@goodfetch/test-support/journey-reporter"],
+  ],
   updateSnapshots: visual.updateSnapshots,
   metadata: { features: readFeatureIds(import.meta.dirname) },
   use: { trace: "retain-on-failure" },

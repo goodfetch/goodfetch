@@ -13,6 +13,7 @@ import { CaseLogReporter, clientCaseTags, readClientCases } from "@goodfetch/tes
 import { readFeatureIds } from "@goodfetch/test-support/features";
 import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
 import { VITEST_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
+import { lingui } from "@lingui/vite-plugin";
 import { playwright } from "@vitest/browser-playwright";
 import {
   defineConfig,
@@ -115,6 +116,10 @@ const caseTags = clientCaseTags(readClientCases(caseList));
 const coverageFolder = process.env["GOODFETCH_COVERAGE"];
 
 const config: ViteUserConfig = defineConfig({
+  // The Console's components render their messages through Lingui's macros
+  // and its catalog, compiled as the Console's build compiles them (ADR
+  // 0073; console/collie/lingui.config.ts).
+  plugins: [lingui({ macroTransform: true, configPath: "console/collie/lingui.config.ts" })],
   test: {
     ...(visual.update === undefined ? {} : { update: visual.update }),
     ...(coverageFolder === undefined

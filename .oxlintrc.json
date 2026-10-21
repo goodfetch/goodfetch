@@ -109,7 +109,53 @@
       "jsPlugins": ["eslint-plugin-lingui"],
       "rules": {
         "import/no-relative-parent-imports": "error",
-        "lingui/no-unlocalized-strings": "error"
+        "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@goodfetch/console-foxhound", "@goodfetch/console-foxhound*"],
+                "message": "Collie's Console never imports Foxhound's screens (ADR 0087); Foxhound's build composes Collie's screens with its own."
+              }
+            ]
+          }
+        ],
+        "lingui/no-unlocalized-strings": [
+          "error",
+          {
+            "ignore": ["^(?![A-Z])\\S+$", "^[A-Z0-9_-]+$"],
+            "ignoreNames": [
+              { "regex": { "pattern": "className", "flags": "i" } },
+              "id",
+              "src",
+              "type",
+              "displayName"
+            ],
+            "ignoreFunctions": [
+              "cva",
+              "cn",
+              "Error",
+              "console.*",
+              "*.getElementById",
+              "*.addEventListener",
+              "*.removeEventListener"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["console/foxhound-screens/**"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": ["console/*/*.config.ts"],
+      "jsPlugins": ["eslint-plugin-lingui"],
+      "rules": {
+        "lingui/no-unlocalized-strings": "off"
       }
     },
     {

@@ -13,7 +13,6 @@ CREATE TABLE domains (
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "domains" VALUES('shop.test',1767603602000,1);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE outcomes (
@@ -24,8 +23,9 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
-INSERT INTO "outcomes" VALUES(1,'1','succeeded','home',1,'{"position":1,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
-INSERT INTO "outcomes" VALUES(2,'2','failed','product',1,'{"position":2,"request":{"id":"2","url":"https://shop.test/broken","label":"product","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte"}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte"}}');
+INSERT INTO "outcomes" VALUES(1,'2','failed','product',1,'{"position":1,"request":{"id":"2","url":"https://shop.test/broken","label":"product","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte"}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte"}}');
+INSERT INTO "outcomes" VALUES(2,'1','succeeded','home',1,'{"position":2,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
+INSERT INTO "outcomes" VALUES(3,'3','succeeded','home',1,'{"position":3,"request":{"id":"3","url":"https://shop.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:02Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -35,6 +35,8 @@ CREATE TABLE records (
         ) STRICT;
 INSERT INTO "records" VALUES('pages',1,'1','{"title":"Shop","url":"https://shop.test/"}');
 INSERT INTO "records" VALUES('links',1,'1','{"href":"https://shop.test/broken"}');
+INSERT INTO "records" VALUES('pages',2,'3','{"title":"Shop","url":"https://shop.test/"}');
+INSERT INTO "records" VALUES('links',2,'3','{"href":"https://shop.test/broken"}');
 CREATE TABLE run (
         run_id TEXT NOT NULL PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -54,7 +56,7 @@ CREATE TABLE run (
         binding TEXT,
         clean_up_digest TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',18,NULL,NULL);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:02Z','sha256:0227dc879fda140d','[]',27,NULL,NULL);
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -70,7 +72,7 @@ CREATE TABLE usage (
         used INTEGER NOT NULL,
         PRIMARY KEY (slice_id, epoch)
     ) STRICT;
-INSERT INTO "usage" VALUES(1,1,2);
+INSERT INTO "usage" VALUES(1,1,3);
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,
@@ -84,13 +86,15 @@ CREATE TABLE work_items (
             lease_epoch INTEGER NOT NULL,
             error_code TEXT,
             domain_key TEXT,
-            priority INTEGER NOT NULL
+            priority INTEGER NOT NULL,
+            forefront INTEGER
         ) STRICT;
-INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','https://shop.test/','home',0,'{"depth":0}','succeeded',1,1,NULL,'shop.test',0);
-INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','https://shop.test/broken','product',0,NULL,'failed',1,1,'deadline_exceeded','shop.test',0);
+INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','https://shop.test/','home',0,'{"depth":0}','succeeded',1,1,NULL,'shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','https://shop.test/broken','product',0,NULL,'failed',1,1,'deadline_exceeded','shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('3',3,'https://shop.test/sale','https://shop.test/sale','home',1,NULL,'succeeded',1,1,NULL,'shop.test',0,3);
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX work_items_by_domain
-            ON work_items (status, domain_key, priority DESC, position);
+            ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE UNIQUE INDEX work_items_by_identity ON work_items (identity);
 CREATE INDEX work_items_by_status ON work_items (status, position);
 CREATE INDEX work_items_unkeyed ON work_items (position)

@@ -34,6 +34,9 @@ pub struct Waiting {
     /// Its place among the requests of its key and priority, such as its
     /// position in its Run: lower goes first.
     pub order: i64,
+    /// Whether it goes ahead of every request of its key waiting when it
+    /// came, whatever their priority: of two such, the later goes first.
+    pub forefront: bool,
 }
 
 /// A request a gate admitted.
@@ -72,8 +75,9 @@ pub trait Gate: Send {
     /// How many requests of one key it holds at most.
     fn bound(&self) -> usize;
 
-    /// Takes `request` into its key's queue; `false` when that queue is
-    /// full or already holds it.
+    /// Takes `request` into its key's queue; `false` when that queue
+    /// already holds it, or is full, or may leave out requests of its key
+    /// that go ahead of it, so it waits outside until the queue drains.
     fn enqueue(&mut self, request: Waiting) -> bool;
 
     /// When it next has a request to admit: at or before `now` when one is
@@ -155,8 +159,8 @@ impl Admission {
         self.gate.bound()
     }
 
-    /// Takes `request` into its key's queue; `false` when that queue is full
-    /// or already holds it.
+    /// Takes `request` into its key's queue; `false` when the gate leaves
+    /// it out (see [`Gate::enqueue`]).
     pub fn enqueue(&mut self, request: Waiting) -> bool {
         self.gate.enqueue(request)
     }

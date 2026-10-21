@@ -12668,6 +12668,17 @@
       ]
     },
     {
+      "id": "story:6-215",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-231",
       "kind": "story",
       "area": 6,

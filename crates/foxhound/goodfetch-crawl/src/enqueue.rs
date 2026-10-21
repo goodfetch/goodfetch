@@ -107,6 +107,7 @@ fn add(
                     label: &params.label,
                     payload: params.payload.as_ref(),
                     priority: params.priority,
+                    forefront: params.forefront,
                     depth: depth + 1,
                 },
             )

@@ -4,8 +4,9 @@
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
 //! install Limit, whose Slices its run state journals, a tagged crawl of
 //! three seeds, one with a Payload and one the Frontier answers
-//! `duplicate`, whose handler pushes Records for the first and fails on the
-//! second, whose first byte never came, so its
+//! `duplicate`, whose handler enqueues a `forefront` request from the
+//! first, pushes Records for it and fails on the second, whose first byte
+//! never came, so its
 //! domain still backs off when `run.finish` ends it; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, which `run.abort` stops; and a Run bound to a
@@ -140,6 +141,24 @@ fn bound() -> Contribution {
     ))
 }
 
+/// The handler's enqueue, from the home page's attempt, of a request that
+/// goes ahead of its domain's pending ones.
+fn enqueue(request: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": "enqueue",
+        "method": "crawl_request.enqueue",
+        "params": {
+            "run_id": request["params"]["run_id"],
+            "crawl_request_id": request["params"]["crawl_request"]["id"],
+            "lease_epoch": request["params"]["lease_epoch"],
+            "url": "/sale",
+            "label": "home",
+            "forefront": true,
+        },
+    })
+}
+
 /// The handler's answer to one handler request.
 fn handle(request: &Value) -> Value {
     let id = &request["id"];
@@ -217,6 +236,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (reader, mut writer) = dialer.connect().await?.split();
             let mut messages = BufReader::new(reader).lines();
             let mut last = Value::Null;
+            let mut enqueuing = None;
             for message in scenario() {
                 writer.write_all(&line(&message)?).await?;
                 loop {
@@ -227,7 +247,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .ok_or("the engine closed early")?,
                     )?;
                     if received["method"] == "crawl_request.handle" {
-                        writer.write_all(&line(&handle(&received))?).await?;
+                        if received["params"]["crawl_request"]["url"] == "https://shop.test/" {
+                            writer.write_all(&line(&enqueue(&received))?).await?;
+                            enqueuing = Some(received);
+                        } else {
+                            writer.write_all(&line(&handle(&received))?).await?;
+                        }
+                    } else if received["id"] == "enqueue"
+                        && let Some(request) = enqueuing.take()
+                    {
+                        if received["result"]["kind"] != "added" {
+                            return Err(format!("the enqueue failed: {received}").into());
+                        }
+                        writer.write_all(&line(&handle(&request))?).await?;
                     } else if received["id"] == message["id"] {
                         if received.get("error").is_some() {
                             return Err(format!("the scenario failed: {received}").into());

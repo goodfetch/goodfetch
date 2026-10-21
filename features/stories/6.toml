@@ -32,6 +32,14 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 215
+title = "As a crawl developer, I want `priority` within a domain and `forefront` ahead of the domain's pending requests, so that I order work as Crawlee and Spider let me (CO-04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 231
 title = "As a crawl developer, I want `ctx.enqueue(url, label, payload?, options)` to resolve a relative URL against the document's base URL and answer added or not added with its reason, so that \"enqueued nothing\" says why (ADRs 0093, 0120; pitfall U08)."
 milestone = "M1 Core"

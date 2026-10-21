@@ -1,8 +1,12 @@
-//! A crawl's per-domain queues (ADRs 0004, 0021 and 0087), the gate in
-//! admission Foxhound fills: each domain key's waiting requests in a queue
-//! bounded at [`BOUND`], highest priority first and then in their order in
-//! the crawl, served round-robin, one request per domain per turn, so a heavy
-//! domain never starves the others and a priority never crosses domains.
+//! A crawl's per-domain queues (ADRs 0004, 0005, 0021 and 0087), the gate
+//! in admission Foxhound fills: each domain key's waiting requests in a
+//! queue bounded at [`BOUND`], a `forefront` request ahead of every request
+//! its domain held when it came, then highest priority first and then in
+//! their order in the crawl, served round-robin, one request per domain per
+//! turn, so a heavy domain never starves the others and neither a priority
+//! nor `forefront` crosses domains. A full queue keeps the requests that go
+//! first: one that goes ahead of its last takes that one's place, which
+//! waits in the run file until the queue drains and fills again in order.
 //! A domain waiting out a `Retry-After` or a backoff is not ready: it keeps
 //! its place, holds no capacity, and the next ready domain goes. A domain
 //! that holds no request, none in flight and no wait is released, so the
@@ -56,10 +60,38 @@ pub(crate) fn backoff(backoffs: u32) -> Duration {
         .min(BACKOFF_MAX)
 }
 
+/// Where a request stands in its domain's queue (ADRs 0004 and 0005), the
+/// lowest first: a `forefront` one ahead of every other, the later of two
+/// first, so each goes ahead of every request its domain held when it came;
+/// then the highest priority; then the crawl's own order, so a retried
+/// request keeps its place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Place {
+    forefront: Reverse<Option<i64>>,
+    priority: Reverse<i64>,
+    order: i64,
+}
+
+impl Place {
+    /// The place of `request`.
+    fn of(request: &Waiting) -> Self {
+        Self {
+            forefront: Reverse(request.forefront.then_some(request.order)),
+            priority: Reverse(request.priority),
+            order: request.order,
+        }
+    }
+}
+
 /// One domain's queue and state.
 #[derive(Debug, Default)]
 struct Domain {
-    waiting: BTreeSet<(Reverse<i64>, i64, String)>,
+    waiting: BTreeSet<(Place, String)>,
+    /// Whether requests of it may wait outside the queue, in the run file,
+    /// since it filled: then a request that does not go ahead of its last
+    /// one waits outside too, until the queue drains and fills again in
+    /// order.
+    outside: bool,
     in_flight: usize,
     ready_at: Option<Instant>,
     backoffs: u32,
@@ -146,27 +178,28 @@ impl Gate for DomainQueues {
     }
 
     fn enqueue(&mut self, request: Waiting) -> bool {
-        let Waiting {
-            id,
-            key,
-            priority,
-            order,
-        } = request;
-        if self.ids.contains(&id) {
+        if self.ids.contains(&request.id) {
             return false;
         }
-        let domain = self.domains.entry(key.clone()).or_default();
-        if domain.waiting.len() >= self.bound {
+        let place = (Place::of(&request), request.id);
+        let domain = self.domains.entry(request.key.clone()).or_default();
+        if domain.outside && domain.waiting.last().is_none_or(|last| place > *last) {
             return false;
         }
         if domain.waiting.is_empty() {
-            self.idle.remove(&key);
-            self.turns.push_back(key);
+            self.idle.remove(&request.key);
+            self.turns.push_back(request.key);
         }
-        domain
-            .waiting
-            .insert((Reverse(priority), order, id.clone()));
-        self.ids.insert(id);
+        self.ids.insert(place.1.clone());
+        domain.waiting.insert(place);
+        if domain.waiting.len() >= self.bound {
+            domain.outside = true;
+        }
+        if domain.waiting.len() > self.bound
+            && let Some((_, put_out)) = domain.waiting.pop_last()
+        {
+            self.ids.remove(&put_out);
+        }
         true
     }
 
@@ -187,10 +220,12 @@ impl Gate for DomainQueues {
         self.release_drained(now);
         let key = self.turns.remove(turn)?;
         let domain = self.domains.get_mut(&key)?;
-        let (_, _, id) = domain.waiting.pop_first()?;
+        let (_, id) = domain.waiting.pop_first()?;
         domain.in_flight += 1;
         let drained = domain.waiting.is_empty();
-        if !drained {
+        if drained {
+            domain.outside = false;
+        } else {
             self.turns.push_back(key.clone());
         }
         self.ids.remove(&id);

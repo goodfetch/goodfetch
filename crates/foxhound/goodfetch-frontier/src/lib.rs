@@ -4,8 +4,8 @@
 //! enqueue added or not added with its reason; each seed's answer, which
 //! `run.seeds` reads; the domain key of each crawl request; and the bounded
 //! per-domain queues that fill the engine's gate in admission, served
-//! round-robin, one request per domain per turn, priority ordering requests
-//! within a domain only. Its own crate under `crates/foxhound/`, since only
+//! round-robin, one request per domain per turn, priority and `forefront`
+//! ordering requests within a domain only. Its own crate under `crates/foxhound/`, since only
 //! Foxhound links it (STYLE.md, reason 2).
 
 mod admit;

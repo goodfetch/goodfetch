@@ -17,8 +17,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, Stability, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
@@ -302,6 +302,22 @@ pub const PAGE_GOTO: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `browser.headless` (ADRs 0083 and 0092; spec #577).
+pub const BROWSER_HEADLESS: Setting = Setting {
+    name: "browser.headless",
+    description: "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+    kind: ValueKind::Boolean,
+    default: headless,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn headless() -> serde_json::Value {
+    serde_json::Value::Bool(true)
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -316,7 +332,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[BROWSER_HEADLESS],
     hook_stages: &[],
     shared_type_values: &[],
 };

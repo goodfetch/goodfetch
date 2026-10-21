@@ -655,6 +655,24 @@ export interface RunAxes {
   verdict?: Verdict | null;
 }
 /**
+ * What `run.abort` takes: the Run, and whether the abort was forwarded.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunAbortParams".
+ */
+export interface RunAbortParams {
+  /**
+   * Set by an engine that forwards the abort to the owner the Run index
+   * names (ADR 0031): an engine that does not own the Run then answers
+   * `run_not_owned` instead of taking its writer role.
+   */
+  forwarded?: boolean;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
  * What `run.finish` and `run.abort` take: the Run.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

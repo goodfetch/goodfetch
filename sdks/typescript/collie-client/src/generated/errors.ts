@@ -249,6 +249,15 @@ export class ProtocolVersionUnsupportedError extends UnavailableError {
 }
 
 /**
+ * Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.
+ */
+export class RunBusyError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_busy", group: "refused", retryable: true });
+  }
+}
+
+/**
  * The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.
  */
 export class RunConflictError extends ProgramError {
@@ -281,6 +290,15 @@ export class RunInUseError extends RefusedError {
 export class RunNotFoundError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "run_not_found", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.
+ */
+export class RunNotOwnedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_not_owned", group: "refused", retryable: false });
   }
 }
 
@@ -356,10 +374,12 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  run_busy: RunBusyError,
   run_conflict: RunConflictError,
   run_id_invalid: RunIdInvalidError,
   run_in_use: RunInUseError,
   run_not_found: RunNotFoundError,
+  run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
   setting_invalid: SettingInvalidError,

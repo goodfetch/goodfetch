@@ -1,20 +1,21 @@
-//! A Run's folder (ADRs 0002 and 0031): the writer's lock on the lock file
-//! beside the Run's state, the Run's own row as it begins, and the readers
-//! that open its state without a lock to compare a start's inputs or read
-//! its report. Its calls block: the registry runs them under its owner's
+//! A Run's folder (ADRs 0002 and 0031): the Run's own row as it begins and
+//! as it ends, and the readers that open its state without a lock to
+//! compare a start's inputs, read its report or read what it recorded of
+//! itself. Its calls block: the registry runs them under its owner's
 //! blocking policy.
 
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::run::{Lifecycle, PointInTime, RunId, RunKind, RunReport, StartInput};
+use goodfetch_protocol::run::{
+    Lifecycle, PointInTime, RunId, RunKind, RunReport, StartInput, Tags,
+};
 use goodfetch_protocol::settings::SettingLimit;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 use serde_json::{Map, Value};
 
-use super::{CALLER, LOCK_FILE};
+use super::CALLER;
 use crate::clock::Clock;
 
 /// The Run's own row, written once when it begins.
@@ -162,6 +163,11 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
     let Some(connection) = open_reader(file, vfs)? else {
         return Ok(None);
     };
+    report(&connection)
+}
+
+/// The Run's report, once it ended.
+fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
     connection
         .query_row(
             "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at, policy_version, weakened_by FROM run
@@ -193,29 +199,81 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
         .optional()
 }
 
-pub(super) enum LockError {
-    /// Another engine holds it.
-    Held,
-    /// The OS refused the folder or the file.
-    Io(String),
+/// What a Run's state records of the Run, as a reader finds it.
+pub(super) struct Recorded {
+    pub(super) run_id: RunId,
+    pub(super) kind: RunKind,
+    pub(super) needs: Product,
+    pub(super) tags: Tags,
+    pub(super) lifecycle: Lifecycle,
+    pub(super) started_at: PointInTime,
+    pub(super) policy_version: Option<String>,
+    pub(super) weakened_by: Vec<SettingLimit>,
+    /// Its report, once it ended.
+    pub(super) report: Option<RunReport>,
 }
 
-/// Creates the Run's folder and takes its writer's lock (ADR 0031).
-pub(super) fn take_lock(folder: &Path) -> Result<File, LockError> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "runs under the registry owner's blocking policy"
-    )]
-    std::fs::create_dir_all(folder).map_err(|error| LockError::Io(error.to_string()))?;
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(folder.join(LOCK_FILE))
-        .map_err(|error| LockError::Io(error.to_string()))?;
-    match lock.try_lock() {
-        Ok(()) => Ok(lock),
-        Err(std::fs::TryLockError::WouldBlock) => Err(LockError::Held),
-        Err(std::fs::TryLockError::Error(error)) => Err(LockError::Io(error.to_string())),
-    }
+/// What the Run's state at `file` records of the Run, or `None` when there
+/// is no state there.
+pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Option<Recorded>> {
+    let Some(connection) = open_reader(file, vfs)? else {
+        return Ok(None);
+    };
+    let found = connection
+        .query_row(
+            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by FROM run",
+            [],
+            |row| {
+                Ok((
+                    parsed::<RunId>(&row.get::<_, String>(0)?)?,
+                    (
+                        parsed::<RunKind>(&row.get::<_, String>(1)?)?,
+                        parsed::<Product>(&row.get::<_, String>(2)?)?,
+                        parsed::<Lifecycle>(&row.get::<_, String>(3)?)?,
+                    ),
+                    PointInTime::from_rfc3339(row.get(4)?),
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((run_id, (kind, needs, lifecycle), started_at, policy_version, weakened_by)) = found
+    else {
+        return Ok(None);
+    };
+    let mut statement = connection.prepare("SELECT tag FROM tags ORDER BY position")?;
+    let tags: Vec<String> = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let decode =
+        |error: serde_json::Error| rusqlite::Error::ToSqlConversionFailure(Box::new(error));
+    Ok(Some(Recorded {
+        run_id,
+        kind,
+        needs,
+        tags: serde_json::from_value(Value::from(tags)).map_err(decode)?,
+        lifecycle,
+        started_at,
+        policy_version,
+        weakened_by: serde_json::from_str(&weakened_by).map_err(decode)?,
+        report: report(&connection)?,
+    }))
+}
+
+/// Writes the Run's end, as `report` states it, into its own row.
+pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5",
+        (
+            report.lifecycle.as_str(),
+            report.stop_reason.map(|reason| {
+                serde_json::to_string(&reason).expect("invariant: a stop reason encodes")
+            }),
+            report.verdict.as_str(),
+            report.completeness.as_str(),
+            report.ended_at.as_str(),
+        ),
+    )?;
+    Ok(())
 }

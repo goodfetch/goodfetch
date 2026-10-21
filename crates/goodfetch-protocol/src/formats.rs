@@ -16,6 +16,7 @@ use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, Value
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
+use crate::politeness::PermitRow;
 use crate::run::{RunIndexRow, RunStateRow};
 
 /// How a format's files are stored in its corpus sets (ADR 0066).
@@ -252,6 +253,21 @@ pub const INSTALLED_EXECUTABLES: Format = Format {
     schema: schema_of::<InstalledExecutables>,
 };
 
+/// The per-user Politeness file in Goodfetch home (ADRs 0053 and 0098),
+/// outside the per-major folders: the Permits every engine of the user, of
+/// either Product, takes and gives back, its wake endpoints' waiters, and
+/// the per-key state a Product's composition adds, such as Foxhound's domain
+/// limits. Engines of every major read it, so it is of the Usage ledger's
+/// family.
+pub const POLITENESS_FILE: Format = Format {
+    name: "politeness-file",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<PermitRow>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -259,6 +275,7 @@ pub const FORMATS: &[&Format] = &[
     &RUN_INDEX,
     &RUN_STATE,
     &INSTALLED_EXECUTABLES,
+    &POLITENESS_FILE,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
 ];

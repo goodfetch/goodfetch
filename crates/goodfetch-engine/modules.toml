@@ -25,6 +25,7 @@ info = ["composition", "config", "daemon", "rpc", "run"]
 installed = ["browser_cache", "home"]
 lease = []
 pinned_download = ["clock", "happy_eyeballs", "http_client"]
+politeness = ["tasks", "transport"]
 product = []
 rpc = ["body", "client", "composition", "events", "product", "runs", "tasks", "transport"]
 run = ["composition", "product", "runs", "settings"]
@@ -52,6 +53,7 @@ service = []
 # Which of `transport`'s own modules may import which.
 [submodules.transport]
 activation = []
+wake = []
 
 # Which of `runs`'s own modules may import which.
 [submodules.runs]

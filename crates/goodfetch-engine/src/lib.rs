@@ -33,6 +33,7 @@ mod info;
 pub mod installed;
 pub mod lease;
 pub mod pinned_download;
+pub mod politeness;
 mod product;
 pub mod rpc;
 pub mod run;

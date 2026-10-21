@@ -1,0 +1,375 @@
+//! The Politeness file through its interface, on real SQLite in the test's
+//! folder, with two engines' handles sharing one file (spec #213's Seam 4):
+//! the combined count under a key against each run's own cap, waiters woken
+//! in turn through their wake endpoints, a woken waiter still refused
+//! passing the wake on, the Permits of a gone Run reclaimed, and the file's
+//! format.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test reads the wall clock as its rules' reading, and opens the file to look at it"
+)]
+
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+use goodfetch_protocol::formats::Compatibility;
+use goodfetch_test_support::TestEnv;
+use rusqlite::Connection;
+use tokio::sync::broadcast;
+
+use super::{
+    Ending, Holder, Permit, PermitRule, Politeness, PolitenessError, PolitenessOptions, Taken,
+    Verdict, Wake,
+};
+use crate::tasks::{BlockingPolicy, TaskOwner};
+
+/// A run's own cap on the count in flight under a key, and nothing else.
+struct Cap(u64);
+
+impl PermitRule for Cap {
+    fn admit(
+        &self,
+        _connection: &Connection,
+        _key: &str,
+        in_flight: u64,
+        _now: SystemTime,
+    ) -> rusqlite::Result<Verdict> {
+        Ok(if in_flight < self.0 {
+            Verdict::Go
+        } else {
+            Verdict::Busy
+        })
+    }
+
+    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn ended(
+        &self,
+        _: &Connection,
+        _: &str,
+        _: u64,
+        _: Ending,
+        _: SystemTime,
+    ) -> rusqlite::Result<Option<SystemTime>> {
+        Ok(None)
+    }
+}
+
+fn cap(cap: u64) -> Arc<dyn PermitRule> {
+    Arc::new(Cap(cap))
+}
+
+/// A Run of the test's: live unless its folder's name says it is gone.
+fn holder(env: &TestEnv, run_id: &str) -> Holder {
+    Holder {
+        run_id: run_id.to_owned(),
+        epoch: 1,
+        run_folder: env.folder().join(run_id),
+    }
+}
+
+fn gone_unless_live(folder: &Path, _epoch: u64) -> bool {
+    folder
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with("gone"))
+}
+
+async fn engine(env: &TestEnv, name: &str, owner: &TaskOwner) -> Politeness {
+    Politeness::open(
+        env.home().join("politeness.sqlite"),
+        &PolitenessOptions::default(),
+        Vec::new(),
+        gone_unless_live,
+        name.to_owned(),
+        owner,
+    )
+    .await
+    .unwrap()
+}
+
+fn granted(taken: Taken) -> Permit {
+    match taken {
+        Taken::Granted(permit) => permit,
+        Taken::Wait(until) => panic!("refused until {until:?}"),
+    }
+}
+
+/// The wakes `wakes` holds now, without waiting for more.
+fn received(wakes: &mut broadcast::Receiver<Wake>) -> Vec<String> {
+    std::iter::from_fn(|| wakes.try_recv().ok())
+        .map(|wake| format!("{}@{}", wake.run_id, wake.key))
+        .collect()
+}
+
+/// Waits for the next wake `wakes` receives, at most a few seconds.
+async fn next_wake(wakes: &mut broadcast::Receiver<Wake>) -> String {
+    let wake = tokio::time::timeout(Duration::from_secs(10), wakes.recv())
+        .await
+        .expect("a wake arrives")
+        .unwrap();
+    format!("{}@{}", wake.run_id, wake.key)
+}
+
+fn run<T>(test: impl AsyncFnOnce(&TaskOwner) -> T) -> T {
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let answer = test(&owner).await;
+        owner.cancel();
+        answer
+    })
+}
+
+/// Covers: story:3-80, story:3-81
+#[test]
+fn a_run_admits_only_while_the_combined_count_under_its_key_is_below_its_own_cap() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let answers = run(async |owner| {
+        let first = engine(&env, "first", owner).await;
+        let second = engine(&env, "second", owner).await;
+        let _held = granted(
+            first
+                .take("shop.test", &holder(&env, "loose"), cap(2), now)
+                .await
+                .unwrap(),
+        );
+        let strict = second
+            .take("shop.test", &holder(&env, "strict"), cap(1), now)
+            .await
+            .unwrap();
+        let looser = second
+            .take("shop.test", &holder(&env, "looser"), cap(2), now)
+            .await
+            .unwrap();
+        let elsewhere = second
+            .take("other.test", &holder(&env, "strict"), cap(1), now)
+            .await
+            .unwrap();
+        (
+            strict,
+            matches!(looser, Taken::Granted(_)),
+            matches!(elsewhere, Taken::Granted(_)),
+        )
+    });
+
+    assert_eq!(answers, (Taken::Wait(None), true, true));
+}
+
+/// Covers: story:3-80
+#[test]
+fn a_permit_given_back_wakes_the_waiter_whose_turn_it_is_through_its_wake_endpoint() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let (woken, others) = run(async |owner| {
+        let first = engine(&env, "first", owner).await;
+        let second = engine(&env, "second", owner).await;
+        let third = engine(&env, "third", owner).await;
+        let mut second_wakes = second.wakes();
+        let mut third_wakes = third.wakes();
+        let held = granted(
+            first
+                .take("shop.test", &holder(&env, "holding"), cap(1), now)
+                .await
+                .unwrap(),
+        );
+        second
+            .take("shop.test", &holder(&env, "waiting-first"), cap(1), now)
+            .await
+            .unwrap();
+        third
+            .take("shop.test", &holder(&env, "waiting-second"), cap(1), now)
+            .await
+            .unwrap();
+
+        first
+            .give_back(held, cap(1), Ending::Done, now)
+            .await
+            .unwrap();
+
+        let woken = next_wake(&mut second_wakes).await;
+        (woken, received(&mut third_wakes))
+    });
+
+    assert_eq!(
+        (woken, others),
+        ("waiting-first@shop.test".to_owned(), Vec::<String>::new())
+    );
+}
+
+/// Covers: story:3-81
+#[test]
+fn a_woken_waiter_its_own_cap_still_refuses_passes_the_wake_to_the_next() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let (strict, looser) = run(async |owner| {
+        let first = engine(&env, "first", owner).await;
+        let second = engine(&env, "second", owner).await;
+        let mut wakes = second.wakes();
+        let holding = holder(&env, "holding");
+        let one = granted(
+            first
+                .take("shop.test", &holding, cap(2), now)
+                .await
+                .unwrap(),
+        );
+        let _two = granted(
+            first
+                .take("shop.test", &holding, cap(2), now)
+                .await
+                .unwrap(),
+        );
+        second
+            .take("shop.test", &holder(&env, "strict"), cap(1), now)
+            .await
+            .unwrap();
+        second
+            .take("shop.test", &holder(&env, "looser"), cap(2), now)
+            .await
+            .unwrap();
+        first
+            .give_back(one, cap(2), Ending::Done, now)
+            .await
+            .unwrap();
+        assert_eq!(next_wake(&mut wakes).await, "strict@shop.test");
+
+        let strict = second
+            .take("shop.test", &holder(&env, "strict"), cap(1), now)
+            .await
+            .unwrap();
+        let passed = next_wake(&mut wakes).await;
+        let looser = second
+            .take("shop.test", &holder(&env, "looser"), cap(2), now)
+            .await
+            .unwrap();
+        (strict, (passed, matches!(looser, Taken::Granted(_))))
+    });
+
+    assert_eq!(
+        (strict, looser),
+        (Taken::Wait(None), ("looser@shop.test".to_owned(), true))
+    );
+}
+
+/// Covers: story:3-80
+#[test]
+fn the_waiters_of_an_engine_that_ended_lose_their_turn_to_the_next() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let woken = run(async |owner| {
+        let first = engine(&env, "first", owner).await;
+        let ended_owner = TaskOwner::root(BlockingPolicy::Inline);
+        let ended = engine(&env, "ended", &ended_owner).await;
+        let last = engine(&env, "last", owner).await;
+        let mut wakes = last.wakes();
+        let held = granted(
+            first
+                .take("shop.test", &holder(&env, "holding"), cap(1), now)
+                .await
+                .unwrap(),
+        );
+        ended
+            .take("shop.test", &holder(&env, "of-the-ended"), cap(1), now)
+            .await
+            .unwrap();
+        last.take("shop.test", &holder(&env, "next"), cap(1), now)
+            .await
+            .unwrap();
+        ended_owner.cancel();
+        drop(ended);
+        ended_owner.wait().await;
+
+        first
+            .give_back(held, cap(1), Ending::Done, now)
+            .await
+            .unwrap();
+        next_wake(&mut wakes).await
+    });
+
+    assert_eq!(woken, "next@shop.test");
+}
+
+/// Covers: story:3-80
+#[test]
+fn the_permits_of_a_run_that_is_gone_are_reclaimed() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let (behind_live, behind_gone) = run(async |owner| {
+        let first = engine(&env, "first", owner).await;
+        let second = engine(&env, "second", owner).await;
+        let _live = granted(
+            first
+                .take("live.test", &holder(&env, "live-run"), cap(1), now)
+                .await
+                .unwrap(),
+        );
+        let _gone = granted(
+            first
+                .take("gone.test", &holder(&env, "gone-run"), cap(1), now)
+                .await
+                .unwrap(),
+        );
+        let behind_live = second
+            .take("live.test", &holder(&env, "other"), cap(1), now)
+            .await
+            .unwrap();
+        let behind_gone = second
+            .take("gone.test", &holder(&env, "other"), cap(1), now)
+            .await
+            .unwrap();
+        (behind_live, matches!(behind_gone, Taken::Granted(_)))
+    });
+
+    assert_eq!((behind_live, behind_gone), (Taken::Wait(None), true));
+}
+
+/// Covers: story:3-95
+#[test]
+fn the_file_records_its_format_and_refuses_another_major() {
+    let env = TestEnv::new();
+    let path = env.home().join("politeness.sqlite");
+
+    let recorded = run(async |owner| {
+        engine(&env, "first", owner).await;
+        Connection::open(&path)
+            .unwrap()
+            .query_row("SELECT name || ' ' || version FROM format", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap()
+    });
+    Connection::open(&path)
+        .unwrap()
+        .execute("UPDATE format SET version = '1.0'", [])
+        .unwrap();
+    let refused = run(async |owner| {
+        Politeness::open(
+            path.clone(),
+            &PolitenessOptions::default(),
+            Vec::new(),
+            gone_unless_live,
+            "second".to_owned(),
+            owner,
+        )
+        .await
+        .err()
+    });
+
+    assert_eq!(
+        (recorded, refused),
+        (
+            "politeness-file 0.1".to_owned(),
+            Some(PolitenessError::Format {
+                found: "1.0".to_owned(),
+                compatibility: Compatibility::NewerMajor,
+            })
+        )
+    );
+}

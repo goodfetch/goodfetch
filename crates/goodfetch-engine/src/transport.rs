@@ -8,9 +8,10 @@
 //! Client of the Daemon connects to the endpoint its runtime file names. A
 //! Daemon a service manager started at the first connection takes the
 //! listening socket it was handed instead (launchd's, systemd's).
-//! This is the only module that opens stdin, stdout, the protocol's sockets
-//! and the Console's listener; the other listeners join here with the
-//! tickets that add them.
+//! This is the only module that opens stdin, stdout, the protocol's sockets,
+//! the Console's listener and the Politeness file's wake endpoints (a Unix
+//! socket on macOS and Linux, a named pipe on Windows, ADR 0053); the other
+//! listeners join here with the tickets that add them.
 //! The engine's own outbound connections, which the Simulation never
 //! carries, open in `http_client`.
 
@@ -27,6 +28,9 @@ use tokio::sync::mpsc;
 
 #[cfg(unix)]
 mod activation;
+mod wake;
+
+pub use wake::{WakeListener, is_gone, listen_wakes, wake};
 
 /// The name of the socket a launch agent's `Sockets` defines for the
 /// Daemon, which it asks launchd for.

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, RunAbortParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FormatsParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, RunAbortParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -70,6 +70,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
+
+    async def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(await self._caller.call("page.formats", params)))
 
     async def page_goto(self, params: GotoParams) -> Navigated:
         """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.
@@ -153,6 +160,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
+
+    def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(self._caller.call("page.formats", params)))
 
     def page_goto(self, params: GotoParams) -> Navigated:
         """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.

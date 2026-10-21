@@ -242,6 +242,17 @@
       ]
     },
     {
+      "id": "command:page.formats",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:page.goto",
       "kind": "command",
       "area": 11,
@@ -941,6 +952,17 @@
       "id": "operation:page.body",
       "kind": "operation",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.formats",
+      "kind": "operation",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [

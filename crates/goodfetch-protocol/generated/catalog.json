@@ -696,6 +696,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.formats",
+      "params": {
+        "$ref": "#/$defs/FormatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageFormats"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "effect",
       "deprecated": null,
       "description": "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.",

@@ -323,6 +323,12 @@ number = 5
 kind = "operation"
 prefix = "page.goto"
 
+# Area 6, Collection (spec #580): the page formats (#783).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "page.formats"
+
 [[area]]
 number = 5
 kind = "error"

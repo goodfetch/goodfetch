@@ -326,3 +326,10 @@ prefix = "closed"
 number = 11
 kind = "error"
 prefix = "engine_"
+
+# Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
+# cause, the closed list both Products share (#849).
+[[area]]
+number = 8
+kind = "block-cause"
+prefix = ""

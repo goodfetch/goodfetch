@@ -3,7 +3,7 @@
 //! from Collie's client package, read once from the projections' JSON so
 //! each language's generator works on parsed values.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
 use goodfetch_protocol::catalog::Product;
@@ -112,6 +112,55 @@ pub(super) struct PluginKind {
     pub(super) stability: Stability,
 }
 
+#[derive(Debug, Deserialize)]
+struct SharedTypeValue {
+    name: String,
+    product: Product,
+    #[serde(rename = "type")]
+    shared_type: String,
+    description: String,
+}
+
+/// A type both Products share (ADR 0095), as one package spells it: the
+/// values its Product adds, which an SDK keeps open to a value it does not
+/// know (ADR 0079).
+#[derive(Debug)]
+pub(super) struct SharedType {
+    /// Its `snake_case` name, such as `block_cause`.
+    pub(super) name: String,
+    /// Whether Collie's client package spells it too, so that this layer's
+    /// values add to Collie's.
+    pub(super) extends_collie: bool,
+    /// The values this layer adds, by name, each with its description.
+    pub(super) values: Vec<(String, String)>,
+}
+
+/// The shared types of `values`, each with the values `own` keeps, by name.
+fn shared_types(
+    values: &[SharedTypeValue],
+    own: impl Fn(Product) -> bool,
+    extends_collie: impl Fn(&str) -> bool,
+) -> Vec<SharedType> {
+    let mut types: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
+    for value in values.iter().filter(|value| own(value.product)) {
+        types
+            .entry(value.shared_type.as_str())
+            .or_default()
+            .push((value.name.clone(), value.description.clone()));
+    }
+    types
+        .into_iter()
+        .map(|(name, mut values)| {
+            values.sort();
+            SharedType {
+                name: name.to_owned(),
+                extends_collie: extends_collie(name),
+                values,
+            }
+        })
+        .collect()
+}
+
 /// The sections of a projection that the SDK layers read; any other section
 /// is no SDK's (metrics, for instance).
 #[derive(Deserialize)]
@@ -122,6 +171,9 @@ struct Projection {
     error_groups: Vec<ErrorGroup>,
     error_codes: Vec<ErrorCode>,
     plugin_kinds: Vec<PluginKind>,
+    /// Absent from a catalog that defines no shared type.
+    #[serde(default)]
+    shared_type_values: Vec<SharedTypeValue>,
     #[serde(rename = "$defs")]
     definitions: Map<String, Value>,
 }
@@ -137,6 +189,8 @@ pub(super) struct Layer {
     pub(super) error_groups: Vec<ErrorGroup>,
     pub(super) error_codes: Vec<ErrorCode>,
     pub(super) plugin_kinds: Vec<PluginKind>,
+    /// The types both Products share that this layer adds values to.
+    pub(super) shared_types: Vec<SharedType>,
     /// The types this layer defines.
     pub(super) definitions: Map<String, Value>,
     /// The types this layer's entries take from Collie's client package.
@@ -170,6 +224,7 @@ impl Layer {
                     }
                 }
                 definitions.sort_keys();
+                let shared_types = shared_types(&collie.shared_type_values, |_| true, |_| false);
                 Ok(Self {
                     product,
                     protocol_version: collie.protocol_version,
@@ -178,6 +233,7 @@ impl Layer {
                     error_groups: collie.error_groups,
                     error_codes: collie.error_codes,
                     plugin_kinds: collie.plugin_kinds,
+                    shared_types,
                     definitions,
                     collie_types: BTreeSet::new(),
                 })
@@ -206,6 +262,12 @@ impl Layer {
                     .into_iter()
                     .filter(|entry| own(entry.product))
                     .collect();
+                let shared_types = shared_types(&all.shared_type_values, own, |name| {
+                    collie
+                        .shared_type_values
+                        .iter()
+                        .any(|value| value.shared_type == name)
+                });
                 let roots = roots(&operations, &events, &plugin_kinds);
                 let reached = projection::reached(&roots, &all.definitions)?;
                 let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
@@ -219,6 +281,7 @@ impl Layer {
                     error_groups: Vec::new(),
                     error_codes,
                     plugin_kinds,
+                    shared_types,
                     definitions: all
                         .definitions
                         .into_iter()

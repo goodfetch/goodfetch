@@ -44,6 +44,14 @@ pub fn emit() -> Emitted {
             "title": "Goodfetch protocol",
             "protocol_version": PROTOCOL_VERSION.to_string(),
             "files": { "journeys/J-*.toml": journey },
+            "formats": [{
+                "name": "sample-store",
+                "version": "0.1",
+                "storage": "sqlite",
+                "rule": "default",
+                "hello_from": [],
+                "schema": { "type": "object" },
+            }],
             "connection": { "hello": { "params": hello } },
             "documents": {
                 "result_document": result_document,

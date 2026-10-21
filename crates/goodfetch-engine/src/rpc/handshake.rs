@@ -1,16 +1,17 @@
 //! The answer to a Client's `hello` (ADRs 0024, 0066 and 0095): the Product
 //! check first, since its fix makes the version moot, then ADR 0030's
 //! default rule on the protocol's `major.minor`. Product versions are
-//! reported, never compared. A Browser host needs no Product. A refusal by
-//! Product or version is kept apart, so a Daemon can mark the one it hands
-//! over on (ADR 0098).
+//! reported, never compared. A Browser host needs no Product, and it and
+//! the engine settle on the lower of their minors, only another major
+//! refused (ADR 0096). A refusal by Product or version is kept apart, so a
+//! Daemon can mark the one it hands over on (ADR 0098).
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::connection::{
     HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails, PROTOCOL_VERSION_UNSUPPORTED,
     ProtocolVersionUnsupportedDetails, Surface,
 };
-use goodfetch_protocol::formats::{self, Compatibility};
+use goodfetch_protocol::formats::{self, Compatibility, Rule};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 
 use crate::composition::CallError;
@@ -76,14 +77,26 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
         }
     }
     let client = hello.protocol_version;
-    let fix = match formats::PROTOCOL
-        .rule
-        .compatibility(PROTOCOL_VERSION, client)
-    {
+    let (rule, sender, accepts, matching) = if hello.surface == Surface::BrowserHost {
+        (
+            Rule::LowerMinor,
+            "Browser host",
+            format!("any {}.x", PROTOCOL_VERSION.major),
+            "of the engine's major",
+        )
+    } else {
+        (
+            formats::PROTOCOL.rule,
+            "Client",
+            format!("{}.0 to {PROTOCOL_VERSION}", PROTOCOL_VERSION.major),
+            "of the engine's own version",
+        )
+    };
+    let fix = match rule.compatibility(PROTOCOL_VERSION, client) {
         Compatibility::Compatible => {
             return Ok(Accepted {
                 result: HelloResult {
-                    protocol_version: PROTOCOL_VERSION,
+                    protocol_version: PROTOCOL_VERSION.min(client),
                     product: identity.product,
                     product_version: identity.product_version.clone(),
                 },
@@ -91,17 +104,16 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
             });
         }
         Compatibility::NewerMinor | Compatibility::NewerMajor => format!(
-            "Upgrade the engine to a version that speaks protocol {client}, or use a Client of the engine's own version."
+            "Upgrade the engine to a version that speaks protocol {client}, or use a {sender} {matching}."
         ),
         Compatibility::OlderMajor => format!(
-            "Upgrade the Client to one that speaks protocol {}.x.",
+            "Upgrade the {sender} to one that speaks protocol {}.x.",
             PROTOCOL_VERSION.major
         ),
     };
     Err(Refused::Version(
         format!(
-            "This Client speaks protocol {client}, and this engine speaks {PROTOCOL_VERSION}: it accepts {}.0 to {PROTOCOL_VERSION}.",
-            PROTOCOL_VERSION.major
+            "This {sender} speaks protocol {client}, and this engine speaks {PROTOCOL_VERSION}: it accepts {accepts}."
         ),
         ProtocolVersionUnsupportedDetails {
             engine_protocol_version: PROTOCOL_VERSION,

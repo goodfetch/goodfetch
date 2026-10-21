@@ -10,7 +10,8 @@
 //! self-test, proves the Proving ground's own oracle against known-right
 //! and known-wrong reference results; the protocol suite runs against any
 //! target that speaks Goodfetch's JSON-RPC protocol, started from its
-//! executable taken by path.
+//! executable taken by path, and so does each generated refusal case's
+//! fabricated `hello` (ADR 0066).
 
 mod case_list;
 mod host;
@@ -21,8 +22,8 @@ mod writer;
 
 pub use case_list::{CaseList, DeclaredCapability, DeclaredCase};
 pub use protocol::{
-    EngineMode, EngineTarget, ProtocolSuite, ProtocolSuiteError, StartError, SuiteError,
-    run_protocol_suite,
+    EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome, ProtocolSuite,
+    ProtocolSuiteError, StartError, SuiteError, run_protocol_suite, send_fabricated_hello,
 };
 pub use proving_ground::{ProvingGround, ProvingGroundError, Submission, Task, TaskList};
 pub use self_test::{Record, References, SelfTestError, run_self_test};

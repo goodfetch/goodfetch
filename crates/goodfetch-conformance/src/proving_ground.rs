@@ -118,6 +118,23 @@ impl ProvingGround {
         Self::answer(url, response)
     }
 
+    /// Sets the Proving ground's time step, which its time-dependent pages
+    /// follow: the `pacing` family holds each answer longer at each step.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached or refuses the step.
+    pub fn set_time_step(&self, step: u64) -> Result<(), ProvingGroundError> {
+        let url = format!("http://{}/time-step", self.address);
+        Self::answer(
+            &url,
+            self.agent
+                .put(&url)
+                .send_json(serde_json::json!({ "step": step })),
+        )
+        .map(drop)
+    }
+
     /// The oracle's answer for a submitted result.
     ///
     /// # Errors

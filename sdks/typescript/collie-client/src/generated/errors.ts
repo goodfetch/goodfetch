@@ -267,6 +267,15 @@ export class NavigationFailedError extends PageError {
 }
 
 /**
+ * Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.
+ */
+export class NavigationInterruptedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "navigation_interrupted", group: "page", retryable: false });
+  }
+}
+
+/**
  * The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.
  */
 export class NotADaemonError extends ProgramError {
@@ -448,6 +457,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
   navigation_failed: NavigationFailedError,
+  navigation_interrupted: NavigationInterruptedError,
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,

@@ -20,6 +20,7 @@ use goodfetch_engine::lease::LeaseCheck as _;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, Seed};
+use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -30,7 +31,7 @@ use tokio::runtime::Runtime;
 
 use super::DEFAULT_LEASE;
 use crate::lease::{CommitError, Leases, WorkItemLease};
-use crate::work_items;
+use crate::work_items::{self, Failure, Unsuccessful};
 
 #[derive(Clone, Debug)]
 enum Transition {
@@ -388,7 +389,16 @@ impl StateMachineTest for Subject {
                     subject
                         .runtime
                         .block_on(state.write(move |connection| {
-                            work_items::fail(connection, &id, epoch, "handler_lost", true)
+                            work_items::end(
+                                connection,
+                                &id,
+                                epoch,
+                                Unsuccessful::Retried(Failure {
+                                    code: "handler_lost".to_owned(),
+                                    message: "no answer".to_owned(),
+                                }),
+                                &ended_at(),
+                            )
                         }))
                         .unwrap();
                 }
@@ -403,7 +413,10 @@ impl StateMachineTest for Subject {
                         })
                         .collect();
                     let state = subject.state().clone();
-                    let committed = subject.runtime.block_on(lease.commit(&state, records));
+                    let committed =
+                        subject
+                            .runtime
+                            .block_on(lease.commit(&state, records, ended_at()));
                     let counted = match committed {
                         Ok(()) => true,
                         Err(CommitError::LeaseLost) => false,
@@ -465,4 +478,9 @@ prop_state_machine! {
     fn a_lease_counts_only_commits_made_while_it_holds_through_timeouts_renewals_and_crashes(
         sequential 1..30 => Subject
     );
+}
+
+/// When the model's attempts end: their outcomes are not its subject.
+fn ended_at() -> PointInTime {
+    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
 }

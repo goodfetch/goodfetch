@@ -43,7 +43,7 @@ use crate::policy::CrawlPolicy;
 
 /// The policy of the tests' crawls: a one-second handler, so a lost lease
 /// ends after 11 s of the paused clock.
-pub(super) const POLICY: CrawlPolicy = CrawlPolicy {
+pub(crate) const POLICY: CrawlPolicy = CrawlPolicy {
     handler_timeout: Duration::from_secs(1),
     retry_max: 2,
     retry_handler_failed: false,
@@ -52,36 +52,41 @@ pub(super) const POLICY: CrawlPolicy = CrawlPolicy {
 
 /// What the scripted handler does with one attempt.
 #[derive(Clone, Debug)]
-pub(super) enum Reply {
+pub(crate) enum Reply {
     /// Answers these Records into the Dataset `pages`.
     Records(Vec<Value>),
     /// Fails with this Error code and retryable flag.
     Fails(&'static str, bool),
     /// Fails with this Error code, retryable flag and details.
     FailsWith(&'static str, bool, Value),
+    /// Skips its request with this message, as `ctx.skip` does.
+    Skips(&'static str),
+    /// Fails with `blocked` and this Block cause, as a page the site
+    /// refused raises it.
+    Blocked(&'static str),
     /// Never answers.
     Silent,
 }
 
 /// The Client's end of the engine's Connection.
-pub(super) struct Client {
+pub(crate) struct Client {
     lines: Lines<BufReader<ConnectionReader>>,
     writer: ConnectionWriter,
     next_id: i64,
     /// The handler requests the engine sent, as they came.
-    pub(super) handled: Vec<Value>,
+    pub(crate) handled: Vec<Value>,
     /// The ids of the requests left unanswered.
-    pub(super) silent: Vec<Value>,
+    pub(crate) silent: Vec<Value>,
     /// Each request and notification the engine sent, as it came, with
     /// the paused clock's reading when it did.
-    pub(super) arrivals: Vec<(Value, Instant)>,
+    pub(crate) arrivals: Vec<(Value, Instant)>,
     /// The Records a request left unanswered is answered with once the
     /// engine cancels it: a late commit.
-    pub(super) late: Option<Vec<Value>>,
+    pub(crate) late: Option<Vec<Value>>,
 }
 
 impl Client {
-    pub(super) async fn send(&mut self, message: &Value) {
+    pub(crate) async fn send(&mut self, message: &Value) {
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
         self.writer.write_all(&line).await.unwrap();
@@ -94,7 +99,7 @@ impl Client {
 
     /// Sends the call `method` and answers the engine's handler requests
     /// with `handler` until the call's reply arrives, which it answers.
-    pub(super) async fn call(
+    pub(crate) async fn call(
         &mut self,
         method: &str,
         params: Value,
@@ -158,6 +163,18 @@ impl Client {
                         }))
                         .await;
                     }
+                    Reply::Skips(text) => {
+                        self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "skipped": { "message": text } } }))
+                            .await;
+                    }
+                    Reply::Blocked(cause) => {
+                        self.send(&json!({
+                            "jsonrpc": "2.0",
+                            "id": message["id"],
+                            "error": { "code": -32003, "message": "the site refused the page", "data": { "code": "blocked", "retryable": false, "cause": cause } },
+                        }))
+                        .await;
+                    }
                     Reply::Silent => self.silent.push(message["id"].clone()),
                 }
             } else if message["id"] == json!(id) {
@@ -166,7 +183,7 @@ impl Client {
         }
     }
 
-    pub(super) async fn close(&mut self) {
+    pub(crate) async fn close(&mut self) {
         self.writer.shutdown().await.unwrap();
         while self.next().await.is_some() {}
     }
@@ -174,7 +191,7 @@ impl Client {
 
 /// Writes `policy` as the user configuration of the test's home, the way a
 /// test sets short durations (ADR 0059).
-pub(super) fn configure(env: &TestEnv, policy: CrawlPolicy) {
+pub(crate) fn configure(env: &TestEnv, policy: CrawlPolicy) {
     let folder = env.home().join("1");
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(
@@ -193,13 +210,13 @@ pub(super) fn configure(env: &TestEnv, policy: CrawlPolicy) {
 /// What the tests' engine runs on: the test's home, configured with
 /// [`POLICY`], the test `Clock` and `Entropy`, and blocking work inline.
 /// Made on the runtime the engine runs on, as the paused `Clock` must be.
-pub(super) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
+pub(crate) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
     configure(env, POLICY);
     default_dependencies(env, run_state)
 }
 
 /// The same, with the settings' defaults: a 60 s handler, so a 70 s lease.
-pub(super) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
+pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
     Dependencies {
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
@@ -212,7 +229,7 @@ pub(super) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
 
 /// A Foxhound engine composed of the engine's operations, the Frontier's
 /// per-domain queues and the crawl's.
-pub(super) fn engine() -> Engine {
+pub(crate) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
@@ -229,7 +246,7 @@ pub(super) fn engine() -> Engine {
 /// runtime while `talk` drives its Client from `hello` on, then closes the
 /// Connection. The test `tracing` subscriber, timed by their `Clock`, writes
 /// the dispatch records into the test's exercise record (ADR 0072).
-pub(super) fn crawl<T>(
+pub(crate) fn crawl<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> T {
@@ -238,7 +255,7 @@ pub(super) fn crawl<T>(
 
 /// [`crawl`], which also answers the fencing model's transitions `lease`
 /// traced, each as its fields, in order.
-pub(super) fn crawl_fenced<T>(
+pub(crate) fn crawl_fenced<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> (T, Vec<Value>) {
@@ -291,11 +308,11 @@ pub(super) fn crawl_fenced<T>(
 
 /// The `tracing` layer that keeps each event under `lease`'s target as a
 /// map of its fields.
-pub(super) struct Transitions(mpsc::Sender<Value>);
+pub(crate) struct Transitions(mpsc::Sender<Value>);
 
 impl Transitions {
     /// The layer, and where its events go.
-    pub(super) fn new() -> (Self, mpsc::Receiver<Value>) {
+    pub(crate) fn new() -> (Self, mpsc::Receiver<Value>) {
         let (sender, receiver) = mpsc::channel();
         (Self(sender), receiver)
     }
@@ -332,7 +349,7 @@ impl tracing::field::Visit for Fields {
 
 /// The transitions `transitions` holds for the lease of epoch `epoch`, as
 /// `transition` and, when one is given, `reason`.
-pub(super) fn of_epoch(transitions: &[Value], epoch: u64) -> Vec<String> {
+pub(crate) fn of_epoch(transitions: &[Value], epoch: u64) -> Vec<String> {
     transitions
         .iter()
         .filter(|transition| transition["lease_epoch"] == json!(epoch))
@@ -343,7 +360,7 @@ pub(super) fn of_epoch(transitions: &[Value], epoch: u64) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn seeds(count: usize) -> Value {
+pub(crate) fn seeds(count: usize) -> Value {
     let seeds: Vec<Value> = (1..=count)
         .map(|page| json!({ "url": format!("https://shop.test/page/{page}"), "label": "page" }))
         .collect();
@@ -351,16 +368,16 @@ pub(super) fn seeds(count: usize) -> Value {
 }
 
 /// The run file of `run_id` in the test's home, as the engine left it.
-pub(super) fn run_file(env: &TestEnv, run_id: &str) -> Connection {
+pub(crate) fn run_file(env: &TestEnv, run_id: &str) -> Connection {
     Connection::open(run_folder(env, run_id).join("run.sqlite")).unwrap()
 }
 
-pub(super) fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
+pub(crate) fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
     env.home().join("1").join("runs").join(run_id)
 }
 
 /// Each committed Record's Dataset, number, work item and data, in order.
-pub(super) fn records(connection: &Connection) -> Vec<(String, i64, String, Value)> {
+pub(crate) fn records(connection: &Connection) -> Vec<(String, i64, String, Value)> {
     let mut statement = connection
         .prepare("SELECT dataset, number, work_item, data FROM records ORDER BY dataset, number")
         .unwrap();
@@ -379,7 +396,7 @@ pub(super) fn records(connection: &Connection) -> Vec<(String, i64, String, Valu
 }
 
 /// Each work item's ID, status, attempts and last Error code, in order.
-pub(super) fn work_items(connection: &Connection) -> Vec<(String, String, i64, Option<String>)> {
+pub(crate) fn work_items(connection: &Connection) -> Vec<(String, String, i64, Option<String>)> {
     let mut statement = connection
         .prepare("SELECT id, status, attempts, error_code FROM work_items ORDER BY position")
         .unwrap();

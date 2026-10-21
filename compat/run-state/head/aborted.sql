@@ -1,5 +1,12 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
+CREATE TABLE attempt_errors (
+            work_item TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            message TEXT NOT NULL,
+            PRIMARY KEY (work_item, attempt)
+        ) STRICT;
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,
@@ -7,6 +14,14 @@ CREATE TABLE domains (
         ) STRICT;
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
+CREATE TABLE outcomes (
+            position INTEGER NOT NULL PRIMARY KEY,
+            work_item TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            label TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            outcome TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -38,6 +53,7 @@ CREATE TABLE work_items (
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
             label TEXT NOT NULL,
+            depth INTEGER NOT NULL,
             payload TEXT,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
@@ -46,6 +62,7 @@ CREATE TABLE work_items (
             domain_key TEXT,
             priority INTEGER NOT NULL
         ) STRICT;
+CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);

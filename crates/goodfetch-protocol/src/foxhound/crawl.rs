@@ -163,8 +163,17 @@ pub struct PushedRecord {
     pub data: Value,
 }
 
+/// A handler's skip of its request: `ctx.skip(message)` (ADR 0093).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HandlerSkip {
+    /// The handler's own text.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: String,
+}
+
 /// What a handler answers once its attempt returned: the outputs it staged,
-/// which commit once, under the attempt's lease (ADR 0003).
+/// which commit once, under the attempt's lease (ADR 0003), or its skip.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CrawlRequestHandled {
@@ -172,6 +181,11 @@ pub struct CrawlRequestHandled {
     #[serde(default)]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub records: Vec<PushedRecord>,
+    /// Its handler's skip: the request ends `skipped` with the reason
+    /// `handler`, and the attempt's Records are discarded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub skipped: Option<HandlerSkip>,
 }
 
 /// `crawl.start`.
@@ -192,7 +206,7 @@ pub const CRAWL_START: Operation = Operation {
 /// `crawl_request.handle`.
 pub const CRAWL_REQUEST_HANDLE: HandlerRequest = HandlerRequest {
     name: "crawl_request.handle",
-    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
+    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
     params: schema_of::<CrawlRequestHandleParams>,
     result: schema_of::<CrawlRequestHandled>,
     stability: Stability::Experimental,

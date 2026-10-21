@@ -9,7 +9,9 @@
 //! ends an attempt whose handler failed, or that got no answer before its
 //! lease ended, with nothing committed, its work item retried under the
 //! Run's policy, which each admission point reads again from the Run's
-//! settings. When a lease ends first, the attempt's request is cancelled
+//! settings; a handler's skip ends its work item `skipped`, and a failure
+//! with the Error code `blocked` ends it `blocked`. Each ending's outcome
+//! is committed with it. When a lease ends first, the attempt's request is cancelled
 //! with `$/cancel`, and an answer that still comes is a late commit,
 //! refused with `lease_lost`. Once every work item is done, it finishes
 //! the Run. When the Run is asked to stop at its next safe point, such as
@@ -26,6 +28,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{Ending, Run};
 use goodfetch_engine::settings::RunSettings;
+use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
@@ -33,23 +36,29 @@ use goodfetch_protocol::foxhound::crawl::{
 };
 use goodfetch_protocol::run::StopReason;
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use serde_json::{Map, Value};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
-use crate::work_items::{self, Leased};
+use crate::work_items::{self, Failure, Leased, Unsuccessful};
+
+/// The Error code of a page the site refused, which Collie's page raises
+/// with the Block cause in its details (ADRs 0035 and 0079); declared with
+/// the page's errors (#711).
+const BLOCKED: &str = "blocked";
 
 /// How an attempt ended, before its outcome is committed.
 enum Answer {
     /// The handler answered.
     Handled(CrawlRequestHandled),
-    /// The handler failed, or answered no result; `backs_off` when the
-    /// site did not answer in time, which backs its domain off.
+    /// The handler failed, or answered no result.
     Failed {
         code: String,
         retryable: bool,
-        backs_off: bool,
+        message: String,
+        details: Map<String, Value>,
     },
     /// The lease ended with no answer.
     LeaseEnded,
@@ -194,10 +203,8 @@ async fn when_idle(run: &Run, admission: &mut Admission) -> Result<Idle, RunStat
 /// what the queues changed.
 async fn settled(run: &Run, settings: &RunSettings, admission: &mut Admission, attempt: Attempt) {
     let waiting = attempt.leased.waiting.clone();
-    let domain = match attempt.answer {
-        Answer::Failed {
-            backs_off: true, ..
-        } => Ended::BackOff,
+    let domain = match &attempt.answer {
+        Answer::Failed { code, details, .. } if site_timed_out(code, details) => Ended::BackOff,
         _ => Ended::Done,
     };
     let policy = CrawlPolicy::of(&settings.at_admission().await);
@@ -328,15 +335,14 @@ async fn attempt(run: Run, client: Client, leased: Leased, lease: WorkItemLease)
             biased;
             answer = sent.answer() => match answer {
                 Ok(handled) => Answer::Handled(handled),
-                Err(ClientRequestError::Failed { code, retryable, details, .. }) => Answer::Failed {
-                    backs_off: site_timed_out(&code, &details),
-                    code,
-                    retryable,
-                },
-                Err(ClientRequestError::Malformed(_)) => Answer::Failed {
+                Err(ClientRequestError::Failed { code, retryable, message, details }) => {
+                    Answer::Failed { code, retryable, message, details }
+                }
+                Err(ClientRequestError::Malformed(message)) => Answer::Failed {
                     code: HANDLER_FAILED.name.to_owned(),
                     retryable: false,
-                    backs_off: false,
+                    message,
+                    details: Map::new(),
                 },
                 Err(_) => Answer::ClientGone,
             },
@@ -363,7 +369,8 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
         () = run.cancellation().cancelled() => {}
         answer = sent.answer() => {
             if let Ok(handled) = answer
-                && let Err(CommitError::LeaseLost) = lease.commit(run.state(), handled.records).await
+                && let Err(CommitError::LeaseLost) =
+                    lease.commit(run.state(), handled.records, run.point_in_time()).await
             {
                 run.record_outcome(LEASE_LOST.name);
             }
@@ -371,9 +378,10 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
     }
 }
 
-/// Commits an attempt's outcome: its Records once while its lease holds, or
-/// its work item retried or failed; then releases its lease. Answers
-/// whether its work item waits again for a retry.
+/// Commits an attempt's outcome: its Records once while its lease holds,
+/// its handler's skip, its block, or its work item retried or failed; then
+/// releases its lease. Answers whether its work item waits again for a
+/// retry.
 async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
     let Attempt {
         leased,
@@ -382,44 +390,78 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
     } = attempt;
     let id = leased.crawl_request.id.clone();
     let epoch = leased.lease_epoch;
-    let retry = |code: &str, retryable: bool| {
+    let failure = |code: String, retryable: bool, message: String| {
         let retryable = if code == HANDLER_FAILED.name {
             policy.retry_handler_failed
         } else {
             retryable
         };
-        retryable && policy.may_retry(leased.attempt)
-    };
-    let (code, retryable) = match answer {
-        Answer::Handled(handled) => match lease.commit(run.state(), handled.records).await {
-            Ok(()) => {
-                lease.release();
-                return false;
-            }
-            Err(CommitError::LeaseLost) => (LEASE_LOST.name.to_owned(), LEASE_LOST.retryable),
-            Err(CommitError::RunState(error)) => {
-                tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
-                return false;
-            }
-        },
-        Answer::LeaseEnded | Answer::ClientGone => {
-            (HANDLER_LOST.name.to_owned(), HANDLER_LOST.retryable)
+        let failure = Failure { code, message };
+        if retryable && policy.may_retry(leased.attempt) {
+            Unsuccessful::Retried(failure)
+        } else {
+            Unsuccessful::Failed(failure)
         }
-        Answer::Failed {
-            code, retryable, ..
-        } => (code, retryable),
     };
-    let retry = retry(&code, retryable);
-    let recorded = code.clone();
+    let unsuccessful = match answer {
+        Answer::Handled(CrawlRequestHandled {
+            skipped: Some(skip),
+            ..
+        }) => Unsuccessful::Skipped(skip.message),
+        Answer::Handled(handled) => {
+            match lease
+                .commit(run.state(), handled.records, run.point_in_time())
+                .await
+            {
+                Ok(()) => {
+                    lease.release();
+                    return false;
+                }
+                Err(CommitError::LeaseLost) => failure(
+                    LEASE_LOST.name.to_owned(),
+                    LEASE_LOST.retryable,
+                    LEASE_LOST.description.to_owned(),
+                ),
+                Err(CommitError::RunState(error)) => {
+                    tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+                    return false;
+                }
+            }
+        }
+        Answer::LeaseEnded | Answer::ClientGone => failure(
+            HANDLER_LOST.name.to_owned(),
+            HANDLER_LOST.retryable,
+            HANDLER_LOST.description.to_owned(),
+        ),
+        Answer::Failed {
+            code,
+            retryable,
+            message,
+            details,
+        } => match block_cause(&code, &details) {
+            Some(cause) => Unsuccessful::Blocked(cause),
+            None => failure(code, retryable, message),
+        },
+    };
+    let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
+    let recorded = match &unsuccessful {
+        Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
+            Some(failure.code.clone())
+        }
+        Unsuccessful::Skipped(_) | Unsuccessful::Blocked(_) => None,
+    };
+    let ended_at = run.point_in_time();
     let written = run
         .state()
-        .write(move |connection| work_items::fail(connection, &id, epoch, &code, retry))
+        .write(move |connection| work_items::end(connection, &id, epoch, unsuccessful, &ended_at))
         .await;
     lease.release();
     match written {
         Ok(true) => {
-            run.record_outcome(&recorded);
-            retry
+            if let Some(code) = recorded {
+                run.record_outcome(&code);
+            }
+            retried
         }
         Ok(false) => {
             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
@@ -437,13 +479,24 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
 /// navigation, which backs the domain off like a refused or timed-out
 /// connection (ADR 0086). A `Retry-After`, a 429 and a 503 join with the
 /// fetch tiers (area 5).
-fn site_timed_out(code: &str, details: &serde_json::Map<String, serde_json::Value>) -> bool {
+fn site_timed_out(code: &str, details: &Map<String, Value>) -> bool {
     code == DEADLINE_EXCEEDED.name
         && details
             .get("limit")
             .and_then(|limit| limit.get("key"))
-            .and_then(serde_json::Value::as_str)
+            .and_then(Value::as_str)
             .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key))
+}
+
+/// The Block cause of a handler's failure with the Error code `blocked`,
+/// which its details name.
+fn block_cause(code: &str, details: &Map<String, Value>) -> Option<BlockCause> {
+    if code != BLOCKED {
+        return None;
+    }
+    details
+        .get("cause")
+        .and_then(|cause| serde_json::from_value(cause.clone()).ok())
 }
 
 /// Returns the leased work items to pending, without counting them.

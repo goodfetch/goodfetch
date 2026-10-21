@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 16] = [
+pub const MODULES: [&Entries; 17] = [
     &connection::ENTRIES,
     &daemon::ENTRIES,
     &browser_cache::ENTRIES,
@@ -24,6 +24,7 @@ pub const MODULES: [&Entries; 16] = [
     &block::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
+    &foxhound::outcomes::ENTRIES,
     &foxhound::settings::ENTRIES,
     &foxhound::block::ENTRIES,
 ];
@@ -76,7 +77,9 @@ mod tests {
                 "sample.echo",
                 "config.explain",
                 "sample.crawl",
-                "crawl.start"
+                "crawl.start",
+                "run.outcomes",
+                "run.failed_requests"
             ]
         );
     }

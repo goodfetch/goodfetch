@@ -164,7 +164,8 @@ fn stopped() -> CallError {
     )
 }
 
-fn run_error(error: RunError, identity: &Identity) -> CallError {
+/// The Error code of a Run's failure to be finished, aborted or read.
+pub fn run_error(error: RunError, identity: &Identity) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
             &RUN_NOT_FOUND,

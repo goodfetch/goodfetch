@@ -193,7 +193,7 @@ fn a_new_run_is_refused_with_limit_reached_naming_the_scope_and_period() {
     );
 }
 
-/// Covers: story:3-79
+/// Covers: story:3-79, operation:usage.list, operation:usage.set
 #[test]
 fn usage_lists_the_usage_against_each_limit_by_scope() {
     let env = TestEnv::new();

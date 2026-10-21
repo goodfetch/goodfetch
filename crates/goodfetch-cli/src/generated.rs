@@ -9,7 +9,9 @@
 //!
 //! A command calls its operation on the engine [`engine_choice`] gives it
 //! and prints the result: an opener prints the new value's ID, any other
-//! the result's fields one per line, and `--json` the result itself. A
+//! the result's fields one per line, a point in time in the local zone,
+//! and `--json` the result itself, in UTC. While the call runs, its words
+//! show as progress on a terminal. A
 //! failure prints its message, code, retryability and `fix` on stderr, or
 //! under `--json` [`CommandFailed`] on stdout, and exits with its row of
 //! [`exit_codes`]. A deprecated command warns on stderr.
@@ -26,6 +28,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
 use crate::engine_choice::{self, Answer};
+use crate::output::Human;
 use crate::{exit_codes, output};
 
 /// The Product whose catalog the commands come from: Collie's, which both
@@ -282,6 +285,22 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
     parameters
 }
 
+/// The fields of `operation`'s result that are points in time, from its
+/// result's JSON Schema (`format: date-time`).
+fn times(operation: &Operation) -> Vec<String> {
+    let mut generator = SchemaSettings::draft2020_12().into_generator();
+    let result = Value::from((operation.result)(&mut generator));
+    let definitions = Value::Object(generator.take_definitions(true));
+    let result = resolved(&result, &definitions);
+    result["properties"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, schema)| resolved(schema, &definitions)["format"] == "date-time")
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
 /// `schema` with its references followed and an optional value's `null`
 /// alternative dropped.
 fn resolved<'a>(schema: &'a Value, definitions: &'a Value) -> &'a Value {
@@ -322,16 +341,17 @@ pub struct Call {
 
 impl Call {
     /// Calls the operation on an Attached engine in this process, `engine`
-    /// on `dependencies`, prints what it answered, and answers the exit
-    /// code.
-    pub fn run(mut self, engine: &Engine, dependencies: Dependencies) -> ExitCode {
+    /// on `dependencies`, prints what it answered as `human` shows it, and
+    /// answers the exit code.
+    pub fn run(mut self, engine: &Engine, dependencies: Dependencies, human: &Human) -> ExitCode {
         let words = self.operation.name.replace('.', " ").replace('_', "-");
         if let Some(deprecated) = self.operation.deprecated {
-            output::note(&format!(
-                "warning: `{words}` is deprecated since {}: {}",
+            human.warning(&format!(
+                "`{words}` is deprecated since {}: {}",
                 deprecated.since, deprecated.note
             ));
         }
+        let progress = human.progress(&words);
         let answer = engine_choice::call_attached(
             engine,
             dependencies,
@@ -339,12 +359,13 @@ impl Call {
             self.operation.name,
             Value::Object(std::mem::take(&mut self.params)),
         );
+        drop(progress);
         match answer {
             Answer::Result(result) => {
-                self.print(&result);
+                self.print(&result, human);
                 ExitCode::from(exit_codes::SUCCESS)
             }
-            Answer::Error(error) => self.fail(error),
+            Answer::Error(error) => self.fail(error, human),
             Answer::Unanswered(problem) => {
                 tracing::error!("{problem}");
                 ExitCode::from(exit_codes::unanswered())
@@ -352,7 +373,10 @@ impl Call {
         }
     }
 
-    fn print(&self, result: &Value) {
+    /// Prints `result`: as JSON under `--json`, which keeps its times in
+    /// UTC; else an opener's new ID, or each field, a point in time in the
+    /// local zone.
+    fn print(&self, result: &Value, human: &Human) {
         if self.json {
             output::json(result);
             return;
@@ -366,15 +390,20 @@ impl Call {
         }
         match result {
             Value::Object(fields) => {
+                let times = times(self.operation);
                 for (name, value) in fields {
-                    output::line(&format!("{name}: {}", text(value)));
+                    let shown = match value {
+                        Value::String(text) if times.contains(name) => human.time(text),
+                        _ => None,
+                    };
+                    human.field(name, &shown.unwrap_or_else(|| self::text(value)));
                 }
             }
             value => output::line(&text(value)),
         }
     }
 
-    fn fail(&self, error: ErrorObject) -> ExitCode {
+    fn fail(&self, error: ErrorObject, human: &Human) -> ExitCode {
         let group = group(&error);
         let exit = exit_codes::of_error(&error.data.code, group);
         let failed = CommandFailed {
@@ -391,12 +420,14 @@ impl Call {
             output::json(&failed);
         } else {
             let error = &failed.error;
-            output::note(&error.message);
-            output::note(&format!("code: {}", error.code));
-            output::note(&format!("retryable: {}", error.retryable));
+            let mut details = vec![
+                ("code", error.code.clone()),
+                ("retryable", error.retryable.to_string()),
+            ];
             if let Some(fix) = error.details.get("fix").and_then(Value::as_str) {
-                output::note(&format!("fix: {fix}"));
+                details.push(("fix", fix.to_owned()));
             }
+            human.failure(&error.message, &details);
         }
         ExitCode::from(exit)
     }

@@ -13,12 +13,18 @@ publish.workspace = true
 clap = { workspace = true, features = ["string"] }
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
+# Human output's times in the local zone `TZ` names (ADR 0073): the system's
+# zone database, bundled on Windows, which has none.
+jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 # The params' JSON Schemas, from which each generated command takes its flags.
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "rt-multi-thread"] }
 tracing.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
 
 [lints]
 workspace = true

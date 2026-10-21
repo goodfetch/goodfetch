@@ -7,7 +7,8 @@
 //! with the hidden `daemon launched` a start or the installed service
 //! runs, and `runs reindex`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
-//! `engine info`; the CLI's other commands join with area 11. Every
+//! `engine info`, and the global `--color auto|always|never`; the CLI's
+//! other commands join with area 11. Every
 //! command but `daemon launched` first records the executable in the list
 //! of installed executables (ADR 0098).
 //!
@@ -37,6 +38,7 @@ use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_cli::generated::{Call, Generated};
+use goodfetch_cli::output::{ColourChoice, Human};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -76,7 +78,14 @@ pub const HOME_VARIABLE: &str = "GOODFETCH_HOME";
 struct CommandLine {
     #[command(subcommand)]
     command: Command,
+    /// When to colour human output; `auto` colours on a terminal unless
+    /// `NO_COLOR` is set and not empty.
+    #[arg(long, global = true, value_enum, default_value_t, value_name = "WHEN")]
+    color: ColourChoice,
 }
+
+/// The id of the `--color` flag in a parse.
+const COLOR: &str = "color";
 
 // Each command's own flags and subcommands are built only when it is the
 // one parsed or its help is shown, so `--version` and every other command
@@ -289,12 +298,18 @@ pub fn main(start: &Start) -> ExitCode {
     let binary = command_line.get_name().to_owned();
     let parsed = command_line
         .try_get_matches_from(&start.arguments)
-        .and_then(|matches| match generated.call(&matches) {
-            Some(call) => Ok(Parsed::Generated(call)),
-            None => CommandLine::from_arg_matches(&matches)
-                .map(|command_line| Parsed::HandWritten(command_line.command)),
+        .and_then(|matches| {
+            let colour = matches
+                .get_one::<ColourChoice>(COLOR)
+                .copied()
+                .unwrap_or_default();
+            let parsed = match generated.call(&matches) {
+                Some(call) => Parsed::Generated(call),
+                None => Parsed::HandWritten(CommandLine::from_arg_matches(&matches)?.command),
+            };
+            Ok((parsed, colour))
         });
-    let parsed = match parsed {
+    let (parsed, colour) = match parsed {
         Ok(parsed) => parsed,
         Err(error) => {
             let _ = error.print();
@@ -302,6 +317,7 @@ pub fn main(start: &Start) -> ExitCode {
         }
     };
     let environment = with_passed_variables(&start.environment, &parsed);
+    let human = Human::new(colour, &environment);
     let home = home(&environment);
     let filter = environment.get(OsStr::new(LOG_VARIABLE));
     // A Daemon a start launched has no terminal: it logs to its file
@@ -368,7 +384,14 @@ pub fn main(start: &Start) -> ExitCode {
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
     };
-    run(parsed, &engine, dependencies, pinned_by, &environment)
+    run(
+        parsed,
+        &engine,
+        dependencies,
+        pinned_by,
+        &environment,
+        &human,
+    )
 }
 
 /// What the command line asks for: a hand-written command, or one
@@ -412,6 +435,7 @@ fn run(
     dependencies: Dependencies,
     pinned_by: PinnedBy,
     environment: &BTreeMap<OsString, OsString>,
+    human: &Human,
 ) -> ExitCode {
     let home = dependencies.home.clone();
     let machine = daemon::Machine {
@@ -429,7 +453,7 @@ fn run(
         machine.record();
     }
     let command = match parsed {
-        Parsed::Generated(call) => return call.run(engine, dependencies),
+        Parsed::Generated(call) => return call.run(engine, dependencies, human),
         Parsed::HandWritten(command) => command,
     };
     match command {

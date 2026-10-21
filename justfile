@@ -7,6 +7,13 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# nextest starts each test straight from the runner, not through a stub copy
+# of `cargo-nextest` that then executes the test (its double-spawn): on macOS
+# under load, a test that starts no process at all kept its output pipes open
+# past the leak timeout through the stub and failed as leaky (TESTING.md,
+# Before merge). The stub only guards against a hang on Ctrl-Z.
+export NEXTEST_DOUBLE_SPAWN := "0"
+
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
 

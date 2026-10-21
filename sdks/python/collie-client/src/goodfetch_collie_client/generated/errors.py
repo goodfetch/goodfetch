@@ -210,6 +210,14 @@ class PageCrashedError(UnavailableError):
         super().__init__(message, code="page_crashed", group="unavailable", retryable=True)
 
 
+class PatternUnsupportedError(ProgramError):
+    """A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="pattern_unsupported", group="program", retryable=False)
+
+
 class ProtocolVersionUnsupportedError(UnavailableError):
     """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
 
@@ -334,6 +342,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,
+    "pattern_unsupported": PatternUnsupportedError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,

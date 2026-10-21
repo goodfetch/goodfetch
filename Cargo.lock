@@ -1329,10 +1329,15 @@ dependencies = [
  "goodfetch-test-support",
  "jiff",
  "libc",
+ "proptest",
+ "regex",
+ "regex-syntax",
  "rstest",
  "serde_json",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

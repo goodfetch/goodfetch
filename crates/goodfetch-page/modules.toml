@@ -5,6 +5,7 @@ errors = []
 launch = []
 pages = ["driver"]
 trace = []
+url_pattern = []
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]

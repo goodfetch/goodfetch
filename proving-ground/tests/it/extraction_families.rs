@@ -142,6 +142,7 @@ fn each_family_lists_the_same_tasks_on_their_own_host_names_for_every_seed() {
             json!(["extraction/4", "crawl", "4.extraction.test"]),
             json!(["extraction/5", "extract", "5.extraction.test"]),
             json!(["extraction/6", "crawl", "6.extraction.test"]),
+            json!(["extraction/7", "crawl", "7.extraction.test"]),
             json!(["encodings/1", "crawl", "1.encodings.test"]),
             json!(["encodings/2", "crawl", "2.encodings.test"]),
             json!(["languages/1", "crawl", "1.languages.test"]),

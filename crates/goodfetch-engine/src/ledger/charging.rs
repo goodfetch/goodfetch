@@ -9,7 +9,9 @@ use goodfetch_protocol::run::ReachedLimit;
 use goodfetch_protocol::usage::Limit;
 use jiff::Timestamp;
 
-use super::{Holder, Ledger, LedgerError, LimitId, Placement, SliceId, SliceSizing, StoredLimit};
+use super::{
+    Holder, Ledger, LedgerError, LimitId, Placement, SliceId, SliceSizing, StoredLimit, TARGET,
+};
 
 /// Why a run may not start, or may not charge more.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -166,7 +168,7 @@ impl Charging {
             }
         }
         if !charged.used.is_empty() {
-            tracing::info!(target: "goodfetch_engine::ledger", transition = "charge", usage_kind, amount, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run charged Usage against its Slices");
+            tracing::trace!(target: TARGET, transition = "charge", usage_kind, amount, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run charged Usage against its Slices");
         }
         Ok(charged)
     }

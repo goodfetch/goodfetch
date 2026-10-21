@@ -17,6 +17,7 @@ use rstest::rstest;
 use super::{Charging, Holder, Ledger, LedgerError, Placement, Probed, Refusal, SliceSizing};
 
 mod model;
+mod trace;
 
 /// A moment of the tests' own: Tuesday 10 March 2026, 15:00 UTC.
 fn now() -> Timestamp {

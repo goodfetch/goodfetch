@@ -35,6 +35,11 @@ pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
 
+/// The target of the `tracing` events that name the slices and reclaim
+/// model's transitions (`test-support/models/slices/`), each with its
+/// `transition` and the model's variables as fields.
+pub const TARGET: &str = "goodfetch::ledger";
+
 /// How long a transaction waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -344,7 +349,7 @@ impl Ledger {
             )
             .map_err(|error| self.failed(&error))?;
         let id = connection.last_insert_rowid();
-        tracing::info!(target: "goodfetch_engine::ledger", transition = "set_limit", limit = id, amount = limit.amount, "a Limit was added");
+        tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a Limit was added");
         Ok(id)
     }
 
@@ -463,10 +468,10 @@ impl Ledger {
         .map_err(|error: rusqlite::Error| self.failed(&error))?;
         match taken {
             Some(slice) => {
-                tracing::info!(target: "goodfetch_engine::ledger", transition = "take_slice", limit = stored.id, slice = slice.id, size = slice.size, run_id = %holder.run_id, epoch = holder.epoch, "a run took a Slice");
+                tracing::trace!(target: TARGET, transition = "take_slice", limit = stored.id, slice = slice.id, size = slice.size, run_id = %holder.run_id, epoch = holder.epoch, "a run took a Slice");
             }
             None => {
-                tracing::info!(target: "goodfetch_engine::ledger", transition = "refuse_slice", limit = stored.id, run_id = %holder.run_id, epoch = holder.epoch, "a Limit had nothing left for a run");
+                tracing::trace!(target: TARGET, transition = "refuse_slice", limit = stored.id, run_id = %holder.run_id, epoch = holder.epoch, "a Limit had nothing left for a run");
             }
         }
         Ok(taken)
@@ -498,7 +503,7 @@ impl Ledger {
         })()
         .map_err(|error: rusqlite::Error| self.failed(&error))?;
         for (slice, used) in used {
-            tracing::info!(target: "goodfetch_engine::ledger", transition = "give_back", slice = slice, used = used, "a run gave back a Slice");
+            tracing::trace!(target: TARGET, transition = "give_back", slice = slice, used = used, "a run gave back a Slice");
         }
         Ok(())
     }
@@ -549,10 +554,10 @@ impl Ledger {
             .map_err(|error: rusqlite::Error| self.failed(&error))?;
             for (slice, charged, state) in done {
                 if state == "review" {
-                    tracing::info!(target: "goodfetch_engine::ledger", transition = "mark_for_review", slice = slice, charged = charged, run_id = %holder.run_id, epoch = holder.epoch, "a dead run's Slice was charged in full for review");
+                    tracing::trace!(target: TARGET, transition = "mark_for_review", slice = slice, charged = charged, run_id = %holder.run_id, epoch = holder.epoch, "a dead run's Slice was charged in full for review");
                     reclaimed.for_review.push(slice);
                 } else {
-                    tracing::info!(target: "goodfetch_engine::ledger", transition = "reclaim", slice = slice, charged = charged, run_id = %holder.run_id, epoch = holder.epoch, "a dead run's Slice was reclaimed");
+                    tracing::trace!(target: TARGET, transition = "reclaim", slice = slice, charged = charged, run_id = %holder.run_id, epoch = holder.epoch, "a dead run's Slice was reclaimed");
                     reclaimed.charged.push(slice);
                 }
             }

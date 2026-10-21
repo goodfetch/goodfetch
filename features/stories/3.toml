@@ -1164,3 +1164,19 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 149
+title = "As a developer or a person following a crawl, I want to read each crawl request's ending in commit order, with its request, its attempts and each failed attempt's error, when it ended and what its kind carries (Records per Dataset, the error, the skip reason, the Block cause), filtered by kind and Label in the engine, from the first ending or with `after: \"now\"` from the next commit, following new commits until the Run ends, and a re-admitted request's later outcome superseding the earlier by its ID, so that I see what happened to every page with no callback and without slowing the crawl (ADRs 0102, 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 150
+title = "As a developer, I want `run.failed_requests` to list, from committed state and on a Run no program holds too, the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome, exactly those `run.retry_failed` re-admits with the same option and never a skip, so that what I see failed is what a retry runs again (ADR 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

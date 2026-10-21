@@ -22,14 +22,17 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::settings::RunOrigin;
 
 use crate::delivery;
+use crate::outcomes;
 use crate::serving::Crawls;
 use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
-/// and the work items' and Records' tables of every run file.
+/// the reads of its outcomes, and the work items', Records' and outcomes'
+/// tables of every run file.
 pub fn contribution() -> Contribution {
     let crawls = Crawls::default();
     let serving = crawls.clone();
+    let [read_outcomes, read_failed_requests] = outcomes::handlers();
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
             start(params, context, crawls.clone())
@@ -37,6 +40,8 @@ pub fn contribution() -> Contribution {
         .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
             serve(params, context, serving.clone())
         }))
+        .with_handler(read_outcomes)
+        .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
 }
 
@@ -130,4 +135,4 @@ async fn start(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

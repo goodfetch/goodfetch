@@ -37,6 +37,7 @@ use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_cli::generated::{Call, Generated};
+use goodfetch_cli::settings_flags::SettingsFlags;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -210,9 +211,8 @@ enum ConfigCommand {
         /// Keys, or prefixes of keys such as `timeout`, to show; every key
         /// when none.
         keys: Vec<String>,
-        /// Sets a run value, as `key=value`; repeatable.
-        #[arg(long = "set", value_name = "KEY=VALUE")]
-        set: Vec<String>,
+        #[command(flatten)]
+        settings: SettingsFlags,
         /// Reads this project configuration instead of the `goodfetch.toml`
         /// found from the working folder upward.
         #[arg(long)]
@@ -444,12 +444,20 @@ fn run(
             command:
                 ConfigCommand::Explain {
                     keys,
-                    set,
+                    settings,
                     project,
                     json,
                     daemon,
                 },
-        } => config_explain(engine, &machine, daemon, keys, set, project, json),
+        } => config_explain(
+            engine,
+            &machine,
+            daemon,
+            keys,
+            settings.run_layer(),
+            project,
+            json,
+        ),
         Command::Daemon { command } => match command {
             DaemonCommand::Start { keep_alive, json } => daemon::start(&machine, keep_alive, json),
             DaemonCommand::Stop { json } => daemon::stop(&machine, json),
@@ -493,7 +501,7 @@ fn config_explain(
     machine: &daemon::Machine<'_>,
     through_daemon: bool,
     keys: Vec<String>,
-    set: Vec<String>,
+    settings: serde_json::Map<String, serde_json::Value>,
     project: Option<std::path::PathBuf>,
     json: bool,
 ) -> ExitCode {
@@ -504,7 +512,7 @@ fn config_explain(
     let identity = engine.identity();
     let request = config::Explain {
         keys,
-        set,
+        settings,
         project,
         folder,
         json,

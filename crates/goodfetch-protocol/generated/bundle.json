@@ -90,6 +90,34 @@
         }
       ]
     },
+    "AttemptError": {
+      "description": "The error an attempt failed with.",
+      "properties": {
+        "attempt": {
+          "arrived_in": "0.1",
+          "description": "Which attempt it was, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "code": {
+          "arrived_in": "0.1",
+          "description": "Its Error code.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it said.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
     "Attestation": {
       "additionalProperties": false,
       "description": "A Sigstore attestation bundle, checked offline with `gh attestation\nverify --bundle` (ADR 0066).",
@@ -802,7 +830,7 @@
     },
     "CrawlRequestHandled": {
       "additionalProperties": false,
-      "description": "What a handler answers once its attempt returned: the outputs it staged,\nwhich commit once, under the attempt's lease (ADR 0003).",
+      "description": "What a handler answers once its attempt returned: the outputs it staged,\nwhich commit once, under the attempt's lease (ADR 0003), or its skip.",
       "properties": {
         "records": {
           "arrived_in": "0.1",
@@ -812,8 +840,197 @@
             "$ref": "#/$defs/PushedRecord"
           },
           "type": "array"
+        },
+        "skipped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HandlerSkip"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its handler's skip: the request ends `skipped` with the reason\n`handler`, and the attempt's Records are discarded."
         }
       },
+      "type": "object"
+    },
+    "CrawlRequestOutcome": {
+      "description": "How one crawl request ended (ADRs 0079 and 0102). A request that\n`run.retry_failed` re-admits ends again, and its later outcome\nsupersedes this one: a reader keys outcomes by `request.id`.",
+      "oneOf": [
+        {
+          "description": "Its handler returned, and what it staged was committed.",
+          "properties": {
+            "kind": {
+              "const": "succeeded",
+              "type": "string"
+            },
+            "nothing_committed": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/NothingCommitted"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "Why it committed no Record, when it committed none."
+            },
+            "records": {
+              "arrived_in": "0.1",
+              "description": "Per Dataset its handler pushed into, the Records committed,\ndropped and rejected.",
+              "items": {
+                "$ref": "#/$defs/DatasetRecords"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "records"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Its last attempt failed, and no retry is left.",
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/AttemptError",
+              "arrived_in": "0.1",
+              "description": "The last attempt's error."
+            },
+            "kind": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A decision ended it.",
+          "properties": {
+            "kind": {
+              "const": "skipped",
+              "type": "string"
+            },
+            "message": {
+              "arrived_in": "0.1",
+              "description": "The handler's or the Hook's own text.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "$ref": "#/$defs/SkipReason",
+              "arrived_in": "0.1",
+              "description": "Why."
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The site refused it.",
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/BlockCause",
+              "arrived_in": "0.1",
+              "description": "Why the site refused it."
+            },
+            "kind": {
+              "const": "blocked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "cause"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "attempts": {
+          "arrived_in": "0.1",
+          "description": "How many attempts it took: retries are a count, not an outcome.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ended_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it ended."
+        },
+        "errors": {
+          "arrived_in": "0.1",
+          "description": "The error of each failed attempt, in order.",
+          "items": {
+            "$ref": "#/$defs/AttemptError"
+          },
+          "type": "array"
+        },
+        "position": {
+          "arrived_in": "0.1",
+          "description": "Its place in the Run's commit order, from 1, which `run.outcomes`'s\n`after` takes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "request": {
+          "$ref": "#/$defs/OutcomeRequest",
+          "arrived_in": "0.1",
+          "description": "The request it ends."
+        }
+      },
+      "required": [
+        "position",
+        "request",
+        "attempts",
+        "errors",
+        "ended_at"
+      ],
+      "type": "object"
+    },
+    "CrawlRequestOutcomes": {
+      "description": "One page of `run.outcomes`.",
+      "properties": {
+        "ended": {
+          "arrived_in": "0.1",
+          "description": "Whether the sequence is over: the Run has ended, or has no live\nwriter, and nothing committed after `next` matches.",
+          "type": "boolean"
+        },
+        "next": {
+          "arrived_in": "0.1",
+          "description": "The position the next page starts after.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outcomes": {
+          "arrived_in": "0.1",
+          "description": "The outcomes that match, in commit order.",
+          "items": {
+            "$ref": "#/$defs/CrawlRequestOutcome"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "outcomes",
+        "next",
+        "ended"
+      ],
       "type": "object"
     },
     "CrawlStartParams": {
@@ -1146,6 +1363,44 @@
           "description": "The service it removed, or `None` when none was installed."
         }
       },
+      "type": "object"
+    },
+    "DatasetRecords": {
+      "description": "What a succeeded request's commit did with its Records in one Dataset\n(ADR 0103).",
+      "properties": {
+        "committed": {
+          "arrived_in": "0.1",
+          "description": "How many Records it committed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "dropped": {
+          "arrived_in": "0.1",
+          "description": "How many a Hook dropped.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rejected": {
+          "arrived_in": "0.1",
+          "description": "How many the Dataset's schema rejected.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset",
+        "committed",
+        "dropped",
+        "rejected"
+      ],
       "type": "object"
     },
     "DownloadProgress": {
@@ -1547,6 +1802,23 @@
       ],
       "type": "object"
     },
+    "FailedRequests": {
+      "description": "What `run.failed_requests` answers.",
+      "properties": {
+        "requests": {
+          "arrived_in": "0.1",
+          "description": "The latest outcome of each such request, in commit order.",
+          "items": {
+            "$ref": "#/$defs/CrawlRequestOutcome"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "requests"
+      ],
+      "type": "object"
+    },
     "FeatureId": {
       "description": "A Feature's ID, `<kind>:<id>`, such as `row:CO-18` or `story:3-18`.",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[^:\\s]+$",
@@ -1556,6 +1828,21 @@
       "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
+    },
+    "HandlerSkip": {
+      "additionalProperties": false,
+      "description": "A handler's skip of its request: `ctx.skip(message)` (ADR 0093).",
+      "properties": {
+        "message": {
+          "arrived_in": "0.1",
+          "description": "The handler's own text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
     },
     "HelloParams": {
       "additionalProperties": false,
@@ -2127,6 +2414,21 @@
         }
       ]
     },
+    "NothingCommitted": {
+      "description": "Why a succeeded request committed no Record (ADR 0103).",
+      "oneOf": [
+        {
+          "const": "none_pushed",
+          "description": "Its handler pushed none.",
+          "type": "string"
+        },
+        {
+          "const": "none_kept",
+          "description": "Every Record it pushed was dropped or rejected, as its `records`\ncount.",
+          "type": "string"
+        }
+      ]
+    },
     "Notification": {
       "additionalProperties": false,
       "description": "A message that expects no reply, such as `$/cancel`.",
@@ -2148,6 +2450,16 @@
         "method"
       ],
       "type": "object"
+    },
+    "Now": {
+      "description": "The word `now`: from the next commit on.",
+      "oneOf": [
+        {
+          "const": "now",
+          "description": "From the next commit on.",
+          "type": "string"
+        }
+      ]
     },
     "OracleAnswer": {
       "additionalProperties": true,
@@ -2212,6 +2524,80 @@
           "type": "string"
         }
       ]
+    },
+    "OutcomeKind": {
+      "description": "How a crawl request ended (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "succeeded",
+          "description": "Its handler returned, and what it staged was committed.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Its last attempt failed, and no retry is left.",
+          "type": "string"
+        },
+        {
+          "const": "skipped",
+          "description": "A decision ended it: a skip is never retried.",
+          "type": "string"
+        },
+        {
+          "const": "blocked",
+          "description": "The site refused it, with a Block cause.",
+          "type": "string"
+        }
+      ]
+    },
+    "OutcomeRequest": {
+      "description": "The crawl request an outcome ends.",
+      "properties": {
+        "depth": {
+          "arrived_in": "0.1",
+          "description": "How many links away from a seed it is: 0 for a seed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Its ID within the Run.",
+          "type": "string"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Its Label.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "url",
+        "label",
+        "depth"
+      ],
+      "type": "object"
+    },
+    "OutcomesAfter": {
+      "anyOf": [
+        {
+          "description": "After the outcome at this position, which a reader last read.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "$ref": "#/$defs/Now",
+          "description": "From the next commit on."
+        }
+      ],
+      "description": "Where `run.outcomes` starts: after a position, or from the next commit."
     },
     "PageBodyParams": {
       "additionalProperties": false,
@@ -2744,6 +3130,27 @@
       ],
       "type": "object"
     },
+    "RunFailedRequestsParams": {
+      "additionalProperties": false,
+      "description": "What `run.failed_requests` takes.",
+      "properties": {
+        "blocked": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Also the requests whose latest outcome is `blocked`.",
+          "type": "boolean"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunId": {
       "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
@@ -2880,6 +3287,55 @@
           "type": "string"
         }
       ]
+    },
+    "RunOutcomesParams": {
+      "additionalProperties": false,
+      "description": "What `run.outcomes` takes.",
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutcomesAfter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where to start: after this position, or `now` for the next commit\non; absent, from the first outcome."
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "Only outcomes of these kinds; absent, every kind.",
+          "items": {
+            "$ref": "#/$defs/OutcomeKind"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "labels": {
+          "arrived_in": "0.1",
+          "description": "Only outcomes of requests of these Labels; absent, every Label.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
     },
     "RunOwner": {
       "description": "Where the engine that owns a live Run is reached (ADR 0031).",
@@ -3542,6 +3998,61 @@
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
+    "SkipReason": {
+      "description": "Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119).",
+      "oneOf": [
+        {
+          "const": "out_of_scope",
+          "description": "A redirect left the crawl's scope.",
+          "type": "string"
+        },
+        {
+          "const": "domain_policy",
+          "description": "A redirect or a Hook's rewrite reached a host the domain policy\nrefuses.",
+          "type": "string"
+        },
+        {
+          "const": "duplicate",
+          "description": "A URL rule merged it with a request already admitted.",
+          "type": "string"
+        },
+        {
+          "const": "robots_txt",
+          "description": "The site's robots.txt refuses it.",
+          "type": "string"
+        },
+        {
+          "const": "crawl_delay",
+          "description": "The site's Crawl-delay could not be kept.",
+          "type": "string"
+        },
+        {
+          "const": "use_signals",
+          "description": "An AI-use signal refuses the Run's Purpose.",
+          "type": "string"
+        },
+        {
+          "const": "hook",
+          "description": "A before-request Hook skipped it.",
+          "type": "string"
+        },
+        {
+          "const": "handler",
+          "description": "Its handler skipped it.",
+          "type": "string"
+        },
+        {
+          "const": "model_allowance",
+          "description": "The Run's Model allowance was reached.",
+          "type": "string"
+        },
+        {
+          "const": "content_type",
+          "description": "Its response's content type is not one its Label takes.",
+          "type": "string"
+        }
+      ]
+    },
     "StartedAs": {
       "description": "Whether a start began its Run or found it.",
       "oneOf": [
@@ -3978,6 +4489,10 @@
   },
   "formats": [
     {
+      "hello_from": [
+        "client",
+        "browser_host"
+      ],
       "name": "protocol",
       "rule": "default",
       "schema": {
@@ -3987,6 +4502,7 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "browser-cache",
       "rule": "default",
       "schema": {
@@ -3996,8 +4512,9 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "run-index",
-      "rule": "default",
+      "rule": "shared_store",
       "schema": {
         "$ref": "#/$defs/RunIndexRow"
       },
@@ -4005,6 +4522,7 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "run-state",
       "rule": "default",
       "schema": {
@@ -4014,6 +4532,7 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "installed-executables",
       "rule": "frozen_major",
       "schema": {
@@ -4023,8 +4542,9 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "operator-policy",
-      "rule": "default",
+      "rule": "shared_store",
       "schema": {
         "additionalProperties": false,
         "properties": {
@@ -4885,8 +5405,9 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "user-configuration",
-      "rule": "default",
+      "rule": "shared_store",
       "schema": {
         "additionalProperties": false,
         "properties": {

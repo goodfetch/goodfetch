@@ -2,5 +2,6 @@
 [modules]
 engine_choice = []
 exit_codes = []
-generated = ["engine_choice", "exit_codes", "output"]
+generated = ["engine_choice", "exit_codes", "output", "settings_flags"]
 output = []
+settings_flags = []

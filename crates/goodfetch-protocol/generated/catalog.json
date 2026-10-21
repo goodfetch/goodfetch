@@ -441,7 +441,7 @@
     {
       "arrived_in": "0.1",
       "deprecated": null,
-      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
+      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
       "name": "crawl_request.handle",
       "params": {
         "$ref": "#/$defs/CrawlRequestHandleParams"
@@ -655,6 +655,24 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.failed_requests",
+      "params": {
+        "$ref": "#/$defs/RunFailedRequestsParams"
+      },
+      "product": "foxhound",
+      "result": {
+        "$ref": "#/$defs/FailedRequests"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
@@ -668,6 +686,24 @@
       "product": "collie",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: \"now\"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.outcomes",
+      "params": {
+        "$ref": "#/$defs/RunOutcomesParams"
+      },
+      "product": "foxhound",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestOutcomes"
       },
       "stability": "experimental"
     },

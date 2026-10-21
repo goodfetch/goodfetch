@@ -59,17 +59,26 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
         ),
         (SCRIPT_SCHEMA.to_owned(), workspace.read_text(SCRIPT_SCHEMA)),
     ];
-    for folder in GENERATED_FOLDERS {
-        let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect();
-        paths.sort();
-        for name in paths {
-            let path = format!("{folder}/{name}");
-            let contents = workspace.read_text(&path);
-            files.push((path, contents));
+    let mut pending: Vec<String> = GENERATED_FOLDERS
+        .iter()
+        .map(|folder| (*folder).to_owned())
+        .collect();
+    let mut generated = Vec::new();
+    while let Some(folder) = pending.pop() {
+        for entry in std::fs::read_dir(workspace.path().join(&folder)).unwrap() {
+            let entry = entry.unwrap();
+            let path = format!("{folder}/{}", entry.file_name().into_string().unwrap());
+            if entry.file_type().unwrap().is_dir() {
+                pending.push(path);
+            } else {
+                generated.push(path);
+            }
         }
+    }
+    generated.sort();
+    for path in generated {
+        let contents = workspace.read_text(&path);
+        files.push((path, contents));
     }
     files
 }
@@ -473,6 +482,7 @@ fn inventory_lists_every_feature_of_the_fixture_with_its_area_and_milestone() {
             feature("error:sample_refused", 1, None),
             feature("event:sample.crawled", 1, None),
             feature("event:sample.echoed", 1, None),
+            feature("format:sample-store", 1, None),
             feature("operation:sample.crawl", 1, None),
             feature("operation:sample.echo", 1, None),
             feature("row:RT-01", 3, Some("M1 Core")),

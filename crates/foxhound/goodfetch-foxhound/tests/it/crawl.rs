@@ -327,3 +327,105 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
         )
     );
 }
+
+/// Each ending of a crawl, read back on Foxhound's executable once the Run
+/// ended: `run.outcomes` in commit order with a filter run in the engine,
+/// and `run.failed_requests` with `blocked`, which lists the failed and the
+/// blocked requests and never the skipped one.
+///
+/// Covers: story:3-149, story:3-150, operation:run.outcomes, operation:run.failed_requests
+#[test]
+fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    let seeds = json!([
+        { "url": "https://shop.test/kept", "label": "page" },
+        { "url": "https://shop.test/skipped", "label": "page" },
+        { "url": "https://shop.test/blocked", "label": "page" },
+        { "url": "https://shop.test/failed", "label": "page" },
+    ]);
+    engine.call(
+        "start",
+        "crawl.start",
+        &json!({ "run_id": "endings", "seeds": seeds }),
+        &mut |_| None,
+    );
+    let mut handler = |params: &Value| {
+        let failure = |code: &str, extra: Value| {
+            let mut data = json!({ "code": code, "retryable": false });
+            data.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            json!({ "error": { "code": -32003, "message": code, "data": data } })
+        };
+        Some(match params["crawl_request"]["url"].as_str().unwrap() {
+            "https://shop.test/kept" => {
+                json!({ "result": { "records": [{ "dataset": "pages", "data": {} }] } })
+            }
+            "https://shop.test/skipped" => {
+                json!({ "result": { "skipped": { "message": "out of season" } } })
+            }
+            "https://shop.test/blocked" => failure("blocked", json!({ "cause": "captcha" })),
+            _ => failure("handler_failed", json!({})),
+        })
+    };
+    engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "endings" }),
+        &mut handler,
+    );
+
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "endings", "kinds": ["succeeded", "skipped", "blocked"] }),
+        &mut |_| None,
+    );
+    let failed = engine.call(
+        "failed",
+        "run.failed_requests",
+        &json!({ "run_id": "endings", "blocked": true }),
+        &mut |_| None,
+    );
+    let exited = engine.finish();
+
+    // The handler takes the four at once, so their commit order is the
+    // runtime's: the in-process tests name it, this one sorts by URL.
+    let endings = |answer: &Value, list: &str| -> Vec<(String, Value)> {
+        let mut endings: Vec<(String, Value)> = answer["result"][list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|outcome| {
+                (
+                    outcome["request"]["url"].as_str().unwrap().to_owned(),
+                    outcome["kind"].clone(),
+                )
+            })
+            .collect();
+        endings.sort_by(|left, right| left.0.cmp(&right.0));
+        endings
+    };
+    assert_eq!(
+        (
+            endings(&outcomes, "outcomes"),
+            &outcomes["result"]["ended"],
+            endings(&failed, "requests"),
+            exited,
+        ),
+        (
+            vec![
+                ("https://shop.test/blocked".to_owned(), json!("blocked")),
+                ("https://shop.test/kept".to_owned(), json!("succeeded")),
+                ("https://shop.test/skipped".to_owned(), json!("skipped")),
+            ],
+            &json!(true),
+            vec![
+                ("https://shop.test/blocked".to_owned(), json!("blocked")),
+                ("https://shop.test/failed".to_owned(), json!("failed")),
+            ],
+            true,
+        )
+    );
+}

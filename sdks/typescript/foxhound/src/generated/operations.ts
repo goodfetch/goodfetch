@@ -2,12 +2,14 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunReport, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlStartParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestOutcomes, CrawlStartParams, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
   "crawl.serve": { params: RunParams; result: RunReport };
   "crawl.start": { params: CrawlStartParams; result: RunStarted };
+  "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
+  "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
 }
 
@@ -35,6 +37,24 @@ export class FoxhoundOperations {
    */
   crawlStart(params: CrawlStartParams): Promise<RunStarted> {
     return this.#caller.call("crawl.start", params, {});
+  }
+
+  /**
+   * Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
+   *
+   * @experimental
+   */
+  runFailedRequests(params: RunFailedRequestsParams): Promise<FailedRequests> {
+    return this.#caller.call("run.failed_requests", params, {});
+  }
+
+  /**
+   * Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.
+   *
+   * @experimental
+   */
+  runOutcomes(params: RunOutcomesParams, options: CallOptions = {}): Promise<CrawlRequestOutcomes> {
+    return this.#caller.call("run.outcomes", params, options);
   }
 
   /**

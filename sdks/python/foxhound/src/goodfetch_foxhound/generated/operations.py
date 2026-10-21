@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunReport, RunStarted
-from .models import CrawlStartParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestOutcomes, CrawlStartParams, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -39,6 +39,20 @@ class AsyncFoxhoundOperations:
         """
         return RunStarted.model_construct(**_fields(await self._caller.call("crawl.start", params)))
 
+    async def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
+        """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return FailedRequests.model_construct(**_fields(await self._caller.call("run.failed_requests", params)))
+
+    async def run_outcomes(self, params: RunOutcomesParams) -> CrawlRequestOutcomes:
+        """Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CrawlRequestOutcomes.model_construct(**_fields(await self._caller.call("run.outcomes", params)))
+
     async def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""
         return SampleCrawlResult.model_construct(**_fields(await self._caller.call("sample.crawl", params)))
@@ -64,6 +78,20 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunStarted.model_construct(**_fields(self._caller.call("crawl.start", params)))
+
+    def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
+        """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return FailedRequests.model_construct(**_fields(self._caller.call("run.failed_requests", params)))
+
+    def run_outcomes(self, params: RunOutcomesParams) -> CrawlRequestOutcomes:
+        """Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CrawlRequestOutcomes.model_construct(**_fields(self._caller.call("run.outcomes", params)))
 
     def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""

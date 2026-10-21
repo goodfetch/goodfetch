@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SafeAreaInsets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub top: Option<i64>,
@@ -162,7 +162,7 @@ pub enum SensorType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SensorMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available: Option<bool>,
@@ -200,7 +200,7 @@ pub struct SensorReadingQuaternion {
     pub w: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SensorReading {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub single: Option<SensorReadingSingle>,
@@ -234,13 +234,13 @@ pub enum PressureState {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PressureMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WorkAreaInsets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub top: Option<i64>,
@@ -296,7 +296,7 @@ pub enum DisabledImageType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanEmulateParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -309,10 +309,10 @@ impl crate::Command for CanEmulateParams {
     type Returns = CanEmulateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceMetricsOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceMetricsOverrideReturns {}
 
 impl crate::Command for ClearDeviceMetricsOverrideParams {
@@ -320,10 +320,10 @@ impl crate::Command for ClearDeviceMetricsOverrideParams {
     type Returns = ClearDeviceMetricsOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearGeolocationOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearGeolocationOverrideReturns {}
 
 impl crate::Command for ClearGeolocationOverrideParams {
@@ -331,10 +331,10 @@ impl crate::Command for ClearGeolocationOverrideParams {
     type Returns = ClearGeolocationOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetPageScaleFactorParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetPageScaleFactorReturns {}
 
 impl crate::Command for ResetPageScaleFactorParams {
@@ -347,7 +347,7 @@ pub struct SetFocusEmulationEnabledParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetFocusEmulationEnabledReturns {}
 
 impl crate::Command for SetFocusEmulationEnabledParams {
@@ -355,13 +355,13 @@ impl crate::Command for SetFocusEmulationEnabledParams {
     type Returns = SetFocusEmulationEnabledReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAutoDarkModeOverrideParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAutoDarkModeOverrideReturns {}
 
 impl crate::Command for SetAutoDarkModeOverrideParams {
@@ -374,7 +374,7 @@ pub struct SetCPUThrottlingRateParams {
     pub rate: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCPUThrottlingRateReturns {}
 
 impl crate::Command for SetCPUThrottlingRateParams {
@@ -382,13 +382,13 @@ impl crate::Command for SetCPUThrottlingRateParams {
     type Returns = SetCPUThrottlingRateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDefaultBackgroundColorOverrideParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<super::dom::RGBA>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDefaultBackgroundColorOverrideReturns {}
 
 impl crate::Command for SetDefaultBackgroundColorOverrideParams {
@@ -401,7 +401,7 @@ pub struct SetSafeAreaInsetsOverrideParams {
     pub insets: SafeAreaInsets,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSafeAreaInsetsOverrideReturns {}
 
 impl crate::Command for SetSafeAreaInsetsOverrideParams {
@@ -409,7 +409,7 @@ impl crate::Command for SetSafeAreaInsetsOverrideParams {
     type Returns = SetSafeAreaInsetsOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetVirtualKeyboardGeometryOverrideParams {
     #[serde(
         rename = "keyboardRect",
@@ -419,7 +419,7 @@ pub struct SetVirtualKeyboardGeometryOverrideParams {
     pub keyboard_rect: Option<super::dom::Rect>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetVirtualKeyboardGeometryOverrideReturns {}
 
 impl crate::Command for SetVirtualKeyboardGeometryOverrideParams {
@@ -537,7 +537,7 @@ pub enum SetDeviceMetricsOverrideTextLayoutMode {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDeviceMetricsOverrideReturns {}
 
 impl crate::Command for SetDeviceMetricsOverrideParams {
@@ -550,7 +550,7 @@ pub struct SetDevicePostureOverrideParams {
     pub posture: DevicePosture,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDevicePostureOverrideReturns {}
 
 impl crate::Command for SetDevicePostureOverrideParams {
@@ -558,10 +558,10 @@ impl crate::Command for SetDevicePostureOverrideParams {
     type Returns = SetDevicePostureOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDevicePostureOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDevicePostureOverrideReturns {}
 
 impl crate::Command for ClearDevicePostureOverrideParams {
@@ -574,7 +574,7 @@ pub struct SetDisplayFeaturesOverrideParams {
     pub features: Vec<DisplayFeature>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDisplayFeaturesOverrideReturns {}
 
 impl crate::Command for SetDisplayFeaturesOverrideParams {
@@ -582,10 +582,10 @@ impl crate::Command for SetDisplayFeaturesOverrideParams {
     type Returns = SetDisplayFeaturesOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDisplayFeaturesOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDisplayFeaturesOverrideReturns {}
 
 impl crate::Command for ClearDisplayFeaturesOverrideParams {
@@ -598,7 +598,7 @@ pub struct SetScrollbarsHiddenParams {
     pub hidden: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetScrollbarsHiddenReturns {}
 
 impl crate::Command for SetScrollbarsHiddenParams {
@@ -611,7 +611,7 @@ pub struct SetDocumentCookieDisabledParams {
     pub disabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDocumentCookieDisabledReturns {}
 
 impl crate::Command for SetDocumentCookieDisabledParams {
@@ -637,7 +637,7 @@ pub enum SetEmitTouchEventsForMouseConfiguration {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEmitTouchEventsForMouseReturns {}
 
 impl crate::Command for SetEmitTouchEventsForMouseParams {
@@ -645,7 +645,7 @@ impl crate::Command for SetEmitTouchEventsForMouseParams {
     type Returns = SetEmitTouchEventsForMouseReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEmulatedMediaParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<String>,
@@ -653,7 +653,7 @@ pub struct SetEmulatedMediaParams {
     pub features: Option<Vec<MediaFeature>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEmulatedMediaReturns {}
 
 impl crate::Command for SetEmulatedMediaParams {
@@ -687,7 +687,7 @@ pub enum SetEmulatedVisionDeficiencyType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEmulatedVisionDeficiencyReturns {}
 
 impl crate::Command for SetEmulatedVisionDeficiencyParams {
@@ -695,13 +695,13 @@ impl crate::Command for SetEmulatedVisionDeficiencyParams {
     type Returns = SetEmulatedVisionDeficiencyReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEmulatedOSTextScaleParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<f64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEmulatedOSTextScaleReturns {}
 
 impl crate::Command for SetEmulatedOSTextScaleParams {
@@ -709,7 +709,7 @@ impl crate::Command for SetEmulatedOSTextScaleParams {
     type Returns = SetEmulatedOSTextScaleReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetGeolocationOverrideParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latitude: Option<f64>,
@@ -731,7 +731,7 @@ pub struct SetGeolocationOverrideParams {
     pub speed: Option<f64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetGeolocationOverrideReturns {}
 
 impl crate::Command for SetGeolocationOverrideParams {
@@ -763,7 +763,7 @@ pub struct SetSensorOverrideEnabledParams {
     pub metadata: Option<SensorMetadata>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSensorOverrideEnabledReturns {}
 
 impl crate::Command for SetSensorOverrideEnabledParams {
@@ -777,7 +777,7 @@ pub struct SetSensorOverrideReadingsParams {
     pub reading: SensorReading,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSensorOverrideReadingsReturns {}
 
 impl crate::Command for SetSensorOverrideReadingsParams {
@@ -793,7 +793,7 @@ pub struct SetPressureSourceOverrideEnabledParams {
     pub metadata: Option<PressureMetadata>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPressureSourceOverrideEnabledReturns {}
 
 impl crate::Command for SetPressureSourceOverrideEnabledParams {
@@ -807,7 +807,7 @@ pub struct SetPressureStateOverrideParams {
     pub state: PressureState,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPressureStateOverrideReturns {}
 
 impl crate::Command for SetPressureStateOverrideParams {
@@ -823,7 +823,7 @@ pub struct SetIdleOverrideParams {
     pub is_screen_unlocked: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetIdleOverrideReturns {}
 
 impl crate::Command for SetIdleOverrideParams {
@@ -831,10 +831,10 @@ impl crate::Command for SetIdleOverrideParams {
     type Returns = SetIdleOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearIdleOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearIdleOverrideReturns {}
 
 impl crate::Command for ClearIdleOverrideParams {
@@ -847,7 +847,7 @@ pub struct SetNavigatorOverridesParams {
     pub platform: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetNavigatorOverridesReturns {}
 
 impl crate::Command for SetNavigatorOverridesParams {
@@ -861,7 +861,7 @@ pub struct SetPageScaleFactorParams {
     pub page_scale_factor: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPageScaleFactorReturns {}
 
 impl crate::Command for SetPageScaleFactorParams {
@@ -874,7 +874,7 @@ pub struct SetScriptExecutionDisabledParams {
     pub value: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetScriptExecutionDisabledReturns {}
 
 impl crate::Command for SetScriptExecutionDisabledParams {
@@ -893,7 +893,7 @@ pub struct SetTouchEmulationEnabledParams {
     pub max_touch_points: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetTouchEmulationEnabledReturns {}
 
 impl crate::Command for SetTouchEmulationEnabledParams {
@@ -931,13 +931,13 @@ impl crate::Command for SetVirtualTimePolicyParams {
     type Returns = SetVirtualTimePolicyReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetLocaleOverrideParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetLocaleOverrideReturns {}
 
 impl crate::Command for SetLocaleOverrideParams {
@@ -951,7 +951,7 @@ pub struct SetTimezoneOverrideParams {
     pub timezone_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetTimezoneOverrideReturns {}
 
 impl crate::Command for SetTimezoneOverrideParams {
@@ -965,7 +965,7 @@ pub struct SetVisibleSizeParams {
     pub height: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetVisibleSizeReturns {}
 
 impl crate::Command for SetVisibleSizeParams {
@@ -979,7 +979,7 @@ pub struct SetDisabledImageTypesParams {
     pub image_types: Vec<DisabledImageType>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDisabledImageTypesReturns {}
 
 impl crate::Command for SetDisabledImageTypesParams {
@@ -987,7 +987,7 @@ impl crate::Command for SetDisabledImageTypesParams {
     type Returns = SetDisabledImageTypesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDataSaverOverrideParams {
     #[serde(
         rename = "dataSaverEnabled",
@@ -997,7 +997,7 @@ pub struct SetDataSaverOverrideParams {
     pub data_saver_enabled: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDataSaverOverrideReturns {}
 
 impl crate::Command for SetDataSaverOverrideParams {
@@ -1011,7 +1011,7 @@ pub struct SetHardwareConcurrencyOverrideParams {
     pub hardware_concurrency: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetHardwareConcurrencyOverrideReturns {}
 
 impl crate::Command for SetHardwareConcurrencyOverrideParams {
@@ -1019,7 +1019,7 @@ impl crate::Command for SetHardwareConcurrencyOverrideParams {
     type Returns = SetHardwareConcurrencyOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCPUPerformanceOverrideParams {
     #[serde(
         rename = "performanceTier",
@@ -1046,7 +1046,7 @@ pub enum SetCPUPerformanceOverridePerformanceTier {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCPUPerformanceOverrideReturns {}
 
 impl crate::Command for SetCPUPerformanceOverrideParams {
@@ -1074,7 +1074,7 @@ pub struct SetUserAgentOverrideParams {
     pub user_agent_metadata: Option<UserAgentMetadata>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetUserAgentOverrideReturns {}
 
 impl crate::Command for SetUserAgentOverrideParams {
@@ -1087,7 +1087,7 @@ pub struct SetAutomationOverrideParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAutomationOverrideReturns {}
 
 impl crate::Command for SetAutomationOverrideParams {
@@ -1100,7 +1100,7 @@ pub struct SetSmallViewportHeightDifferenceOverrideParams {
     pub difference: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSmallViewportHeightDifferenceOverrideReturns {}
 
 impl crate::Command for SetSmallViewportHeightDifferenceOverrideParams {
@@ -1108,7 +1108,7 @@ impl crate::Command for SetSmallViewportHeightDifferenceOverrideParams {
     type Returns = SetSmallViewportHeightDifferenceOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetScreenInfosParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1228,7 +1228,7 @@ pub struct RemoveScreenParams {
     pub screen_id: ScreenId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveScreenReturns {}
 
 impl crate::Command for RemoveScreenParams {
@@ -1242,7 +1242,7 @@ pub struct SetPrimaryScreenParams {
     pub screen_id: ScreenId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPrimaryScreenReturns {}
 
 impl crate::Command for SetPrimaryScreenParams {
@@ -1250,7 +1250,7 @@ impl crate::Command for SetPrimaryScreenParams {
     type Returns = SetPrimaryScreenReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct VirtualTimeBudgetExpiredEvent {}
 
 impl crate::Event for VirtualTimeBudgetExpiredEvent {

@@ -107,7 +107,7 @@ pub struct ProcessInfo {
     pub cpu_time: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetInfoParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -143,7 +143,7 @@ impl crate::Command for GetFeatureStateParams {
     type Returns = GetFeatureStateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetProcessInfoParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

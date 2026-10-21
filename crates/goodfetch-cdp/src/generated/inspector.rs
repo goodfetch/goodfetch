@@ -4,10 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -15,10 +15,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -35,21 +35,21 @@ impl crate::Event for DetachedEvent {
     const METHOD: &'static str = "Inspector.detached";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TargetCrashedEvent {}
 
 impl crate::Event for TargetCrashedEvent {
     const METHOD: &'static str = "Inspector.targetCrashed";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TargetReloadedAfterCrashEvent {}
 
 impl crate::Event for TargetReloadedAfterCrashEvent {
     const METHOD: &'static str = "Inspector.targetReloadedAfterCrash";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WorkerScriptLoadedEvent {}
 
 impl crate::Event for WorkerScriptLoadedEvent {

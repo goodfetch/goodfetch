@@ -50,7 +50,7 @@ pub enum ServiceWorkerVersionStatus {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ServiceWorkerRouterCondition {
     #[serde(
         rename = "urlPattern",
@@ -200,7 +200,7 @@ pub struct DeliverPushMessageParams {
     pub data: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeliverPushMessageReturns {}
 
 impl crate::Command for DeliverPushMessageParams {
@@ -208,10 +208,10 @@ impl crate::Command for DeliverPushMessageParams {
     type Returns = DeliverPushMessageReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -229,7 +229,7 @@ pub struct DispatchSyncEventParams {
     pub last_chance: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DispatchSyncEventReturns {}
 
 impl crate::Command for DispatchSyncEventParams {
@@ -245,7 +245,7 @@ pub struct DispatchPeriodicSyncEventParams {
     pub tag: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DispatchPeriodicSyncEventReturns {}
 
 impl crate::Command for DispatchPeriodicSyncEventParams {
@@ -253,10 +253,10 @@ impl crate::Command for DispatchPeriodicSyncEventParams {
     type Returns = DispatchPeriodicSyncEventReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -270,7 +270,7 @@ pub struct SetForceUpdateOnPageLoadParams {
     pub force_update_on_page_load: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetForceUpdateOnPageLoadReturns {}
 
 impl crate::Command for SetForceUpdateOnPageLoadParams {
@@ -284,7 +284,7 @@ pub struct SkipWaitingParams {
     pub scope_url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SkipWaitingReturns {}
 
 impl crate::Command for SkipWaitingParams {
@@ -298,7 +298,7 @@ pub struct StartWorkerParams {
     pub scope_url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartWorkerReturns {}
 
 impl crate::Command for StartWorkerParams {
@@ -306,10 +306,10 @@ impl crate::Command for StartWorkerParams {
     type Returns = StartWorkerReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopAllWorkersParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopAllWorkersReturns {}
 
 impl crate::Command for StopAllWorkersParams {
@@ -323,7 +323,7 @@ pub struct StopWorkerParams {
     pub version_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopWorkerReturns {}
 
 impl crate::Command for StopWorkerParams {
@@ -337,7 +337,7 @@ pub struct UnregisterParams {
     pub scope_url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UnregisterReturns {}
 
 impl crate::Command for UnregisterParams {
@@ -351,7 +351,7 @@ pub struct UpdateRegistrationParams {
     pub scope_url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UpdateRegistrationReturns {}
 
 impl crate::Command for UpdateRegistrationParams {

@@ -445,7 +445,7 @@ pub struct PrivatePropertyDescriptor {
     pub set: Option<RemoteObject>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CallArgument {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<serde_json::Value>,
@@ -680,7 +680,7 @@ pub struct CompileScriptParams {
     pub execution_context_id: Option<ExecutionContextId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CompileScriptReturns {
     #[serde(rename = "scriptId", default, skip_serializing_if = "Option::is_none")]
     pub script_id: Option<ScriptId>,
@@ -697,10 +697,10 @@ impl crate::Command for CompileScriptParams {
     type Returns = CompileScriptReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -708,10 +708,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DiscardConsoleEntriesParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DiscardConsoleEntriesReturns {}
 
 impl crate::Command for DiscardConsoleEntriesParams {
@@ -719,10 +719,10 @@ impl crate::Command for DiscardConsoleEntriesParams {
     type Returns = DiscardConsoleEntriesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -825,7 +825,7 @@ impl crate::Command for EvaluateParams {
     type Returns = EvaluateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetIsolateIdParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -838,7 +838,7 @@ impl crate::Command for GetIsolateIdParams {
     type Returns = GetIsolateIdReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetHeapUsageParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -916,7 +916,7 @@ impl crate::Command for GetPropertiesParams {
     type Returns = GetPropertiesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GlobalLexicalScopeNamesParams {
     #[serde(
         rename = "executionContextId",
@@ -964,7 +964,7 @@ pub struct ReleaseObjectParams {
     pub object_id: RemoteObjectId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseObjectReturns {}
 
 impl crate::Command for ReleaseObjectParams {
@@ -978,7 +978,7 @@ pub struct ReleaseObjectGroupParams {
     pub object_group: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseObjectGroupReturns {}
 
 impl crate::Command for ReleaseObjectGroupParams {
@@ -986,10 +986,10 @@ impl crate::Command for ReleaseObjectGroupParams {
     type Returns = ReleaseObjectGroupReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunIfWaitingForDebuggerParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunIfWaitingForDebuggerReturns {}
 
 impl crate::Command for RunIfWaitingForDebuggerParams {
@@ -1063,7 +1063,7 @@ pub struct SetAsyncCallStackDepthParams {
     pub max_depth: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAsyncCallStackDepthReturns {}
 
 impl crate::Command for SetAsyncCallStackDepthParams {
@@ -1076,7 +1076,7 @@ pub struct SetCustomObjectFormatterEnabledParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCustomObjectFormatterEnabledReturns {}
 
 impl crate::Command for SetCustomObjectFormatterEnabledParams {
@@ -1089,7 +1089,7 @@ pub struct SetMaxCallStackSizeToCaptureParams {
     pub size: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetMaxCallStackSizeToCaptureReturns {}
 
 impl crate::Command for SetMaxCallStackSizeToCaptureParams {
@@ -1097,10 +1097,10 @@ impl crate::Command for SetMaxCallStackSizeToCaptureParams {
     type Returns = SetMaxCallStackSizeToCaptureReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TerminateExecutionParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TerminateExecutionReturns {}
 
 impl crate::Command for TerminateExecutionParams {
@@ -1125,7 +1125,7 @@ pub struct AddBindingParams {
     pub execution_context_name: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddBindingReturns {}
 
 impl crate::Command for AddBindingParams {
@@ -1138,7 +1138,7 @@ pub struct RemoveBindingParams {
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveBindingReturns {}
 
 impl crate::Command for RemoveBindingParams {
@@ -1152,7 +1152,7 @@ pub struct GetExceptionDetailsParams {
     pub error_object_id: RemoteObjectId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetExceptionDetailsReturns {
     #[serde(
         rename = "exceptionDetails",
@@ -1286,7 +1286,7 @@ impl crate::Event for ExecutionContextDestroyedEvent {
     const METHOD: &'static str = "Runtime.executionContextDestroyed";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionContextsClearedEvent {}
 
 impl crate::Event for ExecutionContextsClearedEvent {

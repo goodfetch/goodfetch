@@ -9,7 +9,7 @@ pub struct BindParams {
     pub port: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BindReturns {}
 
 impl crate::Command for BindParams {
@@ -22,7 +22,7 @@ pub struct UnbindParams {
     pub port: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UnbindReturns {}
 
 impl crate::Command for UnbindParams {

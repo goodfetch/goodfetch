@@ -77,7 +77,7 @@ pub struct TriggerParams {
     pub address: Option<Address>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TriggerReturns {}
 
 impl crate::Command for TriggerParams {
@@ -90,7 +90,7 @@ pub struct SetAddressesParams {
     pub addresses: Vec<Address>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAddressesReturns {}
 
 impl crate::Command for SetAddressesParams {
@@ -98,10 +98,10 @@ impl crate::Command for SetAddressesParams {
     type Returns = SetAddressesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -109,10 +109,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {

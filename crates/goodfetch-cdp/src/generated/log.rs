@@ -122,10 +122,10 @@ pub enum ViolationSettingName {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearReturns {}
 
 impl crate::Command for ClearParams {
@@ -133,10 +133,10 @@ impl crate::Command for ClearParams {
     type Returns = ClearReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -144,10 +144,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -160,7 +160,7 @@ pub struct StartViolationsReportParams {
     pub config: Vec<ViolationSetting>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartViolationsReportReturns {}
 
 impl crate::Command for StartViolationsReportParams {
@@ -168,10 +168,10 @@ impl crate::Command for StartViolationsReportParams {
     type Returns = StartViolationsReportReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopViolationsReportParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopViolationsReportReturns {}
 
 impl crate::Command for StopViolationsReportParams {

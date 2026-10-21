@@ -62,7 +62,7 @@ pub struct InstallParams {
     pub install_url_or_bundle_url: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InstallReturns {}
 
 impl crate::Command for InstallParams {
@@ -76,7 +76,7 @@ pub struct UninstallParams {
     pub manifest_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UninstallReturns {}
 
 impl crate::Command for UninstallParams {
@@ -127,7 +127,7 @@ pub struct OpenCurrentPageInAppParams {
     pub manifest_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct OpenCurrentPageInAppReturns {}
 
 impl crate::Command for OpenCurrentPageInAppParams {
@@ -153,7 +153,7 @@ pub struct ChangeAppUserSettingsParams {
     pub display_mode: Option<DisplayMode>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ChangeAppUserSettingsReturns {}
 
 impl crate::Command for ChangeAppUserSettingsParams {

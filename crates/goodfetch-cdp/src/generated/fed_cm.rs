@@ -84,7 +84,7 @@ pub struct Account {
     pub privacy_policy_url: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(
         rename = "disableRejectionDelay",
@@ -94,7 +94,7 @@ pub struct EnableParams {
     pub disable_rejection_delay: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -102,10 +102,10 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -121,7 +121,7 @@ pub struct SelectAccountParams {
     pub account_index: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SelectAccountReturns {}
 
 impl crate::Command for SelectAccountParams {
@@ -137,7 +137,7 @@ pub struct ClickDialogButtonParams {
     pub dialog_button: DialogButton,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClickDialogButtonReturns {}
 
 impl crate::Command for ClickDialogButtonParams {
@@ -155,7 +155,7 @@ pub struct OpenUrlParams {
     pub account_url_type: AccountUrlType,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct OpenUrlReturns {}
 
 impl crate::Command for OpenUrlParams {
@@ -175,7 +175,7 @@ pub struct DismissDialogParams {
     pub trigger_cooldown: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DismissDialogReturns {}
 
 impl crate::Command for DismissDialogParams {
@@ -183,10 +183,10 @@ impl crate::Command for DismissDialogParams {
     type Returns = DismissDialogReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetCooldownParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetCooldownReturns {}
 
 impl crate::Command for ResetCooldownParams {

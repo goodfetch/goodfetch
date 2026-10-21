@@ -76,10 +76,10 @@ pub struct ScriptCoverage {
     pub functions: Vec<FunctionCoverage>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -87,10 +87,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -98,7 +98,7 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetBestEffortCoverageParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -116,7 +116,7 @@ pub struct SetSamplingIntervalParams {
     pub interval: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSamplingIntervalReturns {}
 
 impl crate::Command for SetSamplingIntervalParams {
@@ -124,10 +124,10 @@ impl crate::Command for SetSamplingIntervalParams {
     type Returns = SetSamplingIntervalReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartReturns {}
 
 impl crate::Command for StartParams {
@@ -135,7 +135,7 @@ impl crate::Command for StartParams {
     type Returns = StartReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartPreciseCoverageParams {
     #[serde(rename = "callCount", default, skip_serializing_if = "Option::is_none")]
     pub call_count: Option<bool>,
@@ -159,7 +159,7 @@ impl crate::Command for StartPreciseCoverageParams {
     type Returns = StartPreciseCoverageReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -172,10 +172,10 @@ impl crate::Command for StopParams {
     type Returns = StopReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopPreciseCoverageParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopPreciseCoverageReturns {}
 
 impl crate::Command for StopPreciseCoverageParams {
@@ -183,7 +183,7 @@ impl crate::Command for StopPreciseCoverageParams {
     type Returns = StopPreciseCoverageReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TakePreciseCoverageParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

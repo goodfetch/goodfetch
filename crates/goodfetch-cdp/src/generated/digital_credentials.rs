@@ -30,7 +30,7 @@ pub struct SetVirtualWalletBehaviorParams {
     pub frame_id: Option<super::page::FrameId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetVirtualWalletBehaviorReturns {}
 
 impl crate::Command for SetVirtualWalletBehaviorParams {

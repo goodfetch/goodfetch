@@ -51,7 +51,7 @@ pub struct InheritedStyleEntry {
     pub matched_css_rules: Vec<RuleMatch>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InheritedAnimatedStyleEntry {
     #[serde(
         rename = "animationStyles",
@@ -472,7 +472,7 @@ pub struct CSSLayer {
     pub style_sheet_id: Option<super::dom::StyleSheetId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CSSStartingStyle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range: Option<SourceRange>,
@@ -680,7 +680,7 @@ pub struct CSSFunctionConditionNode {
     pub condition_text: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CSSFunctionNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<CSSFunctionConditionNode>,
@@ -791,10 +791,10 @@ impl crate::Command for CreateStyleSheetParams {
     type Returns = CreateStyleSheetReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -802,10 +802,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -821,7 +821,7 @@ pub struct ForcePseudoStateParams {
     pub forced_pseudo_classes: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ForcePseudoStateReturns {}
 
 impl crate::Command for ForcePseudoStateParams {
@@ -836,7 +836,7 @@ pub struct ForceStartingStyleParams {
     pub forced: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ForceStartingStyleReturns {}
 
 impl crate::Command for ForceStartingStyleParams {
@@ -850,7 +850,7 @@ pub struct GetBackgroundColorsParams {
     pub node_id: super::dom::NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetBackgroundColorsReturns {
     #[serde(
         rename = "backgroundColors",
@@ -955,7 +955,7 @@ pub struct GetInlineStylesForNodeParams {
     pub node_id: super::dom::NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetInlineStylesForNodeReturns {
     #[serde(
         rename = "inlineStyle",
@@ -982,7 +982,7 @@ pub struct GetAnimatedStylesForNodeParams {
     pub node_id: super::dom::NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAnimatedStylesForNodeReturns {
     #[serde(
         rename = "animationStyles",
@@ -1011,7 +1011,7 @@ pub struct GetMatchedStylesForNodeParams {
     pub node_id: super::dom::NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetMatchedStylesForNodeReturns {
     #[serde(
         rename = "inlineStyle",
@@ -1100,7 +1100,7 @@ impl crate::Command for GetMatchedStylesForNodeParams {
     type Returns = GetMatchedStylesForNodeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetEnvironmentVariablesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1114,7 +1114,7 @@ impl crate::Command for GetEnvironmentVariablesParams {
     type Returns = GetEnvironmentVariablesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetMediaQueriesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1194,13 +1194,13 @@ impl crate::Command for GetLocationForSelectorParams {
     type Returns = GetLocationForSelectorReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrackComputedStyleUpdatesForNodeParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<super::dom::NodeId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrackComputedStyleUpdatesForNodeReturns {}
 
 impl crate::Command for TrackComputedStyleUpdatesForNodeParams {
@@ -1214,7 +1214,7 @@ pub struct TrackComputedStyleUpdatesParams {
     pub properties_to_track: Vec<CSSComputedStyleProperty>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrackComputedStyleUpdatesReturns {}
 
 impl crate::Command for TrackComputedStyleUpdatesParams {
@@ -1222,7 +1222,7 @@ impl crate::Command for TrackComputedStyleUpdatesParams {
     type Returns = TrackComputedStyleUpdatesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TakeComputedStyleUpdatesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1245,7 +1245,7 @@ pub struct SetEffectivePropertyValueForNodeParams {
     pub value: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEffectivePropertyValueForNodeReturns {}
 
 impl crate::Command for SetEffectivePropertyValueForNodeParams {
@@ -1429,7 +1429,7 @@ pub struct SetStyleSheetTextParams {
     pub text: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetStyleSheetTextReturns {
     #[serde(
         rename = "sourceMapURL",
@@ -1465,10 +1465,10 @@ impl crate::Command for SetStyleTextsParams {
     type Returns = SetStyleTextsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartRuleUsageTrackingParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartRuleUsageTrackingReturns {}
 
 impl crate::Command for StartRuleUsageTrackingParams {
@@ -1476,7 +1476,7 @@ impl crate::Command for StartRuleUsageTrackingParams {
     type Returns = StartRuleUsageTrackingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopRuleUsageTrackingParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1490,7 +1490,7 @@ impl crate::Command for StopRuleUsageTrackingParams {
     type Returns = StopRuleUsageTrackingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TakeCoverageDeltaParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1509,7 +1509,7 @@ pub struct SetLocalFontsEnabledParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetLocalFontsEnabledReturns {}
 
 impl crate::Command for SetLocalFontsEnabledParams {
@@ -1517,7 +1517,7 @@ impl crate::Command for SetLocalFontsEnabledParams {
     type Returns = SetLocalFontsEnabledReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FontsUpdatedEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font: Option<FontFace>,
@@ -1527,7 +1527,7 @@ impl crate::Event for FontsUpdatedEvent {
     const METHOD: &'static str = "CSS.fontsUpdated";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MediaQueryResultChangedEvent {}
 
 impl crate::Event for MediaQueryResultChangedEvent {

@@ -668,7 +668,7 @@ pub struct Viewport {
     pub scale: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FontFamilies {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standard: Option<String>,
@@ -693,7 +693,7 @@ pub struct ScriptFontFamilies {
     pub font_families: FontFamilies,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FontSizes {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standard: Option<i64>,
@@ -787,7 +787,7 @@ pub struct CompilationCacheParams {
     pub eager: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FileFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -870,7 +870,7 @@ pub struct Shortcut {
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WebAppManifest {
     #[serde(
         rename = "backgroundColor",
@@ -1373,10 +1373,10 @@ impl crate::Command for AddScriptToEvaluateOnNewDocumentParams {
     type Returns = AddScriptToEvaluateOnNewDocumentReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BringToFrontParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BringToFrontReturns {}
 
 impl crate::Command for BringToFrontParams {
@@ -1384,7 +1384,7 @@ impl crate::Command for BringToFrontParams {
     type Returns = BringToFrontReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CaptureScreenshotParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<CaptureScreenshotFormat>,
@@ -1435,7 +1435,7 @@ impl crate::Command for CaptureScreenshotParams {
     type Returns = CaptureScreenshotReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CaptureSnapshotParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<CaptureSnapshotFormat>,
@@ -1460,10 +1460,10 @@ impl crate::Command for CaptureSnapshotParams {
     type Returns = CaptureSnapshotReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceMetricsOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceMetricsOverrideReturns {}
 
 impl crate::Command for ClearDeviceMetricsOverrideParams {
@@ -1471,10 +1471,10 @@ impl crate::Command for ClearDeviceMetricsOverrideParams {
     type Returns = ClearDeviceMetricsOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceOrientationOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceOrientationOverrideReturns {}
 
 impl crate::Command for ClearDeviceOrientationOverrideParams {
@@ -1482,10 +1482,10 @@ impl crate::Command for ClearDeviceOrientationOverrideParams {
     type Returns = ClearDeviceOrientationOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearGeolocationOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearGeolocationOverrideReturns {}
 
 impl crate::Command for ClearGeolocationOverrideParams {
@@ -1531,7 +1531,7 @@ pub struct DeleteCookieParams {
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteCookieReturns {}
 
 impl crate::Command for DeleteCookieParams {
@@ -1539,10 +1539,10 @@ impl crate::Command for DeleteCookieParams {
     type Returns = DeleteCookieReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -1550,7 +1550,7 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(
         rename = "enableFileChooserOpenedEvent",
@@ -1560,7 +1560,7 @@ pub struct EnableParams {
     pub enable_file_chooser_opened_event: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -1568,7 +1568,7 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAppManifestParams {
     #[serde(
         rename = "manifestId",
@@ -1594,7 +1594,7 @@ impl crate::Command for GetAppManifestParams {
     type Returns = GetAppManifestReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetInstallabilityErrorsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1608,10 +1608,10 @@ impl crate::Command for GetInstallabilityErrorsParams {
     type Returns = GetInstallabilityErrorsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetManifestIconsParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetManifestIconsReturns {
     #[serde(
         rename = "primaryIcon",
@@ -1626,10 +1626,10 @@ impl crate::Command for GetManifestIconsParams {
     type Returns = GetManifestIconsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAppIdParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAppIdReturns {
     #[serde(rename = "appId", default, skip_serializing_if = "Option::is_none")]
     pub app_id: Option<String>,
@@ -1654,7 +1654,7 @@ impl crate::Command for GetAppIdParams {
     type Returns = GetAppIdReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetSubAppsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1668,7 +1668,7 @@ impl crate::Command for GetSubAppsParams {
     type Returns = GetSubAppsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetSiblingSubAppsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1688,7 +1688,7 @@ pub struct GetAdScriptAncestryParams {
     pub frame_id: FrameId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAdScriptAncestryReturns {
     #[serde(
         rename = "adScriptAncestry",
@@ -1703,7 +1703,7 @@ impl crate::Command for GetAdScriptAncestryParams {
     type Returns = GetAdScriptAncestryReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetFrameTreeParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1717,7 +1717,7 @@ impl crate::Command for GetFrameTreeParams {
     type Returns = GetFrameTreeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetLayoutMetricsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1741,7 +1741,7 @@ impl crate::Command for GetLayoutMetricsParams {
     type Returns = GetLayoutMetricsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetNavigationHistoryParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1756,10 +1756,10 @@ impl crate::Command for GetNavigationHistoryParams {
     type Returns = GetNavigationHistoryReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetNavigationHistoryParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetNavigationHistoryReturns {}
 
 impl crate::Command for ResetNavigationHistoryParams {
@@ -1786,7 +1786,7 @@ impl crate::Command for GetResourceContentParams {
     type Returns = GetResourceContentReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetResourceTreeParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1811,7 +1811,7 @@ pub struct HandleJavaScriptDialogParams {
     pub prompt_text: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HandleJavaScriptDialogReturns {}
 
 impl crate::Command for HandleJavaScriptDialogParams {
@@ -1867,7 +1867,7 @@ pub struct NavigateToHistoryEntryParams {
     pub entry_id: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct NavigateToHistoryEntryReturns {}
 
 impl crate::Command for NavigateToHistoryEntryParams {
@@ -1875,7 +1875,7 @@ impl crate::Command for NavigateToHistoryEntryParams {
     type Returns = NavigateToHistoryEntryReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PrintToPDFParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landscape: Option<bool>,
@@ -1992,7 +1992,7 @@ impl crate::Command for PrintToPDFParams {
     type Returns = PrintToPDFReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReloadParams {
     #[serde(
         rename = "ignoreCache",
@@ -2010,7 +2010,7 @@ pub struct ReloadParams {
     pub loader_id: Option<super::network::LoaderId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReloadReturns {}
 
 impl crate::Command for ReloadParams {
@@ -2023,7 +2023,7 @@ pub struct RemoveScriptToEvaluateOnLoadParams {
     pub identifier: ScriptIdentifier,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveScriptToEvaluateOnLoadReturns {}
 
 impl crate::Command for RemoveScriptToEvaluateOnLoadParams {
@@ -2036,7 +2036,7 @@ pub struct RemoveScriptToEvaluateOnNewDocumentParams {
     pub identifier: ScriptIdentifier,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveScriptToEvaluateOnNewDocumentReturns {}
 
 impl crate::Command for RemoveScriptToEvaluateOnNewDocumentParams {
@@ -2050,7 +2050,7 @@ pub struct ScreencastFrameAckParams {
     pub session_id: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScreencastFrameAckReturns {}
 
 impl crate::Command for ScreencastFrameAckParams {
@@ -2089,7 +2089,7 @@ pub struct SetAdBlockingEnabledParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAdBlockingEnabledReturns {}
 
 impl crate::Command for SetAdBlockingEnabledParams {
@@ -2102,7 +2102,7 @@ pub struct SetBypassCSPParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBypassCSPReturns {}
 
 impl crate::Command for SetBypassCSPParams {
@@ -2184,7 +2184,7 @@ pub struct SetDeviceMetricsOverrideParams {
     pub viewport: Option<Viewport>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDeviceMetricsOverrideReturns {}
 
 impl crate::Command for SetDeviceMetricsOverrideParams {
@@ -2199,7 +2199,7 @@ pub struct SetDeviceOrientationOverrideParams {
     pub gamma: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDeviceOrientationOverrideReturns {}
 
 impl crate::Command for SetDeviceOrientationOverrideParams {
@@ -2219,7 +2219,7 @@ pub struct SetFontFamiliesParams {
     pub for_scripts: Option<Vec<ScriptFontFamilies>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetFontFamiliesReturns {}
 
 impl crate::Command for SetFontFamiliesParams {
@@ -2233,7 +2233,7 @@ pub struct SetFontSizesParams {
     pub font_sizes: FontSizes,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetFontSizesReturns {}
 
 impl crate::Command for SetFontSizesParams {
@@ -2248,7 +2248,7 @@ pub struct SetDocumentContentParams {
     pub html: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDocumentContentReturns {}
 
 impl crate::Command for SetDocumentContentParams {
@@ -2280,7 +2280,7 @@ pub enum SetDownloadBehaviorBehavior {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDownloadBehaviorReturns {}
 
 impl crate::Command for SetDownloadBehaviorParams {
@@ -2288,7 +2288,7 @@ impl crate::Command for SetDownloadBehaviorParams {
     type Returns = SetDownloadBehaviorReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetGeolocationOverrideParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latitude: Option<f64>,
@@ -2298,7 +2298,7 @@ pub struct SetGeolocationOverrideParams {
     pub accuracy: Option<f64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetGeolocationOverrideReturns {}
 
 impl crate::Command for SetGeolocationOverrideParams {
@@ -2311,7 +2311,7 @@ pub struct SetLifecycleEventsEnabledParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetLifecycleEventsEnabledReturns {}
 
 impl crate::Command for SetLifecycleEventsEnabledParams {
@@ -2337,7 +2337,7 @@ pub enum SetTouchEmulationEnabledConfiguration {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetTouchEmulationEnabledReturns {}
 
 impl crate::Command for SetTouchEmulationEnabledParams {
@@ -2345,7 +2345,7 @@ impl crate::Command for SetTouchEmulationEnabledParams {
     type Returns = SetTouchEmulationEnabledReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartScreencastParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<StartScreencastFormat>,
@@ -2386,7 +2386,7 @@ pub enum StartScreencastFormat {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartScreencastReturns {}
 
 impl crate::Command for StartScreencastParams {
@@ -2394,7 +2394,7 @@ impl crate::Command for StartScreencastParams {
     type Returns = StartScreencastReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartScreenRecordingParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<bool>,
@@ -2416,7 +2416,7 @@ impl crate::Command for StartScreenRecordingParams {
     type Returns = StartScreenRecordingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopScreenRecordingParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2429,10 +2429,10 @@ impl crate::Command for StopScreenRecordingParams {
     type Returns = StopScreenRecordingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopLoadingParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopLoadingReturns {}
 
 impl crate::Command for StopLoadingParams {
@@ -2440,10 +2440,10 @@ impl crate::Command for StopLoadingParams {
     type Returns = StopLoadingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CrashParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CrashReturns {}
 
 impl crate::Command for CrashParams {
@@ -2451,10 +2451,10 @@ impl crate::Command for CrashParams {
     type Returns = CrashReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloseParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloseReturns {}
 
 impl crate::Command for CloseParams {
@@ -2478,7 +2478,7 @@ pub enum SetWebLifecycleStateState {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetWebLifecycleStateReturns {}
 
 impl crate::Command for SetWebLifecycleStateParams {
@@ -2486,10 +2486,10 @@ impl crate::Command for SetWebLifecycleStateParams {
     type Returns = SetWebLifecycleStateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopScreencastParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopScreencastReturns {}
 
 impl crate::Command for StopScreencastParams {
@@ -2502,7 +2502,7 @@ pub struct ProduceCompilationCacheParams {
     pub scripts: Vec<CompilationCacheParams>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProduceCompilationCacheReturns {}
 
 impl crate::Command for ProduceCompilationCacheParams {
@@ -2516,7 +2516,7 @@ pub struct AddCompilationCacheParams {
     pub data: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddCompilationCacheReturns {}
 
 impl crate::Command for AddCompilationCacheParams {
@@ -2524,10 +2524,10 @@ impl crate::Command for AddCompilationCacheParams {
     type Returns = AddCompilationCacheReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearCompilationCacheParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearCompilationCacheReturns {}
 
 impl crate::Command for ClearCompilationCacheParams {
@@ -2557,7 +2557,7 @@ pub enum SetSPCTransactionModeMode {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSPCTransactionModeReturns {}
 
 impl crate::Command for SetSPCTransactionModeParams {
@@ -2583,7 +2583,7 @@ pub enum SetRPHRegistrationModeMode {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetRPHRegistrationModeReturns {}
 
 impl crate::Command for SetRPHRegistrationModeParams {
@@ -2598,7 +2598,7 @@ pub struct GenerateTestReportParams {
     pub group: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GenerateTestReportReturns {}
 
 impl crate::Command for GenerateTestReportParams {
@@ -2606,10 +2606,10 @@ impl crate::Command for GenerateTestReportParams {
     type Returns = GenerateTestReportReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WaitForDebuggerParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WaitForDebuggerReturns {}
 
 impl crate::Command for WaitForDebuggerParams {
@@ -2624,7 +2624,7 @@ pub struct SetInterceptFileChooserDialogParams {
     pub cancel: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetInterceptFileChooserDialogReturns {}
 
 impl crate::Command for SetInterceptFileChooserDialogParams {
@@ -2638,7 +2638,7 @@ pub struct SetPrerenderingAllowedParams {
     pub is_allowed: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPrerenderingAllowedReturns {}
 
 impl crate::Command for SetPrerenderingAllowedParams {
@@ -2646,7 +2646,7 @@ impl crate::Command for SetPrerenderingAllowedParams {
     type Returns = SetPrerenderingAllowedReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAnnotatedPageContentParams {
     #[serde(
         rename = "includeActionableInformation",
@@ -2778,7 +2778,7 @@ impl crate::Event for DocumentOpenedEvent {
     const METHOD: &'static str = "Page.documentOpened";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FrameResizedEvent {}
 
 impl crate::Event for FrameResizedEvent {
@@ -2910,14 +2910,14 @@ impl crate::Event for DownloadProgressEvent {
     const METHOD: &'static str = "Page.downloadProgress";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InterstitialHiddenEvent {}
 
 impl crate::Event for InterstitialHiddenEvent {
     const METHOD: &'static str = "Page.interstitialHidden";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InterstitialShownEvent {}
 
 impl crate::Event for InterstitialShownEvent {

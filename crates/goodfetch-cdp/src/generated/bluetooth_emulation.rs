@@ -73,7 +73,7 @@ pub struct ManufacturerData {
     pub data: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScanRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -100,7 +100,7 @@ pub struct ScanEntry {
     pub scan_record: ScanRecord,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CharacteristicProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub broadcast: Option<bool>,
@@ -139,7 +139,7 @@ pub struct EnableParams {
     pub le_supported: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -152,7 +152,7 @@ pub struct SetSimulatedCentralStateParams {
     pub state: CentralState,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSimulatedCentralStateReturns {}
 
 impl crate::Command for SetSimulatedCentralStateParams {
@@ -160,10 +160,10 @@ impl crate::Command for SetSimulatedCentralStateParams {
     type Returns = SetSimulatedCentralStateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -181,7 +181,7 @@ pub struct SimulatePreconnectedPeripheralParams {
     pub known_service_uuids: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SimulatePreconnectedPeripheralReturns {}
 
 impl crate::Command for SimulatePreconnectedPeripheralParams {
@@ -194,7 +194,7 @@ pub struct SimulateAdvertisementParams {
     pub entry: ScanEntry,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SimulateAdvertisementReturns {}
 
 impl crate::Command for SimulateAdvertisementParams {
@@ -209,7 +209,7 @@ pub struct SimulateGATTOperationResponseParams {
     pub code: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SimulateGATTOperationResponseReturns {}
 
 impl crate::Command for SimulateGATTOperationResponseParams {
@@ -227,7 +227,7 @@ pub struct SimulateCharacteristicOperationResponseParams {
     pub data: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SimulateCharacteristicOperationResponseReturns {}
 
 impl crate::Command for SimulateCharacteristicOperationResponseParams {
@@ -245,7 +245,7 @@ pub struct SimulateDescriptorOperationResponseParams {
     pub data: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SimulateDescriptorOperationResponseReturns {}
 
 impl crate::Command for SimulateDescriptorOperationResponseParams {
@@ -277,7 +277,7 @@ pub struct RemoveServiceParams {
     pub service_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveServiceReturns {}
 
 impl crate::Command for RemoveServiceParams {
@@ -311,7 +311,7 @@ pub struct RemoveCharacteristicParams {
     pub characteristic_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveCharacteristicReturns {}
 
 impl crate::Command for RemoveCharacteristicParams {
@@ -344,7 +344,7 @@ pub struct RemoveDescriptorParams {
     pub descriptor_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveDescriptorReturns {}
 
 impl crate::Command for RemoveDescriptorParams {
@@ -357,7 +357,7 @@ pub struct SimulateGATTDisconnectionParams {
     pub address: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SimulateGATTDisconnectionReturns {}
 
 impl crate::Command for SimulateGATTDisconnectionParams {

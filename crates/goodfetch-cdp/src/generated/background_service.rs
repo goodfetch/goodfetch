@@ -51,7 +51,7 @@ pub struct StartObservingParams {
     pub service: ServiceName,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartObservingReturns {}
 
 impl crate::Command for StartObservingParams {
@@ -64,7 +64,7 @@ pub struct StopObservingParams {
     pub service: ServiceName,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopObservingReturns {}
 
 impl crate::Command for StopObservingParams {
@@ -79,7 +79,7 @@ pub struct SetRecordingParams {
     pub service: ServiceName,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetRecordingReturns {}
 
 impl crate::Command for SetRecordingParams {
@@ -92,7 +92,7 @@ pub struct ClearEventsParams {
     pub service: ServiceName,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearEventsReturns {}
 
 impl crate::Command for ClearEventsParams {

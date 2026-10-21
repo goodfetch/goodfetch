@@ -246,7 +246,7 @@ pub enum RenderBlockingBehavior {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PostDataEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytes: Option<String>,
@@ -603,7 +603,7 @@ pub enum ServiceWorkerRouterSource {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ServiceWorkerRouterInfo {
     #[serde(
         rename = "ruleIdMatched",
@@ -1267,7 +1267,7 @@ pub struct DirectTCPSocketOptions {
     pub dns_query_type: Option<DirectSocketDnsQueryType>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DirectUDPSocketOptions {
     #[serde(
         rename = "remoteAddr",
@@ -1409,7 +1409,7 @@ pub struct AdAncestry {
     pub root_script_filterlist_rule: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AdProvenance {
     #[serde(
         rename = "filterlistRule",
@@ -1517,7 +1517,7 @@ pub struct ContentSecurityPolicyStatus {
     pub source: ContentSecurityPolicySource,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SecurityIsolationStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coop: Option<CrossOriginOpenerPolicyStatus>,
@@ -1997,7 +1997,7 @@ pub struct LoadNetworkResourceOptions {
     pub include_credentials: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanClearBrowserCacheParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2010,7 +2010,7 @@ impl crate::Command for CanClearBrowserCacheParams {
     type Returns = CanClearBrowserCacheReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanClearBrowserCookiesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2023,7 +2023,7 @@ impl crate::Command for CanClearBrowserCookiesParams {
     type Returns = CanClearBrowserCookiesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanEmulateNetworkConditionsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2036,10 +2036,10 @@ impl crate::Command for CanEmulateNetworkConditionsParams {
     type Returns = CanEmulateNetworkConditionsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearBrowserCacheParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearBrowserCacheReturns {}
 
 impl crate::Command for ClearBrowserCacheParams {
@@ -2047,10 +2047,10 @@ impl crate::Command for ClearBrowserCacheParams {
     type Returns = ClearBrowserCacheReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearBrowserCookiesParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearBrowserCookiesReturns {}
 
 impl crate::Command for ClearBrowserCookiesParams {
@@ -2075,7 +2075,7 @@ pub struct DeleteCookiesParams {
     pub partition_key: Option<CookiePartitionKey>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteCookiesReturns {}
 
 impl crate::Command for DeleteCookiesParams {
@@ -2083,10 +2083,10 @@ impl crate::Command for DeleteCookiesParams {
     type Returns = DeleteCookiesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -2128,7 +2128,7 @@ pub struct EmulateNetworkConditionsParams {
     pub packet_reordering: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EmulateNetworkConditionsReturns {}
 
 impl crate::Command for EmulateNetworkConditionsParams {
@@ -2177,7 +2177,7 @@ pub struct OverrideNetworkStateParams {
     pub connection_type: Option<ConnectionType>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct OverrideNetworkStateReturns {}
 
 impl crate::Command for OverrideNetworkStateParams {
@@ -2185,7 +2185,7 @@ impl crate::Command for OverrideNetworkStateParams {
     type Returns = OverrideNetworkStateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(
         rename = "maxTotalBufferSize",
@@ -2219,7 +2219,7 @@ pub struct EnableParams {
     pub enable_durable_messages: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -2227,7 +2227,7 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ConfigureDurableMessagesParams {
     #[serde(
         rename = "maxTotalBufferSize",
@@ -2243,7 +2243,7 @@ pub struct ConfigureDurableMessagesParams {
     pub max_resource_buffer_size: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ConfigureDurableMessagesReturns {}
 
 impl crate::Command for ConfigureDurableMessagesParams {
@@ -2251,7 +2251,7 @@ impl crate::Command for ConfigureDurableMessagesParams {
     type Returns = ConfigureDurableMessagesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAllCookiesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2280,7 +2280,7 @@ impl crate::Command for GetCertificateParams {
     type Returns = GetCertificateReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetCookiesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub urls: Option<Vec<String>>,
@@ -2339,7 +2339,7 @@ pub struct ReplayXHRParams {
     pub request_id: RequestId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReplayXHRReturns {}
 
 impl crate::Command for ReplayXHRParams {
@@ -2372,7 +2372,7 @@ impl crate::Command for SearchInResponseBodyParams {
     type Returns = SearchInResponseBodyReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBlockedURLsParams {
     #[serde(
         rename = "urlPatterns",
@@ -2384,7 +2384,7 @@ pub struct SetBlockedURLsParams {
     pub urls: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBlockedURLsReturns {}
 
 impl crate::Command for SetBlockedURLsParams {
@@ -2397,7 +2397,7 @@ pub struct SetBypassServiceWorkerParams {
     pub bypass: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBypassServiceWorkerReturns {}
 
 impl crate::Command for SetBypassServiceWorkerParams {
@@ -2411,7 +2411,7 @@ pub struct SetCacheDisabledParams {
     pub cache_disabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCacheDisabledReturns {}
 
 impl crate::Command for SetCacheDisabledParams {
@@ -2474,7 +2474,7 @@ pub struct SetCookiesParams {
     pub cookies: Vec<CookieParam>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCookiesReturns {}
 
 impl crate::Command for SetCookiesParams {
@@ -2487,7 +2487,7 @@ pub struct SetExtraHTTPHeadersParams {
     pub headers: Headers,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetExtraHTTPHeadersReturns {}
 
 impl crate::Command for SetExtraHTTPHeadersParams {
@@ -2500,7 +2500,7 @@ pub struct SetAttachDebugStackParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAttachDebugStackReturns {}
 
 impl crate::Command for SetAttachDebugStackParams {
@@ -2528,7 +2528,7 @@ pub struct SetUserAgentOverrideParams {
     pub user_agent_metadata: Option<super::emulation::UserAgentMetadata>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetUserAgentOverrideReturns {}
 
 impl crate::Command for SetUserAgentOverrideParams {
@@ -2553,7 +2553,7 @@ impl crate::Command for StreamResourceContentParams {
     type Returns = StreamResourceContentReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetSecurityIsolationStatusParams {
     #[serde(rename = "frameId", default, skip_serializing_if = "Option::is_none")]
     pub frame_id: Option<super::page::FrameId>,
@@ -2574,7 +2574,7 @@ pub struct EnableReportingApiParams {
     pub enable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReportingApiReturns {}
 
 impl crate::Command for EnableReportingApiParams {
@@ -2587,7 +2587,7 @@ pub struct EnableDeviceBoundSessionsParams {
     pub enable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableDeviceBoundSessionsReturns {}
 
 impl crate::Command for EnableDeviceBoundSessionsParams {
@@ -2600,7 +2600,7 @@ pub struct DeleteDeviceBoundSessionParams {
     pub key: DeviceBoundSessionKey,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteDeviceBoundSessionReturns {}
 
 impl crate::Command for DeleteDeviceBoundSessionParams {
@@ -2648,7 +2648,7 @@ pub struct SetCookieControlsParams {
     pub enable_third_party_cookie_restriction: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCookieControlsReturns {}
 
 impl crate::Command for SetCookieControlsParams {
@@ -3287,7 +3287,7 @@ impl crate::Event for TrustTokenOperationDoneEvent {
     const METHOD: &'static str = "Network.trustTokenOperationDone";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PolicyUpdatedEvent {}
 
 impl crate::Event for PolicyUpdatedEvent {

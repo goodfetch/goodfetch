@@ -12,7 +12,7 @@ pub struct Sink {
     pub session: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(
         rename = "presentationUrl",
@@ -22,7 +22,7 @@ pub struct EnableParams {
     pub presentation_url: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -30,10 +30,10 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -47,7 +47,7 @@ pub struct SetSinkToUseParams {
     pub sink_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSinkToUseReturns {}
 
 impl crate::Command for SetSinkToUseParams {
@@ -61,7 +61,7 @@ pub struct StartDesktopMirroringParams {
     pub sink_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartDesktopMirroringReturns {}
 
 impl crate::Command for StartDesktopMirroringParams {
@@ -75,7 +75,7 @@ pub struct StartTabMirroringParams {
     pub sink_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartTabMirroringReturns {}
 
 impl crate::Command for StartTabMirroringParams {
@@ -89,7 +89,7 @@ pub struct StopCastingParams {
     pub sink_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopCastingReturns {}
 
 impl crate::Command for StopCastingParams {

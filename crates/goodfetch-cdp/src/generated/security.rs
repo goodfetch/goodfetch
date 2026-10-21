@@ -164,10 +164,10 @@ pub enum CertificateErrorAction {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -175,10 +175,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -191,7 +191,7 @@ pub struct SetIgnoreCertificateErrorsParams {
     pub ignore: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetIgnoreCertificateErrorsReturns {}
 
 impl crate::Command for SetIgnoreCertificateErrorsParams {
@@ -206,7 +206,7 @@ pub struct HandleCertificateErrorParams {
     pub action: CertificateErrorAction,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HandleCertificateErrorReturns {}
 
 impl crate::Command for HandleCertificateErrorParams {
@@ -219,7 +219,7 @@ pub struct SetOverrideCertificateErrorsParams {
     pub r#override: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetOverrideCertificateErrorsReturns {}
 
 impl crate::Command for SetOverrideCertificateErrorsParams {

@@ -325,10 +325,10 @@ pub struct AXNode {
     pub frame_id: Option<super::page::FrameId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -336,10 +336,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -347,7 +347,7 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetPartialAXTreeParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<super::dom::NodeId>,
@@ -377,7 +377,7 @@ impl crate::Command for GetPartialAXTreeParams {
     type Returns = GetPartialAXTreeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetFullAXTreeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<i64>,
@@ -395,7 +395,7 @@ impl crate::Command for GetFullAXTreeParams {
     type Returns = GetFullAXTreeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetRootAXNodeParams {
     #[serde(rename = "frameId", default, skip_serializing_if = "Option::is_none")]
     pub frame_id: Option<super::page::FrameId>,
@@ -411,7 +411,7 @@ impl crate::Command for GetRootAXNodeParams {
     type Returns = GetRootAXNodeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAXNodeAndAncestorsParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<super::dom::NodeId>,
@@ -452,7 +452,7 @@ impl crate::Command for GetChildAXNodesParams {
     type Returns = GetChildAXNodesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct QueryAXTreeParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<super::dom::NodeId>,

@@ -84,7 +84,7 @@ pub struct RemoveDOMBreakpointParams {
     pub r#type: DOMBreakpointType,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveDOMBreakpointReturns {}
 
 impl crate::Command for RemoveDOMBreakpointParams {
@@ -104,7 +104,7 @@ pub struct RemoveEventListenerBreakpointParams {
     pub target_name: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveEventListenerBreakpointReturns {}
 
 impl crate::Command for RemoveEventListenerBreakpointParams {
@@ -118,7 +118,7 @@ pub struct RemoveInstrumentationBreakpointParams {
     pub event_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveInstrumentationBreakpointReturns {}
 
 impl crate::Command for RemoveInstrumentationBreakpointParams {
@@ -131,7 +131,7 @@ pub struct RemoveXHRBreakpointParams {
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveXHRBreakpointReturns {}
 
 impl crate::Command for RemoveXHRBreakpointParams {
@@ -145,7 +145,7 @@ pub struct SetBreakOnCSPViolationParams {
     pub violation_types: Vec<CSPViolationType>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBreakOnCSPViolationReturns {}
 
 impl crate::Command for SetBreakOnCSPViolationParams {
@@ -160,7 +160,7 @@ pub struct SetDOMBreakpointParams {
     pub r#type: DOMBreakpointType,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDOMBreakpointReturns {}
 
 impl crate::Command for SetDOMBreakpointParams {
@@ -180,7 +180,7 @@ pub struct SetEventListenerBreakpointParams {
     pub target_name: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetEventListenerBreakpointReturns {}
 
 impl crate::Command for SetEventListenerBreakpointParams {
@@ -194,7 +194,7 @@ pub struct SetInstrumentationBreakpointParams {
     pub event_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetInstrumentationBreakpointReturns {}
 
 impl crate::Command for SetInstrumentationBreakpointParams {
@@ -207,7 +207,7 @@ pub struct SetXHRBreakpointParams {
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetXHRBreakpointReturns {}
 
 impl crate::Command for SetXHRBreakpointParams {

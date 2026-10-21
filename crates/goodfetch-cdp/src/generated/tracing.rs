@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub type MemoryDumpConfig = serde_json::Map<String, serde_json::Value>;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TraceConfig {
     #[serde(
         rename = "recordMode",
@@ -127,10 +127,10 @@ pub enum TracingBackend {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EndParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EndReturns {}
 
 impl crate::Command for EndParams {
@@ -138,7 +138,7 @@ impl crate::Command for EndParams {
     type Returns = EndReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetCategoriesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -151,7 +151,7 @@ impl crate::Command for GetCategoriesParams {
     type Returns = GetCategoriesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetTrackEventDescriptorParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -170,7 +170,7 @@ pub struct RecordClockSyncMarkerParams {
     pub sync_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RecordClockSyncMarkerReturns {}
 
 impl crate::Command for RecordClockSyncMarkerParams {
@@ -178,7 +178,7 @@ impl crate::Command for RecordClockSyncMarkerParams {
     type Returns = RecordClockSyncMarkerReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RequestMemoryDumpParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deterministic: Option<bool>,
@@ -202,7 +202,7 @@ impl crate::Command for RequestMemoryDumpParams {
     type Returns = RequestMemoryDumpReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub categories: Option<String>,
@@ -275,7 +275,7 @@ pub enum StartTransferMode {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartReturns {}
 
 impl crate::Command for StartParams {
@@ -283,7 +283,7 @@ impl crate::Command for StartParams {
     type Returns = StartReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BufferUsageEvent {
     #[serde(
         rename = "percentFull",

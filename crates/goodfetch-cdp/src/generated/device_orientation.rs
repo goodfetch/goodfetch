@@ -4,10 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceOrientationOverrideParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDeviceOrientationOverrideReturns {}
 
 impl crate::Command for ClearDeviceOrientationOverrideParams {
@@ -22,7 +22,7 @@ pub struct SetDeviceOrientationOverrideParams {
     pub gamma: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDeviceOrientationOverrideReturns {}
 
 impl crate::Command for SetDeviceOrientationOverrideParams {

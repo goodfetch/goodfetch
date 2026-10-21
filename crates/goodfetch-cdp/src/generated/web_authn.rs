@@ -193,13 +193,13 @@ pub struct Credential {
     pub generate_cmtg_key_on_next_operation: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(rename = "enableUI", default, skip_serializing_if = "Option::is_none")]
     pub enable_ui: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -207,10 +207,10 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -250,7 +250,7 @@ pub struct SetResponseOverrideBitsParams {
     pub is_bad_up: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetResponseOverrideBitsReturns {}
 
 impl crate::Command for SetResponseOverrideBitsParams {
@@ -264,7 +264,7 @@ pub struct RemoveVirtualAuthenticatorParams {
     pub authenticator_id: AuthenticatorId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveVirtualAuthenticatorReturns {}
 
 impl crate::Command for RemoveVirtualAuthenticatorParams {
@@ -279,7 +279,7 @@ pub struct AddCredentialParams {
     pub credential: Credential,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddCredentialReturns {}
 
 impl crate::Command for AddCredentialParams {
@@ -329,7 +329,7 @@ pub struct RemoveCredentialParams {
     pub credential_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveCredentialReturns {}
 
 impl crate::Command for RemoveCredentialParams {
@@ -343,7 +343,7 @@ pub struct ClearCredentialsParams {
     pub authenticator_id: AuthenticatorId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearCredentialsReturns {}
 
 impl crate::Command for ClearCredentialsParams {
@@ -359,7 +359,7 @@ pub struct SetUserVerifiedParams {
     pub is_user_verified: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetUserVerifiedReturns {}
 
 impl crate::Command for SetUserVerifiedParams {
@@ -374,7 +374,7 @@ pub struct SetAutomaticPresenceSimulationParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAutomaticPresenceSimulationReturns {}
 
 impl crate::Command for SetAutomaticPresenceSimulationParams {
@@ -416,7 +416,7 @@ pub struct SetCredentialPropertiesParams {
     pub sign_count: Option<f64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCredentialPropertiesReturns {}
 
 impl crate::Command for SetCredentialPropertiesParams {

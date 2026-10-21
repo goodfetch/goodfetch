@@ -427,7 +427,7 @@ impl crate::Command for CopyToParams {
     type Returns = CopyToReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DescribeNodeParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -455,7 +455,7 @@ impl crate::Command for DescribeNodeParams {
     type Returns = DescribeNodeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScrollIntoViewIfNeededParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -471,7 +471,7 @@ pub struct ScrollIntoViewIfNeededParams {
     pub rect: Option<Rect>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScrollIntoViewIfNeededReturns {}
 
 impl crate::Command for ScrollIntoViewIfNeededParams {
@@ -479,10 +479,10 @@ impl crate::Command for ScrollIntoViewIfNeededParams {
     type Returns = ScrollIntoViewIfNeededReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -496,7 +496,7 @@ pub struct DiscardSearchResultsParams {
     pub search_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DiscardSearchResultsReturns {}
 
 impl crate::Command for DiscardSearchResultsParams {
@@ -504,7 +504,7 @@ impl crate::Command for DiscardSearchResultsParams {
     type Returns = DiscardSearchResultsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(
         rename = "includeWhitespace",
@@ -525,7 +525,7 @@ pub enum EnableIncludeWhitespace {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -533,7 +533,7 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FocusParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -547,7 +547,7 @@ pub struct FocusParams {
     pub object_id: Option<super::runtime::RemoteObjectId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FocusReturns {}
 
 impl crate::Command for FocusParams {
@@ -571,7 +571,7 @@ impl crate::Command for GetAttributesParams {
     type Returns = GetAttributesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetBoxModelParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -595,7 +595,7 @@ impl crate::Command for GetBoxModelParams {
     type Returns = GetBoxModelReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetContentQuadsParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -619,7 +619,7 @@ impl crate::Command for GetContentQuadsParams {
     type Returns = GetContentQuadsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetDocumentParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<i64>,
@@ -637,7 +637,7 @@ impl crate::Command for GetDocumentParams {
     type Returns = GetDocumentReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetFlattenedDocumentParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<i64>,
@@ -709,7 +709,7 @@ impl crate::Command for GetNodeForLocationParams {
     type Returns = GetNodeForLocationReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetOuterHTMLParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -778,10 +778,10 @@ impl crate::Command for GetSearchResultsParams {
     type Returns = GetSearchResultsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HideHighlightParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HideHighlightReturns {}
 
 impl crate::Command for HideHighlightParams {
@@ -789,10 +789,10 @@ impl crate::Command for HideHighlightParams {
     type Returns = HideHighlightReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightNodeParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightNodeReturns {}
 
 impl crate::Command for HighlightNodeParams {
@@ -800,10 +800,10 @@ impl crate::Command for HighlightNodeParams {
     type Returns = HighlightNodeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightRectParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightRectReturns {}
 
 impl crate::Command for HighlightRectParams {
@@ -811,10 +811,10 @@ impl crate::Command for HighlightRectParams {
     type Returns = HighlightRectReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MarkUndoableStateParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MarkUndoableStateReturns {}
 
 impl crate::Command for MarkUndoableStateParams {
@@ -940,7 +940,7 @@ impl crate::Command for QuerySelectorAllParams {
     type Returns = QuerySelectorAllReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetTopLayerElementsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -985,10 +985,10 @@ impl crate::Command for GetElementByRelationParams {
     type Returns = GetElementByRelationReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RedoParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RedoReturns {}
 
 impl crate::Command for RedoParams {
@@ -1003,7 +1003,7 @@ pub struct RemoveAttributeParams {
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveAttributeReturns {}
 
 impl crate::Command for RemoveAttributeParams {
@@ -1017,7 +1017,7 @@ pub struct RemoveNodeParams {
     pub node_id: NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveNodeReturns {}
 
 impl crate::Command for RemoveNodeParams {
@@ -1035,7 +1035,7 @@ pub struct RequestChildNodesParams {
     pub pierce: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RequestChildNodesReturns {}
 
 impl crate::Command for RequestChildNodesParams {
@@ -1060,7 +1060,7 @@ impl crate::Command for RequestNodeParams {
     type Returns = RequestNodeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResolveNodeParams {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -1102,7 +1102,7 @@ pub struct SetAttributeValueParams {
     pub value: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAttributeValueReturns {}
 
 impl crate::Command for SetAttributeValueParams {
@@ -1119,7 +1119,7 @@ pub struct SetAttributesAsTextParams {
     pub name: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAttributesAsTextReturns {}
 
 impl crate::Command for SetAttributesAsTextParams {
@@ -1142,7 +1142,7 @@ pub struct SetFileInputFilesParams {
     pub object_id: Option<super::runtime::RemoteObjectId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetFileInputFilesReturns {}
 
 impl crate::Command for SetFileInputFilesParams {
@@ -1155,7 +1155,7 @@ pub struct SetNodeStackTracesEnabledParams {
     pub enable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetNodeStackTracesEnabledReturns {}
 
 impl crate::Command for SetNodeStackTracesEnabledParams {
@@ -1169,7 +1169,7 @@ pub struct GetNodeStackTracesParams {
     pub node_id: NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetNodeStackTracesReturns {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creation: Option<super::runtime::StackTrace>,
@@ -1196,7 +1196,7 @@ impl crate::Command for GetFileInfoParams {
     type Returns = GetFileInfoReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetDetachedDomNodesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1216,7 +1216,7 @@ pub struct SetInspectedNodeParams {
     pub node_id: NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetInspectedNodeReturns {}
 
 impl crate::Command for SetInspectedNodeParams {
@@ -1249,7 +1249,7 @@ pub struct SetNodeValueParams {
     pub value: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetNodeValueReturns {}
 
 impl crate::Command for SetNodeValueParams {
@@ -1265,7 +1265,7 @@ pub struct SetOuterHTMLParams {
     pub outer_html: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetOuterHTMLReturns {}
 
 impl crate::Command for SetOuterHTMLParams {
@@ -1273,10 +1273,10 @@ impl crate::Command for SetOuterHTMLParams {
     type Returns = SetOuterHTMLReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UndoParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UndoReturns {}
 
 impl crate::Command for UndoParams {
@@ -1339,7 +1339,7 @@ pub struct GetContainerForNodeParams {
     pub queries_anchored: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetContainerForNodeReturns {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
@@ -1438,7 +1438,7 @@ pub struct ForceShowInterestParams {
     pub enable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ForceShowInterestReturns {}
 
 impl crate::Command for ForceShowInterestParams {
@@ -1474,7 +1474,7 @@ pub enum SetTextMarkerType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetTextMarkerReturns {}
 
 impl crate::Command for SetTextMarkerParams {
@@ -1482,10 +1482,10 @@ impl crate::Command for SetTextMarkerParams {
     type Returns = SetTextMarkerReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearTextMarkersParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearTextMarkersReturns {}
 
 impl crate::Command for ClearTextMarkersParams {
@@ -1589,7 +1589,7 @@ impl crate::Event for DistributedNodesUpdatedEvent {
     const METHOD: &'static str = "DOM.distributedNodesUpdated";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DocumentUpdatedEvent {}
 
 impl crate::Event for DocumentUpdatedEvent {
@@ -1618,7 +1618,7 @@ impl crate::Event for PseudoElementAddedEvent {
     const METHOD: &'static str = "DOM.pseudoElementAdded";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TopLayerElementsUpdatedEvent {}
 
 impl crate::Event for TopLayerElementsUpdatedEvent {

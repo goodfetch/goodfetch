@@ -10,7 +10,7 @@ pub struct SetInstrumentationBreakpointParams {
     pub event_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetInstrumentationBreakpointReturns {}
 
 impl crate::Command for SetInstrumentationBreakpointParams {
@@ -24,7 +24,7 @@ pub struct RemoveInstrumentationBreakpointParams {
     pub event_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveInstrumentationBreakpointReturns {}
 
 impl crate::Command for RemoveInstrumentationBreakpointParams {
@@ -32,10 +32,10 @@ impl crate::Command for RemoveInstrumentationBreakpointParams {
     type Returns = RemoveInstrumentationBreakpointReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {

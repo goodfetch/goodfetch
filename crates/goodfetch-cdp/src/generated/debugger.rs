@@ -226,7 +226,7 @@ pub enum ContinueToLocationTargetCallFrames {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ContinueToLocationReturns {}
 
 impl crate::Command for ContinueToLocationParams {
@@ -234,10 +234,10 @@ impl crate::Command for ContinueToLocationParams {
     type Returns = ContinueToLocationReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -245,7 +245,7 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(
         rename = "maxScriptsCacheSize",
@@ -442,10 +442,10 @@ impl crate::Command for GetStackTraceParams {
     type Returns = GetStackTraceReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PauseParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PauseReturns {}
 
 impl crate::Command for PauseParams {
@@ -459,7 +459,7 @@ pub struct PauseOnAsyncCallParams {
     pub parent_stack_trace_id: super::runtime::StackTraceId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PauseOnAsyncCallReturns {}
 
 impl crate::Command for PauseOnAsyncCallParams {
@@ -473,7 +473,7 @@ pub struct RemoveBreakpointParams {
     pub breakpoint_id: BreakpointId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveBreakpointReturns {}
 
 impl crate::Command for RemoveBreakpointParams {
@@ -521,7 +521,7 @@ impl crate::Command for RestartFrameParams {
     type Returns = RestartFrameReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResumeParams {
     #[serde(
         rename = "terminateOnResume",
@@ -531,7 +531,7 @@ pub struct ResumeParams {
     pub terminate_on_resume: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResumeReturns {}
 
 impl crate::Command for ResumeParams {
@@ -570,7 +570,7 @@ pub struct SetAsyncCallStackDepthParams {
     pub max_depth: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAsyncCallStackDepthReturns {}
 
 impl crate::Command for SetAsyncCallStackDepthParams {
@@ -584,7 +584,7 @@ pub struct SetBlackboxExecutionContextsParams {
     pub unique_ids: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBlackboxExecutionContextsReturns {}
 
 impl crate::Command for SetBlackboxExecutionContextsParams {
@@ -603,7 +603,7 @@ pub struct SetBlackboxPatternsParams {
     pub skip_anonymous: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBlackboxPatternsReturns {}
 
 impl crate::Command for SetBlackboxPatternsParams {
@@ -618,7 +618,7 @@ pub struct SetBlackboxedRangesParams {
     pub positions: Vec<ScriptPosition>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBlackboxedRangesReturns {}
 
 impl crate::Command for SetBlackboxedRangesParams {
@@ -733,7 +733,7 @@ pub struct SetBreakpointsActiveParams {
     pub active: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetBreakpointsActiveReturns {}
 
 impl crate::Command for SetBreakpointsActiveParams {
@@ -761,7 +761,7 @@ pub enum SetPauseOnExceptionsState {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPauseOnExceptionsReturns {}
 
 impl crate::Command for SetPauseOnExceptionsParams {
@@ -775,7 +775,7 @@ pub struct SetReturnValueParams {
     pub new_value: super::runtime::CallArgument,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetReturnValueReturns {}
 
 impl crate::Command for SetReturnValueParams {
@@ -861,7 +861,7 @@ pub struct SetSkipAllPausesParams {
     pub skip: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetSkipAllPausesReturns {}
 
 impl crate::Command for SetSkipAllPausesParams {
@@ -881,7 +881,7 @@ pub struct SetVariableValueParams {
     pub call_frame_id: CallFrameId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetVariableValueReturns {}
 
 impl crate::Command for SetVariableValueParams {
@@ -889,7 +889,7 @@ impl crate::Command for SetVariableValueParams {
     type Returns = SetVariableValueReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StepIntoParams {
     #[serde(
         rename = "breakOnAsyncCall",
@@ -901,7 +901,7 @@ pub struct StepIntoParams {
     pub skip_list: Option<Vec<LocationRange>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StepIntoReturns {}
 
 impl crate::Command for StepIntoParams {
@@ -909,10 +909,10 @@ impl crate::Command for StepIntoParams {
     type Returns = StepIntoReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StepOutParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StepOutReturns {}
 
 impl crate::Command for StepOutParams {
@@ -920,13 +920,13 @@ impl crate::Command for StepOutParams {
     type Returns = StepOutReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StepOverParams {
     #[serde(rename = "skipList", default, skip_serializing_if = "Option::is_none")]
     pub skip_list: Option<Vec<LocationRange>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StepOverReturns {}
 
 impl crate::Command for StepOverParams {
@@ -1015,7 +1015,7 @@ impl crate::Event for PausedEvent {
     const METHOD: &'static str = "Debugger.paused";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResumedEvent {}
 
 impl crate::Event for ResumedEvent {

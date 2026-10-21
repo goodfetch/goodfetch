@@ -23,7 +23,7 @@ pub enum WindowState {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Bounds {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub left: Option<i64>,
@@ -218,7 +218,7 @@ pub struct SetPermissionParams {
     pub browser_context_id: Option<BrowserContextID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPermissionReturns {}
 
 impl crate::Command for SetPermissionParams {
@@ -239,7 +239,7 @@ pub struct GrantPermissionsParams {
     pub browser_context_id: Option<BrowserContextID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GrantPermissionsReturns {}
 
 impl crate::Command for GrantPermissionsParams {
@@ -247,7 +247,7 @@ impl crate::Command for GrantPermissionsParams {
     type Returns = GrantPermissionsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetPermissionsParams {
     #[serde(
         rename = "browserContextId",
@@ -257,7 +257,7 @@ pub struct ResetPermissionsParams {
     pub browser_context_id: Option<BrowserContextID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetPermissionsReturns {}
 
 impl crate::Command for ResetPermissionsParams {
@@ -303,7 +303,7 @@ pub enum SetDownloadBehaviorBehavior {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDownloadBehaviorReturns {}
 
 impl crate::Command for SetDownloadBehaviorParams {
@@ -322,7 +322,7 @@ pub struct CancelDownloadParams {
     pub browser_context_id: Option<BrowserContextID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CancelDownloadReturns {}
 
 impl crate::Command for CancelDownloadParams {
@@ -330,10 +330,10 @@ impl crate::Command for CancelDownloadParams {
     type Returns = CancelDownloadReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloseParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloseReturns {}
 
 impl crate::Command for CloseParams {
@@ -341,10 +341,10 @@ impl crate::Command for CloseParams {
     type Returns = CloseReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CrashParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CrashReturns {}
 
 impl crate::Command for CrashParams {
@@ -352,10 +352,10 @@ impl crate::Command for CrashParams {
     type Returns = CrashReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CrashGpuProcessParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CrashGpuProcessReturns {}
 
 impl crate::Command for CrashGpuProcessParams {
@@ -363,7 +363,7 @@ impl crate::Command for CrashGpuProcessParams {
     type Returns = CrashGpuProcessReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetVersionParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -383,7 +383,7 @@ impl crate::Command for GetVersionParams {
     type Returns = GetVersionReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetBrowserCommandLineParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -402,7 +402,7 @@ pub struct AddMockCameraParams {
     pub device_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddMockCameraReturns {}
 
 impl crate::Command for AddMockCameraParams {
@@ -410,7 +410,7 @@ impl crate::Command for AddMockCameraParams {
     type Returns = AddMockCameraReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetHistogramsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
@@ -461,7 +461,7 @@ impl crate::Command for GetWindowBoundsParams {
     type Returns = GetWindowBoundsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetWindowForTargetParams {
     #[serde(rename = "targetId", default, skip_serializing_if = "Option::is_none")]
     pub target_id: Option<super::target::TargetID>,
@@ -486,7 +486,7 @@ pub struct SetWindowBoundsParams {
     pub bounds: Bounds,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetWindowBoundsReturns {}
 
 impl crate::Command for SetWindowBoundsParams {
@@ -504,7 +504,7 @@ pub struct SetContentsSizeParams {
     pub height: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetContentsSizeReturns {}
 
 impl crate::Command for SetContentsSizeParams {
@@ -512,7 +512,7 @@ impl crate::Command for SetContentsSizeParams {
     type Returns = SetContentsSizeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDockTileParams {
     #[serde(
         rename = "badgeLabel",
@@ -524,7 +524,7 @@ pub struct SetDockTileParams {
     pub image: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDockTileReturns {}
 
 impl crate::Command for SetDockTileParams {
@@ -538,7 +538,7 @@ pub struct ExecuteBrowserCommandParams {
     pub command_id: BrowserCommandId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExecuteBrowserCommandReturns {}
 
 impl crate::Command for ExecuteBrowserCommandParams {
@@ -551,7 +551,7 @@ pub struct AddPrivacySandboxEnrollmentOverrideParams {
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddPrivacySandboxEnrollmentOverrideReturns {}
 
 impl crate::Command for AddPrivacySandboxEnrollmentOverrideParams {
@@ -559,7 +559,7 @@ impl crate::Command for AddPrivacySandboxEnrollmentOverrideParams {
     type Returns = AddPrivacySandboxEnrollmentOverrideReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetGlobalPrivacyControlParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

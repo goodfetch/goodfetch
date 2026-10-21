@@ -12,7 +12,7 @@ pub struct CrashReportContextEntry {
     pub frame_id: super::page::FrameId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetEntriesParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

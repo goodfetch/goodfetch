@@ -47,7 +47,7 @@ pub struct AdScript {
     pub provenance: super::network::AdProvenance,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAdMetricsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -60,7 +60,7 @@ impl crate::Command for GetAdMetricsParams {
     type Returns = GetAdMetricsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAdScriptsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -10,7 +10,8 @@
 //! packages. It also commits
 //! the JSON Schemas of `goodfetch-test-support`'s file types, which
 //! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
-//! format's among the engine scripts (ADR 0069).
+//! format's among the engine scripts (ADR 0069), and `goodfetch-cdp`'s CDP
+//! bindings, from the pinned Chromium's protocol file (spec #577).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of

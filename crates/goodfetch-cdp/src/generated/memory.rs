@@ -43,7 +43,7 @@ pub struct DOMCounter {
     pub count: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetDOMCountersParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,7 +59,7 @@ impl crate::Command for GetDOMCountersParams {
     type Returns = GetDOMCountersReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetDOMCountersForLeakDetectionParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -72,10 +72,10 @@ impl crate::Command for GetDOMCountersForLeakDetectionParams {
     type Returns = GetDOMCountersForLeakDetectionReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PrepareForLeakDetectionParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PrepareForLeakDetectionReturns {}
 
 impl crate::Command for PrepareForLeakDetectionParams {
@@ -83,10 +83,10 @@ impl crate::Command for PrepareForLeakDetectionParams {
     type Returns = PrepareForLeakDetectionReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ForciblyPurgeJavaScriptMemoryParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ForciblyPurgeJavaScriptMemoryReturns {}
 
 impl crate::Command for ForciblyPurgeJavaScriptMemoryParams {
@@ -99,7 +99,7 @@ pub struct SetPressureNotificationsSuppressedParams {
     pub suppressed: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPressureNotificationsSuppressedReturns {}
 
 impl crate::Command for SetPressureNotificationsSuppressedParams {
@@ -112,7 +112,7 @@ pub struct SimulatePressureNotificationParams {
     pub level: PressureLevel,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SimulatePressureNotificationReturns {}
 
 impl crate::Command for SimulatePressureNotificationParams {
@@ -120,7 +120,7 @@ impl crate::Command for SimulatePressureNotificationParams {
     type Returns = SimulatePressureNotificationReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartSamplingParams {
     #[serde(
         rename = "samplingInterval",
@@ -136,7 +136,7 @@ pub struct StartSamplingParams {
     pub suppress_randomness: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartSamplingReturns {}
 
 impl crate::Command for StartSamplingParams {
@@ -144,10 +144,10 @@ impl crate::Command for StartSamplingParams {
     type Returns = StartSamplingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopSamplingParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopSamplingReturns {}
 
 impl crate::Command for StopSamplingParams {
@@ -155,7 +155,7 @@ impl crate::Command for StopSamplingParams {
     type Returns = StopSamplingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetAllTimeSamplingProfileParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -168,7 +168,7 @@ impl crate::Command for GetAllTimeSamplingProfileParams {
     type Returns = GetAllTimeSamplingProfileReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetBrowserSamplingProfileParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -181,7 +181,7 @@ impl crate::Command for GetBrowserSamplingProfileParams {
     type Returns = GetBrowserSamplingProfileReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetSamplingProfileParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

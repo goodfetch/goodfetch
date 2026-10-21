@@ -11,7 +11,7 @@ pub struct CloseParams {
     pub handle: StreamHandle,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloseReturns {}
 
 impl crate::Command for CloseParams {

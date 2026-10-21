@@ -368,9 +368,15 @@ impl<'a> Writer<'a> {
                 let _ = writeln!(fields, "    pub {field}: {field_type},");
             }
         }
+        // A struct whose every field may be absent has a default: all absent.
+        let default = if properties.iter().all(|property| property.optional) {
+            "Default, "
+        } else {
+            ""
+        };
         let _ = writeln!(
             self.text,
-            "#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]\npub struct {name} {{\n{fields}}}\n"
+            "#[derive(Clone, Debug, {default}PartialEq, Serialize, Deserialize)]\npub struct {name} {{\n{fields}}}\n"
         );
         for (inline_name, variants) in inline {
             self.enumeration(&inline_name, &variants)?;

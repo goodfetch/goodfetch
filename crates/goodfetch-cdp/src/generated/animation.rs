@@ -109,10 +109,10 @@ pub struct KeyframeStyle {
     pub easing: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -120,10 +120,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -147,7 +147,7 @@ impl crate::Command for GetCurrentTimeParams {
     type Returns = GetCurrentTimeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetPlaybackRateParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -166,7 +166,7 @@ pub struct ReleaseAnimationsParams {
     pub animations: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseAnimationsReturns {}
 
 impl crate::Command for ReleaseAnimationsParams {
@@ -208,7 +208,7 @@ pub struct SeekAnimationsParams {
     pub current_times: Option<Vec<f64>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SeekAnimationsReturns {}
 
 impl crate::Command for SeekAnimationsParams {
@@ -222,7 +222,7 @@ pub struct SetPausedParams {
     pub paused: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPausedReturns {}
 
 impl crate::Command for SetPausedParams {
@@ -236,7 +236,7 @@ pub struct SetPlaybackRateParams {
     pub playback_rate: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPlaybackRateReturns {}
 
 impl crate::Command for SetPlaybackRateParams {
@@ -252,7 +252,7 @@ pub struct SetTimingParams {
     pub delay: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetTimingReturns {}
 
 impl crate::Command for SetTimingParams {

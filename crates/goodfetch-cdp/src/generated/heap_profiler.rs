@@ -36,7 +36,7 @@ pub struct AddInspectedHeapObjectParams {
     pub heap_object_id: HeapSnapshotObjectId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddInspectedHeapObjectReturns {}
 
 impl crate::Command for AddInspectedHeapObjectParams {
@@ -44,10 +44,10 @@ impl crate::Command for AddInspectedHeapObjectParams {
     type Returns = AddInspectedHeapObjectReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CollectGarbageParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CollectGarbageReturns {}
 
 impl crate::Command for CollectGarbageParams {
@@ -55,10 +55,10 @@ impl crate::Command for CollectGarbageParams {
     type Returns = CollectGarbageReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -66,10 +66,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -116,7 +116,7 @@ impl crate::Command for GetObjectByHeapObjectIdParams {
     type Returns = GetObjectByHeapObjectIdReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetSamplingProfileParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -129,7 +129,7 @@ impl crate::Command for GetSamplingProfileParams {
     type Returns = GetSamplingProfileReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartSamplingParams {
     #[serde(
         rename = "samplingInterval",
@@ -157,7 +157,7 @@ pub struct StartSamplingParams {
     pub include_objects_collected_by_minor_gc: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartSamplingReturns {}
 
 impl crate::Command for StartSamplingParams {
@@ -165,7 +165,7 @@ impl crate::Command for StartSamplingParams {
     type Returns = StartSamplingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartTrackingHeapObjectsParams {
     #[serde(
         rename = "trackAllocations",
@@ -175,7 +175,7 @@ pub struct StartTrackingHeapObjectsParams {
     pub track_allocations: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartTrackingHeapObjectsReturns {}
 
 impl crate::Command for StartTrackingHeapObjectsParams {
@@ -183,7 +183,7 @@ impl crate::Command for StartTrackingHeapObjectsParams {
     type Returns = StartTrackingHeapObjectsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopSamplingParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -196,7 +196,7 @@ impl crate::Command for StopSamplingParams {
     type Returns = StopSamplingReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopTrackingHeapObjectsParams {
     #[serde(
         rename = "reportProgress",
@@ -224,7 +224,7 @@ pub struct StopTrackingHeapObjectsParams {
     pub expose_internals: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopTrackingHeapObjectsReturns {}
 
 impl crate::Command for StopTrackingHeapObjectsParams {
@@ -232,7 +232,7 @@ impl crate::Command for StopTrackingHeapObjectsParams {
     type Returns = StopTrackingHeapObjectsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TakeHeapSnapshotParams {
     #[serde(
         rename = "reportProgress",
@@ -260,7 +260,7 @@ pub struct TakeHeapSnapshotParams {
     pub expose_internals: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TakeHeapSnapshotReturns {}
 
 impl crate::Command for TakeHeapSnapshotParams {
@@ -310,7 +310,7 @@ impl crate::Event for ReportHeapSnapshotProgressEvent {
     const METHOD: &'static str = "HeapProfiler.reportHeapSnapshotProgress";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResetProfilesEvent {}
 
 impl crate::Event for ResetProfilesEvent {

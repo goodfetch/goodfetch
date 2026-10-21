@@ -50,7 +50,7 @@ pub struct TargetInfo {
     pub embedder_data: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FilterEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude: Option<bool>,
@@ -87,7 +87,7 @@ pub struct ActivateTargetParams {
     pub target_id: TargetID,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ActivateTargetReturns {}
 
 impl crate::Command for ActivateTargetParams {
@@ -114,7 +114,7 @@ impl crate::Command for AttachToTargetParams {
     type Returns = AttachToTargetReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AttachToBrowserTargetParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -162,7 +162,7 @@ pub struct ExposeDevToolsProtocolParams {
     pub inherit_permissions: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExposeDevToolsProtocolReturns {}
 
 impl crate::Command for ExposeDevToolsProtocolParams {
@@ -170,7 +170,7 @@ impl crate::Command for ExposeDevToolsProtocolParams {
     type Returns = ExposeDevToolsProtocolReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CreateBrowserContextParams {
     #[serde(
         rename = "disposeOnDetach",
@@ -209,7 +209,7 @@ impl crate::Command for CreateBrowserContextParams {
     type Returns = CreateBrowserContextReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetBrowserContextsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -281,7 +281,7 @@ impl crate::Command for CreateTargetParams {
     type Returns = CreateTargetReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DetachFromTargetParams {
     #[serde(rename = "sessionId", default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionID>,
@@ -289,7 +289,7 @@ pub struct DetachFromTargetParams {
     pub target_id: Option<TargetID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DetachFromTargetReturns {}
 
 impl crate::Command for DetachFromTargetParams {
@@ -303,7 +303,7 @@ pub struct DisposeBrowserContextParams {
     pub browser_context_id: super::browser::BrowserContextID,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisposeBrowserContextReturns {}
 
 impl crate::Command for DisposeBrowserContextParams {
@@ -311,7 +311,7 @@ impl crate::Command for DisposeBrowserContextParams {
     type Returns = DisposeBrowserContextReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetTargetInfoParams {
     #[serde(rename = "targetId", default, skip_serializing_if = "Option::is_none")]
     pub target_id: Option<TargetID>,
@@ -328,7 +328,7 @@ impl crate::Command for GetTargetInfoParams {
     type Returns = GetTargetInfoReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetTargetsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<TargetFilter>,
@@ -354,7 +354,7 @@ pub struct SendMessageToTargetParams {
     pub target_id: Option<TargetID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SendMessageToTargetReturns {}
 
 impl crate::Command for SendMessageToTargetParams {
@@ -374,7 +374,7 @@ pub struct SetAutoAttachParams {
     pub filter: Option<TargetFilter>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetAutoAttachReturns {}
 
 impl crate::Command for SetAutoAttachParams {
@@ -392,7 +392,7 @@ pub struct AutoAttachRelatedParams {
     pub filter: Option<TargetFilter>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AutoAttachRelatedReturns {}
 
 impl crate::Command for AutoAttachRelatedParams {
@@ -407,7 +407,7 @@ pub struct SetDiscoverTargetsParams {
     pub filter: Option<TargetFilter>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetDiscoverTargetsReturns {}
 
 impl crate::Command for SetDiscoverTargetsParams {
@@ -420,7 +420,7 @@ pub struct SetRemoteLocationsParams {
     pub locations: Vec<RemoteLocation>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetRemoteLocationsReturns {}
 
 impl crate::Command for SetRemoteLocationsParams {
@@ -434,7 +434,7 @@ pub struct GetDevToolsTargetParams {
     pub target_id: TargetID,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetDevToolsTargetReturns {
     #[serde(rename = "targetId", default, skip_serializing_if = "Option::is_none")]
     pub target_id: Option<TargetID>,

@@ -35,7 +35,7 @@ pub struct TriggerActionParams {
     pub target_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TriggerActionReturns {}
 
 impl crate::Command for TriggerActionParams {
@@ -64,7 +64,7 @@ impl crate::Command for LoadUnpackedParams {
     type Returns = LoadUnpackedReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetExtensionsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -82,7 +82,7 @@ pub struct UninstallParams {
     pub id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UninstallReturns {}
 
 impl crate::Command for UninstallParams {
@@ -117,7 +117,7 @@ pub struct RemoveStorageItemsParams {
     pub keys: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RemoveStorageItemsReturns {}
 
 impl crate::Command for RemoveStorageItemsParams {
@@ -132,7 +132,7 @@ pub struct ClearStorageItemsParams {
     pub storage_area: StorageArea,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearStorageItemsReturns {}
 
 impl crate::Command for ClearStorageItemsParams {
@@ -148,7 +148,7 @@ pub struct SetStorageItemsParams {
     pub values: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetStorageItemsReturns {}
 
 impl crate::Command for SetStorageItemsParams {

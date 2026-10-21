@@ -17,7 +17,7 @@ pub enum RequestStage {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RequestPattern {
     #[serde(
         rename = "urlPattern",
@@ -87,10 +87,10 @@ pub enum AuthChallengeResponseResponse {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -98,7 +98,7 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patterns: Option<Vec<RequestPattern>>,
@@ -110,7 +110,7 @@ pub struct EnableParams {
     pub handle_auth_requests: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -126,7 +126,7 @@ pub struct FailRequestParams {
     pub error_reason: super::network::ErrorReason,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FailRequestReturns {}
 
 impl crate::Command for FailRequestParams {
@@ -162,7 +162,7 @@ pub struct FulfillRequestParams {
     pub response_phrase: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FulfillRequestReturns {}
 
 impl crate::Command for FulfillRequestParams {
@@ -190,7 +190,7 @@ pub struct ContinueRequestParams {
     pub intercept_response: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ContinueRequestReturns {}
 
 impl crate::Command for ContinueRequestParams {
@@ -206,7 +206,7 @@ pub struct ContinueWithAuthParams {
     pub auth_challenge_response: AuthChallengeResponse,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ContinueWithAuthReturns {}
 
 impl crate::Command for ContinueWithAuthParams {
@@ -244,7 +244,7 @@ pub struct ContinueResponseParams {
     pub binary_response_headers: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ContinueResponseReturns {}
 
 impl crate::Command for ContinueResponseParams {

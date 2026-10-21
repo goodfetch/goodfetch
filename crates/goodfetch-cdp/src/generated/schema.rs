@@ -10,7 +10,7 @@ pub struct Domain {
     pub version: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetDomainsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -9,7 +9,7 @@ pub struct FindFirstParams {
     pub query: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FindFirstReturns {}
 
 impl crate::Command for FindFirstParams {
@@ -17,10 +17,10 @@ impl crate::Command for FindFirstParams {
     type Returns = FindFirstReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FindNextParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FindNextReturns {}
 
 impl crate::Command for FindNextParams {
@@ -28,10 +28,10 @@ impl crate::Command for FindNextParams {
     type Returns = FindNextReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FindPrevParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FindPrevReturns {}
 
 impl crate::Command for FindPrevParams {
@@ -39,10 +39,10 @@ impl crate::Command for FindPrevParams {
     type Returns = FindPrevReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopReturns {}
 
 impl crate::Command for StopParams {

@@ -115,7 +115,7 @@ pub enum DispatchDragEventType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DispatchDragEventReturns {}
 
 impl crate::Command for DispatchDragEventParams {
@@ -195,7 +195,7 @@ pub enum DispatchKeyEventType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DispatchKeyEventReturns {}
 
 impl crate::Command for DispatchKeyEventParams {
@@ -208,7 +208,7 @@ pub struct InsertTextParams {
     pub text: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InsertTextReturns {}
 
 impl crate::Command for InsertTextParams {
@@ -237,7 +237,7 @@ pub struct ImeSetCompositionParams {
     pub replacement_end: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ImeSetCompositionReturns {}
 
 impl crate::Command for ImeSetCompositionParams {
@@ -316,7 +316,7 @@ pub enum DispatchMouseEventPointerType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DispatchMouseEventReturns {}
 
 impl crate::Command for DispatchMouseEventParams {
@@ -350,7 +350,7 @@ pub enum DispatchTouchEventType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DispatchTouchEventReturns {}
 
 impl crate::Command for DispatchTouchEventParams {
@@ -358,10 +358,10 @@ impl crate::Command for DispatchTouchEventParams {
     type Returns = DispatchTouchEventReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CancelDraggingParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CancelDraggingReturns {}
 
 impl crate::Command for CancelDraggingParams {
@@ -406,7 +406,7 @@ pub enum EmulateTouchFromMouseEventType {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EmulateTouchFromMouseEventReturns {}
 
 impl crate::Command for EmulateTouchFromMouseEventParams {
@@ -419,7 +419,7 @@ pub struct SetIgnoreInputEventsParams {
     pub ignore: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetIgnoreInputEventsReturns {}
 
 impl crate::Command for SetIgnoreInputEventsParams {
@@ -432,7 +432,7 @@ pub struct SetInterceptDragsParams {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetInterceptDragsReturns {}
 
 impl crate::Command for SetInterceptDragsParams {
@@ -460,7 +460,7 @@ pub struct SynthesizePinchGestureParams {
     pub gesture_source_type: Option<GestureSourceType>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SynthesizePinchGestureReturns {}
 
 impl crate::Command for SynthesizePinchGestureParams {
@@ -522,7 +522,7 @@ pub struct SynthesizeScrollGestureParams {
     pub interaction_marker_name: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SynthesizeScrollGestureReturns {}
 
 impl crate::Command for SynthesizeScrollGestureParams {
@@ -546,7 +546,7 @@ pub struct SynthesizeTapGestureParams {
     pub gesture_source_type: Option<GestureSourceType>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SynthesizeTapGestureReturns {}
 
 impl crate::Command for SynthesizeTapGestureParams {

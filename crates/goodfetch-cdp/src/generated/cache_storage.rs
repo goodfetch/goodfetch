@@ -80,7 +80,7 @@ pub struct DeleteCacheParams {
     pub cache_id: CacheId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteCacheReturns {}
 
 impl crate::Command for DeleteCacheParams {
@@ -95,7 +95,7 @@ pub struct DeleteEntryParams {
     pub request: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteEntryReturns {}
 
 impl crate::Command for DeleteEntryParams {
@@ -103,7 +103,7 @@ impl crate::Command for DeleteEntryParams {
     type Returns = DeleteEntryReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RequestCacheNamesParams {
     #[serde(
         rename = "securityOrigin",

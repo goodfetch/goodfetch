@@ -117,7 +117,7 @@ impl crate::Command for GetStorageKeyForFrameParams {
     type Returns = GetStorageKeyForFrameReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetStorageKeyParams {
     #[serde(rename = "frameId", default, skip_serializing_if = "Option::is_none")]
     pub frame_id: Option<super::page::FrameId>,
@@ -141,7 +141,7 @@ pub struct ClearDataForOriginParams {
     pub storage_types: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDataForOriginReturns {}
 
 impl crate::Command for ClearDataForOriginParams {
@@ -157,7 +157,7 @@ pub struct ClearDataForStorageKeyParams {
     pub storage_types: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearDataForStorageKeyReturns {}
 
 impl crate::Command for ClearDataForStorageKeyParams {
@@ -165,7 +165,7 @@ impl crate::Command for ClearDataForStorageKeyParams {
     type Returns = ClearDataForStorageKeyReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetCookiesParams {
     #[serde(
         rename = "browserContextId",
@@ -196,7 +196,7 @@ pub struct SetCookiesParams {
     pub browser_context_id: Option<super::browser::BrowserContextID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetCookiesReturns {}
 
 impl crate::Command for SetCookiesParams {
@@ -204,7 +204,7 @@ impl crate::Command for SetCookiesParams {
     type Returns = SetCookiesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearCookiesParams {
     #[serde(
         rename = "browserContextId",
@@ -214,7 +214,7 @@ pub struct ClearCookiesParams {
     pub browser_context_id: Option<super::browser::BrowserContextID>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearCookiesReturns {}
 
 impl crate::Command for ClearCookiesParams {
@@ -249,7 +249,7 @@ pub struct OverrideQuotaForOriginParams {
     pub quota_size: Option<f64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct OverrideQuotaForOriginReturns {}
 
 impl crate::Command for OverrideQuotaForOriginParams {
@@ -262,7 +262,7 @@ pub struct TrackCacheStorageForOriginParams {
     pub origin: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrackCacheStorageForOriginReturns {}
 
 impl crate::Command for TrackCacheStorageForOriginParams {
@@ -276,7 +276,7 @@ pub struct TrackCacheStorageForStorageKeyParams {
     pub storage_key: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrackCacheStorageForStorageKeyReturns {}
 
 impl crate::Command for TrackCacheStorageForStorageKeyParams {
@@ -289,7 +289,7 @@ pub struct TrackIndexedDBForOriginParams {
     pub origin: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrackIndexedDBForOriginReturns {}
 
 impl crate::Command for TrackIndexedDBForOriginParams {
@@ -303,7 +303,7 @@ pub struct TrackIndexedDBForStorageKeyParams {
     pub storage_key: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrackIndexedDBForStorageKeyReturns {}
 
 impl crate::Command for TrackIndexedDBForStorageKeyParams {
@@ -316,7 +316,7 @@ pub struct UntrackCacheStorageForOriginParams {
     pub origin: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UntrackCacheStorageForOriginReturns {}
 
 impl crate::Command for UntrackCacheStorageForOriginParams {
@@ -330,7 +330,7 @@ pub struct UntrackCacheStorageForStorageKeyParams {
     pub storage_key: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UntrackCacheStorageForStorageKeyReturns {}
 
 impl crate::Command for UntrackCacheStorageForStorageKeyParams {
@@ -343,7 +343,7 @@ pub struct UntrackIndexedDBForOriginParams {
     pub origin: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UntrackIndexedDBForOriginReturns {}
 
 impl crate::Command for UntrackIndexedDBForOriginParams {
@@ -357,7 +357,7 @@ pub struct UntrackIndexedDBForStorageKeyParams {
     pub storage_key: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UntrackIndexedDBForStorageKeyReturns {}
 
 impl crate::Command for UntrackIndexedDBForStorageKeyParams {
@@ -365,7 +365,7 @@ impl crate::Command for UntrackIndexedDBForStorageKeyParams {
     type Returns = UntrackIndexedDBForStorageKeyReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetTrustTokensParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -395,7 +395,7 @@ impl crate::Command for ClearTrustTokensParams {
     type Returns = ClearTrustTokensReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetPrivateVerificationTokensParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -408,7 +408,7 @@ impl crate::Command for GetPrivateVerificationTokensParams {
     type Returns = GetPrivateVerificationTokensReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GetPrivateVerificationTokensIssuerConfigsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -427,7 +427,7 @@ pub struct ClearPrivateVerificationTokensParams {
     pub issuer_origin: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearPrivateVerificationTokensReturns {}
 
 impl crate::Command for ClearPrivateVerificationTokensParams {
@@ -441,7 +441,7 @@ pub struct DeletePrivateVerificationTokenParams {
     pub token_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeletePrivateVerificationTokenReturns {}
 
 impl crate::Command for DeletePrivateVerificationTokenParams {
@@ -454,7 +454,7 @@ pub struct SetPrivateVerificationTokensTrackingParams {
     pub enable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPrivateVerificationTokensTrackingReturns {}
 
 impl crate::Command for SetPrivateVerificationTokensTrackingParams {
@@ -469,7 +469,7 @@ pub struct SetStorageBucketTrackingParams {
     pub enable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetStorageBucketTrackingReturns {}
 
 impl crate::Command for SetStorageBucketTrackingParams {
@@ -482,7 +482,7 @@ pub struct DeleteStorageBucketParams {
     pub bucket: StorageBucket,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteStorageBucketReturns {}
 
 impl crate::Command for DeleteStorageBucketParams {
@@ -490,7 +490,7 @@ impl crate::Command for DeleteStorageBucketParams {
     type Returns = DeleteStorageBucketReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunBounceTrackingMitigationsParams {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -582,7 +582,7 @@ impl crate::Event for StorageBucketDeletedEvent {
     const METHOD: &'static str = "Storage.storageBucketDeleted";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PrivateVerificationTokensUpdatedEvent {}
 
 impl crate::Event for PrivateVerificationTokensUpdatedEvent {

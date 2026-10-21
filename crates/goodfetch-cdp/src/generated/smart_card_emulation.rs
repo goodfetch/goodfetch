@@ -122,7 +122,7 @@ pub enum ConnectionState {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReaderStateFlags {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unaware: Option<bool>,
@@ -148,7 +148,7 @@ pub struct ReaderStateFlags {
     pub unpowered: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProtocolSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub t0: Option<bool>,
@@ -190,10 +190,10 @@ pub struct ReaderStateOut {
     pub atr: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -201,10 +201,10 @@ impl crate::Command for EnableParams {
     type Returns = EnableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -220,7 +220,7 @@ pub struct ReportEstablishContextResultParams {
     pub context_id: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportEstablishContextResultReturns {}
 
 impl crate::Command for ReportEstablishContextResultParams {
@@ -234,7 +234,7 @@ pub struct ReportReleaseContextResultParams {
     pub request_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportReleaseContextResultReturns {}
 
 impl crate::Command for ReportReleaseContextResultParams {
@@ -249,7 +249,7 @@ pub struct ReportListReadersResultParams {
     pub readers: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportListReadersResultReturns {}
 
 impl crate::Command for ReportListReadersResultParams {
@@ -265,7 +265,7 @@ pub struct ReportGetStatusChangeResultParams {
     pub reader_states: Vec<ReaderStateOut>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportGetStatusChangeResultReturns {}
 
 impl crate::Command for ReportGetStatusChangeResultParams {
@@ -280,7 +280,7 @@ pub struct ReportBeginTransactionResultParams {
     pub handle: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportBeginTransactionResultReturns {}
 
 impl crate::Command for ReportBeginTransactionResultParams {
@@ -294,7 +294,7 @@ pub struct ReportPlainResultParams {
     pub request_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportPlainResultReturns {}
 
 impl crate::Command for ReportPlainResultParams {
@@ -315,7 +315,7 @@ pub struct ReportConnectResultParams {
     pub active_protocol: Option<Protocol>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportConnectResultReturns {}
 
 impl crate::Command for ReportConnectResultParams {
@@ -330,7 +330,7 @@ pub struct ReportDataResultParams {
     pub data: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportDataResultReturns {}
 
 impl crate::Command for ReportDataResultParams {
@@ -350,7 +350,7 @@ pub struct ReportStatusResultParams {
     pub protocol: Option<Protocol>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportStatusResultReturns {}
 
 impl crate::Command for ReportStatusResultParams {
@@ -366,7 +366,7 @@ pub struct ReportErrorParams {
     pub result_code: ResultCode,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportErrorReturns {}
 
 impl crate::Command for ReportErrorParams {

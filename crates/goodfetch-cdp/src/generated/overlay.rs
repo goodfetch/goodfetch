@@ -12,7 +12,7 @@ pub struct SourceOrderConfig {
     pub child_outline_color: super::dom::RGBA,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GridHighlightConfig {
     #[serde(
         rename = "showGridExtensionLines",
@@ -136,7 +136,7 @@ pub struct GridHighlightConfig {
     pub grid_background_color: Option<super::dom::RGBA>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FlexContainerHighlightConfig {
     #[serde(
         rename = "containerBorder",
@@ -188,7 +188,7 @@ pub struct FlexContainerHighlightConfig {
     pub cross_alignment: Option<LineStyle>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FlexItemHighlightConfig {
     #[serde(
         rename = "baseSizeBox",
@@ -210,7 +210,7 @@ pub struct FlexItemHighlightConfig {
     pub flexibility_arrow: Option<LineStyle>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LineStyle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<super::dom::RGBA>,
@@ -229,7 +229,7 @@ pub enum LineStylePattern {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BoxStyle {
     #[serde(rename = "fillColor", default, skip_serializing_if = "Option::is_none")]
     pub fill_color: Option<super::dom::RGBA>,
@@ -254,7 +254,7 @@ pub enum ContrastAlgorithm {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ImcbHighlightConfig {
     #[serde(
         rename = "imcbBorderColor",
@@ -312,7 +312,7 @@ pub struct ImcbHighlightConfig {
     pub position_area_active_region_color: Option<super::dom::RGBA>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightConfig {
     #[serde(rename = "showInfo", default, skip_serializing_if = "Option::is_none")]
     pub show_info: Option<bool>,
@@ -463,7 +463,7 @@ pub struct FlexNodeHighlightConfig {
     pub node_id: super::dom::NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScrollSnapContainerHighlightConfig {
     #[serde(
         rename = "snapportBorder",
@@ -585,7 +585,7 @@ pub struct ContainerQueryHighlightConfig {
     pub node_id: super::dom::NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ContainerQueryContainerHighlightConfig {
     #[serde(
         rename = "containerBorder",
@@ -609,7 +609,7 @@ pub struct IsolatedElementHighlightConfig {
     pub node_id: super::dom::NodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct IsolationModeHighlightConfig {
     #[serde(
         rename = "resizerColor",
@@ -642,7 +642,7 @@ pub enum InspectMode {
     Unlisted,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InspectedElementAnchorConfig {
     #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<super::dom::NodeId>,
@@ -654,10 +654,10 @@ pub struct InspectedElementAnchorConfig {
     pub backend_node_id: Option<super::dom::BackendNodeId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -665,10 +665,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -748,10 +748,10 @@ impl crate::Command for GetSourceOrderHighlightObjectForTestParams {
     type Returns = GetSourceOrderHighlightObjectForTestReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HideHighlightParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HideHighlightReturns {}
 
 impl crate::Command for HideHighlightParams {
@@ -777,7 +777,7 @@ pub struct HighlightFrameParams {
     pub content_outline_color: Option<super::dom::RGBA>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightFrameReturns {}
 
 impl crate::Command for HighlightFrameParams {
@@ -803,7 +803,7 @@ pub struct HighlightNodeParams {
     pub selector: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightNodeReturns {}
 
 impl crate::Command for HighlightNodeParams {
@@ -824,7 +824,7 @@ pub struct HighlightQuadParams {
     pub outline_color: Option<super::dom::RGBA>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightQuadReturns {}
 
 impl crate::Command for HighlightQuadParams {
@@ -848,7 +848,7 @@ pub struct HighlightRectParams {
     pub outline_color: Option<super::dom::RGBA>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightRectReturns {}
 
 impl crate::Command for HighlightRectParams {
@@ -872,7 +872,7 @@ pub struct HighlightSourceOrderParams {
     pub object_id: Option<super::runtime::RemoteObjectId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HighlightSourceOrderReturns {}
 
 impl crate::Command for HighlightSourceOrderParams {
@@ -891,7 +891,7 @@ pub struct SetInspectModeParams {
     pub highlight_config: Option<HighlightConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetInspectModeReturns {}
 
 impl crate::Command for SetInspectModeParams {
@@ -904,7 +904,7 @@ pub struct SetShowAdHighlightsParams {
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowAdHighlightsReturns {}
 
 impl crate::Command for SetShowAdHighlightsParams {
@@ -912,13 +912,13 @@ impl crate::Command for SetShowAdHighlightsParams {
     type Returns = SetShowAdHighlightsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPausedInDebuggerMessageParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetPausedInDebuggerMessageReturns {}
 
 impl crate::Command for SetPausedInDebuggerMessageParams {
@@ -931,7 +931,7 @@ pub struct SetShowDebugBordersParams {
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowDebugBordersReturns {}
 
 impl crate::Command for SetShowDebugBordersParams {
@@ -944,7 +944,7 @@ pub struct SetShowFPSCounterParams {
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowFPSCounterReturns {}
 
 impl crate::Command for SetShowFPSCounterParams {
@@ -958,7 +958,7 @@ pub struct SetShowGridOverlaysParams {
     pub grid_node_highlight_configs: Vec<GridNodeHighlightConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowGridOverlaysReturns {}
 
 impl crate::Command for SetShowGridOverlaysParams {
@@ -972,7 +972,7 @@ pub struct SetShowFlexOverlaysParams {
     pub flex_node_highlight_configs: Vec<FlexNodeHighlightConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowFlexOverlaysReturns {}
 
 impl crate::Command for SetShowFlexOverlaysParams {
@@ -986,7 +986,7 @@ pub struct SetShowScrollSnapOverlaysParams {
     pub scroll_snap_highlight_configs: Vec<ScrollSnapHighlightConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowScrollSnapOverlaysReturns {}
 
 impl crate::Command for SetShowScrollSnapOverlaysParams {
@@ -1000,7 +1000,7 @@ pub struct SetShowContainerQueryOverlaysParams {
     pub container_query_highlight_configs: Vec<ContainerQueryHighlightConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowContainerQueryOverlaysReturns {}
 
 impl crate::Command for SetShowContainerQueryOverlaysParams {
@@ -1014,7 +1014,7 @@ pub struct SetShowInspectedElementAnchorParams {
     pub inspected_element_anchor_config: InspectedElementAnchorConfig,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowInspectedElementAnchorReturns {}
 
 impl crate::Command for SetShowInspectedElementAnchorParams {
@@ -1027,7 +1027,7 @@ pub struct SetShowPaintRectsParams {
     pub result: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowPaintRectsReturns {}
 
 impl crate::Command for SetShowPaintRectsParams {
@@ -1040,7 +1040,7 @@ pub struct SetShowLayoutShiftRegionsParams {
     pub result: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowLayoutShiftRegionsReturns {}
 
 impl crate::Command for SetShowLayoutShiftRegionsParams {
@@ -1053,7 +1053,7 @@ pub struct SetShowScrollBottleneckRectsParams {
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowScrollBottleneckRectsReturns {}
 
 impl crate::Command for SetShowScrollBottleneckRectsParams {
@@ -1066,7 +1066,7 @@ pub struct SetShowHitTestBordersParams {
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowHitTestBordersReturns {}
 
 impl crate::Command for SetShowHitTestBordersParams {
@@ -1079,7 +1079,7 @@ pub struct SetShowWebVitalsParams {
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowWebVitalsReturns {}
 
 impl crate::Command for SetShowWebVitalsParams {
@@ -1092,7 +1092,7 @@ pub struct SetShowViewportSizeOnResizeParams {
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowViewportSizeOnResizeReturns {}
 
 impl crate::Command for SetShowViewportSizeOnResizeParams {
@@ -1100,7 +1100,7 @@ impl crate::Command for SetShowViewportSizeOnResizeParams {
     type Returns = SetShowViewportSizeOnResizeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowHingeParams {
     #[serde(
         rename = "hingeConfig",
@@ -1110,7 +1110,7 @@ pub struct SetShowHingeParams {
     pub hinge_config: Option<HingeConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowHingeReturns {}
 
 impl crate::Command for SetShowHingeParams {
@@ -1118,7 +1118,7 @@ impl crate::Command for SetShowHingeParams {
     type Returns = SetShowHingeReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowDisplayCutoutParams {
     #[serde(
         rename = "displayCutoutConfig",
@@ -1128,7 +1128,7 @@ pub struct SetShowDisplayCutoutParams {
     pub display_cutout_config: Option<DisplayCutoutConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowDisplayCutoutReturns {}
 
 impl crate::Command for SetShowDisplayCutoutParams {
@@ -1142,7 +1142,7 @@ pub struct SetShowIsolatedElementsParams {
     pub isolated_element_highlight_configs: Vec<IsolatedElementHighlightConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowIsolatedElementsReturns {}
 
 impl crate::Command for SetShowIsolatedElementsParams {
@@ -1150,7 +1150,7 @@ impl crate::Command for SetShowIsolatedElementsParams {
     type Returns = SetShowIsolatedElementsReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowWindowControlsOverlayParams {
     #[serde(
         rename = "windowControlsOverlayConfig",
@@ -1160,7 +1160,7 @@ pub struct SetShowWindowControlsOverlayParams {
     pub window_controls_overlay_config: Option<WindowControlsOverlayConfig>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SetShowWindowControlsOverlayReturns {}
 
 impl crate::Command for SetShowWindowControlsOverlayParams {
@@ -1217,7 +1217,7 @@ impl crate::Event for InspectedElementWindowRestoredEvent {
     const METHOD: &'static str = "Overlay.inspectedElementWindowRestored";
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InspectModeCanceledEvent {}
 
 impl crate::Event for InspectModeCanceledEvent {

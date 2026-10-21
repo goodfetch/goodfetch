@@ -128,7 +128,7 @@ pub struct ClearObjectStoreParams {
     pub object_store_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClearObjectStoreReturns {}
 
 impl crate::Command for ClearObjectStoreParams {
@@ -160,7 +160,7 @@ pub struct DeleteDatabaseParams {
     pub database_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteDatabaseReturns {}
 
 impl crate::Command for DeleteDatabaseParams {
@@ -196,7 +196,7 @@ pub struct DeleteObjectStoreEntriesParams {
     pub key_range: KeyRange,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteObjectStoreEntriesReturns {}
 
 impl crate::Command for DeleteObjectStoreEntriesParams {
@@ -204,10 +204,10 @@ impl crate::Command for DeleteObjectStoreEntriesParams {
     type Returns = DeleteObjectStoreEntriesReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisableReturns {}
 
 impl crate::Command for DisableParams {
@@ -215,10 +215,10 @@ impl crate::Command for DisableParams {
     type Returns = DisableReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableParams {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EnableReturns {}
 
 impl crate::Command for EnableParams {
@@ -347,7 +347,7 @@ impl crate::Command for RequestDatabaseParams {
     type Returns = RequestDatabaseReturns;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RequestDatabaseNamesParams {
     #[serde(
         rename = "securityOrigin",

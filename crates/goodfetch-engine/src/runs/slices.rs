@@ -21,6 +21,7 @@ use super::folder::open_reader;
 use super::writer::{Writer, test_writer};
 use super::{CALLER, ConnectionId};
 use crate::clock::Clock;
+use crate::home::Home;
 use crate::ledger::{Charging, Holder, Ledger, Placement, Probed, SliceId, SliceSizing};
 use crate::tasks::TaskOwner;
 
@@ -28,6 +29,8 @@ use crate::tasks::TaskOwner;
 /// and the scopes each run of this engine stands in.
 #[derive(Clone, Debug)]
 pub(crate) struct Limits {
+    /// The Goodfetch home the engine runs in.
+    pub(crate) home: Home,
     /// Where its ledger calls run, which the engine's Runs wait for.
     pub(crate) owner: Arc<TaskOwner>,
     /// The user's Usage ledger.

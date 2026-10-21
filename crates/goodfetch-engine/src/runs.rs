@@ -525,7 +525,6 @@ pub(crate) type ConnectionId = u64;
 pub struct Runs {
     commands: mpsc::Sender<Command>,
     settings: Settings,
-    home: Arc<Home>,
     connection: Option<ConnectionId>,
     limits: Arc<Limits>,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -548,12 +547,18 @@ pub struct Run {
     state: RunState,
     clock: Clock,
     gates: Option<Arc<dyn Gates>>,
-    stop: Arc<watch::Sender<Option<StopReason>>>,
+    shared: Arc<Shared>,
     owner: Arc<TaskOwner>,
     runs: Runs,
     settings: Option<Arc<RunSettings>>,
+}
+
+/// What every handle of a live Run shares.
+struct Shared {
+    /// The reason it was asked to stop at its next safe point, once asked.
+    stop: watch::Sender<Option<StopReason>>,
     /// Its Slices of the Limits that hold it, until it ends.
-    charging: Arc<tokio::sync::Mutex<Option<Charging>>>,
+    charging: tokio::sync::Mutex<Option<Charging>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -607,7 +612,7 @@ impl Run {
     ///
     /// Dropping the future loses nothing; a later call answers the same.
     pub async fn stopping(&self) -> StopReason {
-        let mut stop = self.stop.subscribe();
+        let mut stop = self.shared.stop.subscribe();
         let asked = stop
             .wait_for(Option::is_some)
             .await
@@ -645,7 +650,7 @@ impl Run {
     /// Asks the Run to stop at its next safe point for `reason`; the first
     /// reason asked stays.
     fn stop_at_safe_point(&self, reason: StopReason) {
-        self.stop.send_if_modified(|stop| {
+        self.shared.stop.send_if_modified(|stop| {
             let unset = stop.is_none();
             if unset {
                 *stop = Some(reason);
@@ -761,7 +766,7 @@ impl Run {
     /// Dropping the future may leave a Slice taken or the charge journaled,
     /// never more charged than the Run used.
     pub async fn charge(&self, usage_kind: &str, amount: u64) -> Result<(), ChargeError> {
-        let mut held = self.charging.lock().await;
+        let mut held = self.shared.charging.lock().await;
         let Some(mut charging) = held.take() else {
             return Ok(());
         };
@@ -814,6 +819,7 @@ impl Runs {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
         let readers = Arc::new(owner.child());
         let limits = Limits {
+            home: setup.home.clone(),
             owner: Arc::clone(&readers),
             ledger: Ledger::at(setup.home.usage_ledger(), setup.run_state.vfs.clone()),
             clock: setup.clock,
@@ -825,7 +831,6 @@ impl Runs {
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
-            home: Arc::new(setup.home.clone()),
             connection: None,
             limits: Arc::new(limits),
             drivers: Arc::new(setup.drivers.clone()),
@@ -869,7 +874,7 @@ impl Runs {
 
     /// The Goodfetch home the engine runs in.
     pub fn home(&self) -> &Home {
-        &self.home
+        &self.limits.home
     }
 
     /// The live Run of `run_id`, as its driver holds it.
@@ -1675,16 +1680,18 @@ impl Registry {
             state,
             clock: self.setup.clock,
             gates: self.setup.gates.clone(),
-            stop: Arc::new(watch::Sender::new(None)),
+            shared: Arc::new(Shared {
+                stop: watch::Sender::new(None),
+                charging: tokio::sync::Mutex::new(Some(self.limits.charging(
+                    run_id,
+                    folder,
+                    epoch,
+                    self.limits.placement(connection),
+                ))),
+            }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
-            charging: Arc::new(tokio::sync::Mutex::new(Some(self.limits.charging(
-                run_id,
-                folder,
-                epoch,
-                self.limits.placement(connection),
-            )))),
         }
     }
 
@@ -1695,7 +1702,6 @@ impl Registry {
                 .upgrade()
                 .expect("invariant: the registry runs while a handle sends to it"),
             settings: self.setup.settings.clone(),
-            home: Arc::new(self.setup.home.clone()),
             connection,
             limits: Arc::clone(&self.limits),
             drivers: Arc::clone(&self.drivers),
@@ -2375,7 +2381,7 @@ impl Closing {
         let written = report.clone();
         let state = run.state.clone();
         let (run_id, folder) = (run.id.clone(), run.folder.clone());
-        let charging = run.charging.lock().await.take();
+        let charging = run.shared.charging.lock().await.take();
         drop(run);
         if let Some(mut charging) = charging {
             let given = writer.blocking(move || charging.give_back()).await;

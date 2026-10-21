@@ -4,6 +4,10 @@
 //! folder; `usage list` shows the Usage against each Limit by scope; and a
 //! flag naming a value only Foxhound carries is refused with
 //! `not_in_product`.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use goodfetch_test_support::{TestEnv, cli};
 use serde_json::{Value, json};

@@ -15,22 +15,41 @@ const RUNS: &str = "runs";
 /// The Run index's file in the per-major folder.
 const RUN_INDEX: &str = "run-index.sqlite";
 
-/// One user's Goodfetch data folder.
+/// One user's Goodfetch data folder, and the copy of the Browser cache
+/// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Home {
     root: PathBuf,
+    browsers_path: Option<PathBuf>,
 }
 
 impl Home {
     /// The home at `root`: the folder `GOODFETCH_HOME` names, or the
     /// `goodfetch` folder of the OS's usual data folder.
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            browsers_path: None,
+        }
+    }
+
+    /// The same home, whose launches take their browsers from the Browser
+    /// cache at `browsers_path`, from `GOODFETCH_BROWSERS_PATH`, when it is
+    /// set (ADR 0059).
+    #[must_use]
+    pub fn with_browsers_path(mut self, browsers_path: Option<PathBuf>) -> Self {
+        self.browsers_path = browsers_path;
+        self
     }
 
     /// Its folder.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The Browser cache `GOODFETCH_BROWSERS_PATH` names, when it is set.
+    pub fn browsers_path(&self) -> Option<&Path> {
+        self.browsers_path.as_deref()
     }
 
     /// The per-major folder of the Product version `version`: `1` for any

@@ -56,6 +56,7 @@ fn use_foxhound() -> Contribution {
                     initialize: None,
                     policy_version: None,
                     weakened_by: Vec::new(),
+                    settings: None,
                 })
                 .await
                 .unwrap();

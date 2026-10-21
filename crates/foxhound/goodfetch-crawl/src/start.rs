@@ -62,6 +62,7 @@ async fn start(params: CrawlStartParams, context: CallContext) -> Result<RunStar
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
+            settings: Some(settings.clone()),
         })
         .await
         .map_err(start_error)?;

@@ -13,6 +13,7 @@ mod driver;
 mod errors;
 mod launch;
 mod pages;
+pub mod robots_txt;
 mod trace;
 pub mod url_pattern;
 

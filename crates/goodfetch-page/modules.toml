@@ -4,6 +4,7 @@ driver = ["errors", "launch", "trace"]
 errors = []
 launch = []
 pages = ["driver"]
+robots_txt = []
 trace = []
 url_pattern = []
 

@@ -5,6 +5,9 @@
 #                    deny and its first test step: starts the services, then
 #                    checks them (`xtask os-services check`). A service that
 #                    does not come up fails the job; no test is skipped.
+#                    `--without-service-manager` leaves the user's service
+#                    manager out, for a caller whose tests do not include
+#                    `service_manager::` (`just linux`, ci/linux.sh).
 #   skipped <file>   for `just test`: in CI (`CI` set) the same check, failing
 #                    on a missing service; on a local host, appends each
 #                    missing service to <file> and prints the test-name
@@ -120,6 +123,16 @@ setup_macos() {
 
 case "${1:-}" in
   setup)
+    if [[ "${2:-}" == --without-service-manager ]]; then
+      kept=()
+      for service in "${services[@]}"; do
+        [[ "$service" == --service-manager ]] || kept+=("$service")
+      done
+      services=("${kept[@]}")
+    elif [[ -n "${2:-}" ]]; then
+      echo "usage: ci/os-services.sh setup [--without-service-manager]" >&2
+      exit 2
+    fi
     case "$(uname -s)" in
       Linux) setup_linux ;;
       Darwin) setup_macos ;;
@@ -143,7 +156,7 @@ case "${1:-}" in
     printf '%s\n' "${addresses[@]}"
     ;;
   *)
-    echo "usage: ci/os-services.sh setup|skipped <file>|addresses" >&2
+    echo "usage: ci/os-services.sh setup [--without-service-manager]|skipped <file>|addresses" >&2
     exit 2
     ;;
 esac

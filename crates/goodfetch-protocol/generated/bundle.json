@@ -3655,6 +3655,22 @@
                 },
                 "type": "object"
               },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "attempt_delay": {
+                    "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "resolution_delay": {
+                    "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "sample": {
                 "additionalProperties": false,
                 "properties": {
@@ -3877,6 +3893,22 @@
                       }
                     ],
                     "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+                  }
+                },
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "attempt_delay": {
+                    "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "resolution_delay": {
+                    "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -4214,6 +4246,22 @@
                       }
                     ],
                     "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+                  }
+                },
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "attempt_delay": {
+                    "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "resolution_delay": {
+                    "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -4575,6 +4623,22 @@
                       }
                     ],
                     "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+                  }
+                },
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "attempt_delay": {
+                    "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "resolution_delay": {
+                    "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"

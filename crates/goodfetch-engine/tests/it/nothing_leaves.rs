@@ -16,6 +16,7 @@ use goodfetch_engine::browser_cache::{
     Pins,
 };
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, InstallOutcome, PinnedBy};
@@ -98,6 +99,7 @@ fn fetching(proving_ground: &ProvingGround, offline: Option<SettingsLayer>) -> F
         offline,
         resolve,
         trusted_certificates: vec![CertificateDer::from_pem_file(&description.ca).unwrap()],
+        ..Fetching::new(Clock::system())
     }
 }
 

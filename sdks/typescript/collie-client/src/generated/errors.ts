@@ -105,6 +105,15 @@ export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchErro
 };
 
 /**
+ * The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.
+ */
+export class AddressFamilyUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "address_family_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
  */
 export class ArtifactDownloadFailedError extends UnavailableError {
@@ -331,6 +340,7 @@ export class SettingUnknownError extends ProgramError {
 
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
+  address_family_unavailable: AddressFamilyUnavailableError,
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
   body_not_found: BodyNotFoundError,

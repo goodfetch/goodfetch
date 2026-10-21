@@ -229,6 +229,8 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
   _Why:_ a default-length lease or a day-long interval then takes no real time.
 - **Keep real I/O out of paused-clock tests**, apart from SQLite on tracked blocking threads.
   _Why:_ auto-advance fires whenever the runtime is idle, including during a real socket wait, so a lease can expire early (tokio #4522, #8232).
+  - A test that must wait on a real socket under the paused clock, such as the resolver cache's against the Proving ground's DNS fixture, holds the clock still meanwhile: the current-thread runtime never auto-advances while a blocking task runs (`goodfetch-engine`'s `tests/it/held_clock.rs`).
+  - The Happy Eyeballs race's end-to-end test relies on auto-advance instead: while its attempt to an address that drops packets waits, the race's attempt delay is the only timer, so the clock moves exactly to it.
 - **A test of the binary sets short durations through settings.** No build has a test-only clock control.
 - **Never sleep for real** beyond a short duration the test set itself.
 - **Clocks Goodfetch doesn't own stay real:** the Valkey server's (short durations), Chromium's (Proving ground pages take their time step from the task), and the Script sandbox's live `Date.now`, whose tests compare the order of Effects.

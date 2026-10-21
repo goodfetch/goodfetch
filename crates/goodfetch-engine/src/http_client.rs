@@ -5,13 +5,21 @@
 //! lookup (ADR 0059), Mozilla's roots trusted beside the certificate
 //! authorities its caller adds. It adds no header of its own.
 //!
+//! Every connection it opens races the host's addresses under RFC 8305
+//! ([`happy_eyeballs`], ADR 0118). [`connect`] is that step for the HTTP
+//! transports that resolve through the engine's [`Dns`]: from the families
+//! the Session's local addresses hold, to its proxy's addresses when it has
+//! one, forgetting a name whose every address failed.
+//!
 //! ADR 0043 allows only two kinds of caller: `pinned_download`, the one path
 //! for every connection nobody configured, and the module of each kind of
 //! Operator-configured endpoint. Which modules call it is `modules.toml`'s
 //! list, which a test holds to those kinds.
 
 use std::collections::BTreeMap;
-use std::net::{IpAddr, SocketAddr};
+use std::future::ready;
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -20,6 +28,10 @@ use hyper::body::{Bytes, Incoming};
 use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, ServerName};
+
+use crate::clock::Clock;
+use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
+use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 
 #[cfg(test)]
 mod tests;
@@ -47,13 +59,130 @@ impl Resolve {
     }
 }
 
-/// What a request may reach and trust.
+/// What a request may reach and trust, and how it races a host's addresses.
 pub(crate) struct Network<'a> {
     /// The `resolve` setting.
     pub(crate) resolve: &'a Resolve,
     /// Certificate authorities trusted beside Mozilla's roots, such as those
     /// of `tls.trusted_cas`.
     pub(crate) trusted_certificates: &'a [CertificateDer<'static>],
+    /// What the race waits on.
+    pub(crate) clock: Clock,
+    /// The race's delays.
+    pub(crate) delays: Delays,
+}
+
+/// Where a Session's connections leave from (ADR 0044): the local address
+/// of each family it holds, and its proxy, which its connections reach in
+/// place of the site.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Egress {
+    /// The IPv4 address its connections bind, when it holds one.
+    pub local_ipv4: Option<Ipv4Addr>,
+    /// The IPv6 address its connections bind, when it holds one.
+    pub local_ipv6: Option<Ipv6Addr>,
+    /// Its proxy's host and port.
+    pub proxy: Option<(String, u16)>,
+}
+
+impl Egress {
+    fn families(&self) -> Families {
+        match (self.local_ipv4, self.local_ipv6) {
+            (Some(_), None) => Families::Only(IpFamily::Ipv4),
+            (None, Some(_)) => Families::Only(IpFamily::Ipv6),
+            _ => Families::Both,
+        }
+    }
+
+    fn route(&self) -> Route {
+        if self.local_ipv4.is_some() || self.local_ipv6.is_some() {
+            Route::LocalAddress
+        } else {
+            Route::Direct
+        }
+    }
+
+    fn local_address(&self, family: IpFamily) -> Option<IpAddr> {
+        match family {
+            IpFamily::Ipv4 => self.local_ipv4.map(IpAddr::V4),
+            IpFamily::Ipv6 => self.local_ipv6.map(IpAddr::V6),
+        }
+    }
+}
+
+/// How [`connect`] resolves and races.
+#[derive(Clone)]
+pub struct Connecting {
+    /// The engine's name resolution.
+    pub dns: Dns,
+    /// What the race waits on.
+    pub clock: Clock,
+    /// The race's delays.
+    pub delays: Delays,
+}
+
+/// A connection [`connect`] opened.
+#[derive(Debug)]
+pub struct Connected {
+    /// The connection.
+    pub stream: TcpStream,
+    /// The address it reached: the site's, or its proxy's.
+    pub peer: SocketAddr,
+}
+
+/// Opens a connection to `host` on `port` for a Session leaving through
+/// `egress`: to its proxy instead when it has one, which resolves `host`
+/// itself; else to the host's addresses that the Session's local addresses
+/// can reach, raced under RFC 8305. When every address tried failed, the
+/// resolver forgets the name, so the next connection asks again (RFC 8305
+/// section 9).
+///
+/// # Errors
+///
+/// [`RaceError`]: the name has no address, none in a family the Session
+/// holds, or none that connected.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes every attempt in flight.
+pub async fn connect(
+    host: &str,
+    port: u16,
+    egress: &Egress,
+    connecting: &Connecting,
+) -> Result<Connected, RaceError> {
+    let (name, port) = match &egress.proxy {
+        Some((proxy, proxy_port)) => (proxy.as_str(), *proxy_port),
+        None => (host, port),
+    };
+    let route = egress.route();
+    let race = Race {
+        clock: connecting.clock,
+        delays: connecting.delays,
+        families: egress.families(),
+    };
+    let dns = &connecting.dns;
+    let raced = race
+        .connect(
+            name,
+            port,
+            dns.addresses(name, IpFamily::Ipv6, route),
+            dns.addresses(name, IpFamily::Ipv4, route),
+            |address| attempt(address, egress.local_address(family_of(address.ip()))),
+        )
+        .await;
+    match raced {
+        Ok(won) => Ok(Connected {
+            stream: won.connection,
+            peer: won.address,
+        }),
+        Err(error) => {
+            if matches!(&error, RaceError::Unreachable { tried } if !tried.is_empty()) {
+                dns.forget(name).await;
+            }
+            Err(error)
+        }
+    }
 }
 
 /// Where a request goes: the server it connects to and names in TLS.
@@ -79,7 +208,9 @@ type Connection = hyper::client::conn::http1::Connection<TokioIo<TlsStream>, Emp
     clippy::disallowed_types,
     reason = "the engine's own HTTP client opens its outbound sockets, which the Simulation never carries (ADR 0060)"
 )]
-type TlsStream = tokio_rustls::client::TlsStream<tokio::net::TcpStream>;
+type TcpStream = tokio::net::TcpStream;
+
+type TlsStream = tokio_rustls::client::TlsStream<TcpStream>;
 
 /// An answer whose body is still arriving.
 pub(crate) struct Response {
@@ -136,7 +267,7 @@ pub(crate) async fn send(
 ) -> Result<Response, Failure> {
     let server_name =
         ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
-    let tcp = connect(&addresses(server, network.resolve).await?).await?;
+    let tcp = race_to(server, network).await?;
     let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(network)))
         .connect(server_name, tcp)
         .await
@@ -175,33 +306,65 @@ pub(crate) async fn send(
     })
 }
 
-/// Connects to the first of `addresses` that accepts, in order.
+/// Connects to `server`'s addresses, both families answered at once,
+/// raced under RFC 8305.
+async fn race_to(server: &Server<'_>, network: &Network<'_>) -> Result<TcpStream, Failure> {
+    let found = addresses(server, network.resolve).await?;
+    let of = |family: IpFamily| -> Result<Vec<IpAddr>, LookupError> {
+        Ok(found
+            .iter()
+            .copied()
+            .filter(|address| family_of(*address) == family)
+            .collect())
+    };
+    let race = Race {
+        clock: network.clock,
+        delays: network.delays,
+        families: Families::Both,
+    };
+    race.connect(
+        server.host,
+        server.port,
+        ready(of(IpFamily::Ipv6)),
+        ready(of(IpFamily::Ipv4)),
+        |address| attempt(address, None),
+    )
+    .await
+    .map(|won| won.connection)
+    .map_err(|_| Failure::Network)
+}
+
+/// One connection attempt to `address`, bound to `local` when the Session
+/// holds a local address of its family.
 #[expect(
     clippy::disallowed_types,
     reason = "the engine's own HTTP client opens its outbound sockets, which the Simulation never carries (ADR 0060)"
 )]
-async fn connect(addresses: &[SocketAddr]) -> Result<tokio::net::TcpStream, Failure> {
-    for address in addresses {
-        if let Ok(stream) = tokio::net::TcpStream::connect(address).await {
-            return Ok(stream);
-        }
+async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpStream> {
+    let socket = if address.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    if let Some(local) = local {
+        socket.bind(SocketAddr::new(local, 0))?;
     }
-    Err(Failure::Network)
+    socket.connect(address).await
 }
 
-async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
+/// `server`'s addresses: the `resolve` mapping's, its literal address, or
+/// the system resolver's.
+async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<IpAddr>, Failure> {
     if let Some(mapped) = resolve.addresses(server.host) {
-        return Ok(mapped
-            .iter()
-            .map(|address| SocketAddr::new(*address, server.port))
-            .collect());
+        return Ok(mapped.to_vec());
     }
     if let Ok(address) = server.host.parse::<IpAddr>() {
-        return Ok(vec![SocketAddr::new(address, server.port)]);
+        return Ok(vec![address]);
     }
-    let found: Vec<SocketAddr> = tokio::net::lookup_host((server.host, server.port))
+    let found: Vec<IpAddr> = tokio::net::lookup_host((server.host, server.port))
         .await
         .map_err(|_| Failure::Network)?
+        .map(|address| address.ip())
         .collect();
     if found.is_empty() {
         return Err(Failure::Network);

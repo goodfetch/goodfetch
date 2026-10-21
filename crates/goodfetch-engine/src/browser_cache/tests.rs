@@ -29,6 +29,7 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::json;
 
+use crate::clock::Clock;
 use crate::pinned_download::{Digest, Fetching};
 
 use super::{
@@ -114,7 +115,7 @@ fn lay_out(cache: &BrowserCache, id: &ArtifactId, used_at: jiff::Timestamp) -> P
 fn offline() -> Fetching {
     Fetching {
         offline: Some(SettingsLayer::UserConfiguration),
-        ..Fetching::default()
+        ..Fetching::new(Clock::system())
     }
 }
 
@@ -260,7 +261,7 @@ fn a_missing_build_in_a_cache_the_engine_cannot_write_is_not_installed() {
         .block_on(cache.prepare(
             &pin(id.clone()),
             &pinned_by(),
-            &Fetching::default(),
+            &Fetching::new(Clock::system()),
             now(&env),
             &mut no_progress(),
         ))

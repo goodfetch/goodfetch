@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use goodfetch_engine::browser_cache::{
     BrowserCache, CacheLocation, PinnedArtifact, content_digest,
 };
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
 use goodfetch_protocol::catalog::Product;
@@ -65,7 +66,7 @@ fn main() {
     };
     let offline = Fetching {
         offline: Some(SettingsLayer::Run),
-        ..Fetching::default()
+        ..Fetching::new(Clock::system())
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()

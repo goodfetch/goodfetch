@@ -1,7 +1,9 @@
-//! The Error codes of name resolution: the engine's own DNS resolver, which
-//! every Product's static musl executable uses on Linux and every Session
-//! with a local address uses on every OS, and the system resolver the engine
-//! asks on macOS and Windows (ADRs 0024, 0044 and 0059).
+//! The Error codes and Settings of name resolution and of the connections
+//! that follow it: the engine's own DNS resolver, which every Product's
+//! static musl executable uses on Linux and every Session with a local
+//! address uses on every OS, the system resolver the engine asks on macOS
+//! and Windows (ADRs 0024, 0044 and 0059), and the RFC 8305 race of a
+//! host's addresses that the engine's HTTP transports run (ADR 0118).
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
@@ -9,7 +11,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion};
+use crate::catalog::{
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -32,6 +36,72 @@ pub const NAME_LOOKUP_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A host with no address in any family the Session holds a local address
+/// of (ADR 0044).
+pub const ADDRESS_FAMILY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "address_family_unavailable",
+    description: "The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn fifty_milliseconds() -> serde_json::Value {
+    serde_json::json!(50_u64)
+}
+
+fn two_hundred_fifty_milliseconds() -> serde_json::Value {
+    serde_json::json!(250_u64)
+}
+
+/// `resolver.resolution_delay` (ADR 0118; RFC 8305 section 3).
+pub const RESOLUTION_DELAY: Setting = Setting {
+    name: "resolver.resolution_delay",
+    description: "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+    kind: ValueKind::Duration,
+    default: fifty_milliseconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `resolver.attempt_delay` (ADR 0118; RFC 8305 section 5).
+pub const ATTEMPT_DELAY: Setting = Setting {
+    name: "resolver.attempt_delay",
+    description: "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+    kind: ValueKind::Duration,
+    default: two_hundred_fifty_milliseconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// An IP family.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum IpFamily {
+    /// IPv4.
+    Ipv4,
+    /// IPv6.
+    Ipv6,
+}
+
+/// What `address_family_unavailable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AddressFamilyUnavailableDetails {
+    /// The host name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The one family the Session holds a local address of.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub held: IpFamily,
+}
 
 /// Which resolver the engine asked for a name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -76,10 +146,14 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[NAME_NOT_RESOLVED, NAME_LOOKUP_FAILED],
+    error_codes: &[
+        NAME_NOT_RESOLVED,
+        NAME_LOOKUP_FAILED,
+        ADDRESS_FAMILY_UNAVAILABLE,
+    ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[RESOLUTION_DELAY, ATTEMPT_DELAY],
     hook_stages: &[],
     shared_type_values: &[],
 };

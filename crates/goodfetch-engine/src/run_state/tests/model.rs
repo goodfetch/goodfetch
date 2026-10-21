@@ -1,29 +1,46 @@
 //! The model-based test of run state (ADR 0060; TESTING.md, Model-based
 //! tests and crashes in one process): grouped commits, a failing write in a
 //! group, commits cut off by a crash, and process crashes and power cuts
-//! through the crash VFS, each followed by reopening the file. After every
-//! step the writer's view, and after every crash the reopened file, holds
-//! every acknowledged commit, nothing that was never written, nothing twice,
-//! and passes `PRAGMA integrity_check` (in `after_crash`). 16 cases in the
+//! through the crash VFS, each followed by reopening the file. Each case
+//! draws its layout, a run file of its own or one inside the install
+//! database, which then opens through the crash VFS itself, and its
+//! durability, `full` or `fast`. After every step the writer's view, and
+//! after every crash the reopened file, holds nothing that was never
+//! written, nothing twice, and every acknowledged commit, except those a
+//! power cut may take in `fast` mode; and the run file, and the install
+//! database in its layout, pass `PRAGMA integrity_check`. 16 cases in the
 //! Quick suite and 256 in the Pre-merge suite (`proptest_config`).
 
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use rusqlite::Connection;
+use rusqlite::OpenFlags;
 use tokio::runtime::Runtime;
 
 use super::{ITEMS, insert, items};
-use crate::run_state::{RunState, RunStateOptions};
+use crate::run_state::install::{INSTALL_FILE, InstallDatabase};
+use crate::run_state::{Durability, RunState, RunStateOptions};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// What the reference model knows: each value acknowledged, and each one
 /// whose commit a crash cut off, which may or may not have landed.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct Reference {
+    layout: Layout,
+    durability: Durability,
     next: i64,
     acknowledged: Vec<i64>,
     uncertain: Vec<i64>,
+}
+
+/// Where the run file is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Layout {
+    /// A file of its own, on the crash VFS.
+    PerRun,
+    /// Inside the install database, on the crash VFS.
+    PerInstall,
 }
 
 #[derive(Clone, Debug)]
@@ -48,7 +65,18 @@ impl ReferenceStateMachine for Reference {
     type Transition = Transition;
 
     fn init_state() -> BoxedStrategy<Self> {
-        Just(Self::default()).boxed()
+        (
+            prop_oneof![Just(Layout::PerRun), Just(Layout::PerInstall)],
+            prop_oneof![Just(Durability::Full), Just(Durability::Fast)],
+        )
+            .prop_map(|(layout, durability)| Self {
+                layout,
+                durability,
+                next: 0,
+                acknowledged: Vec::new(),
+                uncertain: Vec::new(),
+            })
+            .boxed()
     }
 
     fn transitions(_: &Self) -> BoxedStrategy<Transition> {
@@ -76,31 +104,66 @@ impl ReferenceStateMachine for Reference {
                 }
                 state.next += i64::try_from(*count).unwrap();
             }
-            Transition::CrashDuringCommit(_) => {
+            Transition::CrashDuringCommit(kind) => {
                 state.uncertain.push(state.next);
                 state.next += 1;
+                state.crash(*kind);
             }
-            Transition::Crash(_) => {}
+            Transition::Crash(kind) => state.crash(*kind),
         }
         state
     }
 }
 
-/// The run file under test: its writer, on the crash VFS.
+impl Reference {
+    /// A power cut in `fast` mode may take acknowledged commits.
+    fn crash(&mut self, kind: CrashKind) {
+        if kind == CrashKind::PowerCut && self.durability == Durability::Fast {
+            self.uncertain.append(&mut self.acknowledged);
+        }
+    }
+}
+
+/// The run file under test: its writer, on the crash VFS, directly or
+/// through the install database.
 struct Subject {
     runtime: Runtime,
-    _env: TestEnv,
+    env: TestEnv,
     vfs: CrashVfs,
+    layout: Layout,
+    durability: Durability,
     path: String,
+    install: Option<InstallDatabase>,
     owner: TaskOwner,
     state: Option<RunState>,
 }
 
 impl Subject {
+    /// The VFS the run file opens through.
+    fn run_file_vfs(&self) -> String {
+        match &self.install {
+            Some(install) => install.vfs().to_owned(),
+            None => self.vfs.name().to_owned(),
+        }
+    }
+
     fn open(&mut self) {
+        if self.layout == Layout::PerInstall {
+            self.install = Some(
+                InstallDatabase::open(
+                    &self.install_path(),
+                    &self.env.folder().join("runs"),
+                    &RunStateOptions {
+                        vfs: Some(self.vfs.name().to_owned()),
+                        ..RunStateOptions::default()
+                    },
+                )
+                .unwrap(),
+            );
+        }
         let options = RunStateOptions {
-            vfs: Some(self.vfs.name().to_owned()),
-            ..RunStateOptions::default()
+            vfs: Some(self.run_file_vfs()),
+            durability: self.durability,
         };
         let state = self
             .runtime
@@ -121,15 +184,60 @@ impl Subject {
         drop(self.state.take());
         self.runtime.block_on(self.owner.wait());
         self.owner = TaskOwner::root(BlockingPolicy::Inline);
-        let connection = after_crash(&self.vfs, &self.path).unwrap();
-        check(&items(&connection).unwrap(), reference);
+        let connection = match self.install.take() {
+            None => after_crash(&self.vfs, &self.path).unwrap(),
+            Some(crashed) => {
+                drop(crashed);
+                let database = self.install_path().to_string_lossy().into_owned();
+                drop::<Connection>(after_crash(&self.vfs, &database).unwrap());
+                let install = InstallDatabase::open(
+                    &self.install_path(),
+                    &self.env.folder().join("runs"),
+                    &RunStateOptions {
+                        vfs: Some(self.vfs.name().to_owned()),
+                        ..RunStateOptions::default()
+                    },
+                )
+                .unwrap();
+                let connection = checked(&self.path, install.vfs());
+                drop(install);
+                connection
+            }
+        };
+        // A power cut in `fast` mode may take even the commit that made the
+        // table.
+        let present = items(&connection).unwrap_or_else(|error| {
+            assert!(error.to_string().contains("no such table"), "{error}");
+            Vec::new()
+        });
+        check(&present, reference);
         drop::<Connection>(connection);
         self.open();
+    }
+
+    fn install_path(&self) -> std::path::PathBuf {
+        self.env.folder().join(INSTALL_FILE)
     }
 
     fn state(&self) -> &RunState {
         self.state.as_ref().unwrap()
     }
+}
+
+/// Opens the run file at `path` through `vfs` as the next process would,
+/// and checks it with `PRAGMA integrity_check`.
+fn checked(path: &str, vfs: &str) -> Connection {
+    let connection = Connection::open_with_flags_and_vfs(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        vfs,
+    )
+    .unwrap();
+    let integrity: String = connection
+        .pragma_query_value(None, "integrity_check", |row| row.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
+    connection
 }
 
 /// Every acknowledged value is there once, and nothing else but values a
@@ -160,7 +268,7 @@ impl StateMachineTest for Subject {
     type SystemUnderTest = Self;
     type Reference = Reference;
 
-    fn init_test(_: &Reference) -> Self {
+    fn init_test(reference: &Reference) -> Self {
         let env = TestEnv::new();
         // Each case's folder has a name of its own; the VFS takes it, since
         // every case of the test registers one in the same process.
@@ -178,14 +286,19 @@ impl StateMachineTest for Subject {
         let vfs = CrashVfs::register(&name, env.seed()).unwrap();
         let path = env
             .folder()
+            .join("runs")
+            .join("r")
             .join("run.sqlite")
             .to_string_lossy()
             .into_owned();
         let mut subject = Self {
             runtime: goodfetch_test_support::runtime(),
-            _env: env,
+            env,
             vfs,
+            layout: reference.layout,
+            durability: reference.durability,
             path,
+            install: None,
             owner: TaskOwner::root(BlockingPolicy::Inline),
             state: None,
         };
@@ -254,6 +367,7 @@ impl StateMachineTest for Subject {
     fn teardown(mut subject: Self, _: Reference) {
         drop(subject.state.take());
         subject.runtime.block_on(subject.owner.wait());
+        drop(subject.install.take());
     }
 }
 
@@ -289,7 +403,7 @@ async fn join_all<F: Future>(futures: impl Iterator<Item = F>) -> Vec<F::Output>
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:3-25, story:3-26
+    /// Covers: story:3-25, story:3-26, story:3-27, story:3-29
     #[test]
     fn run_state_keeps_every_acknowledged_commit_once_through_crashes_and_power_cuts(
         sequential 1..24 => Subject

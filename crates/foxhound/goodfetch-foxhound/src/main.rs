@@ -14,7 +14,7 @@ fn main() -> ExitCode {
     start(&Start {
         product: Product::Foxhound,
         version: env!("CARGO_PKG_VERSION"),
-        composition: goodfetch_foxhound::composition(),
+        composition: goodfetch_foxhound::composition,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

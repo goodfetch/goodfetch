@@ -3,6 +3,14 @@
 //! from the others, readable beside their writer, and the same run file
 //! comes out of it as out of a file of its own. Its crashes are in
 //! `run_state`'s model-based test.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tests list the run folders on disk themselves"
+)]
 
 use std::path::{Path, PathBuf};
 

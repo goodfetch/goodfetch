@@ -38,6 +38,7 @@ use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler}
 use crate::events::Events;
 use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
+use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, DaemonListener, TransportError};
@@ -67,6 +68,10 @@ pub struct DaemonOptions {
     /// Its Console: the listener it serves its engine's Console build on,
     /// or why it has none.
     pub console: DaemonConsole,
+    /// The install database it keeps every Run's run state in, in the
+    /// per-install layout (`run_state.layout`, ADR 0002); none in the
+    /// per-run layout.
+    pub install: Option<InstallDatabase>,
 }
 
 /// A Daemon's Console, as its starter set it up (ADR 0031).

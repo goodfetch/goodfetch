@@ -66,6 +66,7 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
             handovers: Arc::clone(handovers),
         }),
         console: DaemonConsole::Absent,
+        install: None,
     }
 }
 

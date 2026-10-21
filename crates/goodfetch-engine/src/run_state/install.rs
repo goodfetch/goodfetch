@@ -32,6 +32,7 @@ use std::path::{Component, Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::RUN_STATE;
 use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension as _, TransactionBehavior};
 use sqlite_plugin::flags::{AccessFlags, CreateMode, LockLevel, OpenMode, OpenOpts, ShmLockMode};
@@ -39,6 +40,7 @@ use sqlite_plugin::vars;
 use sqlite_plugin::vfs::{RegisterOpts, Vfs, VfsHandle, VfsResult, register_static};
 
 use super::{RunStateError, RunStateOptions, check_format, sqlite_error};
+use crate::home::{Home, RunStateLocation};
 
 /// The install database's file name, in the per-major folder.
 pub const INSTALL_FILE: &str = "run-state.sqlite";
@@ -120,6 +122,27 @@ impl InstallDatabase {
             runs: runs.to_owned(),
             install,
         })
+    }
+
+    /// Opens the install database of `home`'s major of `version`,
+    /// [`INSTALL_FILE`] in its per-major folder, serving the run folders
+    /// `location` names, through the VFS `options` name. It blocks: run it
+    /// under a blocking policy.
+    ///
+    /// # Errors
+    ///
+    /// As [`InstallDatabase::open`].
+    pub fn of(
+        home: &Home,
+        version: &ProductVersion,
+        location: &RunStateLocation,
+        options: &RunStateOptions,
+    ) -> Result<Self, RunStateError> {
+        Self::open(
+            &home.per_major(version).join(INSTALL_FILE),
+            &location.folder(home, version),
+            options,
+        )
     }
 
     /// The name of the VFS the run state opens its run files through, as
@@ -377,7 +400,7 @@ impl State {
         self.connection
             .prepare("DELETE FROM chunks WHERE name = ?1 AND number >= ?2")?
             .execute((name, to_i64(kept)))?;
-        if size % CHUNK != 0 {
+        if !size.is_multiple_of(CHUNK) {
             let number = size / CHUNK;
             let mut chunk = self.chunk(name, number)?;
             chunk[size % CHUNK..].fill(0);

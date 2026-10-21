@@ -61,6 +61,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+pub use self::import::fuzz_run_state_import;
 pub use self::reader::RunReader;
 pub use self::reindex::{Reindexed, reindex};
 pub use self::writer::{Writer, test_writer};
@@ -81,6 +82,7 @@ use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
 use crate::run_index;
+use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
 };
@@ -111,6 +113,13 @@ pub(crate) struct RunsSetup {
     pub(crate) location: RunStateLocation,
     /// How run files open.
     pub(crate) run_state: RunStateOptions,
+    /// The install database `run_state`'s VFS serves the run files from,
+    /// in the per-install layout, kept open while the registry lives.
+    #[expect(
+        dead_code,
+        reason = "held, never read: its VFS serves the run files while it is open"
+    )]
+    pub(crate) install: Option<Arc<InstallDatabase>>,
     /// The tables the composition adds to every run file.
     pub(crate) tables: Vec<RunStateTables>,
     /// The gate in admission the composition passes in, if any.
@@ -1258,11 +1267,10 @@ impl Registry {
     }
 
     fn folder(&self, run_id: &RunId) -> PathBuf {
-        let runs = match &self.setup.location {
-            RunStateLocation::PerMajor => self.setup.home.runs(&self.setup.version),
-            RunStateLocation::Folder(folder) => folder.clone(),
-        };
-        runs.join(run_id.as_str())
+        self.setup
+            .location
+            .folder(&self.setup.home, &self.setup.version)
+            .join(run_id.as_str())
     }
 
     /// The Run's folder as the Run index records it: relative to the
@@ -2253,6 +2261,7 @@ impl Closing {
 }
 
 mod folder;
+mod import;
 pub mod outcome;
 mod reader;
 mod reindex;

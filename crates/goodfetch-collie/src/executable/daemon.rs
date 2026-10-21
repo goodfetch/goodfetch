@@ -44,6 +44,7 @@ use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::{Home, major_name};
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick};
+use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
@@ -57,6 +58,7 @@ use goodfetch_protocol::daemon::{
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
+use goodfetch_protocol::run::{LAYOUT_PER_INSTALL, RUN_STATE_LAYOUT};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -70,6 +72,14 @@ mod launched;
 
 use launched::launch;
 pub(super) use launched::launched;
+
+/// Whether the machine's `settings` choose the per-install layout
+/// (`run_state.layout`), in which the Daemon alone writes run state.
+pub(super) fn per_install(settings: Option<&Resolved>) -> bool {
+    settings.is_some_and(|settings| {
+        settings.value(RUN_STATE_LAYOUT.name).as_str() == Some(LAYOUT_PER_INSTALL)
+    })
+}
 
 /// How many times a Client looks for the Daemon again when the one it
 /// found went away, or handed over, before it gives up.
@@ -477,6 +487,14 @@ impl Machine<'_> {
                 .map_err(unavailable("the Daemon's serving lock cannot be taken"))?,
         );
         Ok(Some(stopping))
+    }
+
+    /// Where the running Daemon is reached and the token its `hello`
+    /// takes, starting the pick when none runs: what an Attached engine in
+    /// the per-install layout relays its Client to (ADR 0002).
+    pub(super) fn reach_for_relay(&self) -> Result<(DaemonEndpoint, String), Failure> {
+        let (found, _) = self.running_or_started(false)?;
+        Ok((found.endpoint, found.token))
     }
 
     /// Starts the Daemon unless it runs, and answers its status.

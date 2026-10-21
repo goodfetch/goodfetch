@@ -343,7 +343,7 @@
     {
       "id": "error:file_write_failed",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -354,7 +354,7 @@
     {
       "id": "error:format_version_unsupported",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -548,7 +548,7 @@
     {
       "id": "error:session_bound_to_machine",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2833,7 +2833,7 @@
     {
       "id": "setting:checkpoint.interval",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

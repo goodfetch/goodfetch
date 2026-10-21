@@ -49,9 +49,12 @@ CREATE TABLE run (
         started_at TEXT NOT NULL,
         ended_at TEXT,
         policy_version TEXT,
-        weakened_by TEXT NOT NULL DEFAULT '[]'
+        weakened_by TEXT NOT NULL DEFAULT '[]',
+        journal_position INTEGER NOT NULL DEFAULT 0,
+        binding TEXT,
+        clean_up_digest TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]');
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',13,NULL,NULL);
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
 CREATE TABLE work_items (

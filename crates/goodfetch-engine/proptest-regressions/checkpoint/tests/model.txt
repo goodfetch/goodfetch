@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1a025c56717826ffdddc85eb1b8c692c23e75467fd27f7aa195ea51ccd12d5c2 # shrinks to (initial_state, transitions, seen_counter) = (Reference { next: 0, acknowledged: [], uncertain: [], epoch: 1, checkpoints: [] }, [Checkpoint, ResumeFrom(0), ResumeFrom(0)], None)
+cc aa2214db0585f6250b887d960fabd84609d4d37621835c6abee16d192cf78cd8 # shrinks to (initial_state, transitions, seen_counter) = (Reference { next: 0, acknowledged: [], uncertain: [], epoch: 1, checkpoints: [] }, [Checkpoint, Commit { count: 1 }, ResumeFrom(0)], None)

@@ -120,6 +120,10 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("run.start", Offer::Command),
             ("run.finish", Offer::Command),
             ("run.abort", Offer::Command),
+            ("run.checkpoint", Offer::Command),
+            ("run.pause", Offer::Command),
+            ("run.migrate", Offer::Command),
+            ("run.resume", Offer::Command),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),
         ]

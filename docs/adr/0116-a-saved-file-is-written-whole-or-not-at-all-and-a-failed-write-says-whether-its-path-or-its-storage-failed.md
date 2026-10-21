@@ -64,6 +64,7 @@ ADR 0079 gives each code exactly one group, named for its remedy, and one retrya
     - For `file_write_failed` on the program's side: `storage_full`, `quota_exceeded` or `other`. On the engine's side, any of them.
     - A reason the SDK does not know is kept as a string (ADR 0079).
   - `osCode`: the OS's own name for the error, such as `ENOSPC`, `EACCES` or `ERROR_DISK_FULL`, or `null`.
+    > Note (agent decision, pending owner review), 2026-10-21, [#218](https://github.com/goodfetch/goodfetch/issues/218): a Checkpoint's write fails through the OS (`osCode` from its error number) when its file cannot be created, synced or renamed, and through SQLite when its bytes cannot be written; SQLite gives its own code, `SQLITE_FULL` read as `storage_full`, `SQLITE_READONLY` as `read_only_filesystem`, and no OS error name, so `osCode` is then `null`. `file_write_failed` has no exit code yet: no CLI command writes a Checkpoint.
   - `path`:
     - on the program's side, the program's path as given;
     - on the engine's side, the folder where the engine keeps the Run, as `run_state_unavailable` gives it, or `null` where the engine has no folder of its own (Goodfetch Cloud).

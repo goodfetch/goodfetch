@@ -20,6 +20,7 @@ use goodfetch_engine::lease::LeaseCheck as _;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, Seed};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
@@ -302,6 +303,9 @@ impl StateMachineTest for Subject {
                 label: "page".to_owned(),
                 payload: None,
                 priority: 0,
+                method: HttpMethod::get(),
+                body: None,
+                key: None,
             })
             .collect();
         let (state, leases) = runtime.block_on(async {
@@ -310,7 +314,7 @@ impl StateMachineTest for Subject {
                 &RunStateOptions {
                     vfs: Some(vfs.name().to_owned()),
                 },
-                vec![work_items::TABLES],
+                vec![work_items::TABLES, goodfetch_frontier::VISITED_TABLES],
                 1,
                 &owner,
             )

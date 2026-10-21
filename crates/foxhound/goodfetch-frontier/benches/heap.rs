@@ -5,6 +5,7 @@ mod scenarios;
 
 use std::hint::black_box;
 
+use goodfetch_frontier::Url;
 use gungraun::Tool;
 use gungraun::prelude::*;
 
@@ -16,7 +17,21 @@ fn admit(requests: Vec<(String, i64)>) -> (usize, usize) {
 
 library_benchmark_group!(name = admission, benchmarks = admit);
 
+#[library_benchmark]
+#[bench::a_thousand_shop_links(scenarios::parsed(&scenarios::links(1_000)))]
+fn url_key(links: Vec<Url>) -> usize {
+    black_box(scenarios::key_all(black_box(&links)))
+}
+
+#[library_benchmark]
+#[bench::a_thousand_shop_links(scenarios::links(1_000))]
+fn admit_seeds(links: Vec<String>) -> usize {
+    black_box(scenarios::admit_seeds(black_box(&links)))
+}
+
+library_benchmark_group!(name = identity, benchmarks = [url_key, admit_seeds]);
+
 main!(
     config = LibraryBenchmarkConfig::default().default_tool(Tool::DHAT),
-    library_benchmark_groups = admission
+    library_benchmark_groups = [admission, identity]
 );

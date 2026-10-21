@@ -1,8 +1,11 @@
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use proptest::prelude::*;
 use rstest::rstest;
+use rusqlite::Connection;
 use url::Url;
 
-use super::url_key;
+use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, url_key};
+use crate::admit::{Candidate, admit};
 
 fn key(text: &str) -> String {
     url_key(&Url::parse(text).unwrap())
@@ -100,6 +103,86 @@ proptest! {
             prop_assert_eq!(url_key(&Url::parse(&key).unwrap()), key);
         }
     }
+}
+
+/// A redirect reaching a key admitted for another request leads to a
+/// duplicate, one back to the request's own key or to a key no request
+/// holds is followed, and a redirect's final URL joins the visited set, so
+/// a later enqueue of it, or another redirect to it, is a duplicate.
+///
+/// Covers: story:6-220
+#[test]
+fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute(statement, []).unwrap();
+    }
+    let get = HttpMethod::get();
+    let mut added = 0;
+    let mut seed = |url: &str| {
+        admit(
+            &connection,
+            Candidate::Seed {
+                url,
+                declared: Declared {
+                    method: &get,
+                    body: None,
+                    key: None,
+                },
+            },
+            |_| {
+                added += 1;
+                Ok(added.to_string())
+            },
+        )
+        .unwrap()
+    };
+    seed("http://shop.test/a");
+    seed("http://shop.test/b");
+    let hop = |crawl_request: &str, url: &str| {
+        redirect_hop(
+            &connection,
+            crawl_request,
+            &Url::parse(url).unwrap(),
+            &get,
+            None,
+        )
+        .unwrap()
+    };
+
+    let before = [
+        hop("1", "http://shop.test/b?utm_source=mail"),
+        hop("1", "http://shop.test/a?utm_source=mail#top"),
+        hop("1", "http://shop.test/c"),
+    ];
+    redirect_reached(
+        &connection,
+        "1",
+        &Url::parse("http://shop.test/c").unwrap(),
+        &get,
+        None,
+    )
+    .unwrap();
+    let after = (
+        hop("2", "http://shop.test/c#top"),
+        hop("1", "http://shop.test/c"),
+        seed("http://shop.test/c?gclid=1"),
+    );
+
+    assert_eq!(
+        (before, after),
+        (
+            [Hop::Duplicate, Hop::Follow, Hop::Follow],
+            (
+                Hop::Duplicate,
+                Hop::Follow,
+                Enqueued::NotAdded {
+                    reason: NotAddedReason::Duplicate,
+                    url: "http://shop.test/c?gclid=1".to_owned()
+                }
+            )
+        )
+    );
 }
 
 mod url_key_target {

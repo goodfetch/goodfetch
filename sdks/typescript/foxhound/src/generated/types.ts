@@ -11,6 +11,13 @@ import type { PointInTime, ProjectSettings, RunId, SampleEchoParams, Tags } from
 export type BlockCause =
   "challenge" | "captcha" | "rate_limit" | "ip_block" | "decoy" | "payment_required" | "consent_required";
 /**
+ * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HttpBody".
+ */
+export type HttpBody = string;
+/**
  * How one crawl request ended (ADRs 0079 and 0102). A request that
  * `run.retry_failed` re-admits ends again, and its later outcome
  * supersedes this one: a reader keys outcomes by `request.id`.
@@ -138,6 +145,13 @@ export type Enqueued =
       url: string;
     };
 /**
+ * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HttpMethod".
+ */
+export type HttpMethod = string;
+/**
  * Why the Frontier did not add a request (ADRs 0093 and 0120).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -237,6 +251,10 @@ export interface AttemptError {
  */
 export interface CrawlRequestEnqueueParams {
   /**
+   * The body it is sent with, if any.
+   */
+  body?: HttpBody | null;
+  /**
    * The ID of the crawl request whose attempt enqueues.
    */
   crawl_request_id: string;
@@ -246,6 +264,12 @@ export interface CrawlRequestEnqueueParams {
    */
   document?: EnqueueDocument | null;
   /**
+   * Its identity in the Frontier, declared by the program in place of
+   * its method, its URL's key and its body's hash: a canonicalization
+   * of the program's own, which always wins (ADR 0005).
+   */
+  key?: string | null;
+  /**
    * Its Label.
    */
   label: string;
@@ -253,6 +277,10 @@ export interface CrawlRequestEnqueueParams {
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
   lease_epoch: number;
+  /**
+   * The method it is sent with: `GET` by default.
+   */
+  method?: string;
   /**
    * The data the program attaches for its handler.
    */
@@ -402,16 +430,30 @@ export interface CrawlStartParams {
 }
 /**
  * One request a crawl starts from (ADR 0093): a URL, the Label that picks
- * its handler and its Payload.
+ * its handler and its Payload, and how it is sent and identified.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "Seed".
  */
 export interface Seed {
   /**
+   * The body it is sent with, if any.
+   */
+  body?: HttpBody | null;
+  /**
+   * Its identity in the Frontier, declared by the program in place of
+   * its method, its URL's key and its body's hash: a canonicalization
+   * of the program's own, which always wins (ADR 0005).
+   */
+  key?: string | null;
+  /**
    * Its Label.
    */
   label: string;
+  /**
+   * The method it is sent with: `GET` by default.
+   */
+  method?: string;
   /**
    * The data the program attaches for its handler.
    */

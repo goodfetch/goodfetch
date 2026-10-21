@@ -2,8 +2,149 @@
 //! URL's key and its body's hash, or the `key` the program declared, which
 //! replaces them. The key is made from the URL as parsed by the fixed rules
 //! RFC 3986 calls safe, while the request is still fetched at its own URL.
+//! The Frontier's visited set keeps each identity it admitted, with the
+//! crawl request it was admitted for, in the run file, so its duplicate
+//! check holds nothing in memory (STYLE.md); a redirect that reaches an
+//! identity admitted for another request ends that request `skipped` with
+//! `duplicate`, and a redirect's final URL joins the set under its key.
 
+use data_encoding::HEXLOWER;
+use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use rusqlite::{Connection, OptionalExtension as _};
+use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
+
+/// The Frontier's visited set: each identity admitted, with the ID of the
+/// crawl request it was admitted for, or that reached it by a redirect.
+pub const TABLES: RunStateTables = RunStateTables {
+    name: "goodfetch-frontier-visited",
+    statements: &["CREATE TABLE IF NOT EXISTS visited (
+            identity TEXT NOT NULL PRIMARY KEY,
+            crawl_request TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID"],
+};
+
+/// How a crawl request is sent beside its URL, and the key a program may
+/// declare in place of its identity.
+#[derive(Clone, Copy, Debug)]
+pub struct Declared<'a> {
+    /// The method it is sent with.
+    pub method: &'a HttpMethod,
+    /// The body it is sent with, if any.
+    pub body: Option<&'a [u8]>,
+    /// The identity the program declared, if any, which replaces its
+    /// method, its URL's key and its body's hash.
+    pub key: Option<&'a str>,
+}
+
+/// Where a redirect hop leads a crawl request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hop {
+    /// It is followed: its key is the request's own, or no other request's.
+    Follow,
+    /// Its key was admitted for another request: the request ends
+    /// `skipped` with `duplicate`, and its handler does not run.
+    Duplicate,
+}
+
+/// The identity of a request to `url` declared so: the declared key, kept
+/// apart from every identity the Frontier makes (no method has a `:`), or
+/// its method, its URL's key and, for a body that is not empty, its
+/// SHA-256 in hexadecimal, separated by spaces, which neither a method nor
+/// a serialized URL holds.
+pub(crate) fn identity(url: &Url, declared: Declared<'_>) -> String {
+    if let Some(key) = declared.key {
+        return format!("key:{key}");
+    }
+    let mut identity = format!("{} {}", declared.method, url_key(url));
+    if let Some(body) = declared.body.filter(|body| !body.is_empty()) {
+        identity.push(' ');
+        identity.push_str(&HEXLOWER.encode(&Sha256::digest(body)));
+    }
+    identity
+}
+
+/// The crawl request `identity` was admitted for, or reached by a
+/// redirect; `None` while the visited set lacks it.
+pub(crate) fn visitor(connection: &Connection, identity: &str) -> rusqlite::Result<Option<String>> {
+    connection
+        .query_row(
+            "SELECT crawl_request FROM visited WHERE identity = ?1",
+            [identity],
+            |row| row.get(0),
+        )
+        .optional()
+}
+
+/// Adds `identity` to the visited set for `crawl_request`, unless it is
+/// there already.
+pub(crate) fn visit(
+    connection: &Connection,
+    identity: &str,
+    crawl_request: &str,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT INTO visited (identity, crawl_request) VALUES (?1, ?2)
+         ON CONFLICT (identity) DO NOTHING",
+        (identity, crawl_request),
+    )?;
+    Ok(())
+}
+
+/// Where a redirect hop of the crawl request `crawl_request` to `url`,
+/// sent with `method` and `body`, leads it (ADR 0120): `Duplicate` when
+/// that identity was admitted for another request, else `Follow`, a hop
+/// back to the request's own identity included.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn redirect_hop(
+    connection: &Connection,
+    crawl_request: &str,
+    url: &Url,
+    method: &HttpMethod,
+    body: Option<&[u8]>,
+) -> rusqlite::Result<Hop> {
+    let hop = identity(
+        url,
+        Declared {
+            method,
+            body,
+            key: None,
+        },
+    );
+    Ok(match visitor(connection, &hop)? {
+        Some(visitor) if visitor != crawl_request => Hop::Duplicate,
+        _ => Hop::Follow,
+    })
+}
+
+/// Records the final URL `url` a redirect led the crawl request
+/// `crawl_request` to, sent with `method` and `body`, under its key as
+/// visited, so a later enqueue of it is a `duplicate` (ADR 0120).
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub fn redirect_reached(
+    connection: &Connection,
+    crawl_request: &str,
+    url: &Url,
+    method: &HttpMethod,
+    body: Option<&[u8]>,
+) -> rusqlite::Result<()> {
+    let reached = identity(
+        url,
+        Declared {
+            method,
+            body,
+            key: None,
+        },
+    );
+    visit(connection, &reached, crawl_request)
+}
 
 /// The query parameters a key drops by name: `Crawl4AI`'s click IDs.
 const TRACKING: [&str; 2] = ["gclid", "fbclid"];

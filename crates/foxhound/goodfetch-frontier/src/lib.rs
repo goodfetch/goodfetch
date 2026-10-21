@@ -19,9 +19,11 @@ use std::sync::Arc;
 
 use goodfetch_engine::Contribution;
 
-pub use admit::{Candidate, Identified, admit};
+pub use admit::{Candidate, admit};
 pub use domain_key::DomainKeys;
-pub use identity::{fuzz_url_key, url_key};
+pub use identity::{
+    Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
+};
 pub use queues::DomainQueues;
 pub use url::document_base;
 
@@ -36,5 +38,6 @@ pub fn contribution() -> Contribution {
         .with_handler(seeds::handler())
         .with_run_state_tables(queues::TABLES)
         .with_run_state_tables(seeds::TABLES)
+        .with_run_state_tables(identity::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))
 }

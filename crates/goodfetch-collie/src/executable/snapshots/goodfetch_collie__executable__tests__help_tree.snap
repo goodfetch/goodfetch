@@ -1,0 +1,296 @@
+---
+source: crates/goodfetch-collie/src/executable/tests.rs
+expression: tree
+---
+$ goodfetch-collie --help
+Collie, Goodfetch's Product for browser automation.
+
+Usage: goodfetch-collie <COMMAND>
+
+Commands:
+  browsers  Manages the browser builds this version pins in the Browser cache
+  config    Shows the settings and where each value comes from
+  daemon    Starts, stops and shows the Daemon of this executable's major, which both Products share
+  runs      Works on the runs of this executable's major, of both Products
+  engine    Calls the catalog's `engine` operations
+  run       Calls the catalog's `run` operations
+  sample    Calls the catalog's `sample` operations
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie attached-engine --help
+Runs as an Attached engine over stdio, which stops at the end of its input: what an SDK starts
+
+Usage: goodfetch-collie attached-engine
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie browsers --help
+Manages the browser builds this version pins in the Browser cache
+
+Usage: goodfetch-collie browsers <COMMAND>
+
+Commands:
+  install  Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+  clean    Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie browsers install --help
+Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+
+Usage: goodfetch-collie browsers install [OPTIONS]
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie browsers clean --help
+Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
+
+Usage: goodfetch-collie browsers clean [OPTIONS]
+
+Options:
+      --dry-run  Lists what it would delete, and deletes nothing
+      --json     Prints the result as JSON
+  -h, --help     Print help
+
+$ goodfetch-collie config --help
+Shows the settings and where each value comes from
+
+Usage: goodfetch-collie config <COMMAND>
+
+Commands:
+  explain  Shows each effective setting, the layer that set it and the layer that locked it: the built-in default, the Operator policy, user configuration, the project configuration or these flags
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie config explain --help
+Shows each effective setting, the layer that set it and the layer that locked it: the built-in default, the Operator policy, user configuration, the project configuration or these flags
+
+Usage: goodfetch-collie config explain [OPTIONS] [KEYS]...
+
+Arguments:
+  [KEYS]...  Keys, or prefixes of keys such as `timeout`, to show; every key when none
+
+Options:
+      --set <KEY=VALUE>    Sets a run value, as `key=value`; repeatable
+      --project <PROJECT>  Reads this project configuration instead of the `goodfetch.toml` found from the working folder upward
+      --json               Prints the result as JSON
+      --daemon             Asks the Daemon of the major, starting it if none runs, instead of resolving in this process
+  -h, --help               Print help
+
+$ goodfetch-collie daemon --help
+Starts, stops and shows the Daemon of this executable's major, which both Products share
+
+Usage: goodfetch-collie daemon <COMMAND>
+
+Commands:
+  start         Starts the Daemon, the major's pick, unless one runs
+  stop          Stops the Daemon; its live Runs stop with it
+  restart       Stops the Daemon, then starts the major's pick
+  status        Shows whether the Daemon runs, as which Product, and its Clients
+  install       Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
+  uninstall     Removes the major's per-user service, stopping its Daemon
+  rotate-token  Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie daemon start --help
+Starts the Daemon, the major's pick, unless one runs
+
+Usage: goodfetch-collie daemon start [OPTIONS]
+
+Options:
+      --keep-alive  Never stops it after `daemon.idle_timeout` with no Client
+      --json        Prints the result as JSON
+  -h, --help        Print help
+
+$ goodfetch-collie daemon stop --help
+Stops the Daemon; its live Runs stop with it
+
+Usage: goodfetch-collie daemon stop [OPTIONS]
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie daemon restart --help
+Stops the Daemon, then starts the major's pick
+
+Usage: goodfetch-collie daemon restart [OPTIONS]
+
+Options:
+      --keep-alive  Never stops it after `daemon.idle_timeout` with no Client
+      --json        Prints the result as JSON
+  -h, --help        Print help
+
+$ goodfetch-collie daemon status --help
+Shows whether the Daemon runs, as which Product, and its Clients
+
+Usage: goodfetch-collie daemon status [OPTIONS]
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie daemon install --help
+Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
+
+Usage: goodfetch-collie daemon install [OPTIONS]
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie daemon uninstall --help
+Removes the major's per-user service, stopping its Daemon
+
+Usage: goodfetch-collie daemon uninstall [OPTIONS]
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie daemon rotate-token --help
+Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
+
+Usage: goodfetch-collie daemon rotate-token [OPTIONS]
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie daemon launched --help
+Runs as the Daemon a start or the installed service launched, from a versioned copy
+
+Usage: goodfetch-collie daemon launched [OPTIONS]
+
+Options:
+      --copy <COPY>               The build of the versioned copy it runs from
+      --keep-alive                Never stops it after `daemon.idle_timeout` with no Client
+      --service                   Started by the major's service: starts the pick in its place when it is not the pick, and takes the socket its service manager hands over
+      --environment <NAME=VALUE>  A deployment variable the service passes, as `NAME=VALUE`; repeatable
+  -h, --help                      Print help
+
+$ goodfetch-collie runs --help
+Works on the runs of this executable's major, of both Products
+
+Usage: goodfetch-collie runs <COMMAND>
+
+Commands:
+  reindex  Rebuilds the Run index from the run folders: the configured locations and the given paths. A run it does not find stays listed as missing; a run discarded on purpose stays erased
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie runs reindex --help
+Rebuilds the Run index from the run folders: the configured locations and the given paths. A run it does not find stays listed as missing; a run discarded on purpose stays erased
+
+Usage: goodfetch-collie runs reindex [OPTIONS] [PATHS]...
+
+Arguments:
+  [PATHS]...  Run folders, or folders of run folders, to look in as well
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie engine --help
+Calls the catalog's `engine` operations
+
+Usage: goodfetch-collie engine <COMMAND>
+
+Commands:
+  info  Says which Product the engine runs as, its Product version and major, and the protocol version it speaks
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie engine info --help
+Says which Product the engine runs as, its Product version and major, and the protocol version it speaks
+
+Usage: goodfetch-collie engine info [OPTIONS]
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie run --help
+Calls the catalog's `run` operations
+
+Usage: goodfetch-collie run <COMMAND>
+
+Commands:
+  start   Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+  finish  Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
+  abort   Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie run start --help
+Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+
+Usage: goodfetch-collie run start [OPTIONS]
+
+Options:
+      --project <PROJECT>    The project configuration the Client found, layer 3 (ADR 0083)
+      --run-id <RUN_ID>      The Run's ID; the engine generates a lowercase ULID when it is absent. An existing ID returns that Run when the caller and the inputs match, and fails with `run_conflict` otherwise
+      --settings <SETTINGS>  The Run's settings, nested by key: the run layer (ADR 0083)
+      --tags <TAGS>          The Run's opaque tags
+      --json                 Prints the result as JSON
+  -h, --help                 Print help
+
+$ goodfetch-collie run finish --help
+Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
+
+Usage: goodfetch-collie run finish [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --json  Prints the result as JSON
+  -h, --help  Print help
+
+$ goodfetch-collie run abort --help
+Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+
+Usage: goodfetch-collie run abort [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --forwarded  Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
+      --json       Prints the result as JSON
+  -h, --help       Print help
+
+$ goodfetch-collie sample --help
+Calls the catalog's `sample` operations
+
+Usage: goodfetch-collie sample <COMMAND>
+
+Commands:
+  echo  Repeats a text back to the caller
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie sample echo --help
+Repeats a text back to the caller
+
+Usage: goodfetch-collie sample echo [OPTIONS] --text <TEXT>
+
+Options:
+      --text <TEXT>  The text to repeat
+      --json         Prints the result as JSON
+  -h, --help         Print help
+
+Deprecated since 0.1: A sample entry, which the real catalog replaces.

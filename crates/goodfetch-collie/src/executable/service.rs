@@ -31,7 +31,7 @@ use goodfetch_protocol::daemon::{
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
 use super::daemon::{Failure, Machine};
-use super::output;
+use goodfetch_cli::output;
 
 fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |error| Failure::Unavailable(format!("{what}: {error}"))

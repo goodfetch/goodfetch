@@ -5,7 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, Operation, OperationClass, Product, ProtocolVersion, Stability, schema_of,
+    Entries, Operation, OperationClass, OperationKind, Product, ProtocolVersion, Stability,
+    schema_of,
 };
 use crate::connection::ProductVersion;
 
@@ -38,6 +39,7 @@ pub const ENGINE_INFO: Operation = Operation {
     name: "engine.info",
     description: "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
     class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<EngineInfoParams>,
     result: schema_of::<EngineInfo>,
     events: &[],

@@ -1,8 +1,10 @@
 //! A Run's pages (ADRs 0085, 0092 and 0099): `run.new_page` opens a page in
 //! the Run's default Session, which the first call opens and every later
 //! one shares, and `page.goto` takes a page to a URL and answers the
-//! document's `Response`; and the Error codes a page's browser and its
-//! navigations fail with.
+//! document's `Response`; `locator.click`, `locator.fill` and
+//! `locator.press` act on the one element a locator matches, through the
+//! guard (ADR 0019); and the Error codes a page's browser, its navigations
+//! and its locators fail with.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -22,6 +24,7 @@ use crate::catalog::{
 };
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
+use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -270,6 +273,151 @@ pub const BROWSER_LAUNCH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A locator (ADR 0085): what an action looks for on a page, resolved
+/// again at each use, never a handle on an element. This tracer's locators
+/// are CSS selectors.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Locator {
+    /// The page it looks on.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub page_id: PageId,
+    /// A CSS selector, which also matches inside open shadow roots.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub selector: String,
+}
+
+/// What `locator.click` takes: the locator whose element it clicks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClickParams {
+    /// The locator.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: Locator,
+}
+
+/// What `locator.fill` takes: the locator whose field it fills, and the
+/// text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FillParams {
+    /// The locator.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: Locator,
+    /// The text the field holds afterwards; an empty text clears it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: String,
+}
+
+/// What `locator.press` takes: the locator whose element gets the key, and
+/// the key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PressParams {
+    /// The locator.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: Locator,
+    /// A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+    /// Playwright's key names.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+}
+
+/// What a locator action answers once its input landed on its target:
+/// nothing, since no operation returns a handle on an element (ADR 0085).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Acted {}
+
+/// One element an ambiguous locator matched.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TargetMatch {
+    /// The element as its opening tag and the start of its text, such as
+    /// `<button id="target">Target</button>`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub element: String,
+    /// A locator that reaches it alone, in the caller's language (ADR
+    /// 0079), such as `page.locator('#target').nth(1)`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: String,
+}
+
+/// What `target_not_unique` details.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TargetNotUniqueDetails {
+    /// The locator, in the caller's language.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub target: String,
+    /// Every element it matched at the last observation.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub matches: Vec<TargetMatch>,
+    /// The timeout's setting, its value in milliseconds and the layer that
+    /// set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: SettingLimit,
+    /// How long the action waited, in milliseconds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub elapsed: u64,
+}
+
+/// A locator still matching several elements when its action's deadline
+/// passed (ADRs 0080 and 0085).
+pub const TARGET_NOT_UNIQUE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "target_not_unique",
+    description: "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `locator.click`.
+pub const LOCATOR_CLICK: Operation = Operation {
+    name: "locator.click",
+    description: "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<ClickParams>,
+    result: schema_of::<Acted>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `locator.fill`.
+pub const LOCATOR_FILL: Operation = Operation {
+    name: "locator.fill",
+    description: "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<FillParams>,
+    result: schema_of::<Acted>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `locator.press`.
+pub const LOCATOR_PRESS: Operation = Operation {
+    name: "locator.press",
+    description: "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<PressParams>,
+    result: schema_of::<Acted>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `run.new_page`.
 pub const RUN_NEW_PAGE: Operation = Operation {
     name: "run.new_page",
@@ -305,7 +453,14 @@ pub const PAGE_GOTO: Operation = Operation {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_NEW_PAGE, PAGE_GOTO, PAGE_BODY],
+    operations: &[
+        RUN_NEW_PAGE,
+        PAGE_GOTO,
+        PAGE_BODY,
+        LOCATOR_CLICK,
+        LOCATOR_FILL,
+        LOCATOR_PRESS,
+    ],
     events: &[],
     handler_requests: &[],
     error_codes: &[
@@ -313,6 +468,7 @@ pub const ENTRIES: Entries = Entries {
         NAVIGATION_FAILED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
+        TARGET_NOT_UNIQUE,
     ],
     plugin_kinds: &[],
     metrics: &[],

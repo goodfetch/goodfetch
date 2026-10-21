@@ -9,6 +9,7 @@
 
 mod driver;
 mod errors;
+mod guard;
 mod launch;
 mod pages;
 mod trace;

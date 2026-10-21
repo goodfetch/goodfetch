@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
 use goodfetch_protocol::connection::Surface;
@@ -149,12 +149,13 @@ pub struct CallContext {
 }
 
 /// What every call of one Connection is given: the engine's identity, the
-/// Connection's Client, the engine's Runs and event stream, and on a
-/// Daemon the Daemon itself. The protocol server builds it once per
-/// Connection.
+/// Connection's Client and the surface its `hello` named, the engine's
+/// Runs and event stream, and on a Daemon the Daemon itself. The protocol
+/// server builds it once per Connection and sets the surface at `hello`.
 pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
+    pub(crate) surface: OnceLock<Surface>,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
@@ -224,6 +225,17 @@ impl CallContext {
     /// call sends its handler requests.
     pub fn client(&self) -> &Client {
         &self.connection.client
+    }
+
+    /// The surface the Connection's `hello` named, in whose language the
+    /// engine renders the names and targets its errors show (ADRs 0079 and
+    /// 0099).
+    pub fn surface(&self) -> Surface {
+        self.connection
+            .surface
+            .get()
+            .copied()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }
 
     /// The engine's Runs.

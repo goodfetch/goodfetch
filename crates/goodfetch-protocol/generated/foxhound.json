@@ -1,5 +1,9 @@
 {
   "$defs": {
+    "Acted": {
+      "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
+      "type": "object"
+    },
     "ArtifactId": {
       "description": "Which Pinned artifact: its kind, its name and its build.",
       "properties": {
@@ -128,6 +132,21 @@
           "type": "string"
         }
       ]
+    },
+    "ClickParams": {
+      "additionalProperties": false,
+      "description": "What `locator.click` takes: the locator whose element it clicks.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator"
+      ],
+      "type": "object"
     },
     "Completeness": {
       "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
@@ -923,6 +942,27 @@
       ],
       "type": "object"
     },
+    "FillParams": {
+      "additionalProperties": false,
+      "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The text the field holds afterwards; an empty text clears it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator",
+        "value"
+      ],
+      "type": "object"
+    },
     "GotoParams": {
       "additionalProperties": false,
       "description": "What `page.goto` takes: the page, and the URL it goes to.",
@@ -983,6 +1023,27 @@
           "type": "string"
         }
       ]
+    },
+    "Locator": {
+      "additionalProperties": false,
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page it looks on."
+        },
+        "selector": {
+          "arrived_in": "0.1",
+          "description": "A CSS selector, which also matches inside open shadow roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "selector"
+      ],
+      "type": "object"
     },
     "Navigated": {
       "description": "What `page.goto` answers: the document's response, or none for a\nnavigation within the same document or to a URL no server answers, such\nas `about:blank`. A 404 or a 500 is a response, a value.",
@@ -1225,6 +1286,27 @@
       "description": "An event's position among every event of one engine, which only goes up.",
       "minimum": 0,
       "type": "integer"
+    },
+    "PressParams": {
+      "additionalProperties": false,
+      "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by\nPlaywright's key names.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator",
+        "key"
+      ],
+      "type": "object"
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -2480,6 +2562,16 @@
       "name": "setting_unknown",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "target_not_unique",
+      "product": "collie",
+      "retryable": false
     }
   ],
   "error_groups": [
@@ -2772,6 +2864,63 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.click",
+      "params": {
+        "$ref": "#/$defs/ClickParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.fill",
+      "params": {
+        "$ref": "#/$defs/FillParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.press",
+      "params": {
+        "$ref": "#/$defs/PressParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
       },
       "stability": "experimental"
     },
@@ -3465,6 +3614,25 @@
       ],
       "value": {
         "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+      "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },

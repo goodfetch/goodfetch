@@ -338,6 +338,17 @@ number = 5
 kind = "error"
 prefix = "browser_launch_failed"
 
+# The guard's locator actions and their refusal (#700).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "locator."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "target_not_unique"
+
 [[area]]
 number = 6
 kind = "setting"
@@ -444,6 +455,11 @@ prefix = "events."
 number = 11
 kind = "command"
 prefix = "page."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "locator."
 
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).

@@ -21,6 +21,7 @@ mod invalid_calls;
 mod journeys;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+mod locator;
 mod log;
 mod page;
 mod parent_death;

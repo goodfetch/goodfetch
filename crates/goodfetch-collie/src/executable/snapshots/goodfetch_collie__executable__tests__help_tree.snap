@@ -16,6 +16,7 @@ Commands:
   events    Calls the catalog's `events` operations
   run       Calls the catalog's `run` operations
   page      Calls the catalog's `page` operations
+  locator   Calls the catalog's `locator` operations
   sample    Calls the catalog's `sample` operations
 
 Options:
@@ -377,6 +378,55 @@ Options:
       --json             Prints what the call sends as one JSON object per line
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
+
+$ goodfetch-collie locator --help
+Calls the catalog's `locator` operations
+
+Usage: goodfetch-collie locator [OPTIONS] <COMMAND>
+
+Commands:
+  click  Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes
+  fill   Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes
+  press  Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie locator click --help
+Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes
+
+Usage: goodfetch-collie locator click [OPTIONS] --locator <LOCATOR>
+
+Options:
+      --locator <LOCATOR>  The locator
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie locator fill --help
+Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes
+
+Usage: goodfetch-collie locator fill [OPTIONS] --locator <LOCATOR> --value <VALUE>
+
+Options:
+      --locator <LOCATOR>  The locator
+      --value <VALUE>      The text the field holds afterwards; an empty text clears it
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie locator press --help
+Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes
+
+Usage: goodfetch-collie locator press [OPTIONS] --key <KEY> --locator <LOCATOR>
+
+Options:
+      --key <KEY>          A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by Playwright's key names
+      --locator <LOCATOR>  The locator
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
 
 $ goodfetch-collie sample --help
 Calls the catalog's `sample` operations

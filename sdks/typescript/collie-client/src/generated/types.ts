@@ -211,6 +211,14 @@ export interface CollieTypes {
   [k: string]: unknown;
 }
 /**
+ * What a locator action answers once its input landed on its target:
+ * nothing, since no operation returns a handle on an element (ADR 0085).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Acted".
+ */
+export interface Acted {}
+/**
  * Which Pinned artifact: its kind, its name and its build.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -261,6 +269,28 @@ export interface Chunk {
    * Where its bytes start in the body.
    */
   offset: number;
+}
+/**
+ * What `locator.click` takes: the locator whose element it clicks.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ClickParams".
+ */
+export interface ClickParams {
+  locator: Locator;
+}
+/**
+ * The locator.
+ */
+export interface Locator {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
 }
 /**
  * What `config.explain` takes.
@@ -623,6 +653,33 @@ export interface ExplainedSetting {
   weakens: boolean;
 }
 /**
+ * What `locator.fill` takes: the locator whose field it fills, and the
+ * text.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FillParams".
+ */
+export interface FillParams {
+  locator: Locator1;
+  /**
+   * The text the field holds afterwards; an empty text clears it.
+   */
+  value: string;
+}
+/**
+ * The locator.
+ */
+export interface Locator1 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
  * What `page.goto` takes: the page, and the URL it goes to.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -720,6 +777,24 @@ export interface PrivateEndpoint {
   token_file: string;
 }
 /**
+ * A locator (ADR 0085): what an action looks for on a page, resolved
+ * again at each use, never a handle on an element. This tracer's locators
+ * are CSS selectors.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Locator".
+ */
+export interface Locator2 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
  * What `page.goto` answers: the document's response, or none for a
  * navigation within the same document or to a URL no server answers, such
  * as `about:blank`. A 404 or a 500 is a response, a value.
@@ -815,6 +890,34 @@ export interface PageOpened {
    * Its Session: the Run's default Session.
    */
   session_id: string;
+}
+/**
+ * What `locator.press` takes: the locator whose element gets the key, and
+ * the key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PressParams".
+ */
+export interface PressParams {
+  /**
+   * A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+   * Playwright's key names.
+   */
+  key: string;
+  locator: Locator3;
+}
+/**
+ * The locator.
+ */
+export interface Locator3 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream

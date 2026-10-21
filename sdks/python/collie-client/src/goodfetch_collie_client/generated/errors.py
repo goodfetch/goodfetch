@@ -314,6 +314,14 @@ class SettingUnknownError(ProgramError):
         super().__init__(message, code="setting_unknown", group="program", retryable=False)
 
 
+class TargetNotUniqueError(PageError):
+    """The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="target_not_unique", group="page", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
@@ -347,5 +355,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
+    "target_not_unique": TargetNotUniqueError,
 }
 """The exception class of each Error code."""

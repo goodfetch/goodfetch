@@ -392,6 +392,15 @@ export class SettingUnknownError extends ProgramError {
   }
 }
 
+/**
+ * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
+ */
+export class TargetNotUniqueError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "target_not_unique", group: "page", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
@@ -426,4 +435,5 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  target_not_unique: TargetNotUniqueError,
 };

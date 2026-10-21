@@ -384,6 +384,16 @@
             },
             "type": "object"
           },
+          "version": {
+            "additionalProperties": false,
+            "properties": {
+              "age_notice": {
+                "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "wall": {
             "additionalProperties": false,
             "properties": {

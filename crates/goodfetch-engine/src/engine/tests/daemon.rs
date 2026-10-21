@@ -348,6 +348,7 @@ fn daemon_status_counts_its_clients_and_live_runs() {
         json!({
             "product": "collie", "product_version": "1.4.0", "pid": 4242,
             "endpoint": { "unix": "daemon.sock" }, "clients": 2, "live_runs": 2,
+            "console": "absent",
             "kept_alive": false, "idle_timeout": 600_000,
         })
     );

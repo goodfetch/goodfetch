@@ -67,12 +67,15 @@ pub struct RuntimeFile {
     pub version: String,
     /// The Daemon's process.
     pub pid: u32,
-    /// Where it serves its Console, or why it does not.
+    /// Where it serves its Console, or why it does not; `absent` in the
+    /// runtime file of an executable older than the Console's, which a skew
+    /// run starts.
+    #[serde(default)]
     pub console: ConsoleState,
 }
 
 /// Where a Daemon's Console is, as its runtime file says.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsoleState {
     /// Served at this URL, `http://127.0.0.1:<port>/`.
@@ -87,6 +90,7 @@ pub enum ConsoleState {
         fix: String,
     },
     /// None: an engine with no Console build, or the Scripted engine.
+    #[default]
     Absent,
 }
 

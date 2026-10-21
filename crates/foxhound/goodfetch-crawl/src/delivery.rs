@@ -32,7 +32,7 @@
 //! no Connection serves the crawl any more, the driver delivers nothing
 //! more and waits for the Run to stop or a Connection to join.
 
-use goodfetch_engine::admission::{Admission, Ended, Wakes};
+use goodfetch_engine::admission::{Admission, Ended, Waiting, Wakes};
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::run_state::RunStateError;
@@ -289,7 +289,7 @@ pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, craw
         run.end(Ending::Failed).await;
         return;
     }
-    let joined = crawls.open(run.id().clone()).await;
+    let joined = crawls.open(&run).await;
     drive(run, client, joined, crawls, settings).await;
 }
 
@@ -370,6 +370,7 @@ async fn when_idle(run: &Run, admission: &mut Admission) -> Result<Idle, RunStat
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Wait);
     }
+    key_new(run, admission).await?;
     fill(run, admission, None).await?;
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Admit);
@@ -406,6 +407,9 @@ async fn settled(
     if retried {
         admission.enqueue(waiting);
     }
+    if let Err(error) = key_new(run, admission).await {
+        tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
+    }
     journal(run, admission).await;
 }
 
@@ -418,26 +422,42 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<Admission, String> {
         .await
         .map_err(|error| error.to_string())?
         .ok_or("the composition passes in no gate in admission")?;
-    let unkeyed = run
-        .state()
-        .read(work_items::unkeyed)
-        .await
-        .map_err(|error| error.to_string())?;
-    let keys: Vec<(String, String)> = unkeyed
-        .into_iter()
-        .map(|(id, url)| {
-            let key = admission.key(&url);
-            (id, key)
-        })
-        .collect();
-    run.state()
-        .write(move |connection| work_items::set_keys(connection, &keys))
+    key_new(run, &mut admission)
         .await
         .map_err(|error| error.to_string())?;
     fill(run, &mut admission, None)
         .await
         .map_err(|error| error.to_string())?;
     Ok(admission)
+}
+
+/// Keys each work item not keyed yet, the seeds at the start and those a
+/// handler enqueued since, and offers it to its domain's queue, which
+/// takes it unless full; one it refuses waits in run state until its queue
+/// fills again.
+async fn key_new(run: &Run, admission: &mut Admission) -> Result<(), RunStateError> {
+    let unkeyed = run.state().read(work_items::unkeyed).await?;
+    if unkeyed.is_empty() {
+        return Ok(());
+    }
+    let keyed: Vec<Waiting> = unkeyed
+        .into_iter()
+        .map(|(url, waiting)| Waiting {
+            key: admission.key(&url),
+            ..waiting
+        })
+        .collect();
+    let keys: Vec<(String, String)> = keyed
+        .iter()
+        .map(|waiting| (waiting.id.clone(), waiting.key.clone()))
+        .collect();
+    run.state()
+        .write(move |connection| work_items::set_keys(connection, &keys))
+        .await?;
+    for waiting in keyed {
+        admission.enqueue(waiting);
+    }
+    Ok(())
 }
 
 /// Fills the queue of `key`, or of every key when `None`, from the pending

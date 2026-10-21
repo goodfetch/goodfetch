@@ -49,12 +49,17 @@ CREATE TABLE run (
         clean_up_digest TEXT
     ) STRICT;
 INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]',2,NULL,NULL);
+CREATE TABLE seeds (
+            position INTEGER NOT NULL PRIMARY KEY,
+            answer TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'manual');
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
+            identity TEXT NOT NULL,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
             payload TEXT,
@@ -68,5 +73,8 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, priority DESC, position);
+CREATE UNIQUE INDEX work_items_by_identity ON work_items (identity);
 CREATE INDEX work_items_by_status ON work_items (status, position);
+CREATE INDEX work_items_unkeyed ON work_items (position)
+            WHERE domain_key IS NULL;
 COMMIT;

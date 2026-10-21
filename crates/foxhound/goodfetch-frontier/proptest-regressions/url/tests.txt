@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc abb02d0a205d15c890447b336e74ff5242e804edb3b1d89755253c13a350b0c4 # shrinks to input = "mailto:"
+cc f3660ab047b1af0a08870c58832be4575ae0e277d980f41800fbb0313ec30b6f # shrinks to input = "", base = "http://links.test/library/shelves/"

@@ -118,6 +118,26 @@ prefix = "run.outcomes"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.checkpoint"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.migrate"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.pause"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.resume"
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "crawl.start"
 
 [[area]]
@@ -490,3 +510,22 @@ prefix = "locator."
 number = 8
 kind = "block-cause"
 prefix = ""
+
+# Area 6, Collection, Foxhound (specs #581 and #582): what the Frontier
+# answers each seed and a handler's enqueue (#828), and the call on an
+# attempt that ended, which every member of a handler's context answers
+# (ADR 0093).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "crawl_request."
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.seeds"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "attempt_ended"

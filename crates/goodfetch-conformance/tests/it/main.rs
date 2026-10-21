@@ -17,6 +17,7 @@ mod journey_run;
 mod protocol;
 mod proving_ground;
 mod read_command;
+mod refusals;
 mod self_test;
 mod write_command;
 

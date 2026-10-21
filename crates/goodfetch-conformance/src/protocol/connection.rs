@@ -120,6 +120,35 @@ impl Connection {
         }
     }
 
+    /// The first message a process just started writes, whatever it
+    /// answers.
+    pub(crate) fn first_message(&mut self) -> Result<Value, Gone> {
+        loop {
+            let line = match self.started.next_line(START_DEADLINE) {
+                Next::Line(line) => line,
+                Next::Closed => return Err(Gone::Closed),
+                Next::Silent => return Err(Gone::Silent(START_DEADLINE.as_secs())),
+                Next::Failed(error) => return Err(Gone::Failed(error.to_string())),
+            };
+            match serde_json::from_str::<Value>(&line) {
+                Ok(message) => {
+                    self.exchanged
+                        .push(json!({ "from": "engine", "message": message }));
+                    return Ok(message);
+                }
+                Err(_) => self
+                    .exchanged
+                    .push(json!({ "from": "engine", "raw": line })),
+            }
+        }
+    }
+
+    /// Whether the target closes the Connection before writing anything
+    /// else.
+    pub(crate) fn closes(&mut self) -> bool {
+        matches!(self.started.next_line(DEADLINE), Next::Closed)
+    }
+
     /// The messages exchanged since the last call, oldest first.
     pub(crate) fn take_exchanged(&mut self) -> Vec<Value> {
         std::mem::take(&mut self.exchanged)

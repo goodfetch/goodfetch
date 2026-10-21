@@ -47,14 +47,13 @@ import {
 import { auditAccessibility } from "./accessibility.ts";
 import { readAxeExceptions } from "./axe-exceptions.ts";
 import { refuseBypassCSP } from "./bypass-csp.ts";
-import { refuseStorageState } from "./storage-state.ts";
 import { refuseUnknownCovers } from "./features.ts";
 import { startOidcProvider, type OidcClient } from "./oidc-provider.ts";
 import { ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
 import { startServedDaemon, type ConsoleServer, type ServedDaemon } from "./served-daemon.ts";
-export { signInTo, type SignIn } from "./sign-in.ts";
 import { signInTo, type SignIn } from "./sign-in.ts";
+import { refuseStorageState } from "./storage-state.ts";
 import { watchPageErrors, type PageErrorWatch } from "./page-errors.ts";
 import { emulateTranslation } from "./translation.ts";
 
@@ -98,6 +97,7 @@ export {
   type ServedDaemonStart,
   type StartedServedDaemon,
 } from "./served-daemon.ts";
+export { signInTo, type SignIn } from "./sign-in.ts";
 
 /** The options of test support's Playwright `test`, which a project or `test.use` sets. */
 export interface ServedOptions {

@@ -1278,6 +1278,7 @@ dependencies = [
  "serde_json_canonicalizer",
  "sha1",
  "sha2",
+ "socket2",
  "time",
  "tokio",
  "tokio-rustls",

@@ -2,8 +2,11 @@
 //! family, on the local copy with no outside network. Two pages one Session
 //! fetches, over HTTP and in the browser, whose fingerprints the server
 //! compares; a self-hosted bot probe in the manner of `BotD` and `CreepJS`; a
-//! probe of the debugging protocol's side effects; the version check; and
-//! the block-detection corpus. Its answers name the build's age beside the
+//! probe of the debugging protocol's side effects; the version check; the
+//! block-detection corpus; and two pages no task names, which the engine's
+//! own tests read: the identity a page reads of its browser, every client
+//! hint asked for, and a 100 ms timer that reports whether a page behind
+//! another tab kept it (spec #577, ticket #696). Its answers name the build's age beside the
 //! Access dimensions a result was run under, so every result is reported per
 //! Fingerprint method, engine, Access mode and build age, against stock
 //! headless and headful Chrome as controls.
@@ -25,6 +28,12 @@ use versions::BuildAge;
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "access.test";
 
+/// A host name the family also answers on, which a browser treats as a
+/// secure context over plain HTTP, resolving every `*.localhost` name to
+/// loopback itself: there `navigator.userAgentData` and the client hints
+/// exist, which the identity page reads and asks for.
+const LOCAL_HOST: &str = "access.localhost";
+
 pub(crate) const FAMILY: &str = "access";
 
 /// How many tasks the family has.
@@ -40,12 +49,20 @@ const CONSISTENCY_PAGES: [&str; 2] = ["/consistency/1", "/consistency/2"];
 const BOT_PROBE: &str = "/probe";
 const CDP_PROBE: &str = "/cdp-probe";
 const VERSION: &str = "/version";
+const IDENTITY: &str = "/identity";
+const TIMER: &str = "/timer";
+
+/// The client hints the identity page asks for, beyond those a browser
+/// sends unasked, so the requests its script makes carry every one.
+const CLIENT_HINTS: &str = "Sec-CH-UA-Full-Version-List, Sec-CH-UA-Platform-Version, Sec-CH-UA-Arch, Sec-CH-UA-Bitness, Sec-CH-UA-Model, Sec-CH-UA-WoW64, Sec-CH-UA-Form-Factors";
 
 /// The Record the version check's result is.
 const VERSION_RECORD: &str = "version-check";
 
 const BOT_PROBE_SCRIPT: &str = include_str!("../pages/access/bot-probe.js");
 const CDP_PROBE_SCRIPT: &str = include_str!("../pages/access/cdp-probe.js");
+const IDENTITY_SCRIPT: &str = include_str!("../pages/access/identity.js");
+const TIMER_SCRIPT: &str = include_str!("../pages/access/timer.js");
 
 /// The generator places of the family's values: the family's own first, then
 /// 0 and the value's.
@@ -54,7 +71,9 @@ const CODE_PLACE: u64 = 1;
 
 /// Every host name the family is served on, each with its task.
 pub(crate) fn hosts() -> Vec<(String, Option<String>)> {
-    task::family_hosts(FAMILY, HOST, TASKS)
+    let mut hosts = task::family_hosts(FAMILY, HOST, TASKS);
+    hosts.push((LOCAL_HOST.to_owned(), None));
+    hosts
 }
 
 /// The code a page of the family shows beside its Record's ID, from the
@@ -82,7 +101,7 @@ pub(crate) fn respond(
     host: &str,
     request: &Request<'_>,
 ) -> Option<(Reply, Option<Recorded>)> {
-    if !task::serves(host, HOST, TASKS) {
+    if host != LOCAL_HOST && !task::serves(host, HOST, TASKS) {
         return None;
     }
     let path = request.path;
@@ -118,6 +137,15 @@ pub(crate) fn respond(
             None,
         ),
         Method::GET if path == VERSION => (Reply::html(version_page()), None),
+        Method::GET if path == IDENTITY => {
+            let mut reply = Reply::html(page(seed, "identity", &reporting(IDENTITY_SCRIPT)));
+            reply.headers.push(("accept-ch", CLIENT_HINTS.to_owned()));
+            (reply, None)
+        }
+        Method::GET if path == TIMER => (
+            Reply::html(page(seed, "timer", &reporting(TIMER_SCRIPT))),
+            None,
+        ),
         Method::GET => (corpus::page(path).unwrap_or_else(Reply::not_found), None),
         Method::POST if path == "/reports" => match Report::parse(request.body) {
             Some(report) => (Reply::no_content(), Some(Recorded::Report(report))),
@@ -141,6 +169,11 @@ fn page(seed: u64, id: &str, more: &str) -> String {
 /// A probe's script, which reports to its host under `check`.
 fn probe_script(check: &str, script: &str) -> String {
     format!("<script data-reports=\"/reports\" data-check=\"{check}\">\n{script}</script>\n")
+}
+
+/// A script that reports to its host under checks of its own.
+fn reporting(script: &str) -> String {
+    format!("<script data-reports=\"/reports\">\n{script}</script>\n")
 }
 
 /// The version check's page: what the tool is asked to report, and the date

@@ -13,7 +13,7 @@ fn main() -> ExitCode {
     start(&Start {
         product: Product::Collie,
         version: env!("CARGO_PKG_VERSION"),
-        composition: goodfetch_collie::composition(),
+        composition: goodfetch_collie::composition,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

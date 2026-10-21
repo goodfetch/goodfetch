@@ -21,6 +21,8 @@ this status remains pre-release, ask the owner before a breaking change.
 
 CI runs locally (owner decision of 2026-10-19, ADR 0135): GitHub Actions is turned off for the repository. Merge a pull request with `just merge <number>` only: it runs `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, in a clean checkout of the pull request's exact head (one locked gate worktree whose build caches persist), and merges only when it passes. In a stack of pull requests, merge the bottom one first.
 
+`just merge` runs `just pre-merge quick` instead when `xtask affected` finds that no test, benchmark, model, container or Evaluation reads the change (`gate=quick`, ADR 0135): sign-offs, commit messages, lint, advisories, secrets in commits, the Quick suite, the Journey task lists and the notices. Change a repository setting only together with the text that records it: open the pull request amending the ADR or this file when the setting changes, never after.
+
 ## Authorship
 
 Follow global authorship rules. Sign off every commit (`git commit -s`) as the

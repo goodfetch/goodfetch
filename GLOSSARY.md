@@ -172,6 +172,10 @@ _Avoid_: lock (for a Lease), claim, visibility timeout
 The number an engine takes when it becomes a Run's writer, higher than any before it; a write that carries an older one is refused, so a copy of the Run that lost its writer role commits nothing.
 _Avoid_: generation, term, fencing token (for the Run's)
 
+**Safe point**:
+The moment a Run asked to stop can stop without losing or repeating work: it admits nothing new, every Effect in flight finishes or is reported uncertain, and every attempt commits or is abandoned under its Lease. A Limit, a Run's timeout, an abort and a drain all stop a Run at its next one.
+_Avoid_: checkpoint (for the moment), graceful stop, barrier
+
 **Subscription**:
 One Client's stream of an engine's events, each at a position that only goes up, sent no faster than the credits the Client grants; a lossless event waits for room in its queue and is never dropped, and a telemetry event replaces the unsent one of its kind, counting it as dropped.
 _Avoid_: listener (for the engine's side), feed, channel

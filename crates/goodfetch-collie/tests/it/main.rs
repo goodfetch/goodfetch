@@ -9,6 +9,8 @@
 
 mod attached;
 mod browsers;
+#[cfg(target_os = "macos")]
+mod checkpoint;
 mod config;
 mod daemon;
 mod events;

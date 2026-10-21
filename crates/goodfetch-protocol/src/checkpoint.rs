@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
-    OperationClass, OperationKind, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind,
+    schema_of,
 };
 use crate::connection::StoppedBy;
 use crate::run::{Checkpoint, RunId, RunParams, RunReport, RunStarted, StopReason};
@@ -83,6 +84,7 @@ pub const RUN_CHECKPOINT: Operation = Operation {
     description: "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<RunCheckpointParams>,
     result: schema_of::<Checkpoint>,
     events: &[&RUN_CHECKPOINTING],
@@ -98,6 +100,7 @@ pub const RUN_PAUSE: Operation = Operation {
     description: "Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<RunParams>,
     result: schema_of::<RunReport>,
     events: &[&RUN_CHECKPOINTING, &RUN_STOPPING],
@@ -113,6 +116,7 @@ pub const RUN_MIGRATE: Operation = Operation {
     description: "Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<RunCheckpointParams>,
     result: schema_of::<RunReport>,
     events: &[&RUN_MIGRATING, &RUN_CHECKPOINTING, &RUN_STOPPING],
@@ -128,6 +132,7 @@ pub const RUN_RESUME: Operation = Operation {
     description: "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
+    reach: Reach::AllSurfaces,
     params: schema_of::<RunResumeParams>,
     result: schema_of::<RunStarted>,
     events: &[],

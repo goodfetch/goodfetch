@@ -87,6 +87,7 @@ mod tests {
                 "config.explain",
                 "sample.crawl",
                 "crawl.start",
+                "crawl.serve",
                 "run.outcomes",
                 "run.failed_requests"
             ]

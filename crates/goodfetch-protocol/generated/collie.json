@@ -183,7 +183,7 @@
       "type": "object"
     },
     "DaemonEndpoint": {
-      "description": "Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and\nLinux, loopback TCP on Windows.",
+      "description": "Where a Daemon or an Attached engine's private endpoint listens (ADR\n0024): a `0600` Unix socket on macOS and Linux, loopback TCP on\nWindows.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -1807,6 +1807,7 @@
         "$ref": "#/$defs/ConfigExplainParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SettingsExplanation"
       },
@@ -1825,6 +1826,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStatus"
       },
@@ -1843,6 +1845,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStopping"
       },
@@ -1861,6 +1864,7 @@
         "$ref": "#/$defs/EngineInfoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/EngineInfo"
       },
@@ -1882,6 +1886,7 @@
         "$ref": "#/$defs/EventsSubscribeParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
       },
@@ -1900,6 +1905,7 @@
         "$ref": "#/$defs/PageBodyParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
       },
@@ -1918,6 +1924,7 @@
         "$ref": "#/$defs/RunAbortParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -1938,6 +1945,7 @@
         "$ref": "#/$defs/RunCheckpointParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Checkpoint"
       },
@@ -1956,6 +1964,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -1978,6 +1987,7 @@
         "$ref": "#/$defs/RunCheckpointParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -1999,6 +2009,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -2017,6 +2028,7 @@
         "$ref": "#/$defs/RunResumeParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -2035,6 +2047,7 @@
         "$ref": "#/$defs/RunStartParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -2058,6 +2071,7 @@
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
       },

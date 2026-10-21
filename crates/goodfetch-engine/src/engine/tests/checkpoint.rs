@@ -20,7 +20,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{
-    Operation, OperationClass, OperationKind, Product, ProtocolVersion, Stability, schema_of,
+    Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_STATE};
@@ -48,6 +48,7 @@ const KEEP: Operation = Operation {
     description: "Starts a Run the tests write notes into.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<Value>,
     result: schema_of::<Value>,
     events: &[],

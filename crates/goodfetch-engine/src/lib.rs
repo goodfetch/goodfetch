@@ -8,9 +8,11 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
+mod attached;
 mod body;
 pub mod browser_cache;
 pub mod checkpoint;
+pub mod children;
 pub mod client;
 pub mod clock;
 mod composition;

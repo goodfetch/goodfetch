@@ -361,7 +361,7 @@ pub(crate) async fn serve(
                         tokio::select! {
                             biased;
                             () = token.cancelled() => {}
-                            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, Some(side)) => {}
+                            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, rpc::Access::Daemon(side)) => {}
                         }
                         its_owner.stop().await;
                         runs.stop_connection(id).await;

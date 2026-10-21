@@ -10,36 +10,82 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use goodfetch_engine::run::{checkpoint_interval, run_id, settings_error, start_error};
+use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
 use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_START, CrawlStartParams, Seed};
-use goodfetch_protocol::run::{Lifecycle, RunKind, RunStarted, StartInput, StartedAs};
+use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
+use goodfetch_protocol::run::{
+    Lifecycle, RUN_NOT_FOUND, RunDetails, RunKind, RunParams, RunReport, RunStarted, StartInput,
+    StartedAs,
+};
 use goodfetch_protocol::settings::RunOrigin;
 
 use crate::delivery;
 use crate::outcomes;
+use crate::serving::Crawls;
 use crate::work_items;
 
-/// What Foxhound's crawl adds to the engine: `crawl.start`, the reads of
-/// its outcomes, the work items', Records' and outcomes' tables of every
-/// run file, and the driver a resumed crawl starts again with.
+/// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
+/// the reads of its outcomes, the work items', Records' and outcomes'
+/// tables of every run file, and the driver a resumed crawl starts again
+/// with.
 pub fn contribution() -> Contribution {
+    let crawls = Crawls::default();
+    let serving = crawls.clone();
+    let resuming = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     Contribution::new("goodfetch-crawl")
-        .with_handler(Handler::new(&CRAWL_START, start))
+        .with_handler(Handler::new(&CRAWL_START, move |params, context| {
+            start(params, context, crawls.clone())
+        }))
+        .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
+            serve(params, context, serving.clone())
+        }))
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
         .with_driver(
             RunKind::Crawl,
-            Arc::new(|run, client, settings| Box::pin(delivery::resume(run, client, settings))),
+            Arc::new(move |run, client, settings| {
+                Box::pin(delivery::resume(run, client, settings, resuming.clone()))
+            }),
         )
 }
 
-async fn start(params: CrawlStartParams, context: CallContext) -> Result<RunStarted, CallError> {
+/// Joins the calling Connection's handler to the live crawl the params
+/// name, until the Run ends, whose report it answers, or the call ends.
+async fn serve(
+    params: RunParams,
+    context: CallContext,
+    crawls: Crawls,
+) -> Result<RunReport, CallError> {
+    let Some(_stays) = crawls.join(&params.run_id, context.client().clone()).await else {
+        return Err(CallError::new(
+            &RUN_NOT_FOUND,
+            format!(
+                "This engine runs no crawl `{}` to serve: it ended, or another engine runs it.",
+                params.run_id
+            ),
+            &RunDetails {
+                run_id: params.run_id,
+                path: None,
+            },
+        ));
+    };
+    context
+        .runs()
+        .finish(params.run_id)
+        .await
+        .map_err(|error| run_error(error, context.identity()))
+}
+
+async fn start(
+    params: CrawlStartParams,
+    context: CallContext,
+    crawls: Crawls,
+) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     let (settings, _) = context
         .runs()
@@ -86,9 +132,12 @@ async fn start(params: CrawlStartParams, context: CallContext) -> Result<RunStar
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
+            let joined = crawls.open(run.id().clone()).await;
             run.spawn(delivery::drive(
                 run.clone(),
                 context.client().clone(),
+                joined,
+                crawls,
                 settings,
             ));
             started

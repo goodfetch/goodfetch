@@ -1,6 +1,8 @@
 //! A crawl's delivery (ADRs 0003, 0024 and 0093): the Run's driver, which
-//! leases pending work items to the program's handler, at most
-//! `crawl.handler.concurrency` at once, each lease committed in run state
+//! leases pending work items to the handler of each Connection serving the
+//! crawl (the one that started it, and each `workers=N` handler process
+//! that joined it with `crawl.serve`), at most `crawl.handler.concurrency`
+//! at once on each, each lease committed in run state
 //! before its `crawl_request.handle` request is sent; commits an answered
 //! attempt's Records once, through its lease, while the lease holds; and
 //! ends an attempt whose handler failed, or that got no answer before its
@@ -10,25 +12,29 @@
 //! with the Error code `blocked` ends it `blocked`. Each ending's outcome
 //! is committed with it. When a lease ends first, the attempt's request is cancelled
 //! with `$/cancel`, and an answer that still comes is a late commit,
-//! refused with `lease_lost`. Once every work item is done, it finishes
-//! the Run. When the Run stops, the attempts in flight are abandoned and
-//! their work items return to pending without counting; when the program's
-//! Connection ends, the driver delivers nothing more and waits for the Run
-//! to stop.
+//! refused with `lease_lost`. An attempt whose Connection ended is
+//! `client_gone`, never the handler's own `handler_failed`, and is retried
+//! on a Connection still serving. Once every work item is done, it
+//! finishes the Run. When the Run stops, the attempts in flight are
+//! abandoned and their work items return to pending without counting; when
+//! no Connection serves the crawl any more, the driver delivers nothing
+//! more and waits for the Run to stop or a Connection to join.
 
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::runs::{Ending, Run};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
-    HANDLER_LOST, LEASE_LOST,
+    CLIENT_GONE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
+    HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
 use serde_json::{Map, Value};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
+use crate::serving::{Crawls, Server};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -54,26 +60,77 @@ enum Answer {
 }
 
 struct Attempt {
+    /// The server, by its place in the delivery's list, its request went to.
+    server: usize,
     leased: Leased,
     lease: WorkItemLease,
     answer: Answer,
 }
 
-/// Drives `run`'s work items to the handler of `client` until each is done
-/// or the Run stops.
+/// A Connection serving the crawl's handler requests, as the delivery
+/// keeps it.
+struct Serving {
+    client: Client,
+    /// Closed once it takes no new work item; `None` for the Connection
+    /// that started the crawl, which serves until it ends.
+    left: Option<oneshot::Receiver<()>>,
+    /// Its attempts in flight.
+    in_flight: usize,
+    /// Whether its Connection ended.
+    gone: bool,
+}
+
+impl Serving {
+    /// Whether it takes new work items.
+    fn serves(&mut self) -> bool {
+        !self.gone
+            && self.left.as_mut().is_none_or(|left| {
+                matches!(left.try_recv(), Err(oneshot::error::TryRecvError::Empty))
+            })
+    }
+}
+
+/// Drives `run`'s work items to the handler of `client`, and of each
+/// Connection that `joined` brings, until each is done or the Run stops;
+/// then closes the crawl in `crawls`.
 ///
 /// # Cancel safety
 ///
 /// Run it as one of the Run's tasks to its end: dropped, it leaves its
 /// leases to the next writer, which counts them as lost.
-pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
+pub(crate) async fn drive(
+    run: Run,
+    client: Client,
+    mut joined: mpsc::UnboundedReceiver<Server>,
+    crawls: Crawls,
+    settings: RunSettings,
+) {
+    let mut servers = vec![Serving {
+        client,
+        left: None,
+        in_flight: 0,
+        gone: false,
+    }];
+    deliver(&run, &mut servers, &mut joined, &settings).await;
+    crawls.close(run.id()).await;
+}
+
+/// The delivery's loop, which returns once the Run ended or stopped.
+async fn deliver(
+    run: &Run,
+    servers: &mut Vec<Serving>,
+    joined: &mut mpsc::UnboundedReceiver<Server>,
+    settings: &RunSettings,
+) {
     let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
-    let mut client_gone = false;
     loop {
         let policy = CrawlPolicy::of(&settings.at_admission().await);
-        if !client_gone && attempts.len() < policy.handler_concurrency {
-            let room = policy.handler_concurrency - attempts.len();
+        for (place, server) in servers.iter_mut().enumerate() {
+            if !server.serves() || server.in_flight >= policy.handler_concurrency {
+                continue;
+            }
+            let room = policy.handler_concurrency - server.in_flight;
             match run
                 .state()
                 .write(move |connection| work_items::lease(connection, room))
@@ -86,7 +143,14 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
                             leased.lease_epoch,
                             policy.lease_length(),
                         );
-                        attempts.spawn(attempt(run.clone(), client.clone(), leased, lease));
+                        server.in_flight += 1;
+                        attempts.spawn(attempt(
+                            run.clone(),
+                            place,
+                            server.client.clone(),
+                            leased,
+                            lease,
+                        ));
                     }
                 }
                 Err(error) => {
@@ -97,10 +161,18 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
             }
         }
         if attempts.is_empty() {
-            if client_gone {
-                run.cancellation().cancelled().await;
-                release(&run).await;
-                return;
+            if !servers.iter_mut().any(Serving::serves) {
+                tokio::select! {
+                    biased;
+                    () = run.cancellation().cancelled() => {
+                        release(run).await;
+                        return;
+                    }
+                    Some(server) = joined.recv() => {
+                        servers.push(Serving { client: server.client, left: Some(server.left), in_flight: 0, gone: false });
+                        continue;
+                    }
+                }
             }
             match run.state().read(work_items::any_pending).await {
                 Ok(false) => {
@@ -119,18 +191,23 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
             biased;
             () = run.cancellation().cancelled() => {
                 attempts.shutdown().await;
-                release(&run).await;
+                release(run).await;
                 return;
+            }
+            Some(server) = joined.recv() => {
+                servers.push(Serving { client: server.client, left: Some(server.left), in_flight: 0, gone: false });
             }
             Some(ended) = attempts.join_next() => {
                 let Ok(attempt) = ended else {
                     continue;
                 };
+                let server = &mut servers[attempt.server];
+                server.in_flight -= 1;
                 if let Answer::ClientGone = attempt.answer {
-                    client_gone = true;
+                    server.gone = true;
                 }
                 let policy = CrawlPolicy::of(&settings.at_admission().await);
-                settle(&run, policy, attempt).await;
+                settle(run, policy, attempt).await;
             }
         }
     }
@@ -145,7 +222,7 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
 /// # Cancel safety
 ///
 /// As [`drive`]'s.
-pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings) {
+pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, crawls: Crawls) {
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
     if let Err(error) = run
@@ -159,12 +236,19 @@ pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings) {
         run.end(Ending::Failed).await;
         return;
     }
-    drive(run, client, settings).await;
+    let joined = crawls.open(run.id().clone()).await;
+    drive(run, client, joined, crawls, settings).await;
 }
 
 /// One attempt: the handler request, bounded by its lease. When the lease
 /// ends first, the request is cancelled and its answer left to [`late`].
-async fn attempt(run: Run, client: Client, leased: Leased, lease: WorkItemLease) -> Attempt {
+async fn attempt(
+    run: Run,
+    server: usize,
+    client: Client,
+    leased: Leased,
+    lease: WorkItemLease,
+) -> Attempt {
     let params = CrawlRequestHandleParams {
         run_id: run.id().clone(),
         crawl_request: leased.crawl_request.clone(),
@@ -199,6 +283,7 @@ async fn attempt(run: Run, client: Client, leased: Leased, lease: WorkItemLease)
         },
     };
     Attempt {
+        server,
         leased,
         lease,
         answer,
@@ -231,6 +316,7 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
         leased,
         lease,
         answer,
+        ..
     } = attempt;
     let id = leased.crawl_request.id.clone();
     let epoch = leased.lease_epoch;
@@ -272,7 +358,12 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
                 }
             }
         }
-        Answer::LeaseEnded | Answer::ClientGone => failure(
+        Answer::ClientGone => failure(
+            CLIENT_GONE.name.to_owned(),
+            CLIENT_GONE.retryable,
+            CLIENT_GONE.description.to_owned(),
+        ),
+        Answer::LeaseEnded => failure(
             HANDLER_LOST.name.to_owned(),
             HANDLER_LOST.retryable,
             HANDLER_LOST.description.to_owned(),

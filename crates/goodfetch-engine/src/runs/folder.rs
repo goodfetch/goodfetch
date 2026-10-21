@@ -5,6 +5,7 @@
 //! blocking policy.
 
 use std::collections::BTreeMap;
+use std::io::{self, Read as _, Write as _};
 use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
@@ -28,13 +29,16 @@ pub(super) struct RunRow {
     pub(super) started_at: PointInTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened_by: Vec<SettingLimit>,
+    /// What binds it, as JSON.
+    pub(super) binding: Option<String>,
+    pub(super) clean_up_digest: Option<String>,
 }
 
 impl RunRow {
     pub(super) fn insert(&self, connection: &Connection) -> rusqlite::Result<()> {
         connection.execute(
-            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, policy_version, weakened_by)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, policy_version, weakened_by, binding, clean_up_digest)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             (
                 self.run_id.as_str(),
                 self.kind.as_str(),
@@ -47,6 +51,8 @@ impl RunRow {
                 self.policy_version.as_deref(),
                 serde_json::to_string(&self.weakened_by)
                     .expect("invariant: setting limits encode"),
+                self.binding.as_deref(),
+                self.clean_up_digest.as_deref(),
             ),
         )?;
         Ok(())
@@ -193,6 +199,7 @@ fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
                     weakened_by: serde_json::from_str(&row.get::<_, String>(8)?).map_err(
                         |error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)),
                     )?,
+                    checkpoint: None,
                 })
             },
         )
@@ -209,6 +216,8 @@ pub(super) struct Recorded {
     pub(super) started_at: PointInTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened_by: Vec<SettingLimit>,
+    /// Its start's inputs, as canonical JSON.
+    pub(super) inputs: String,
     /// Its report, once it ended.
     pub(super) report: Option<RunReport>,
 }
@@ -221,7 +230,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
     };
     let found = connection
         .query_row(
-            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by FROM run",
+            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by, inputs FROM run",
             [],
             |row| {
                 Ok((
@@ -233,12 +242,13 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
                     ),
                     PointInTime::from_rfc3339(row.get(4)?),
                     row.get::<_, Option<String>>(5)?,
-                    row.get::<_, String>(6)?,
+                    (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
                 ))
             },
         )
         .optional()?;
-    let Some((run_id, (kind, needs, lifecycle), started_at, policy_version, weakened_by)) = found
+    let Some((run_id, (kind, needs, lifecycle), started_at, policy_version, (weakened_by, inputs))) =
+        found
     else {
         return Ok(None);
     };
@@ -257,8 +267,44 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         started_at,
         policy_version,
         weakened_by: serde_json::from_str(&weakened_by).map_err(decode)?,
+        inputs,
         report: report(&connection)?,
     }))
+}
+
+/// The machine's identity kept at `path`, or `drawn`, kept there first
+/// when the file does not exist yet.
+pub(super) fn machine_identity(path: &Path, drawn: &str) -> io::Result<String> {
+    let read = |path: &Path| -> io::Result<String> {
+        let mut text = String::new();
+        std::fs::OpenOptions::new()
+            .read(true)
+            .open(path)?
+            .read_to_string(&mut text)?;
+        Ok(text.trim().to_owned())
+    };
+    match read(path) {
+        Ok(machine) if !machine.is_empty() => return Ok(machine),
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    if let Some(folder) = path.parent() {
+        std::fs::DirBuilder::new().recursive(true).create(folder)?;
+    }
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(mut file) => {
+            file.write_all(format!("{drawn}\n").as_bytes())?;
+            file.sync_all()?;
+            Ok(drawn.to_owned())
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => read(path),
+        Err(error) => Err(error),
+    }
 }
 
 /// Writes the Run's end, as `report` states it, into its own row.

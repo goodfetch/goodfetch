@@ -15,6 +15,7 @@ mod daemon;
 mod events;
 mod run;
 mod settings;
+mod takeover;
 
 use std::time::Duration;
 

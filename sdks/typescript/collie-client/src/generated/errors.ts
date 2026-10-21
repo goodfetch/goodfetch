@@ -105,6 +105,15 @@ export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchErro
 };
 
 /**
+ * The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.
+ */
+export class AddressFamilyUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "address_family_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
  */
 export class ArtifactDownloadFailedError extends UnavailableError {
@@ -240,6 +249,15 @@ export class ProtocolVersionUnsupportedError extends UnavailableError {
 }
 
 /**
+ * Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.
+ */
+export class RunBusyError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_busy", group: "refused", retryable: true });
+  }
+}
+
+/**
  * The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.
  */
 export class RunConflictError extends ProgramError {
@@ -272,6 +290,15 @@ export class RunInUseError extends RefusedError {
 export class RunNotFoundError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "run_not_found", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.
+ */
+export class RunNotOwnedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_not_owned", group: "refused", retryable: false });
   }
 }
 
@@ -331,6 +358,7 @@ export class SettingUnknownError extends ProgramError {
 
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
+  address_family_unavailable: AddressFamilyUnavailableError,
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
   body_not_found: BodyNotFoundError,
@@ -346,10 +374,12 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  run_busy: RunBusyError,
   run_conflict: RunConflictError,
   run_id_invalid: RunIdInvalidError,
   run_in_use: RunInUseError,
   run_not_found: RunNotFoundError,
+  run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
   setting_invalid: SettingInvalidError,

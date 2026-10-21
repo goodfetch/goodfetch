@@ -443,6 +443,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jiff",
+ "libc",
  "rusqlite",
  "rustls",
  "serde",

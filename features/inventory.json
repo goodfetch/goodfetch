@@ -45,6 +45,17 @@
       ]
     },
     {
+      "id": "command:daemon.install",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:daemon.launched",
       "kind": "command",
       "area": 3,
@@ -57,6 +68,17 @@
     },
     {
       "id": "command:daemon.restart",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.rotate-token",
       "kind": "command",
       "area": 3,
       "milestone": null,
@@ -91,6 +113,39 @@
     {
       "id": "command:daemon.stop",
       "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.uninstall",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:runs.reindex",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:address_family_unavailable",
+      "kind": "error",
       "area": 3,
       "milestone": null,
       "status": "active",
@@ -285,6 +340,17 @@
       ]
     },
     {
+      "id": "error:run_busy",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_conflict",
       "kind": "error",
       "area": 3,
@@ -319,6 +385,17 @@
     },
     {
       "id": "error:run_not_found",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:run_not_owned",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -2698,6 +2775,28 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:resolver.attempt_delay",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:resolver.resolution_delay",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -5870,6 +5969,28 @@
     },
     {
       "id": "story:3-146",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-147",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-148",
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",

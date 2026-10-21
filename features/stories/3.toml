@@ -1148,3 +1148,19 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 147
+title = "As a crawl operator, I want the engine's resolver to keep each DNS answer for its TTL, an NXDOMAIN or an empty answer for its negative TTL and a server failure or a timeout not at all, and to drop an answer whose every address failed to connect, so that a site whose name moves is reached at its new address without pinning a stale answer (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 148
+title = "As a crawl operator, I want the engine's HTTP transports to race a host's IPv6 and IPv4 addresses under RFC 8305, with `resolver.resolution_delay` and `resolver.attempt_delay` as settings, only the family a Session's local address holds, and the proxy's addresses behind a proxy, so that a site whose IPv6 path is broken is reached over IPv4 without waiting out a dead address (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

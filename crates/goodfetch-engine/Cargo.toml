@@ -41,6 +41,10 @@ ulid.workspace = true
 webpki-roots.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 
+# Frees the buffer launchd answers the Daemon's activated sockets in.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 goodfetch-test-support.workspace = true
 gungraun.workspace = true

@@ -301,6 +301,30 @@ fn a_script_sends_events_once_the_client_grants_credits_then_closes() {
 }
 
 #[test]
+fn a_reply_after_an_expected_cancel_answers_the_call_it_cancels() {
+    let env = TestEnv::new();
+    let map = engine_map(&env, "collie", "self-test/call-cancelled.json");
+    let mut client = TinyClient::connect(&env, "collie", &map);
+    client.hello("0.1", "0.1.0");
+    client.next().unwrap().unwrap();
+    let subscription = client.request("events.subscribe", &json!({}));
+
+    client.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "$/cancel",
+        "params": { "id": subscription },
+    }));
+    let reply = client.next().unwrap().unwrap();
+
+    assert_eq!(
+        (reply["id"].clone(), reply["error"]["data"]["code"].clone()),
+        (json!(subscription), json!("call_cancelled"))
+    );
+    let (status, stderr) = client.close();
+    assert!(status.success(), "{stderr}");
+}
+
+#[test]
 fn a_stalled_script_answers_nothing_until_the_client_gives_up() {
     let env = TestEnv::new();
     let map = engine_map(&env, "collie", "self-test/stall.json");

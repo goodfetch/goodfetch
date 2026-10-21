@@ -5,12 +5,16 @@
 //! one an in-memory dialer opens. A Daemon's Connections come from its
 //! listener: a `0600` Unix socket on macOS and Linux, loopback TCP on
 //! Windows (ADR 0024), or every Connection an in-memory dialer opens; a
-//! Client of the Daemon connects to the endpoint its runtime file names.
+//! Client of the Daemon connects to the endpoint its runtime file names. A
+//! Daemon a service manager started at the first connection takes the
+//! listening socket it was handed instead (launchd's, systemd's).
 //! This is the only module that opens stdin, stdout and the protocol's
 //! sockets; the other listeners join here with the tickets that add them.
 //! The engine's own outbound connections, which the Simulation never
 //! carries, open in `http_client`.
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 use std::pin::Pin;
@@ -19,6 +23,13 @@ use std::task::{Context, Poll};
 use goodfetch_protocol::daemon::DaemonEndpoint;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
+
+#[cfg(unix)]
+mod activation;
+
+/// The name of the socket a launch agent's `Sockets` defines for the
+/// Daemon, which it asks launchd for.
+pub const LAUNCHD_SOCKETS: &str = "Listeners";
 
 /// How many bytes an in-memory Connection buffers in each direction before
 /// its writer waits.
@@ -147,6 +158,72 @@ impl Network {
             Self::Os => listen_os(socket).await,
         }
     }
+}
+
+impl Network {
+    /// The listener the OS's service manager handed this process at its
+    /// start, launchd's or systemd's, with the endpoint it answers on;
+    /// `None` when none started it with one, and on the in-memory network.
+    /// A process takes it once.
+    ///
+    /// # Errors
+    ///
+    /// When the service manager's socket cannot be taken, or is no Unix
+    /// socket at a path.
+    ///
+    /// # Panics
+    ///
+    /// Outside a Tokio runtime, which the listener registers with.
+    pub fn activated(
+        self,
+        environment: &BTreeMap<OsString, OsString>,
+    ) -> io::Result<Option<(DaemonListener, DaemonEndpoint)>> {
+        match self {
+            Self::InMemory(_) => Ok(None),
+            Self::Os => activated_os(environment),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn activated_os(
+    environment: &BTreeMap<OsString, OsString>,
+) -> io::Result<Option<(DaemonListener, DaemonEndpoint)>> {
+    let Some(descriptor) = activation::take(environment, LAUNCHD_SOCKETS)? else {
+        return Ok(None);
+    };
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = std::os::unix::net::UnixListener::from(descriptor);
+    listener.set_nonblocking(true)?;
+    let path = listener
+        .local_addr()?
+        .as_pathname()
+        .map(Path::to_owned)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the service manager's socket is not at a path",
+            )
+        })?;
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = tokio::net::UnixListener::from_std(listener)?;
+    Ok(Some((
+        DaemonListener(Listening::Unix(listener)),
+        DaemonEndpoint::Unix(path),
+    )))
+}
+
+#[cfg(not(unix))]
+fn activated_os(
+    _environment: &BTreeMap<OsString, OsString>,
+) -> io::Result<Option<(DaemonListener, DaemonEndpoint)>> {
+    Ok(None)
 }
 
 #[cfg(unix)]

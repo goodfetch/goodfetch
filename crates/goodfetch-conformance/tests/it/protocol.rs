@@ -1,0 +1,385 @@
+//! The JSON-RPC protocol suite (#172, Seam 3) against targets that speak
+//! Goodfetch's protocol, each a real process started from the executable
+//! given by path: the Scripted engine playing the suite, which is the
+//! conforming target, and a scripted variant that drops a capability mid-suite,
+//! which is the broken one (ADR 0069); then either Product's executable as an
+//! Attached engine and as a Daemon, the suite unchanged (ADR 0096).
+
+use std::path::Path;
+
+use goodfetch_conformance::{
+    EngineMode, EngineTarget, ProtocolSuite, ProtocolSuiteError, ProvingGround, run_protocol_suite,
+};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::journey::FeatureId;
+use goodfetch_protocol::result_document::{
+    CapabilityResult, CaseOutcome, ConformanceDocument, LoadedDocument, Outcome, ResultDocument,
+    TargetIdentity, read,
+};
+use goodfetch_test_support::{ATTACHED_RECORD, ATTACHED_SCRIPT, TestEnv, Tool, tools};
+use serde_json::{Value, json};
+
+use crate::proving_ground::LocalCopy;
+use crate::schema_violations;
+
+/// The Scripted engine's scripts this suite's tests play.
+const SCRIPTS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/it/fixtures/protocol");
+
+/// Each capability's name and outcome.
+fn outcomes(document: &ConformanceDocument) -> Vec<(&str, Outcome)> {
+    document
+        .capabilities()
+        .iter()
+        .map(|capability| (capability.name(), capability.outcome()))
+        .collect()
+}
+
+/// The outcome of each case, in the suite's order.
+fn case_outcomes(document: &ConformanceDocument) -> Vec<(&str, CaseOutcome)> {
+    document
+        .capabilities()
+        .iter()
+        .flat_map(CapabilityResult::cases)
+        .map(|case| (case.facts().id.as_str(), case.outcome()))
+        .collect()
+}
+
+/// The target `tool` names, started in `mode` with the test's environment.
+fn target(env: &TestEnv, tool: Tool, mode: EngineMode) -> EngineTarget {
+    EngineTarget {
+        executable: tools().unwrap().path(tool).unwrap().to_path_buf(),
+        mode,
+        environment: env.env().clone(),
+        folder: env.folder().to_path_buf(),
+    }
+}
+
+/// The Scripted engine, which plays `script` from the test's Goodfetch home
+/// in `mode`, as either Product's executable is started.
+fn scripted(env: &TestEnv, script: &str, mode: EngineMode) -> EngineTarget {
+    let installed = env.home().join(ATTACHED_SCRIPT);
+    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    std::fs::copy(Path::new(SCRIPTS).join(script), &installed).unwrap();
+    target(env, Tool::ScriptedEngine, mode)
+}
+
+/// What the Scripted engine recorded the harness sending.
+fn sent(env: &TestEnv) -> Vec<Value> {
+    std::fs::read_to_string(env.home().join(ATTACHED_RECORD))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|entry| entry["from"] == "client")
+        .map(|entry| entry["message"].clone())
+        .collect()
+}
+
+const PROVED: [(&str, Outcome); 4] = [
+    ("connection.hello", Outcome::Proved),
+    ("engine.info", Outcome::Proved),
+    ("protocol.failures", Outcome::Proved),
+    ("cancellation", Outcome::Proved),
+];
+
+/// Covers: story:2-50, story:2-53
+#[test]
+fn the_scripted_engine_playing_the_suite_is_proved_in_every_capability() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = scripted(&env, "conforming-attached.json", EngineMode::Attached);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+
+    assert_eq!(outcomes(&document), PROVED);
+}
+
+/// Covers: story:2-50
+#[test]
+fn a_target_that_drops_cancellation_mid_suite_fails_it_and_never_proves_it() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = scripted(
+        &env,
+        "drops-cancellation-attached.json",
+        EngineMode::Attached,
+    );
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![
+                ("connection.hello", Outcome::Proved),
+                ("engine.info", Outcome::Proved),
+                ("protocol.failures", Outcome::Proved),
+                ("cancellation", Outcome::Failed),
+            ],
+            vec![
+                (
+                    "hello-is-answered-with-the-engines-product",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "engine-info-names-the-engine-hello-named",
+                    CaseOutcome::Passed
+                ),
+                ("an-unknown-method-is-method-not-found", CaseOutcome::Passed),
+                (
+                    "params-the-operation-does-not-take-are-invalid-params",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-call-in-flight-cancelled-ends-with-call-cancelled",
+                    CaseOutcome::Failed
+                ),
+                (
+                    "cancelling-an-answered-call-leaves-the-connection-answering",
+                    CaseOutcome::NotReached
+                ),
+            ]
+        )
+    );
+}
+
+/// Covers: story:2-50, story:2-53, story:2-54
+#[test]
+fn the_document_names_the_engine_hello_reported_and_carries_each_cases_evidence() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = scripted(
+        &env,
+        "drops-cancellation-attached.json",
+        EngineMode::Attached,
+    );
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+
+    let header = document.header();
+    assert_eq!(
+        (
+            header.suite.name.as_str(),
+            header.target.name.as_str(),
+            &header.target.identity,
+            header.target.product,
+            header.proving_ground.seed,
+            header.platform.os.as_str(),
+        ),
+        (
+            "protocol",
+            "goodfetch-scripted-engine",
+            &TargetIdentity::Version("0.0.0".to_owned()),
+            Some(Product::Collie),
+            env.seed(),
+            std::env::consts::OS,
+        )
+    );
+    let cancelled = &document.capabilities()[3].cases()[0];
+    let entry = &cancelled.facts().entries[0];
+    assert_eq!(
+        (
+            entry.mode.as_deref(),
+            cancelled
+                .facts()
+                .covers
+                .iter()
+                .map(FeatureId::as_str)
+                .collect::<Vec<_>>(),
+            entry
+                .checks
+                .last()
+                .map(|check| (check.name.as_str(), check.passed)),
+            entry.evidence.messages.clone(),
+        ),
+        (
+            Some("attached"),
+            vec!["story:2-50", "story:2-53", "error:call_cancelled"],
+            Some((
+                "the target answers the case's calls (the target closed the Connection)",
+                false
+            )),
+            vec![
+                json!({ "from": "client", "message": { "jsonrpc": "2.0", "id": 5, "method": "events.subscribe", "params": {} } }),
+                json!({ "from": "client", "message": { "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": 5 } } }),
+            ],
+        )
+    );
+    let written = ResultDocument::Conformance(document.clone());
+    assert_eq!(schema_violations(&written), Vec::<String>::new());
+    assert_eq!(
+        read(&serde_json::to_vec(&written).unwrap()).unwrap(),
+        LoadedDocument::Conformance(document)
+    );
+}
+
+/// Covers: story:2-50
+#[test]
+fn the_harness_announces_the_suites_product_in_hello() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = scripted(&env, "conforming-attached.json", EngineMode::Attached);
+
+    run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+
+    assert_eq!(
+        sent(&env)[0]["params"],
+        json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" })
+    );
+}
+
+/// Covers: story:2-50, story:2-53
+#[test]
+fn the_scripted_engine_as_a_daemon_playing_the_suite_is_proved_in_every_capability() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = scripted(&env, "conforming-daemon.json", EngineMode::Daemon);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+
+    assert_eq!(outcomes(&document), PROVED);
+}
+
+/// The suite unchanged against Collie's executable, given by path, as an
+/// Attached engine and as a Daemon.
+///
+/// Covers: story:2-50, story:2-53, story:2-54
+#[rstest::rstest]
+fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = target(&env, Tool::Collie, mode);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+
+    assert_eq!(
+        (
+            outcomes(&document),
+            document.header().target.name.as_str(),
+            document.header().target.product,
+        ),
+        (PROVED.to_vec(), "goodfetch-collie", Some(Product::Collie))
+    );
+}
+
+/// The protocol suite's `engine.info` case with Foxhound as its Product, as
+/// a suite whose contract needs Foxhound declares it.
+fn foxhound_suite() -> ProtocolSuite {
+    ProtocolSuite::read(
+        r#"
+        product = "foxhound"
+
+        [suite]
+        name = "protocol-on-foxhound"
+        version = "1"
+
+        [[capability]]
+        name = "engine.info"
+
+        [[capability.case]]
+        id = "engine-info-names-the-engine-hello-named"
+        covers = []
+        "#,
+    )
+    .unwrap()
+}
+
+/// Covers: story:2-50
+#[rstest::rstest]
+fn a_suite_that_needs_foxhound_runs_on_foxhounds_executable(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = target(&env, Tool::Foxhound, mode);
+
+    let document = run_protocol_suite(&foxhound_suite(), &target, &proving_ground).unwrap();
+
+    assert_eq!(
+        (outcomes(&document), document.header().target.product),
+        (
+            vec![("engine.info", Outcome::Proved)],
+            Some(Product::Foxhound)
+        )
+    );
+}
+
+/// Covers: story:2-50
+#[test]
+fn collies_executable_refuses_a_suite_that_needs_foxhound_with_not_in_product() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = target(&env, Tool::Collie, EngineMode::Attached);
+
+    let refused = run_protocol_suite(&foxhound_suite(), &target, &proving_ground).unwrap_err();
+
+    let ProtocolSuiteError::HelloRefused { error } = refused else {
+        panic!("not a refused hello: {refused}");
+    };
+    assert_eq!(error["data"]["code"], json!("not_in_product"));
+}
+
+/// Covers: story:2-50
+#[rstest::rstest]
+fn a_suite_whose_contract_collie_carries_is_not_run_on_foxhounds_executable(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = target(&env, Tool::Foxhound, mode);
+
+    let refused =
+        run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap_err();
+
+    assert!(
+        matches!(
+            refused,
+            ProtocolSuiteError::OtherProduct {
+                suite: Product::Collie,
+                engine: Product::Foxhound
+            }
+        ),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_case_id_the_harness_does_not_run_is_refused() {
+    let refused = ProtocolSuite::read(
+        r#"
+        product = "collie"
+
+        [suite]
+        name = "protocol"
+        version = "1"
+
+        [[capability]]
+        name = "engine.info"
+
+        [[capability.case]]
+        id = "engine-info-is-fast"
+        covers = []
+        "#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        refused.to_string(),
+        "the case `engine-info-is-fast` names no exchange the harness runs"
+    );
+}

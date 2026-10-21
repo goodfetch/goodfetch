@@ -16,6 +16,7 @@
 //! locks and the token.
 
 pub mod files;
+pub mod service;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

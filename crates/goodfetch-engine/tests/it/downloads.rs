@@ -13,6 +13,7 @@ use goodfetch_engine::browser_cache::{
     BrowserCache, BuildPlatform, CHROME_FOR_TESTING, CacheError, CacheLocation, MaxUnusedAge,
     PinnedArtifact, Pins, content_digest,
 };
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{
@@ -141,6 +142,7 @@ impl StandIn {
             offline: None,
             resolve: Resolve::new().with(HOST, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
             trusted_certificates: vec![self.authority.clone()],
+            ..Fetching::new(Clock::system())
         }
     }
 

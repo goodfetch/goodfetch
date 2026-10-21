@@ -10,7 +10,9 @@ use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+use goodfetch_protocol::daemon::{
+    DaemonEndpoint, DaemonRuntimeFile, InstalledService, ServiceManager,
+};
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 
@@ -158,4 +160,125 @@ fn a_daemon_unpublishes_only_its_own_runtime_file() {
     files.unpublish(8).unwrap();
 
     assert_eq!((kept, files.read().unwrap()), (Some(runtime_file(8)), None));
+}
+
+/// A socket-activated Daemon's persistent token sits in a file of the
+/// major's folder that only its owner reads, and a rotation replaces it
+/// with another from the OS generator (ADR 0031).
+///
+/// Covers: story:3-21
+#[cfg(unix)]
+#[test]
+fn the_persistent_token_is_its_owners_alone_and_a_rotation_replaces_it() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    let files = DaemonFiles::of(
+        &Home::new(env.home().to_owned()),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+
+    let none = files.read_token().unwrap();
+    let first = files.persistent_token().unwrap();
+    let again = files.persistent_token().unwrap();
+    let rotated = files.rotate_token().unwrap();
+    let mode = std::fs::metadata(files.token_file())
+        .unwrap()
+        .permissions()
+        .mode();
+
+    assert_eq!(
+        (
+            none,
+            first == again,
+            rotated == first,
+            files.read_token().unwrap(),
+            rotated.len(),
+            files.token_file(),
+            mode & 0o777,
+        ),
+        (
+            None,
+            true,
+            false,
+            Some(rotated.clone()),
+            64,
+            env.home().join("1").join("daemon.token"),
+            0o600
+        )
+    );
+}
+
+/// A service's socket stays where its service manager listens across
+/// starts: in the major's folder when its path is short enough, otherwise
+/// in a folder of the user's own, named by that folder's path.
+///
+/// Covers: story:3-21
+#[cfg(unix)]
+#[test]
+fn a_services_socket_is_the_same_at_every_start_and_short_enough() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    let short = DaemonFiles::of(
+        &Home::new(std::path::PathBuf::from("/h")),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+    let long_home = env
+        .home()
+        .join("a folder whose name is long enough to pass the limit of the OS's socket paths");
+    let long = DaemonFiles::of(
+        &Home::new(long_home),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+
+    let first = long.service_socket().unwrap();
+    let again = long.service_socket().unwrap();
+    let mode = std::fs::metadata(first.parent().unwrap())
+        .unwrap()
+        .permissions()
+        .mode();
+
+    assert_eq!(
+        (
+            short.service_socket().unwrap(),
+            first == again,
+            first.as_os_str().len() <= 103,
+            mode & 0o777,
+        ),
+        (
+            std::path::PathBuf::from("/h/1/daemon.sock"),
+            true,
+            true,
+            0o700
+        )
+    );
+}
+
+/// The installed service is recorded in the major's folder until it is
+/// forgotten.
+///
+/// Covers: story:3-21
+#[test]
+fn the_installed_service_is_recorded_until_it_is_forgotten() {
+    let env = TestEnv::new();
+    let files = DaemonFiles::of(
+        &Home::new(env.home().to_owned()),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+    let service = InstalledService {
+        manager: ServiceManager::Systemd,
+        name: "goodfetch-daemon-1-0123abcd".to_owned(),
+        socket: Some(env.home().join("1").join("daemon.sock")),
+        executable: env.home().join("copy"),
+        files: vec![env.home().join("unit.socket")],
+    };
+
+    let before = files.service().unwrap();
+    files.record_service(&service).unwrap();
+    let recorded = files.service().unwrap();
+    files.forget_service().unwrap();
+
+    assert_eq!(
+        (before, recorded, files.service().unwrap()),
+        (None, Some(service), None)
+    );
 }

@@ -1,8 +1,10 @@
 //! The Daemon's contracts (ADRs 0024, 0030 and 0098): its runtime file, by
 //! which a Client of its major finds it, the `daemon.*` operations a Client
-//! asks it about itself with, its idle timeout, and the `--json` outputs of
-//! `daemon start`, `stop`, `restart` and `status`. One Daemon per user and
-//! major serves both Products, so everything here is Collie's.
+//! asks it about itself with, its idle timeout, the per-user service that
+//! `daemon install` registers, and the `--json` outputs of `daemon start`,
+//! `stop`, `restart`, `status`, `install`, `uninstall` and `rotate-token`.
+//! One Daemon per user and major serves both Products, so everything here
+//! is Collie's.
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
@@ -176,6 +178,10 @@ pub struct DaemonStatusOutput {
     /// The running Daemon, or `None` when none runs.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub daemon: Option<DaemonStatus>,
+    /// The per-user service `daemon install` registered for the major, or
+    /// `None` when none is installed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub service: Option<InstalledService>,
 }
 
 /// What `daemon start --json` and `daemon restart --json` print.
@@ -193,6 +199,80 @@ pub struct DaemonStartOutput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DaemonStopOutput {
     /// What the stopped Daemon answered, or `None` when none ran.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stopped: Option<DaemonStopping>,
+}
+
+/// The OS's service manager a Daemon is installed with (ADR 0024).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceManager {
+    /// macOS's launchd, as a launch agent with socket activation.
+    Launchd,
+    /// Linux's systemd, as a user unit with socket activation.
+    Systemd,
+    /// Windows' Task Scheduler, as a logon task.
+    TaskScheduler,
+}
+
+/// The per-user service of one major that `daemon install` registered,
+/// recorded in `daemon-service.json` in the major's per-major folder (ADRs
+/// 0024, 0031 and 0098): what starts the major's pick, from which versioned
+/// copy, and the socket its service manager listens on for it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct InstalledService {
+    /// The service manager it is registered with.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub manager: ServiceManager,
+    /// Its name there: a launch agent's label, a user unit's name without
+    /// its suffix, or a logon task's path.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The socket the service manager listens on and hands the Daemon it
+    /// starts at the first connection, or `None` where the OS has no socket
+    /// activation (Windows).
+    #[schemars(with = "Option<String>", extend("arrived_in" = "0.1"))]
+    pub socket: Option<PathBuf>,
+    /// The versioned copy in the Browser cache that the service starts,
+    /// which starts its major's pick.
+    #[schemars(with = "String", extend("arrived_in" = "0.1"))]
+    pub executable: PathBuf,
+    /// The files that define it to the service manager.
+    #[schemars(with = "Vec<String>", extend("arrived_in" = "0.1"))]
+    pub files: Vec<PathBuf>,
+}
+
+/// What `daemon install --json` prints.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonInstallOutput {
+    /// The service it registered.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub service: InstalledService,
+    /// What the Daemon running before answered when it was stopped so the
+    /// service could take its place, or `None` when none ran.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stopped: Option<DaemonStopping>,
+}
+
+/// What `daemon uninstall --json` prints.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonUninstallOutput {
+    /// The service it removed, or `None` when none was installed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub removed: Option<InstalledService>,
+}
+
+/// What `daemon rotate-token --json` prints.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonRotateTokenOutput {
+    /// The file that holds the new persistent token, mode `0600`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub token_file: String,
+    /// What the Daemon running with the old token answered when it was
+    /// stopped, or `None` when none ran.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub stopped: Option<DaemonStopping>,
 }

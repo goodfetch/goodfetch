@@ -1,0 +1,28 @@
+---
+source: crates/goodfetch-engine/src/daemon/service/tests.rs
+expression: "format!(\"{}\\n{}\", files.join(\"\\n\"), commands.join(\"\\n\"))"
+---
+--- /Users/ada/.config/systemd/user/goodfetch-daemon-1-cfa77cf6.socket
+[Unit]
+Description=Goodfetch's Daemon of major 1, for /Users/ada/Goodfetch é home
+
+[Socket]
+ListenStream=/Users/ada/Goodfetch é home/1/daemon.sock
+SocketMode=0600
+Accept=no
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
+
+--- /Users/ada/.config/systemd/user/goodfetch-daemon-1-cfa77cf6.service
+[Unit]
+Description=Goodfetch's Daemon of major 1, for /Users/ada/Goodfetch é home
+
+[Service]
+Type=simple
+ExecStart="/Users/ada/Goodfetch é home/browsers/executable_copy/goodfetch-collie/1.4.0-0123456789abcdef/files/goodfetch-collie" "daemon" "launched" "--service" "--copy" "1.4.0-0123456789abcdef" "--environment" "GOODFETCH_HOME=/Users/ada/Goodfetch é home" "--environment" "GOODFETCH_LOG=info,goodfetch=debug"
+WorkingDirectory=/Users/ada/Goodfetch é home
+
+$ systemctl --user | daemon-reload
+$ systemctl --user | enable | --now | goodfetch-daemon-1-cfa77cf6.socket

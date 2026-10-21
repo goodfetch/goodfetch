@@ -16,6 +16,7 @@ pub mod clock;
 mod composition;
 mod config;
 pub mod daemon;
+pub mod deadline;
 pub mod dns;
 mod engine;
 pub mod entropy;

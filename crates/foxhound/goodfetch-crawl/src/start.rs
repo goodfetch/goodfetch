@@ -16,7 +16,7 @@ use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_START, CrawlStartParams, Seed};
 use goodfetch_protocol::run::{Lifecycle, RunKind, RunStarted, StartInput, StartedAs};
-use goodfetch_protocol::settings::RunOrigin;
+use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
 use crate::delivery;
 use crate::work_items;
@@ -62,6 +62,7 @@ async fn start(params: CrawlStartParams, context: CallContext) -> Result<RunStar
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
+            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
         })
         .await
         .map_err(start_error)?;

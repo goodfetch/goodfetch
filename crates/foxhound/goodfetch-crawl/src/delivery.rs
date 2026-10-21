@@ -12,8 +12,11 @@
 //! settings. When a lease ends first, the attempt's request is cancelled
 //! with `$/cancel`, and an answer that still comes is a late commit,
 //! refused with `lease_lost`. Once every work item is done, it finishes
-//! the Run. When the Run stops, the attempts in flight are abandoned and
-//! their work items return to pending without counting; when the program's
+//! the Run. When the Run is asked to stop at its next safe point, such as
+//! once its `timeout.run` passed, it admits nothing new, lets each attempt
+//! in flight commit or be abandoned under its lease, and then stops the
+//! Run. When the Run stops at once, by an abort, the attempts in flight are
+//! abandoned and their work items return to pending without counting; when the program's
 //! Connection ends, the driver delivers nothing more and waits for the Run
 //! to stop.
 
@@ -27,6 +30,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
     HANDLER_LOST, LEASE_LOST,
 };
+use goodfetch_protocol::run::StopReason;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
@@ -71,14 +75,16 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
     };
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut client_gone = false;
+    let mut stop: Option<StopReason> = None;
     loop {
         let resolved = settings.at_admission().await;
         let policy = CrawlPolicy::of(&resolved);
         admission.update(&resolved);
-        let room = if client_gone {
-            0
-        } else {
+        let admitting = !client_gone && stop.is_none();
+        let room = if admitting {
             policy.handler_concurrency.saturating_sub(attempts.len())
+        } else {
+            0
         };
         match admit(&run, &mut admission, room).await {
             Ok(leased) => {
@@ -98,36 +104,30 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
             }
         }
         if attempts.is_empty() {
+            if let Some(reason) = stop {
+                run.end(Ending::Stopped(reason)).await;
+                return;
+            }
             if client_gone {
                 run.cancellation().cancelled().await;
                 release(&run).await;
                 return;
             }
-            if admission.ready_at(run.clock().now()).is_none() {
-                match fill(&run, &mut admission, None).await {
-                    Ok(()) if admission.ready_at(run.clock().now()).is_some() => continue,
-                    Ok(()) => {}
-                    Err(error) => {
-                        tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                        run.end(Ending::Failed).await;
-                        return;
-                    }
+            match when_idle(&run, &mut admission).await {
+                Ok(Idle::Admit) => continue,
+                Ok(Idle::Wait) => {}
+                Ok(Idle::Done) => {
+                    run.end(Ending::Finished).await;
+                    return;
                 }
-                match run.state().read(work_items::any_pending).await {
-                    Ok(false) => {
-                        run.end(Ending::Finished).await;
-                        return;
-                    }
-                    Ok(true) => {}
-                    Err(error) => {
-                        tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                        run.end(Ending::Failed).await;
-                        return;
-                    }
+                Err(error) => {
+                    tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
+                    run.end(Ending::Failed).await;
+                    return;
                 }
             }
         }
-        let free = !client_gone && attempts.len() < policy.handler_concurrency;
+        let free = admitting && attempts.len() < policy.handler_concurrency;
         let wake = free
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
@@ -138,6 +138,9 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
                 release(&run).await;
                 return;
             }
+            reason = run.stopping(), if stop.is_none() => {
+                stop = Some(reason);
+            }
             Some(ended) = attempts.join_next() => {
                 let Ok(attempt) = ended else {
                     continue;
@@ -145,18 +148,52 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
                 if let Answer::ClientGone = attempt.answer {
                     client_gone = true;
                 }
-                let waiting = attempt.leased.waiting.clone();
-                let policy = CrawlPolicy::of(&settings.at_admission().await);
-                let retried = settle(&run, policy, attempt).await;
-                admission.ended(&waiting.key, run.clock().now(), Ended::Done);
-                if retried {
-                    admission.enqueue(waiting);
-                }
-                journal(&run, &mut admission).await;
+                settled(&run, &settings, &mut admission, attempt).await;
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
         }
     }
+}
+
+/// What a crawl with no attempt in flight does next.
+enum Idle {
+    /// Admit the work items its queues now hold.
+    Admit,
+    /// Wait until its admission is ready or the Run stops.
+    Wait,
+    /// Finish: no work item is pending.
+    Done,
+}
+
+/// What a crawl with no attempt in flight does next: its queues filled
+/// again from the pending work items when they hold none ready.
+async fn when_idle(run: &Run, admission: &mut Admission) -> Result<Idle, RunStateError> {
+    if admission.ready_at(run.clock().now()).is_some() {
+        return Ok(Idle::Wait);
+    }
+    fill(run, admission, None).await?;
+    if admission.ready_at(run.clock().now()).is_some() {
+        return Ok(Idle::Admit);
+    }
+    Ok(if run.state().read(work_items::any_pending).await? {
+        Idle::Wait
+    } else {
+        Idle::Done
+    })
+}
+
+/// Settles an attempt that ended under the Run's policy now, returns its
+/// domain's turn, puts a retried work item back in its queue and journals
+/// what the queues changed.
+async fn settled(run: &Run, settings: &RunSettings, admission: &mut Admission, attempt: Attempt) {
+    let waiting = attempt.leased.waiting.clone();
+    let policy = CrawlPolicy::of(&settings.at_admission().await);
+    let retried = settle(run, policy, attempt).await;
+    admission.ended(&waiting.key, run.clock().now(), Ended::Done);
+    if retried {
+        admission.enqueue(waiting);
+    }
+    journal(run, admission).await;
 }
 
 /// Opens the Run's admission, the gate Foxhound's composition passes in,

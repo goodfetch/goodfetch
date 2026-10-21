@@ -17,6 +17,7 @@
 
 mod admission;
 mod model;
+mod safe_point;
 
 use std::path::PathBuf;
 use std::sync::mpsc;

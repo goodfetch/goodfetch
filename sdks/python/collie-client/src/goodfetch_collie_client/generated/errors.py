@@ -290,6 +290,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
     "closed": ClosedError,
+    "deadline_exceeded": DeadlineExceededError,
     "engine_exited": EngineExitedError,
     "engine_not_found": EngineNotFoundError,
     "engine_output_invalid": EngineOutputInvalidError,

@@ -30,6 +30,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
@@ -158,6 +159,9 @@ pub struct Start {
     /// The settings it runs with that weaken a guarantee or switch off a
     /// costly control, which its Run report is marked with (ADR 0028).
     pub weakened_by: Vec<SettingLimit>,
+    /// Its `timeout.run`, none when unset: once it passes, counted from
+    /// this start, the Run stops at its next safe point (ADR 0080).
+    pub timeout: Option<Duration>,
 }
 
 /// What a start found.
@@ -261,6 +265,9 @@ pub enum Ending {
     Finished,
     /// An error in the engine ended it: `failed`.
     Failed,
+    /// It reached the safe point a stop asked for: `stopped`, for the
+    /// reason [`Run::stopping`] gave.
+    Stopped(StopReason),
 }
 
 /// Why a Run ends.
@@ -332,6 +339,7 @@ pub struct Run {
     state: RunState,
     clock: Clock,
     gates: Option<Arc<dyn Gates>>,
+    stop: Arc<watch::Sender<Option<StopReason>>>,
     owner: Arc<TaskOwner>,
     runs: Runs,
 }
@@ -361,10 +369,64 @@ impl Run {
         self.clock
     }
 
-    /// Cancelled when the Run stops: its driver stops at its next safe
-    /// point.
+    /// Cancelled when the Run stops at once, by an abort: its driver
+    /// abandons each attempt in flight.
     pub fn cancellation(&self) -> &CancellationToken {
         self.owner.token()
+    }
+
+    /// Answers once something asks the Run to stop at its next safe point,
+    /// such as its `timeout.run` passing, with the reason it stops for: its
+    /// driver then admits nothing new, lets each attempt in flight commit
+    /// or be abandoned under its lease, and ends it with
+    /// [`Ending::Stopped`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing; a later call answers the same.
+    pub async fn stopping(&self) -> StopReason {
+        let mut stop = self.stop.subscribe();
+        let asked = stop.wait_for(Option::is_some).await.map(|reason| *reason);
+        match asked {
+            Ok(Some(reason)) => reason,
+            _ => std::future::pending().await,
+        }
+    }
+
+    /// Starts the tasks that ask the Run to stop at its next safe point:
+    /// once its `timeout` passes; and for a Run its program drives, which
+    /// has nothing in flight in the engine, the one that then stops it.
+    fn watch_safe_points(&self, timeout: Option<Duration>, ended_by: EndedBy) {
+        if let Some(timeout) = timeout {
+            let timed = self.clone();
+            self.spawn(async move {
+                tokio::select! {
+                    () = timed.cancellation().cancelled() => {}
+                    () = timed.clock.sleep(timeout) => timed.stop_at_safe_point(StopReason::Timeout),
+                }
+            });
+        }
+        if ended_by == EndedBy::Finish {
+            let stopped = self.clone();
+            self.spawn(async move {
+                tokio::select! {
+                    () = stopped.cancellation().cancelled() => {}
+                    reason = stopped.stopping() => stopped.end(Ending::Stopped(reason)).await,
+                }
+            });
+        }
+    }
+
+    /// Asks the Run to stop at its next safe point for `reason`; the first
+    /// reason asked stays.
+    fn stop_at_safe_point(&self, reason: StopReason) {
+        self.stop.send_if_modified(|stop| {
+            let unset = stop.is_none();
+            if unset {
+                *stop = Some(reason);
+            }
+            unset
+        });
     }
 
     /// Its admission under `settings`: the gate in admission the
@@ -414,6 +476,7 @@ impl Run {
         let end = match ending {
             Ending::Finished => End::Finished,
             Ending::Failed => End::Failed,
+            Ending::Stopped(reason) => End::Stopped(reason),
         };
         let _ = self
             .runs
@@ -953,6 +1016,7 @@ impl Registry {
                 state,
                 clock: self.setup.clock,
                 gates: self.setup.gates.clone(),
+                stop: Arc::new(watch::Sender::new(None)),
                 owner: Arc::new(self.owner.child()),
                 runs: Runs {
                     commands: self
@@ -980,6 +1044,7 @@ impl Registry {
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
         let run = live.run.clone().expect("invariant: a Run begins live");
+        run.watch_safe_points(start.timeout, start.ended_by);
         self.live.insert(run_id.clone(), live);
         self.setup
             .events

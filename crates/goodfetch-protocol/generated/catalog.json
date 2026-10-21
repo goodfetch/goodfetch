@@ -72,6 +72,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
+      "exit_code": null,
+      "group": "deadline_exceeded",
+      "json_rpc_class": -32005,
+      "name": "deadline_exceeded",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
       "exit_code": null,
       "group": "unavailable",

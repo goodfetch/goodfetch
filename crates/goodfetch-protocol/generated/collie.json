@@ -1029,6 +1029,19 @@
             "by"
           ],
           "type": "object"
+        },
+        {
+          "description": "Its `timeout.run` passed, and it stopped at its next safe point,\nresumable with a fresh clock (ADR 0080); no Error code of its own.",
+          "properties": {
+            "kind": {
+              "const": "timeout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -1150,6 +1163,16 @@
       "name": "closed",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
+      "exit_code": null,
+      "group": "deadline_exceeded",
+      "json_rpc_class": -32005,
+      "name": "deadline_exceeded",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",

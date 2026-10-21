@@ -301,6 +301,18 @@ class StartedAs(StrEnum):
     """
 
 
+class StopReason2(BaseModel):
+    """
+    Its `timeout.run` passed, and it stopped at its next safe point,
+    resumable with a fresh clock (ADR 0080); no Error code of its own.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["timeout"]
+
+
 class StoppedBy(StrEnum):
     """Who stopped a call (ADR 0113)."""
 
@@ -748,8 +760,8 @@ class StopReason1(BaseModel):
     kind: Literal["abort"]
 
 
-class StopReason(RootModel[StopReason1]):
-    root: StopReason1
+class StopReason(RootModel[StopReason1 | StopReason2]):
+    root: StopReason1 | StopReason2
     """
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.

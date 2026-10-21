@@ -323,6 +323,9 @@ pub enum StopReason {
         #[schemars(extend("arrived_in" = "0.1"))]
         by: StoppedBy,
     },
+    /// Its `timeout.run` passed, and it stopped at its next safe point,
+    /// resumable with a fresh clock (ADR 0080); no Error code of its own.
+    Timeout,
 }
 
 /// What kind of Run it is: a Collie Run its program drives, or a crawl

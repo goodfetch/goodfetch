@@ -118,13 +118,17 @@ export type RunId = string;
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StopReason".
  */
-export type StopReason = {
-  /**
-   * Who stopped it.
-   */
-  by: "client";
-  kind: "abort";
-};
+export type StopReason =
+  | {
+      /**
+       * Who stopped it.
+       */
+      by: "client";
+      kind: "abort";
+    }
+  | {
+      kind: "timeout";
+    };
 /**
  * An opaque text a Run is tagged with (ADR 0036).
  *

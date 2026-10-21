@@ -51,6 +51,11 @@ number = 3
 kind = "error"
 prefix = "call_cancelled"
 
+[[area]]
+number = 3
+kind = "error"
+prefix = "deadline_exceeded"
+
 # The engine's own DNS resolver and Smart App Control's refusal (#260).
 [[area]]
 number = 3

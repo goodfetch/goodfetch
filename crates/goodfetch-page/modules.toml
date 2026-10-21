@@ -6,6 +6,10 @@ launch = []
 pages = ["driver"]
 trace = []
 
+# Which of `driver`'s own modules may import which.
+[submodules.driver]
+navigation = []
+
 # Which of `launch`'s own modules may import which.
 [submodules.launch]
 pipe = []

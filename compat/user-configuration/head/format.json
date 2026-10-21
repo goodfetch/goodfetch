@@ -65,6 +65,16 @@
             },
             "type": "object"
           },
+          "console": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
           "crawl": {
             "additionalProperties": false,
             "properties": {

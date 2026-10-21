@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use goodfetch_test_support::{Cli, TestEnv, cli};
 #[cfg(unix)]
-use goodfetch_test_support::{DaemonEndpoint, RuntimeFile};
+use goodfetch_test_support::{ConsoleState, DaemonEndpoint, RuntimeFile};
 use serde_json::{Value, json};
 
 #[cfg(unix)]
@@ -91,6 +91,7 @@ pub(crate) fn service_reach(env: &TestEnv, service: &Value) -> RuntimeFile {
         token,
         version: VERSION.to_owned(),
         pid: 0,
+        console: ConsoleState::Absent,
     }
 }
 

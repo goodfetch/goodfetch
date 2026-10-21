@@ -126,7 +126,12 @@ impl Allowlist {
         } else {
             id
         };
-        let Some(license) = self.licenses.iter().find(|license| same(&license.id, id)) else {
+        let mut entries = self
+            .licenses
+            .iter()
+            .filter(|license| same(&license.id, id))
+            .peekable();
+        if entries.peek().is_none() {
             let base = id.split_whitespace().next().unwrap_or_default();
             let gpl = GPL_FAMILY.iter().any(|prefix| {
                 base.get(..prefix.len())
@@ -137,25 +142,42 @@ impl Allowlist {
                 (true, _) => Err(Refusal::GplEmbedded),
                 (false, _) => Err(Refusal::NotAllowed),
             };
-        };
-        match (&license.only, usage) {
-            (Some(Only::Use(Use::UnmodifiedFiles)), Usage::Modified) => Err(Refusal::Modified),
-            (Some(Only::Use(Use::CompiledFilterLists)), Usage::Unmodified | Usage::Modified) => {
-                Err(Refusal::NotAllowed)
-            }
-            (Some(Only::Package(package)), _) => {
-                let ecosystem = match package.ecosystem {
-                    PackageEcosystem::Npm => Ecosystem::Npm,
-                    PackageEcosystem::Python => Ecosystem::Python,
-                };
-                if entry.ecosystem == ecosystem && entry.name == package.package {
-                    Ok(license.id.clone())
-                } else {
-                    Err(Refusal::NotAllowed)
+        }
+        // A license allowed for several packages has one entry each: the
+        // first that allows this use decides.
+        let mut first_refusal = None;
+        for license in entries {
+            match allows(license, entry) {
+                Ok(recorded) => return Ok(recorded),
+                Err(refusal) => {
+                    first_refusal.get_or_insert(refusal);
                 }
             }
-            _ => Ok(license.id.clone()),
         }
+        Err(first_refusal.unwrap_or(Refusal::NotAllowed))
+    }
+}
+
+/// The license `license` records `entry` under, or why that entry of the
+/// allowlist refuses its use.
+fn allows(license: &license_allowlist::License, entry: &Entry) -> Result<String, Refusal> {
+    match (&license.only, entry.usage) {
+        (Some(Only::Use(Use::UnmodifiedFiles)), Usage::Modified) => Err(Refusal::Modified),
+        (Some(Only::Use(Use::CompiledFilterLists)), Usage::Unmodified | Usage::Modified) => {
+            Err(Refusal::NotAllowed)
+        }
+        (Some(Only::Package(package)), _) => {
+            let ecosystem = match package.ecosystem {
+                PackageEcosystem::Npm => Ecosystem::Npm,
+                PackageEcosystem::Python => Ecosystem::Python,
+            };
+            if entry.ecosystem == ecosystem && entry.name == package.package {
+                Ok(license.id.clone())
+            } else {
+                Err(Refusal::NotAllowed)
+            }
+        }
+        _ => Ok(license.id.clone()),
     }
 }
 

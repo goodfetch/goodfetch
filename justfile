@@ -38,9 +38,11 @@ lint: fmt-check
     ci/fuzz-check.sh locked
     pnpm install --lockfile-only --frozen-lockfile
     uv lock --check
+    {{ just_executable() }} console-build
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     pnpm exec tsc -p tsconfig.json
     pnpm -r --if-present run typecheck
+    ci/console-messages.sh
     pnpm exec oxlint
     uv run ruff check .
     uv run pyright
@@ -281,8 +283,16 @@ fetch:
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
 
+# Collie's Console build, which Collie's executable embeds (ADR 0057):
+# brotli files only, in crates/goodfetch-collie/console-build/; nothing runs
+# when its inputs did not change. Every recipe that builds the executable
+# runs it first, and a `cargo build` without it fails naming it.
+console-build:
+    cargo run --quiet -p xtask -- console build
+
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":
+    {{ just_executable() }} console-build
     cargo build --workspace --all-targets --profile {{ profile }}
     pnpm -r --if-present run build
     uv build --all-packages --out-dir target/python-dist
@@ -820,6 +830,7 @@ lazyfs-test:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ just_executable() }} lazyfs-fetch
+    {{ just_executable() }} console-build
     GOODFETCH_LAZYFS=$(cargo run --quiet -p xtask -- lazyfs build)
     export GOODFETCH_LAZYFS GOODFETCH_TEST_SUITE=release
     cargo nextest run -p goodfetch-test-support -p goodfetch-collie --profile ci \
@@ -835,6 +846,7 @@ lazyfs-test:
 # reads a change's base listings (ADR 0064).
 warm:
     pnpm exec tsc -p tsconfig.json
+    {{ just_executable() }} console-build
     cargo clippy --workspace --all-targets --all-features
     cargo build -p xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
@@ -944,11 +956,13 @@ audit:
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).
 msrv:
+    {{ just_executable() }} console-build
     ci/msrv.sh
 
 # cargo-hack over every feature combination of each Product's SDK crate
 # (ADR 0087).
 feature-combinations:
+    {{ just_executable() }} console-build
     ci/tool.sh cargo-hack ci/feature-combinations.sh
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml

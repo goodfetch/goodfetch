@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::daemon::{DaemonOptions, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
@@ -170,6 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             keep_alive: true,
             holds: Holds::new(),
             succession: Arc::new(ThePick),
+            console: DaemonConsole::Absent,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);
         tokio::select! {

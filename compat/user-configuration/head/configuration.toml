@@ -1,5 +1,8 @@
 version = "0.1"
 
+[settings.console]
+address = "example"
+
 [settings.daemon]
 idle_timeout = 30000
 

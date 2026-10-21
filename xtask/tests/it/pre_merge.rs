@@ -13,8 +13,10 @@ use rstest::rstest;
 use crate::workspace::Workspace;
 
 /// Every step of `just pre-merge all`: the host's in the order it runs them,
-/// then those beside them.
-const STEPS: [&str; 21] = [
+/// Collie's Console build first, which the steps beside find in the
+/// workspace they mount, then those beside them.
+const STEPS: [&str; 22] = [
+    "console-build",
     "dco",
     "commit-messages",
     "lint",

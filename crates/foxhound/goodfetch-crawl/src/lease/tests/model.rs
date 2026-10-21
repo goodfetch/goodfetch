@@ -317,7 +317,7 @@ impl StateMachineTest for Subject {
             .await
             .unwrap();
             state
-                .write(move |connection| work_items::insert_seeds(connection, &seeds))
+                .write(move |connection| work_items::admit_seeds(connection, &seeds).map(drop))
                 .await
                 .unwrap();
             (

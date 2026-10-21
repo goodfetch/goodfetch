@@ -5,6 +5,7 @@
 
 mod delivery;
 mod formats;
+mod navigation;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::{
@@ -18,6 +19,8 @@ use goodfetch_protocol::page::{Navigated, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::result_document::{CaseCheck, OracleAnswer};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
+
+use std::collections::BTreeMap;
 
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
@@ -41,17 +44,23 @@ pub(crate) enum Case {
     LateCommit,
     PagesShareTheDefaultSession,
     GotoAnswersTheResponse,
+    ErrorStatusesAreResponses,
+    HistoryAnswersResponsesAcrossSites,
+    BackLoadsTheDocumentAgain,
+    UnresolvedNameFailsTheNavigation,
+    SupersededNavigationIsInterrupted,
     MarkdownMatchesTheOracle,
     FormatNotNamedIsLeftOut,
     NoMainContentIsNone,
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
-/// the start page of its Markdown pages, the `resolve` mapping of its hosts
-/// to its address, and the Proving ground itself, for its oracle.
+/// each task's start URL, the `resolve` mapping of its hosts to the Proving
+/// ground's address, and the Proving ground itself, whose time step a case
+/// may set and whose oracle a case may ask.
 pub(crate) struct Site {
     page_url: Option<String>,
-    markdown_index: Option<String>,
+    start_urls: BTreeMap<String, String>,
     resolve: Value,
     proving_ground: ProvingGround,
 }
@@ -76,17 +85,21 @@ impl Site {
                 resolve.insert(host.to_owned(), json!([ip]));
             }
         }
-        let markdown_index = task_list
-            .tasks
-            .iter()
-            .find(|task| task.id.as_str() == "extraction/7")
-            .map(|task| task.start_url.clone());
         Self {
             page_url,
-            markdown_index,
+            start_urls: task_list
+                .tasks
+                .iter()
+                .map(|task| (task.id.as_str().to_owned(), task.start_url.clone()))
+                .collect(),
             resolve: Value::Object(resolve),
             proving_ground: proving_ground.clone(),
         }
+    }
+
+    /// The start URL of the task `id`, such as `statuses/1`.
+    fn start_url(&self, id: &str) -> Option<&str> {
+        self.start_urls.get(id).map(String::as_str)
     }
 }
 
@@ -137,6 +150,17 @@ impl Case {
             "an-answer-after-the-lease-ended-is-a-late-commit-and-refused" => Self::LateCommit,
             "pages-open-in-the-runs-default-session" => Self::PagesShareTheDefaultSession,
             "goto-answers-the-documents-response" => Self::GotoAnswersTheResponse,
+            "an-error-status-is-the-documents-response" => Self::ErrorStatusesAreResponses,
+            "back-and-forward-across-sites-answer-the-documents-response" => {
+                Self::HistoryAnswersResponsesAcrossSites
+            }
+            "going-back-loads-the-document-again" => Self::BackLoadsTheDocumentAgain,
+            "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection" => {
+                Self::UnresolvedNameFailsTheNavigation
+            }
+            "a-navigation-superseded-before-it-committed-is-interrupted" => {
+                Self::SupersededNavigationIsInterrupted
+            }
             "markdown-matches-the-oracle-on-the-markdown-pages" => Self::MarkdownMatchesTheOracle,
             "a-format-the-request-does-not-name-is-left-out" => Self::FormatNotNamedIsLeftOut,
             "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
@@ -188,6 +212,19 @@ impl Case {
             Self::LateCommit => delivery::late_commit(connection, checks),
             Self::PagesShareTheDefaultSession => default_session(connection, site, checks),
             Self::GotoAnswersTheResponse => goto(connection, site, checks),
+            Self::ErrorStatusesAreResponses => navigation::error_statuses(connection, site, checks),
+            Self::HistoryAnswersResponsesAcrossSites => {
+                navigation::history_across_sites(connection, site, checks)
+            }
+            Self::BackLoadsTheDocumentAgain => {
+                navigation::back_loads_again(connection, site, checks)
+            }
+            Self::UnresolvedNameFailsTheNavigation => {
+                navigation::unresolved_name(connection, site, checks)
+            }
+            Self::SupersededNavigationIsInterrupted => {
+                navigation::superseded(connection, site, checks)
+            }
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, checks)
             }

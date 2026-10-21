@@ -1,11 +1,12 @@
-# Area 6's user stories (spec #580, Collection, Collie's part: 1 to 66;
-# Foxhound's part, specs #581 and #582, numbers its own from 201), the
-# declared `story:6-<id>` Features of ADR 0072, every story of the spec as
-# its Testing Decisions give them: each story's milestone is that of the
-# last ticket that makes it tested, and a story without a Journey carries
-# ADR 0075's reason (`actor` or `part`). Stories 13, 50 and 65, which no
-# ticket of the spec names, take their surface's milestone. The spec's issue
-# keeps the full text; this copy is the one the Feature check reads. Never
+# Area 6's user stories, the declared `story:6-<id>` Features of ADR 0072:
+# spec #580 (Collection, Collie's part) numbers its stories from 1, all 66
+# of them here; specs #581 and #582 (Foxhound's part) number theirs from
+# 201, those a test declares so far, the others joining with the tickets
+# that declare them. Each story's milestone is that of the last ticket that
+# makes it tested; Collie's stories 13, 50 and 65, which no ticket of its
+# spec names, take their surface's milestone. A story without a Journey
+# carries ADR 0075's reason (`actor`, `part` or `reach`). The specs' issues
+# keep the full text; this copy is the one the Feature check reads. Never
 # renumber or reuse an ID: a removed story stays with `status = "retired"`
 # and a `reason`.
 
@@ -530,4 +531,36 @@ title = "As Foxhound's code-free crawl, I want the formats request to be one val
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 201
+title = "As a crawl developer, I want each seed answered as an enqueue is (added with its ID, or not added with `duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name) and listed by `run.seeds()`, so that a crawl that does nothing says why (ADR 0102; G1)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 202
+title = "As a crawl developer, I want a relative seed refused with `invalid_url`, so that a seed never depends on a base I did not give (ADR 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 211
+title = "As a crawl developer, I want every URL a crawl meets (seeds, enqueues, `href`s, sitemap entries, `Location`s, Hook rewrites) parsed once by the WHATWG URL Standard on every tier, so that the crawl sees the links a browser sees (ADR 0120; pitfall U07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 231
+title = "As a crawl developer, I want `ctx.enqueue(url, label, payload?, options)` to resolve a relative URL against the document's base URL and answer added or not added with its reason, so that \"enqueued nothing\" says why (ADRs 0093, 0120; pitfall U08)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"

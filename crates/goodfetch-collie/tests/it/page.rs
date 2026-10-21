@@ -515,3 +515,52 @@ fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
         (Some(3), &json!("closed"), &json!("page.formats"))
     );
 }
+
+/// Runs `page <command> page-1 --json`, which names a page no engine holds,
+/// and returns its exit status, Error code and operation.
+fn closed_page(command: &str) -> (Option<i32>, Value, Value) {
+    let env = TestEnv::new();
+    let checked = cli(&env, COLLIE)
+        .args(["page", command, "page-1", "--json"])
+        .json("CommandFailed")
+        .unwrap();
+    (
+        checked.output.exit,
+        checked.documents[0]["error"]["code"].clone(),
+        checked.documents[0]["error"]["operation"].clone(),
+    )
+}
+
+/// `page reload` through the command generated from the catalog (#698): no
+/// engine holds the page it names, so the call fails with `closed`.
+/// Covers: command:page.reload
+#[test]
+fn page_reload_of_a_page_no_engine_holds_fails_with_closed() {
+    assert_eq!(
+        closed_page("reload"),
+        (Some(3), json!("closed"), json!("page.reload"))
+    );
+}
+
+/// `page go-back` through the command generated from the catalog (#698):
+/// no engine holds the page it names, so the call fails with `closed`.
+/// Covers: command:page.go-back
+#[test]
+fn page_go_back_of_a_page_no_engine_holds_fails_with_closed() {
+    assert_eq!(
+        closed_page("go-back"),
+        (Some(3), json!("closed"), json!("page.go_back"))
+    );
+}
+
+/// `page go-forward` through the command generated from the catalog
+/// (#698): no engine holds the page it names, so the call fails with
+/// `closed`.
+/// Covers: command:page.go-forward
+#[test]
+fn page_go_forward_of_a_page_no_engine_holds_fails_with_closed() {
+    assert_eq!(
+        closed_page("go-forward"),
+        (Some(3), json!("closed"), json!("page.go_forward"))
+    );
+}

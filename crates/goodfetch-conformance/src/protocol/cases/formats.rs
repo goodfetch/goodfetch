@@ -53,7 +53,7 @@ fn formats(
 
 /// The task's start page and the paths of the pages it lists.
 fn markdown_pages(site: &Site, checks: &mut Checks) -> Option<(String, Vec<String>)> {
-    let index = site.markdown_index.clone();
+    let index = site.start_url(MARKDOWN_TASK).map(ToOwned::to_owned);
     checks.check(
         format!("the Proving ground serves task `{MARKDOWN_TASK}`"),
         index.is_some(),

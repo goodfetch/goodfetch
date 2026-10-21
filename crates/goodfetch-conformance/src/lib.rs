@@ -8,15 +8,22 @@
 //! It depends on no Goodfetch crate but `goodfetch-protocol`: it tests
 //! through the interface, never engine internals. Its first suite, the
 //! self-test, proves the Proving ground's own oracle against known-right
-//! and known-wrong reference results.
+//! and known-wrong reference results; the protocol suite runs against any
+//! target that speaks Goodfetch's JSON-RPC protocol, started from its
+//! executable taken by path.
 
 mod case_list;
 mod host;
+mod protocol;
 mod proving_ground;
 mod self_test;
 mod writer;
 
 pub use case_list::{CaseList, DeclaredCapability, DeclaredCase};
+pub use protocol::{
+    EngineMode, EngineTarget, ProtocolSuite, ProtocolSuiteError, StartError, SuiteError,
+    run_protocol_suite,
+};
 pub use proving_ground::{ProvingGround, ProvingGroundError, Submission, Task, TaskList};
 pub use self_test::{Record, References, SelfTestError, run_self_test};
 pub use writer::{CaseLogError, WriteError, read_case_log, write_document};

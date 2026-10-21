@@ -28,7 +28,11 @@
 //! `GOODFETCH_FOXHOUND_ENGINE_PATH`, ADR 0090) names this executable, which
 //! the SDK starts as `attached-engine` with its environment map; the script
 //! is then `scripted-engine/script.json` under the map's `GOODFETCH_HOME`,
-//! and the record `scripted-engine/record.jsonl` beside it.
+//! and the record `scripted-engine/record.jsonl` beside it. A Client that
+//! starts a Daemon's process as a Product's `daemon start` does, such as the
+//! conformance harness, starts `daemon launched` instead: it plays the same
+//! script in `socket` mode and, as a launched Daemon does, prints the
+//! runtime file it wrote once a Client can find it.
 //!
 //! A test-only executable the Simulation never runs, it opens its own
 //! stdio and sockets and writes its own stdout, the one writer to stdout
@@ -98,6 +102,26 @@ enum Form {
     /// Runs as an SDK starts its Attached engine: plays
     /// `scripted-engine/script.json` under `GOODFETCH_HOME` over stdio.
     AttachedEngine,
+    /// Runs as a Product's Daemon is started.
+    #[command(subcommand)]
+    Daemon(DaemonForm),
+}
+
+#[derive(Subcommand)]
+enum DaemonForm {
+    /// Runs as a Daemon's launched process: plays
+    /// `scripted-engine/script.json` under `GOODFETCH_HOME` in `socket` mode
+    /// and prints the runtime file once ready.
+    Launched,
+}
+
+/// The line printed once a Client can find the Daemon.
+#[derive(Clone, Copy)]
+enum Ready {
+    /// `{"address": …, "runtime_file": …}`, for a test that started it.
+    Address,
+    /// The runtime file's contents, as a launched Daemon prints them.
+    RuntimeFile,
 }
 
 fn main() -> ExitCode {
@@ -121,6 +145,7 @@ fn main() -> ExitCode {
 type Failure = Box<dyn std::error::Error>;
 
 fn run(arguments: &Arguments) -> Result<Ending, Failure> {
+    let mut ready = Ready::Address;
     let (script, record, mode) = match (&arguments.form, &arguments.script, arguments.mode) {
         (Some(Form::AttachedEngine), _, _) => {
             let home = home()?;
@@ -128,6 +153,15 @@ fn run(arguments: &Arguments) -> Result<Ending, Failure> {
                 home.join(ATTACHED_SCRIPT),
                 Some(home.join(ATTACHED_RECORD)),
                 Mode::Stdio,
+            )
+        }
+        (Some(Form::Daemon(DaemonForm::Launched)), _, _) => {
+            let home = home()?;
+            ready = Ready::RuntimeFile;
+            (
+                home.join(ATTACHED_SCRIPT),
+                Some(home.join(ATTACHED_RECORD)),
+                Mode::Socket,
             )
         }
         (None, Some(script), Some(mode)) => (script.clone(), arguments.record.clone(), mode),
@@ -153,7 +187,7 @@ fn run(arguments: &Arguments) -> Result<Ending, Failure> {
             listener.play(&script, record)
         }
         Mode::Socket => {
-            let daemon = Daemon::publish(&home()?, arguments)?;
+            let daemon = Daemon::publish(&home()?, arguments, ready)?;
             let ending = daemon.listener.play(&script, record);
             match ending {
                 Ok(Ending::Exit(_)) => daemon.abandon(),
@@ -180,7 +214,7 @@ struct Daemon {
 impl Daemon {
     /// Listens, writes the runtime file and prints the line saying a Client
     /// can find it.
-    fn publish(home: &Path, arguments: &Arguments) -> Result<Self, Failure> {
+    fn publish(home: &Path, arguments: &Arguments, ready: Ready) -> Result<Self, Failure> {
         let runtime_file = RuntimeFile::path(home, &arguments.product_version);
         let folder = runtime_file
             .parent()
@@ -208,10 +242,13 @@ impl Daemon {
             _serving: serving,
         };
         contents.write(&daemon.runtime_file)?;
-        announce(&json!({
-            "address": endpoint.to_string(),
-            "runtime_file": daemon.runtime_file,
-        }))?;
+        match ready {
+            Ready::Address => announce(&json!({
+                "address": endpoint.to_string(),
+                "runtime_file": daemon.runtime_file,
+            }))?,
+            Ready::RuntimeFile => announce(&serde_json::to_value(&contents)?)?,
+        }
         Ok(daemon)
     }
 

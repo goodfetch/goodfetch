@@ -14,6 +14,7 @@
 mod case_log;
 mod journey_document;
 mod journey_run;
+mod protocol;
 mod proving_ground;
 mod read_command;
 mod self_test;

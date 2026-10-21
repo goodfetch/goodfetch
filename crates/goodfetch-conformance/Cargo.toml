@@ -22,11 +22,13 @@ ureq.workspace = true
 [dev-dependencies]
 goodfetch-test-support.workspace = true
 jsonschema.workspace = true
+rstest.workspace = true
 
 [lints]
 workspace = true
 
-# Its tests run the Proving ground's executable through the test tool
-# manifest, so a change to the Proving ground runs them (`xtask affected`).
+# Its tests run the Proving ground's and each Product's executables through
+# the test tool manifest, so a change to any of them runs them (`xtask
+# affected`).
 [package.metadata.goodfetch]
-runs = ["goodfetch-proving-ground"]
+runs = ["goodfetch-proving-ground", "goodfetch-collie", "goodfetch-foxhound"]

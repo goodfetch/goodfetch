@@ -210,7 +210,9 @@ class Player implements PlayedScript {
         const expected = `\`${wanted.method}\` with params ${canonical(wanted.params)}`;
         return this.#fail(unexpected(index, expected, message, line));
       }
-      this.#answering = { id: message["id"] };
+      // A notification, such as a `$/cancel`, leaves the request matched
+      // before it to answer.
+      if ("id" in message) this.#answering = { id: message["id"] };
     } else if ("await_reply" in step) {
       const id = this.#awaiting;
       this.#awaiting = undefined;

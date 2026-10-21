@@ -1,0 +1,52 @@
+{
+  "description": "A subscription stays in flight until the Client cancels it, then the engine answers it with `call_cancelled`: a `reply` after an expected notification answers the request expected before it.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 1
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "The call was cancelled by its Client.",
+          "data": {
+            "code": "call_cancelled",
+            "retryable": false,
+            "by": "client"
+          }
+        }
+      }
+    }
+  ]
+}

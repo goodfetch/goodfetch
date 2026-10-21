@@ -70,3 +70,6 @@ pub enum Reply {
         error_code: String,
     },
 }
+
+#[cfg(test)]
+mod tests;

@@ -7,10 +7,6 @@
 //! comparison with a window runs where a virtual display does
 //! (`virtual_display`).
 #![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
-#![expect(
     clippy::disallowed_methods,
     reason = "the test polls the Proving ground on its own thread, never an async worker"
 )]

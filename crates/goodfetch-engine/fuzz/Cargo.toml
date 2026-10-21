@@ -4,7 +4,7 @@
 # `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
 # `cargo fuzz run json_rpc_framing fuzz/json_rpc_framing/seeds
 # -- -dict=fuzz/json_rpc_framing/dictionary.dict`, and likewise
-# `settings_file`.
+# `settings_file` and `checkpoint`.
 [package]
 name = "goodfetch-engine-fuzz"
 version = "0.0.0"
@@ -30,6 +30,13 @@ bench = false
 [[bin]]
 name = "settings_file"
 path = "fuzz_targets/settings_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checkpoint"
+path = "fuzz_targets/checkpoint.rs"
 test = false
 doc = false
 bench = false

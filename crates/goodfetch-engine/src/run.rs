@@ -1,19 +1,31 @@
-//! The `run.*` operations every Product carries (ADRs 0029, 0036 and 0102):
-//! `run.start` begins a Run its program drives, or returns the one its Run
-//! ID names; `run.finish` answers a Run's report once it ended; `run.abort`
-//! stops it. Also the one translation of a start's, a Run's or a setting's
-//! failure into its Error code, which a Product's own start, such as
-//! Foxhound's `crawl.start`, answers with too.
+//! The `run.*` operations every Product carries (ADRs 0002, 0029, 0036,
+//! 0102 and 0116): `run.start` begins a Run its program drives, or returns
+//! the one its Run ID names; `run.finish` answers a Run's report once it
+//! ended; `run.abort` stops it; `run.checkpoint` writes a Checkpoint;
+//! `run.pause` and `run.migrate` checkpoint a Run and stop it, resumable;
+//! `run.resume` takes the next run epoch of an interrupted Run and starts
+//! its kind's driver again. Also the one translation of a start's, a Run's
+//! or a setting's failure into its Error code, which a Product's own start,
+//! such as Foxhound's `crawl.start`, answers with too.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::checkpoint::{
+    CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
+    FormatVersionUnsupportedDetails, RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME,
+    RunCheckpointParams, RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails,
+    WriteSide,
+};
 use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::formats::{Compatibility, Format};
+use goodfetch_protocol::run::{Checkpoint, Lifecycle};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
     RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_START, RUN_STATE_UNAVAILABLE, RunAbortParams,
     RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails, RunKind, RunParams, RunReport,
-    RunStartParams, RunStarted, StartedAs,
+    RunStartParams, RunStarted, StartedAs, StopReason,
 };
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
@@ -25,16 +37,62 @@ use goodfetch_protocol::settings::{
 
 use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
-use crate::runs::{EndedBy, Forwarded, RunError, Start, StartError, Started};
-use crate::settings::{Opening, SettingsError};
+use crate::runs::{EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartError, Started};
+use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 3] {
+pub(crate) fn handlers() -> [Handler; 7] {
     [
         Handler::new(&RUN_START, start),
         Handler::new(&RUN_FINISH, finish),
         Handler::new(&RUN_ABORT, abort),
+        Handler::new(&RUN_CHECKPOINT, checkpoint),
+        Handler::new(&RUN_PAUSE, pause),
+        Handler::new(&RUN_MIGRATE, migrate),
+        Handler::new(&RUN_RESUME, resume),
     ]
+}
+
+/// How often a Run whose settings resolved as `resolved` writes a
+/// Checkpoint, from `checkpoint.interval`.
+pub fn checkpoint_interval(resolved: &Resolved) -> Option<std::time::Duration> {
+    resolved.duration(CHECKPOINT_INTERVAL.name)
+}
+
+/// The refusal of a file of `format` at the version `found`, which this
+/// engine, reading `format`'s own version, makes `compatibility` of: what
+/// to upgrade, or `upgrade-files` for an older major (ADRs 0030 and 0066).
+pub fn format_refusal(format: &Format, found: &str, compatibility: Compatibility) -> CallError {
+    let supported = format.version.to_string();
+    let (message, fix) = match compatibility {
+        Compatibility::OlderMajor => (
+            format!(
+                "The file is {} {found}, of an older major than this engine's {supported}; run `upgrade-files` to upgrade it.",
+                format.name
+            ),
+            "Run `upgrade-files`, then try again.".to_owned(),
+        ),
+        Compatibility::NewerMinor | Compatibility::NewerMajor | Compatibility::Compatible => (
+            format!(
+                "The file is {} {found}, newer than this engine's {supported}; upgrade Goodfetch to read it.",
+                format.name
+            ),
+            format!(
+                "Upgrade Goodfetch to a version that reads {} {found}.",
+                format.name
+            ),
+        ),
+    };
+    CallError::new(
+        &FORMAT_VERSION_UNSUPPORTED,
+        message,
+        &FormatVersionUnsupportedDetails {
+            format: format.name.to_owned(),
+            found: found.to_owned(),
+            supported,
+            fix,
+        },
+    )
 }
 
 /// Reads a start's Run ID, refusing one that is not with `run_id_invalid`.
@@ -166,6 +224,11 @@ fn stopped() -> CallError {
 
 /// The Error code of a Run's failure to be finished, aborted or read.
 pub fn run_error(error: RunError, identity: &Identity) -> CallError {
+    run_error_of(error, identity, RUN_ABORT.name)
+}
+
+/// The Error code a Run's failure answers with, for a call of `operation`.
+fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
             &RUN_NOT_FOUND,
@@ -189,9 +252,55 @@ pub fn run_error(error: RunError, identity: &Identity) -> CallError {
         ),
         RunError::NotInProduct { needs, .. } => {
             let (message, details) =
-                identity.not_in_product(Requested::Name(RUN_ABORT.name), needs, false);
+                identity.not_in_product(Requested::Name(operation), needs, false);
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
+        RunError::InUse { run_id, folder } => CallError::new(
+            &RUN_IN_USE,
+            format!("Another engine writes the Run `{run_id}`."),
+            &RunDetails {
+                run_id,
+                path: Some(folder.display().to_string()),
+            },
+        ),
+        RunError::Format {
+            format,
+            found,
+            compatibility,
+            ..
+        } => {
+            let format = goodfetch_protocol::formats::FORMATS
+                .iter()
+                .find(|known| known.name == format)
+                .copied()
+                .unwrap_or(&goodfetch_protocol::formats::RUN_STATE);
+            format_refusal(format, &found, compatibility)
+        }
+        RunError::BoundToMachine(run_id) => CallError::new(
+            &SESSION_BOUND_TO_MACHINE,
+            format!(
+                "The Run `{run_id}` is bound to the machine its Session source is on; resume it there, or serve its Session source through a Browser host."
+            ),
+            &SessionBoundToMachineDetails { run_id },
+        ),
+        RunError::WriteFailed {
+            run_id,
+            folder,
+            reason,
+            os_code,
+            message,
+        } => CallError::new(
+            &FILE_WRITE_FAILED,
+            format!(
+                "A Checkpoint of the Run `{run_id}` could not be written ({message}); free space where the engine keeps its Runs, or ask the Daemon's operator, then checkpoint again."
+            ),
+            &FileWriteFailedDetails {
+                reason: reason.to_owned(),
+                os_code: os_code.map(str::to_owned),
+                path: Some(folder.display().to_string()),
+                side: WriteSide::Engine,
+            },
+        ),
         RunError::Unavailable {
             run_id,
             folder,
@@ -234,6 +343,9 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             initialize: None,
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().duration(TIMEOUT_RUN.name),
             settings: Some(settings.clone()),
         })
@@ -256,6 +368,81 @@ async fn finish(params: RunParams, context: CallContext) -> Result<RunReport, Ca
         .finish(params.run_id)
         .await
         .map_err(|error| run_error(error, context.identity()))
+}
+
+async fn checkpoint(
+    params: RunCheckpointParams,
+    context: CallContext,
+) -> Result<Checkpoint, CallError> {
+    context
+        .runs()
+        .checkpoint(params.run_id, params.location.map(PathBuf::from))
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_CHECKPOINT.name))
+}
+
+async fn pause(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {
+    context
+        .runs()
+        .stop(params.run_id, StopReason::Pause, None)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_PAUSE.name))
+}
+
+async fn migrate(
+    params: RunCheckpointParams,
+    context: CallContext,
+) -> Result<RunReport, CallError> {
+    context
+        .runs()
+        .stop(
+            params.run_id,
+            StopReason::Migrate,
+            params.location.map(PathBuf::from),
+        )
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_MIGRATE.name))
+}
+
+async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStarted, CallError> {
+    let (settings, _) = context
+        .runs()
+        .settings()
+        .open(Opening {
+            run: None,
+            project: params.project,
+            recipe: None,
+            settings: params.settings,
+            origin: Some(RunOrigin::Settings),
+        })
+        .await
+        .map_err(|error| settings_error(&error, context.identity()))?;
+    let resumed = context
+        .runs()
+        .resume(Resume {
+            run_id: params.run_id,
+            checkpoint: params.checkpoint.map(PathBuf::from),
+            checkpoint_interval: checkpoint_interval(settings.resolved()),
+            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            settings: Some(settings.clone()),
+        })
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_RESUME.name))?;
+    Ok(match resumed {
+        Resumed::New { run, kind, needs } => {
+            let started = RunStarted {
+                run_id: run.id().clone(),
+                started_as: StartedAs::Resumed,
+                lifecycle: Lifecycle::Running,
+                needs,
+            };
+            if let Some(driver) = context.runs().driver(kind) {
+                run.spawn(driver(run.clone(), context.client().clone(), settings));
+            }
+            started
+        }
+        Resumed::Existing(existing) => existing,
+    })
 }
 
 async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport, CallError> {

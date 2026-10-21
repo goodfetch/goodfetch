@@ -150,6 +150,12 @@ export type StopReason =
       kind: "abort";
     }
   | {
+      kind: "pause";
+    }
+  | {
+      kind: "migrate";
+    }
+  | {
       kind: "timeout";
     };
 /**
@@ -178,7 +184,7 @@ export type SessionId = string;
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StartedAs".
  */
-export type StartedAs = "new" | "existing";
+export type StartedAs = "new" | "existing" | "resumed";
 /**
  * Who stopped a call (ADR 0113).
  *
@@ -249,6 +255,47 @@ export interface CancelParams {
    * The call's id.
    */
   id: number | string;
+}
+/**
+ * A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a
+ * consistent, self-contained copy of a Run's state, complete at its
+ * location before it is reported, from which the Run resumes on this
+ * machine or another one.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Checkpoint".
+ */
+export interface Checkpoint {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  digest: string;
+  /**
+   * The position of the run's journal it holds: how many commits of the
+   * run file it contains. A resume from it redoes the work after.
+   */
+  journal_position: number;
+  /**
+   * Where it is: the file's path on the engine's machine.
+   */
+  location: string;
+  /**
+   * The run epoch of the writer that took it (ADR 0003), which a
+   * destination compares and sets: one older than it holds is refused.
+   */
+  run_epoch: number;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+  /**
+   * Its size in bytes.
+   */
+  size: number;
+  /**
+   * When it was taken.
+   */
+  time: string;
 }
 /**
  * What `$/chunk` carries: the next bytes of the body a call reads.
@@ -976,6 +1023,67 @@ export interface RunAbortParams {
   run_id: string;
 }
 /**
+ * What `run.aborting` carries.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunAborting".
+ */
+export interface RunAborting {
+  /**
+   * Who aborts it.
+   */
+  by: "client";
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
+ * What `run.checkpoint` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunCheckpointParams".
+ */
+export interface RunCheckpointParams {
+  /**
+   * Where to write the Checkpoint, a path on the engine's machine; by
+   * default where the engine keeps the Run's Checkpoints, its own folder.
+   */
+  location?: string | null;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
+ * What `run.checkpointing` carries.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunCheckpointing".
+ */
+export interface RunCheckpointing {
+  /**
+   * The run epoch the Checkpoint is taken under.
+   */
+  run_epoch: number;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
+ * What `run.migrating` carries.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunMigrating".
+ */
+export interface RunMigrating {
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
  * What `run.finish` and `run.abort` take: the Run.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -995,6 +1103,11 @@ export interface RunParams {
  * via the `definition` "RunReport".
  */
 export interface RunReport {
+  /**
+   * The last Checkpoint written of it in this engine, when one was (ADR
+   * 0102).
+   */
+  checkpoint?: Checkpoint | null;
   /**
    * Whether a Run's results cover everything in its scope (ADRs 0005 and
    * 0029).
@@ -1059,6 +1172,35 @@ export interface SettingLimit {
   };
 }
 /**
+ * What `run.resume` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunResumeParams".
+ */
+export interface RunResumeParams {
+  /**
+   * A Checkpoint to resume from, a path on the engine's machine, which
+   * becomes the Run's state in this engine's run folder; by default the
+   * Run resumes from its run file on this machine.
+   */
+  checkpoint?: string | null;
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+  /**
+   * The Run's settings from the resume on, nested by key: the run layer
+   * (ADRs 0083 and 0102).
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+}
+/**
  * What `run.start` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1106,7 +1248,40 @@ export interface RunStarted {
   /**
    * Whether the start began it.
    */
-  started_as: "new" | "existing";
+  started_as: "new" | "existing" | "resumed";
+}
+/**
+ * What `run.stopping` carries.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunStopping".
+ */
+export interface RunStopping {
+  /**
+   * Why a Run stopped (ADR 0102); the other causes join with the tickets that
+   * stop Runs for them.
+   */
+  cause:
+    | {
+        /**
+         * Who stopped it.
+         */
+        by: "client";
+        kind: "abort";
+      }
+    | {
+        kind: "pause";
+      }
+    | {
+        kind: "migrate";
+      }
+    | {
+        kind: "timeout";
+      };
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
 }
 /**
  * What `sample.echo` repeats.

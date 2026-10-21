@@ -52,6 +52,25 @@
             },
             "type": "object"
           },
+          "checkpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "interval": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              }
+            },
+            "type": "object"
+          },
           "crawl": {
             "additionalProperties": false,
             "properties": {
@@ -198,6 +217,25 @@
                   }
                 ],
                 "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "checkpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "interval": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
               }
             },
             "type": "object"
@@ -586,6 +624,25 @@
                   }
                 ],
                 "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "checkpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "interval": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
               }
             },
             "type": "object"

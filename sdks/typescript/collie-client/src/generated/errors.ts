@@ -222,6 +222,24 @@ export class ExecutableBlockedBySmartAppControlError extends RefusedError {
 }
 
 /**
+ * The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.
+ */
+export class FileWriteFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "file_write_failed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.
+ */
+export class FormatVersionUnsupportedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "format_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.
  */
 export class NameLookupFailedError extends UnavailableError {
@@ -357,6 +375,15 @@ export class SampleRefusedError extends RefusedError {
 }
 
 /**
+ * The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.
+ */
+export class SessionBoundToMachineError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "session_bound_to_machine", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.
  */
 export class SettingInvalidError extends ProgramError {
@@ -416,6 +443,8 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
+  file_write_failed: FileWriteFailedError,
+  format_version_unsupported: FormatVersionUnsupportedError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
   navigation_failed: NavigationFailedError,
@@ -431,6 +460,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
+  session_bound_to_machine: SessionBoundToMachineError,
   setting_invalid: SettingInvalidError,
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,

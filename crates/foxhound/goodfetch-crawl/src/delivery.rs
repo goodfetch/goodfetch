@@ -5,7 +5,9 @@
 //! each Connection serving the crawl (the one that started it, and each `workers=N` handler process
 //! that joined it with `crawl.serve`), at most `crawl.handler.concurrency`
 //! at once on each, each lease committed in run state
-//! before its `crawl_request.handle` request is sent; commits an answered
+//! before its `crawl_request.handle` request is sent, served by a Session
+//! the crawl's Session pool draws, which the attempt's ending then scores
+//! (ADRs 0006 and 0021); commits an answered
 //! attempt's Records once, through its lease, while the lease holds; and
 //! ends an attempt whose handler failed, or that got no answer before its
 //! lease ended, with nothing committed, its work item retried under the
@@ -38,8 +40,10 @@ use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
+use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::run::StopReason;
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -54,6 +58,10 @@ use crate::work_items::{self, Failure, Leased, Unsuccessful};
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
 /// the page's errors (#711).
 const BLOCKED: &str = "blocked";
+
+/// The Error code of a page that failed its Page check (ADR 0006), which
+/// scores its Session down; declared with the Page check (area 5).
+const PAGE_CHECK_FAILED: &str = "page_check_failed";
 
 /// How an attempt ended, before its outcome is committed.
 enum Answer {
@@ -76,6 +84,8 @@ struct Attempt {
     /// The server, by its place in the delivery's list, its request went to.
     server: usize,
     leased: Leased,
+    /// The Session of the crawl's Session pool that served it.
+    session: ServingSession,
     lease: WorkItemLease,
     answer: Answer,
 }
@@ -146,8 +156,8 @@ async fn deliver(
     settings: &RunSettings,
 ) {
     let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
-    let mut admission = match open(run, settings).await {
-        Ok(admission) => admission,
+    let (mut admission, mut pool) = match open(run, settings).await {
+        Ok(opened) => opened,
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
             run.end(Ending::Failed).await;
@@ -165,6 +175,10 @@ async fn deliver(
                 run,
                 &run_leases,
                 policy,
+                Pooled {
+                    pool: &mut pool,
+                    settings: PoolSettings::of(&resolved),
+                },
                 &mut admission,
                 servers,
                 &mut attempts,
@@ -233,7 +247,7 @@ async fn deliver(
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
-                    settled(run, settings, &mut admission, servers, attempt).await;
+                    settled(run, settings, &mut admission, &mut pool, servers, attempt).await;
                 }
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
@@ -268,12 +282,21 @@ pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, craw
     drive(run, client, joined, crawls, settings).await;
 }
 
-/// Admits work items up to each serving Connection's room and starts an
-/// attempt for each on that Connection.
+/// The crawl's Session pool under the Run's settings now.
+struct Pooled<'a> {
+    pool: &'a mut SessionPool,
+    settings: PoolSettings,
+}
+
+/// Admits work items up to each serving Connection's room, draws the
+/// Session of the pool that serves each, written in run state before any
+/// handler request is sent, and starts an attempt for each on that
+/// Connection.
 async fn lease_to_servers(
     run: &Run,
     run_leases: &Leases,
     policy: CrawlPolicy,
+    pooled: Pooled<'_>,
     admission: &mut Admission,
     servers: &mut [Serving],
     attempts: &mut JoinSet<Attempt>,
@@ -283,7 +306,24 @@ async fn lease_to_servers(
             continue;
         }
         let room = policy.handler_concurrency - server.in_flight;
-        for leased in admit(run, admission, room).await? {
+        let served: Vec<(Leased, ServingSession)> = admit(run, admission, room)
+            .await?
+            .into_iter()
+            .map(|leased| {
+                let session =
+                    pooled
+                        .pool
+                        .draw(&leased.waiting.key, &pooled.settings, run.clock().wall());
+                (leased, session)
+            })
+            .collect();
+        let changes = pooled.pool.changes();
+        if !changes.is_empty() {
+            run.state()
+                .write(move |connection| changes.write(connection))
+                .await?;
+        }
+        for (leased, session) in served {
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
                 leased.lease_epoch,
@@ -294,7 +334,7 @@ async fn lease_to_servers(
                 run.clone(),
                 place,
                 server.client.clone(),
-                leased,
+                (leased, session),
                 lease,
             ));
         }
@@ -351,6 +391,7 @@ async fn settled(
     run: &Run,
     settings: &RunSettings,
     admission: &mut Admission,
+    pool: &mut SessionPool,
     servers: &mut [Serving],
     attempt: Attempt,
 ) {
@@ -364,8 +405,23 @@ async fn settled(
         Answer::Failed { code, details, .. } if site_timed_out(code, details) => Ended::BackOff,
         _ => Ended::Done,
     };
-    let policy = CrawlPolicy::of(&settings.at_admission().await);
-    let retried = settle(run, policy, attempt).await;
+    let resolved = settings.at_admission().await;
+    pool.settle(
+        &attempt.session,
+        &waiting.key,
+        effect(&attempt.answer),
+        &PoolSettings::of(&resolved),
+    );
+    let changes = pool.changes();
+    if !changes.is_empty()
+        && let Err(error) = run
+            .state()
+            .write(move |connection| changes.write(connection))
+            .await
+    {
+        tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
+    }
+    let retried = settle(run, CrawlPolicy::of(&resolved), attempt).await;
     admission.ended(&waiting.key, run.clock().now(), domain);
     if retried {
         admission.enqueue(waiting);
@@ -377,8 +433,9 @@ async fn settled(
 }
 
 /// Opens the Run's admission, the gate Foxhound's composition passes in,
-/// keys the work items not keyed yet and fills each domain's queue.
-async fn open(run: &Run, settings: &RunSettings) -> Result<Admission, String> {
+/// keys the work items not keyed yet and fills each domain's queue; and
+/// opens its Session pool from its run state, on an `Entropy` of its own.
+async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPool), String> {
     let resolved = settings.at_admission().await;
     let mut admission = run
         .admission(&resolved)
@@ -391,7 +448,13 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<Admission, String> {
     fill(run, &mut admission, None)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(admission)
+    let entropy = run.fork_entropy().await;
+    let pool = run
+        .state()
+        .read(move |connection| SessionPool::open(connection, entropy))
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok((admission, pool))
 }
 
 /// Keys each work item not keyed yet, the seeds at the start and those a
@@ -499,7 +562,7 @@ async fn attempt(
     run: Run,
     server: usize,
     client: Client,
-    leased: Leased,
+    (leased, session): (Leased, ServingSession),
     lease: WorkItemLease,
 ) -> Attempt {
     let params = CrawlRequestHandleParams {
@@ -507,6 +570,7 @@ async fn attempt(
         crawl_request: leased.crawl_request.clone(),
         attempt: leased.attempt,
         lease_epoch: leased.lease_epoch,
+        session: session.clone(),
     };
     let answer = match client
         .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, &params)
@@ -538,6 +602,7 @@ async fn attempt(
     Attempt {
         server,
         leased,
+        session,
         lease,
         answer,
     }
@@ -660,6 +725,26 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
             tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
             false
         }
+    }
+}
+
+/// What an attempt's answer says of the Session that served it: a
+/// committed answer is a success, a block or a failed Page check scores it
+/// down, and any other ending, a skip or the handler's own failure, says
+/// nothing of it.
+fn effect(answer: &Answer) -> Effect {
+    match answer {
+        Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
+        Answer::Failed { code, details, .. } => match block_cause(code, details) {
+            Some(cause) => Effect::Blocked(cause),
+            None if code == PAGE_CHECK_FAILED => Effect::PageCheckFailed,
+            None => Effect::Neutral,
+        },
+        Answer::Handled(CrawlRequestHandled {
+            skipped: Some(_), ..
+        })
+        | Answer::LeaseEnded
+        | Answer::ClientGone => Effect::Neutral,
     }
 }
 

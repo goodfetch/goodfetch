@@ -46,6 +46,12 @@ extra = ["example"]
 [settings.session]
 source = "example"
 
+[settings.session.pool]
+max_size = 4
+max_uses = 4
+max_age = 30000
+max_error_score = 4
+
 [settings.secrets]
 by_reference = true
 
@@ -128,6 +134,12 @@ extra = ["example"]
 [lock.session]
 source = "example"
 
+[lock.session.pool]
+max_size = 4
+max_uses = 4
+max_age = 30000
+max_error_score = 4
+
 [lock.secrets]
 by_reference = true
 
@@ -197,3 +209,9 @@ max = 4
 
 [cap.crawl.handler]
 concurrency = 4
+
+[cap.session.pool]
+max_size = 4
+max_uses = 4
+max_age = 30000
+max_error_score = 4

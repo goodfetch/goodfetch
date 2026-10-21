@@ -58,6 +58,8 @@ goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
 goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.

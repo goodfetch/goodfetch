@@ -16,6 +16,7 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
     OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
+use crate::foxhound::session_pool::ServingSession;
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
@@ -151,6 +152,9 @@ pub struct CrawlRequestHandleParams {
     /// The lease's epoch, which only goes up (ADR 0003).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lease_epoch: u64,
+    /// The Session of the crawl's Session pool that serves the attempt.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub session: ServingSession,
 }
 
 /// One Record a handler pushed into a Dataset (ADR 0103).

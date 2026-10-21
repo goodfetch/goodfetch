@@ -224,8 +224,8 @@ pub struct Resume {
 pub enum Resumed {
     /// It took the next run epoch of an interrupted Run, which goes on.
     New {
-        /// The Run.
-        run: Run,
+        /// The Run, boxed as the larger variant.
+        run: Box<Run>,
         /// Its kind, whose driver drives it.
         kind: RunKind,
         /// The Product it needs.
@@ -525,6 +525,7 @@ pub struct Run {
     owner: Arc<TaskOwner>,
     runs: Runs,
     settings: Option<Arc<RunSettings>>,
+    entropy: Arc<tokio::sync::Mutex<Entropy>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -560,6 +561,17 @@ impl Run {
     /// The engine's clock.
     pub fn clock(&self) -> Clock {
         self.clock
+    }
+
+    /// An `Entropy` of its own for one of the Run's owners, such as its
+    /// driver, forked from the Run's, which the engine's forked when the
+    /// Run went live (ADR 0059).
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn fork_entropy(&self) -> Entropy {
+        self.entropy.lock().await.fork()
     }
 
     /// Cancelled when the Run stops at once, by an abort: its driver
@@ -1508,7 +1520,7 @@ impl Registry {
     /// The live Run `run_id` as its driver holds it, writing `state` in
     /// `folder`, under its resolved `settings`.
     fn new_run(
-        &self,
+        &mut self,
         run_id: &RunId,
         folder: &Path,
         state: RunState,
@@ -1525,6 +1537,7 @@ impl Registry {
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
+            entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),
         }
     }
 
@@ -1904,7 +1917,11 @@ impl Registry {
         if let Some(interval) = checkpoint_interval {
             run.spawn(periodic_checkpoints(run.clone(), interval));
         }
-        Ok(Resumed::New { run, kind, needs })
+        Ok(Resumed::New {
+            run: Box::new(run),
+            kind,
+            needs,
+        })
     }
 
     /// What the Checkpoint `checkpoint`, or else the run file of `run_id`

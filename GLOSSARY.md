@@ -350,6 +350,10 @@ _Avoid_: unblocker, bypass, captcha solver (for every kind)
 The Sessions a crawl keeps, scoring, rotating and retiring them as they fail; a Session a program or an Agent opens itself is never in it.
 _Avoid_: session manager, account pool
 
+**Proxy tier**:
+A rung of the ladder of proxy kinds a Session's proxy is drawn from, cheapest first: none, datacenter, ISP, residential, mobile; a block that escalates moves its domain one tier up, where its Session's replacement opens.
+_Avoid_: proxy level, proxy class
+
 **Saved identity**:
 A Session's identity, cookies and storage, kept under a name so that later runs can reuse them.
 _Avoid_: profile, context, login

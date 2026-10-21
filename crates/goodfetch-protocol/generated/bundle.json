@@ -1002,13 +1002,19 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The crawl's Run."
+        },
+        "session": {
+          "$ref": "#/$defs/ServingSession",
+          "arrived_in": "0.1",
+          "description": "The Session of the crawl's Session pool that serves the attempt."
         }
       },
       "required": [
         "run_id",
         "crawl_request",
         "attempt",
-        "lease_epoch"
+        "lease_epoch",
+        "session"
       ],
       "type": "object"
     },
@@ -3323,6 +3329,36 @@
       ],
       "type": "object"
     },
+    "ProxyTier": {
+      "description": "A proxy tier of ADR 0021's ladder, from the cheapest up: a Session\nbinds one proxy of its tier, and a block that escalates moves its\ndomain one tier up, its replacement opening there.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No proxy: the machine's own address.",
+          "type": "string"
+        },
+        {
+          "const": "datacenter",
+          "description": "A datacenter proxy.",
+          "type": "string"
+        },
+        {
+          "const": "isp",
+          "description": "An ISP proxy.",
+          "type": "string"
+        },
+        {
+          "const": "residential",
+          "description": "A residential proxy.",
+          "type": "string"
+        },
+        {
+          "const": "mobile",
+          "description": "A mobile proxy, the top of the ladder.",
+          "type": "string"
+        }
+      ]
+    },
     "PushedRecord": {
       "additionalProperties": false,
       "description": "One Record a handler pushed into a Dataset (ADR 0103).",
@@ -4538,6 +4574,32 @@
         }
       ]
     },
+    "ServingSession": {
+      "description": "The Session of the crawl's Session pool that serves one attempt.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "Its ID within the Run."
+        },
+        "proxy_tier": {
+          "$ref": "#/$defs/ProxyTier",
+          "arrived_in": "0.1",
+          "description": "The proxy tier it opened at."
+        },
+        "revalidate": {
+          "arrived_in": "0.1",
+          "description": "Whether this is its first page since the crawl resumed, which\nrevalidates the Session's login before the page is trusted.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "proxy_tier",
+        "revalidate"
+      ],
+      "type": "object"
+    },
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
@@ -5393,6 +5455,38 @@
                 },
                 "type": "object"
               },
+              "session": {
+                "additionalProperties": false,
+                "properties": {
+                  "pool": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_age": {
+                        "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_error_score": {
+                        "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_size": {
+                        "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_uses": {
+                        "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
               "timeout": {
                 "additionalProperties": false,
                 "properties": {
@@ -5719,6 +5813,32 @@
               "session": {
                 "additionalProperties": false,
                 "properties": {
+                  "pool": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_age": {
+                        "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_error_score": {
+                        "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_size": {
+                        "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_uses": {
+                        "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "source": {
                     "anyOf": [
                       {
@@ -6126,6 +6246,32 @@
               "session": {
                 "additionalProperties": false,
                 "properties": {
+                  "pool": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_age": {
+                        "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_error_score": {
+                        "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_size": {
+                        "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_uses": {
+                        "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "source": {
                     "anyOf": [
                       {
@@ -6558,6 +6704,32 @@
               "session": {
                 "additionalProperties": false,
                 "properties": {
+                  "pool": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_age": {
+                        "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_error_score": {
+                        "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_size": {
+                        "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "max_uses": {
+                        "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "source": {
                     "anyOf": [
                       {

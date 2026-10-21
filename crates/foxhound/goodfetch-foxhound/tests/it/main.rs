@@ -15,5 +15,6 @@ mod frontier;
 mod journeys;
 mod outcomes;
 mod service_manager;
+mod session_pool;
 mod workers;
 mod writer_lock;

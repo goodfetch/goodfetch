@@ -2,10 +2,12 @@
 //! scenarios against Foxhound's engine, whose run files hold every table
 //! both Products' compositions add, over the in-memory network, on the test
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: a tagged crawl
-//! of three seeds, one with a Payload and one the Frontier answers
+//! of four seeds, one with a Payload and one the Frontier answers
 //! `duplicate`, whose handler pushes Records for the first and fails on the
 //! second, whose first byte never came, so its
-//! domain still backs off when `run.finish` ends it; and a Run its
+//! domain still backs off when `run.finish` ends it, and whose last site
+//! blocks its address, so its Session pool holds a Session retired by the
+//! escalation and its domain's proxy tier; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, which `run.abort` stops; and a Run bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
@@ -63,6 +65,7 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },
                     { "url": "https://SHOP.test:443/", "label": "home" },
+                    { "url": "https://guarded.test/", "label": "guarded" },
                 ],
             }),
         ),
@@ -137,7 +140,17 @@ fn bound() -> Contribution {
 /// The handler's answer to one handler request.
 fn handle(request: &Value) -> Value {
     let id = &request["id"];
-    if request["params"]["crawl_request"]["label"] == "home" {
+    if request["params"]["crawl_request"]["label"] == "guarded" {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": -32003,
+                "message": "the site refused the address",
+                "data": { "code": "blocked", "retryable": false, "cause": "ip_block" },
+            },
+        })
+    } else if request["params"]["crawl_request"]["label"] == "home" {
         json!({
             "jsonrpc": "2.0",
             "id": id,

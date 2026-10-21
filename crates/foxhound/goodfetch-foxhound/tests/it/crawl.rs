@@ -94,6 +94,13 @@ impl Attached {
         self.stdout.is_quiet_for(quiet)
     }
 
+    /// Kills the engine at once, as a crash does, and waits for it.
+    pub(crate) fn kill(self) {
+        let mut child = self.process.child();
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
     /// Ends the input and waits for the engine to exit.
     pub(crate) fn finish(mut self) -> bool {
         drop(self.stdin.take());

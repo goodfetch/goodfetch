@@ -2,14 +2,16 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunReport, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestOutcomes, CrawlStartParams, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlStartParams, Enqueued, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
   "crawl.serve": { params: RunParams; result: RunReport };
   "crawl.start": { params: CrawlStartParams; result: RunStarted };
+  "crawl_request.enqueue": { params: CrawlRequestEnqueueParams; result: Enqueued };
   "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
   "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
+  "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
 }
 
@@ -40,6 +42,15 @@ export class FoxhoundOperations {
   }
 
   /**
+   * Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.
+   *
+   * @experimental
+   */
+  crawlRequestEnqueue(params: CrawlRequestEnqueueParams): Promise<Enqueued> {
+    return this.#caller.call("crawl_request.enqueue", params, {});
+  }
+
+  /**
    * Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
    *
    * @experimental
@@ -55,6 +66,15 @@ export class FoxhoundOperations {
    */
   runOutcomes(params: RunOutcomesParams, options: CallOptions = {}): Promise<CrawlRequestOutcomes> {
     return this.#caller.call("run.outcomes", params, options);
+  }
+
+  /**
+   * Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.
+   *
+   * @experimental
+   */
+  runSeeds(params: RunSeedsParams): Promise<RunSeeds> {
+    return this.#caller.call("run.seeds", params, {});
   }
 
   /**

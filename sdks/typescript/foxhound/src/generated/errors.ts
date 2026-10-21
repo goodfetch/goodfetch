@@ -22,6 +22,15 @@ export class HandlerLostError extends UnavailableError {
 }
 
 /**
+ * The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.
+ */
+export class LeaseLostError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "lease_lost", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The sample crawl refused its pages.
  */
 export class SampleCrawlRefusedError extends RefusedError {
@@ -34,5 +43,6 @@ export class SampleCrawlRefusedError extends RefusedError {
 export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   handler_failed: HandlerFailedError,
   handler_lost: HandlerLostError,
+  lease_lost: LeaseLostError,
   sample_crawl_refused: SampleCrawlRefusedError,
 };

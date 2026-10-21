@@ -18,6 +18,7 @@
 mod model;
 
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
@@ -33,6 +34,8 @@ use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
+use tokio::time::Instant;
+use tracing_subscriber::layer::SubscriberExt as _;
 
 use crate::policy::CrawlPolicy;
 
@@ -65,6 +68,12 @@ pub(super) struct Client {
     pub(super) handled: Vec<Value>,
     /// The ids of the requests left unanswered.
     pub(super) silent: Vec<Value>,
+    /// Each request and notification the engine sent, as it came, with
+    /// the paused clock's reading when it did.
+    pub(super) arrivals: Vec<(Value, Instant)>,
+    /// The Records a request left unanswered is answered with once the
+    /// engine cancels it: a late commit.
+    pub(super) late: Option<Vec<Value>>,
 }
 
 impl Client {
@@ -96,7 +105,23 @@ impl Client {
                 .next()
                 .await
                 .expect("the engine closed before replying");
-            if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle") {
+            if message.get("method").is_some() {
+                self.arrivals.push((message.clone(), Instant::now()));
+            }
+            if message.get("method").and_then(Value::as_str) == Some("$/cancel") {
+                let cancelled = &message["params"]["id"];
+                if let Some(records) = self.late.clone()
+                    && self.silent.contains(cancelled)
+                {
+                    let records: Vec<Value> = records
+                        .into_iter()
+                        .map(|data| json!({ "dataset": "pages", "data": data }))
+                        .collect();
+                    self.send(&json!({ "jsonrpc": "2.0", "id": cancelled, "result": { "records": records } }))
+                        .await;
+                }
+            } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle")
+            {
                 self.handled.push(message["params"].clone());
                 match handler(&message["params"]) {
                     Reply::Records(records) => {
@@ -152,6 +177,11 @@ pub(super) fn configure(env: &TestEnv, policy: CrawlPolicy) {
 /// Made on the runtime the engine runs on, as the paused `Clock` must be.
 pub(super) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
     configure(env, POLICY);
+    default_dependencies(env, run_state)
+}
+
+/// The same, with the settings' defaults: a 60 s handler, so a 70 s lease.
+pub(super) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
     Dependencies {
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
@@ -183,14 +213,23 @@ pub(super) fn crawl<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> T {
+    crawl_fenced(dependencies, talk).0
+}
+
+/// [`crawl`], which also answers the fencing model's transitions `lease`
+/// traced, each as its fields, in order.
+pub(super) fn crawl_fenced<T>(
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> (T, Vec<Value>) {
     let engine = engine();
-    goodfetch_test_support::runtime().block_on(async {
+    let (layer, transitions) = Transitions::new();
+    let answer = goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
         let clock = dependencies.clock;
-        let _subscriber =
-            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
-                clock.wall()
-            }));
+        let _subscriber = tracing::subscriber::set_default(
+            goodfetch_test_support::subscriber(move || clock.wall()).with(layer),
+        );
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();
@@ -200,6 +239,8 @@ pub(super) fn crawl<T>(
                 next_id: 0,
                 handled: Vec::new(),
                 silent: Vec::new(),
+                arrivals: Vec::new(),
+                late: None,
             };
             let hello = client
                 .call(
@@ -224,7 +265,62 @@ pub(super) fn crawl<T>(
         );
         served.unwrap();
         answer
-    })
+    });
+    (answer, transitions.try_iter().collect())
+}
+
+/// The `tracing` layer that keeps each event under `lease`'s target as a
+/// map of its fields.
+pub(super) struct Transitions(mpsc::Sender<Value>);
+
+impl Transitions {
+    /// The layer, and where its events go.
+    pub(super) fn new() -> (Self, mpsc::Receiver<Value>) {
+        let (sender, receiver) = mpsc::channel();
+        (Self(sender), receiver)
+    }
+}
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Transitions {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        if event.metadata().target() != crate::lease::TARGET {
+            return;
+        }
+        let mut fields = Fields::default();
+        event.record(&mut fields);
+        let _ = self.0.send(Value::Object(fields.0));
+    }
+}
+
+#[derive(Default)]
+struct Fields(serde_json::Map<String, Value>);
+
+impl tracing::field::Visit for Fields {
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        self.0.insert(field.name().to_owned(), json!(value));
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        self.0.insert(field.name().to_owned(), json!(value));
+    }
+
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        self.0
+            .insert(field.name().to_owned(), json!(format!("{value:?}")));
+    }
+}
+
+/// The transitions `transitions` holds for the lease of epoch `epoch`, as
+/// `transition` and, when one is given, `reason`.
+pub(super) fn of_epoch(transitions: &[Value], epoch: u64) -> Vec<String> {
+    transitions
+        .iter()
+        .filter(|transition| transition["lease_epoch"] == json!(epoch))
+        .map(|transition| match transition["reason"].as_str() {
+            Some(reason) => format!("{} {reason}", transition["transition"].as_str().unwrap()),
+            None => transition["transition"].as_str().unwrap().to_owned(),
+        })
+        .collect()
 }
 
 pub(super) fn seeds(count: usize) -> Value {
@@ -455,6 +551,93 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
     );
 
     let file = run_file(&env, "hung");
+    assert_eq!(
+        (records(&file), work_items(&file)),
+        (
+            vec![("pages".to_owned(), 1, "1".to_owned(), json!("on time"))],
+            vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
+        )
+    );
+}
+
+/// With the settings' 60 s handler, a lease lasts 70 s of the paused clock:
+/// when it ends, the engine cancels the attempt's request and asks again
+/// under the next lease epoch. The cancelled attempt's answer that still
+/// comes is a late commit, refused with `lease_lost`, its Records
+/// discarded; the retried attempt's commit is the one that counts.
+///
+/// Covers: story:3-40, story:3-41, error:lease_lost
+#[test]
+fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits() {
+    let env = TestEnv::new();
+
+    let (arrivals, transitions) = crawl_fenced(
+        || default_dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "late", "seeds": seeds(1) }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            client.late = Some(vec![json!("late")]);
+            let mut handler = |params: &Value| match params["attempt"].as_u64() {
+                Some(1) => Reply::Silent,
+                _ => Reply::Records(vec![json!("on time")]),
+            };
+            client
+                .call("run.finish", json!({ "run_id": "late" }), &mut handler)
+                .await;
+            client.arrivals.clone()
+        },
+    );
+
+    let (first, first_at) = &arrivals[0];
+    let timeline: Vec<(String, Value, Duration)> = arrivals
+        .iter()
+        .map(|(message, at)| {
+            (
+                message["method"].as_str().unwrap().to_owned(),
+                message["params"]["lease_epoch"]
+                    .as_u64()
+                    .map_or_else(|| message["params"]["id"].clone(), |epoch| json!(epoch)),
+                at.duration_since(*first_at),
+            )
+        })
+        .collect();
+    assert_eq!(
+        timeline,
+        vec![
+            ("crawl_request.handle".to_owned(), json!(1), Duration::ZERO),
+            (
+                "$/cancel".to_owned(),
+                first["id"].clone(),
+                Duration::from_secs(70)
+            ),
+            (
+                "crawl_request.handle".to_owned(),
+                json!(2),
+                Duration::from_secs(70)
+            ),
+        ]
+    );
+    assert_eq!(
+        (of_epoch(&transitions, 1), of_epoch(&transitions, 2)),
+        (
+            vec![
+                "grant".to_owned(),
+                "expire".to_owned(),
+                "refuse_commit lease_lost".to_owned()
+            ],
+            vec![
+                "grant".to_owned(),
+                "commit".to_owned(),
+                "release".to_owned()
+            ],
+        )
+    );
+    let file = run_file(&env, "late");
     assert_eq!(
         (records(&file), work_items(&file)),
         (

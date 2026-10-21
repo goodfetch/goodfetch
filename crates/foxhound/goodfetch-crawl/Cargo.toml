@@ -22,6 +22,7 @@ proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

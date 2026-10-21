@@ -27,6 +27,14 @@ class HandlerLostError(UnavailableError):
         super().__init__(message, code="handler_lost", group="unavailable", retryable=True)
 
 
+class LeaseLostError(UnavailableError):
+    """The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="lease_lost", group="unavailable", retryable=True)
+
+
 class SampleCrawlRefusedError(RefusedError):
     """The sample crawl refused its pages."""
 
@@ -38,6 +46,7 @@ class SampleCrawlRefusedError(RefusedError):
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
+    "lease_lost": LeaseLostError,
     "sample_crawl_refused": SampleCrawlRefusedError,
 }
 """The exception class of each Error code."""

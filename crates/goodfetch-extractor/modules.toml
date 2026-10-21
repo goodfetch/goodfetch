@@ -1,0 +1,5 @@
+# Which of goodfetch-extractor's top-level modules may import which (ADR 0126).
+[modules]
+formats = ["main_content", "markdown"]
+main_content = []
+markdown = []

@@ -13,12 +13,12 @@ fn each_generated_case_gets_its_rules_verdict(
 ) {
     let case: RefusalCase = serde_json::from_str(case).unwrap();
 
-    let verdict = match case.lowest_minor {
-        Some(lowest_minor) => {
+    let verdict = match (case.engine, case.lowest_minor) {
+        (Some(engine), Some(lowest_minor)) => {
             case.rule
-                .compatibility_of_store(case.reader, case.found, lowest_minor)
+                .compatibility_of_store(case.reader, case.found, engine, lowest_minor)
         }
-        None => case.rule.compatibility(case.reader, case.found),
+        _ => case.rule.compatibility(case.reader, case.found),
     };
 
     assert_eq!(verdict, case.compatibility, "{case:#?}");

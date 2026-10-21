@@ -2,7 +2,6 @@
   "format": "operator-policy",
   "rule": "shared_store",
   "reader": "0.1",
-  "found": "0.2",
-  "lowest_minor": 1,
-  "compatibility": "compatible"
+  "found": "0.0",
+  "compatibility": "older_major"
 }

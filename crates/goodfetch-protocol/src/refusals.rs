@@ -24,9 +24,14 @@ pub struct RefusalCase {
     pub reader: ProtocolVersion,
     /// The fabricated version, a file's header or the version `hello` names.
     pub found: ProtocolVersion,
-    /// For a shared store, the lowest minor it records (ADR 0098).
+    /// For a shared store, the lowest minor of its Product major it records
+    /// (ADR 0098).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lowest_minor: Option<u16>,
+    /// For a shared store, the Product version (major and minor) of the
+    /// engine that opens it, which the lowest minor is held to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<ProtocolVersion>,
     /// What the rule's table gives for these versions.
     pub compatibility: Compatibility,
     /// For a protocol, the fabricated `hello` and its reply.

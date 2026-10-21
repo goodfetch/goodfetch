@@ -1,8 +1,9 @@
 {
-  "format": "run-index",
+  "format": "operator-policy",
   "rule": "shared_store",
   "reader": "0.1",
-  "found": "0.2",
+  "found": "0.1",
   "lowest_minor": 1,
+  "engine": "1.1",
   "compatibility": "compatible"
 }

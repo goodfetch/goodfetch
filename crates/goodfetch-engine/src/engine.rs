@@ -7,9 +7,11 @@
 //! listener gives it until it stops: idle, asked to, or handing over to its
 //! major's pick (the `daemon` module).
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_protocol::daemon::DaemonEndpoint;
+use goodfetch_protocol::run::RunKind;
 
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
@@ -21,7 +23,7 @@ use crate::home::{Home, RunStateLocation};
 use crate::product::Identity;
 use crate::rpc::{self, Dispatch};
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{Runs, RunsSetup};
+use crate::runs::{Driver, Runs, RunsSetup};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
@@ -31,6 +33,7 @@ use crate::transport::{Connection, DaemonListener, Network, TransportError};
 pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
+    drivers: BTreeMap<RunKind, Driver>,
     events: EventsOptions,
 }
 
@@ -60,6 +63,7 @@ impl Engine {
                 handlers: composition.handlers()?,
             }),
             tables: composition.run_state_tables(),
+            drivers: composition.drivers(),
             events: EventsOptions::default(),
         })
     }
@@ -165,6 +169,7 @@ impl Engine {
                 location: dependencies.run_state_location,
                 run_state: dependencies.run_state,
                 tables: self.tables.clone(),
+                drivers: self.drivers.clone(),
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),

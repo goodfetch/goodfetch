@@ -13,6 +13,9 @@ attempt_delay = 30000
 [settings.run_state]
 location = "example"
 
+[settings.checkpoint]
+interval = 30000
+
 [settings.sample]
 echo_repeats = 4
 
@@ -85,6 +88,9 @@ attempt_delay = 30000
 [lock.run_state]
 location = "example"
 
+[lock.checkpoint]
+interval = 30000
+
 [lock.sample]
 echo_repeats = 4
 
@@ -153,6 +159,9 @@ max_unused_age = 30000
 [cap.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
+
+[cap.checkpoint]
+interval = 30000
 
 [cap.sample]
 echo_repeats = 4

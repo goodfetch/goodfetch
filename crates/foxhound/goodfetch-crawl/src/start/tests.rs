@@ -16,6 +16,7 @@
 )]
 
 mod model;
+mod resume;
 
 use std::path::PathBuf;
 use std::sync::mpsc;

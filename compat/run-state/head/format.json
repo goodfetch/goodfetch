@@ -90,9 +90,23 @@
       "RunStateRow": {
         "description": "One row of a Run's run state about itself: its `run` table (ADR 0002).",
         "properties": {
+          "binding": {
+            "description": "What the Run is bound to (ADR 0056), as JSON, or none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "caller": {
             "description": "Who started it (ADR 0102).",
             "type": "string"
+          },
+          "clean_up_digest": {
+            "description": "The digest of the Clean-up rules the Run holds to, which a resume\nkeeps (ADR 0047), or none.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "completeness": {
             "anyOf": [
@@ -125,6 +139,12 @@
           "inputs": {
             "description": "Its start's inputs, as canonical JSON, which a later start compares.",
             "type": "string"
+          },
+          "journal_position": {
+            "description": "How many commits the run file holds: the position of its journal,\nwhich a Checkpoint reports (ADR 0002).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "kind": {
             "$ref": "#/$defs/RunKind",
@@ -189,7 +209,8 @@
           "inputs",
           "lifecycle",
           "started_at",
-          "weakened_by"
+          "weakened_by",
+          "journal_position"
         ],
         "type": "object"
       },
@@ -212,6 +233,32 @@
             "required": [
               "kind",
               "by"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "It was paused: checkpointed and stopped, to be resumed by its Run ID\n(RT-11).",
+            "properties": {
+              "kind": {
+                "const": "pause",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "It was migrated: checkpointed and stopped, to be resumed from its\nCheckpoint on another machine (ADR 0002).",
+            "properties": {
+              "kind": {
+                "const": "migrate",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
             ],
             "type": "object"
           }

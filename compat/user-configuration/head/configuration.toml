@@ -13,6 +13,9 @@ attempt_delay = 30000
 [settings.run_state]
 location = "example"
 
+[settings.checkpoint]
+interval = 30000
+
 [settings.sample]
 echo_repeats = 4
 

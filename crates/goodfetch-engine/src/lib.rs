@@ -10,6 +10,7 @@
 
 mod body;
 pub mod browser_cache;
+pub mod checkpoint;
 pub mod client;
 pub mod clock;
 mod composition;

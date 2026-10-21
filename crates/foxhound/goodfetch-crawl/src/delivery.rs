@@ -122,6 +122,32 @@ pub(crate) async fn drive(run: Run, client: Client, settings: RunSettings) {
     }
 }
 
+/// Drives a resumed crawl (ADRs 0002 and 0102): each attempt its committed
+/// state shows in flight, whose engine stopped without settling it, counts
+/// as `handler_lost` against `crawl.retry.max` and is retried or failed,
+/// then delivery goes on from the committed state, so the work since that
+/// state is redone.
+///
+/// # Cancel safety
+///
+/// As [`drive`]'s.
+pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings) {
+    let policy = CrawlPolicy::of(&settings.at_admission().await);
+    let retry_max = policy.retry_max;
+    if let Err(error) = run
+        .state()
+        .write(move |connection| {
+            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)
+        })
+        .await
+    {
+        tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
+        run.end(Ending::Failed).await;
+        return;
+    }
+    drive(run, client, settings).await;
+}
+
 /// One attempt: the handler request, bounded by its lease. When the lease
 /// ends first, the request is cancelled and its answer left to [`late`].
 async fn attempt(run: Run, client: Client, leased: Leased, lease: WorkItemLease) -> Attempt {

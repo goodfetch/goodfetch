@@ -1,0 +1,214 @@
+//! A crawl paused or moved, then resumed, through the engine's public
+//! interface over the in-memory network (spec #213's Seam 3; ADRs 0002,
+//! 0003 and 0102): the resume takes the next run epoch and starts the
+//! crawl's delivery again on the resuming Client, so the work items its
+//! committed state left undone are delivered again, an attempt that state
+//! shows in flight counting as `handler_lost`, and those it committed are
+//! not, so each Record is committed once.
+
+use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_test_support::TestEnv;
+use serde_json::{Value, json};
+
+use super::{
+    Client, POLICY, Reply, configure, crawl, default_dependencies, page_of, records, run_file,
+    seeds, work_items,
+};
+use crate::policy::CrawlPolicy;
+
+/// One handler at a time, so the work items go one after another.
+const ONE_AT_A_TIME: CrawlPolicy = CrawlPolicy {
+    handler_concurrency: 1,
+    ..POLICY
+};
+
+/// Answers each page with one Record naming it.
+fn answer_all(params: &Value) -> Reply {
+    Reply::Records(vec![json!({ "page": page_of(params) })])
+}
+
+/// Each delivered work item's page and attempt, in order.
+fn delivered(client: &Client) -> Vec<(String, u64)> {
+    client
+        .handled
+        .iter()
+        .map(|params| (page_of(params), params["attempt"].as_u64().unwrap()))
+        .collect()
+}
+
+/// Covers: story:3-34, operation:run.resume
+#[test]
+fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_commits_each_record_once()
+ {
+    let (first, second) = (TestEnv::new(), TestEnv::new());
+    let taken = first.folder().join("moved.sqlite");
+    let location = taken.display().to_string();
+    let checkpoint = location.clone();
+    crawl(
+        || {
+            configure(&first, ONE_AT_A_TIME);
+            default_dependencies(&first, RunStateOptions::default())
+        },
+        async |client| {
+            let mut handler = |params: &Value| {
+                if page_of(params).ends_with("/1") {
+                    answer_all(params)
+                } else {
+                    Reply::Silent
+                }
+            };
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "moved", "seeds": seeds(3) }),
+                    &mut handler,
+                )
+                .await;
+            // Checkpoint until page 1 is committed and page 2 is in flight,
+            // each call answering the handler requests that came meanwhile.
+            loop {
+                client
+                    .call(
+                        "run.checkpoint",
+                        json!({ "run_id": "moved", "location": location }),
+                        &mut handler,
+                    )
+                    .await;
+                let file = rusqlite::Connection::open(&taken).unwrap();
+                let states: Vec<String> = work_items(&file)
+                    .into_iter()
+                    .map(|(_, status, _, _)| status)
+                    .collect();
+                if states == ["succeeded", "leased", "pending"] {
+                    break;
+                }
+            }
+        },
+    );
+
+    let (resumed, finished, handled) = crawl(
+        || {
+            configure(&second, ONE_AT_A_TIME);
+            default_dependencies(&second, RunStateOptions::default())
+        },
+        async |client| {
+            let resumed = client
+                .call(
+                    "run.resume",
+                    json!({ "run_id": "moved", "checkpoint": checkpoint }),
+                    &mut answer_all,
+                )
+                .await;
+            let finished = client
+                .call("run.finish", json!({ "run_id": "moved" }), &mut answer_all)
+                .await;
+            (resumed, finished, delivered(client))
+        },
+    );
+
+    let file = run_file(&second, "moved");
+    let pages: Vec<Value> = records(&file)
+        .into_iter()
+        .map(|(_, _, _, data)| data)
+        .collect();
+    assert_eq!(
+        (
+            resumed["result"]["started_as"].clone(),
+            handled,
+            finished["result"]["lifecycle"].clone(),
+            finished["result"]["completeness"].clone(),
+            pages,
+            work_items(&file),
+        ),
+        (
+            json!("resumed"),
+            vec![
+                ("https://shop.test/page/2".to_owned(), 2),
+                ("https://shop.test/page/3".to_owned(), 1),
+            ],
+            json!("finished"),
+            json!("complete"),
+            vec![
+                json!({ "page": "https://shop.test/page/1" }),
+                json!({ "page": "https://shop.test/page/2" }),
+                json!({ "page": "https://shop.test/page/3" }),
+            ],
+            vec![
+                ("1".to_owned(), "succeeded".to_owned(), 1, None),
+                ("2".to_owned(), "succeeded".to_owned(), 2, None),
+                ("3".to_owned(), "succeeded".to_owned(), 1, None),
+            ],
+        )
+    );
+}
+
+/// The crawl a pause stopped resumes by its Run ID on the same machine and
+/// finishes, each Record committed once across the pause.
+/// Covers: story:3-35, operation:run.pause, operation:run.resume
+#[test]
+fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once() {
+    let env = TestEnv::new();
+    let (paused, finished, handled) = crawl(
+        || {
+            configure(&env, ONE_AT_A_TIME);
+            default_dependencies(&env, RunStateOptions::default())
+        },
+        async |client| {
+            let mut first_only = |params: &Value| {
+                if page_of(params).ends_with("/1") {
+                    answer_all(params)
+                } else {
+                    Reply::Silent
+                }
+            };
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "paused", "seeds": seeds(2) }),
+                    &mut first_only,
+                )
+                .await;
+            let paused = loop {
+                let paused = client
+                    .call("run.pause", json!({ "run_id": "paused" }), &mut first_only)
+                    .await;
+                if records(&run_file(&env, "paused")).len() == 1 {
+                    break paused;
+                }
+                client
+                    .call("run.resume", json!({ "run_id": "paused" }), &mut first_only)
+                    .await;
+            };
+            client.handled.clear();
+            client
+                .call("run.resume", json!({ "run_id": "paused" }), &mut answer_all)
+                .await;
+            let finished = client
+                .call("run.finish", json!({ "run_id": "paused" }), &mut answer_all)
+                .await;
+            (paused, finished, delivered(client))
+        },
+    );
+
+    let pages: Vec<Value> = records(&run_file(&env, "paused"))
+        .into_iter()
+        .map(|(_, _, _, data)| data)
+        .collect();
+    assert_eq!(
+        (
+            paused["result"]["stop_reason"].clone(),
+            handled,
+            finished["result"]["lifecycle"].clone(),
+            pages,
+        ),
+        (
+            json!({ "kind": "pause" }),
+            vec![("https://shop.test/page/2".to_owned(), 1)],
+            json!("finished"),
+            vec![
+                json!({ "page": "https://shop.test/page/1" }),
+                json!({ "page": "https://shop.test/page/2" }),
+            ],
+        )
+    );
+}

@@ -114,6 +114,29 @@ number = 3
 kind = "setting"
 prefix = "run_state."
 
+# Area 3's Checkpoints and resume (#218): the periodic interval, a write that
+# fails where the engine keeps its files, a file of a version this engine
+# cannot read, and a Run bound to another machine.
+[[area]]
+number = 3
+kind = "setting"
+prefix = "checkpoint."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "file_write_failed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "format_version_unsupported"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "session_bound_to_machine"
+
 [[area]]
 number = 3
 kind = "format"

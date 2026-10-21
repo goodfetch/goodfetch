@@ -8,8 +8,9 @@
 //! `run_conflict`.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use goodfetch_engine::run::{run_id, settings_error, start_error};
+use goodfetch_engine::run::{checkpoint_interval, run_id, settings_error, start_error};
 use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
@@ -21,12 +22,17 @@ use goodfetch_protocol::settings::RunOrigin;
 use crate::delivery;
 use crate::work_items;
 
-/// What Foxhound's crawl adds to the engine: `crawl.start`, and the work
-/// items' and Records' tables of every run file.
+/// What Foxhound's crawl adds to the engine: `crawl.start`, the work items'
+/// and Records' tables of every run file, and the driver a resumed crawl
+/// starts again with.
 pub fn contribution() -> Contribution {
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, start))
         .with_run_state_tables(work_items::TABLES)
+        .with_driver(
+            RunKind::Crawl,
+            Arc::new(|run, client, settings| Box::pin(delivery::resume(run, client, settings))),
+        )
 }
 
 async fn start(params: CrawlStartParams, context: CallContext) -> Result<RunStarted, CallError> {
@@ -62,6 +68,9 @@ async fn start(params: CrawlStartParams, context: CallContext) -> Result<RunStar
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: checkpoint_interval(settings.resolved()),
         })
         .await
         .map_err(start_error)?;

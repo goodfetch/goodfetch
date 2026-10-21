@@ -551,3 +551,15 @@ prefix = "run.seeds"
 number = 6
 kind = "error"
 prefix = "attempt_ended"
+
+# Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
+# (#791).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "key_value_store."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "value_invalid"

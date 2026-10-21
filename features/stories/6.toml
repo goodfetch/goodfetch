@@ -1,11 +1,59 @@
-# Area 6's user stories (spec #581 and #582, Collection, Foxhound: stories
-# from 201), the declared `story:6-<id>` Features of ADR 0072. Each story's
+# Area 6's user stories (spec #580, Collection, Collie: stories from 1; spec
+# #581 and #582, Collection, Foxhound: stories from 201), the declared `story:6-<id>` Features of ADR 0072. Each story's
 # milestone is that of the ticket that finishes it; a story without a
 # Journey carries ADR 0075's reason (`actor`, `part` or `reach`). The spec's
 # issue keeps the full text; this copy is the one the Feature check reads.
 # It holds the stories a test declares so far; the others join with the
 # tickets that declare them. Never renumber or reuse an ID: a removed story
 # stays with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 28
+title = "As a developer, I want `run.keyValueStore.get(key)` to return JSON or null, and `get(key, schema)` my schema's type, so that state I saved comes back typed (CO-26, RT-09)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a developer, I want `set(key, value)` to refuse null with `value_invalid` naming `delete`, so that a null from `get` always means \"absent\" (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a developer, I want `delete(key)` to say whether the key existed and `keys({ prefix })` to iterate keys, so that I can manage what I stored (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a developer, I want the store kept in the run file and checkpointed with it, so that a Run resumed by its ID, here or on another machine, finds its state (ADR 0002)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a developer, I want a key refused with `value_invalid`, naming the key, when it is empty, longer than 512 characters or holds a control character, so that keys stay printable everywhere **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a developer, I want a view opened with `openRun(id)` to read the store without resuming the Run, so that another program can read what a Run kept (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
 
 [[story]]
 id = 201

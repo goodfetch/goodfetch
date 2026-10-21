@@ -789,6 +789,125 @@ export interface PrivateEndpoint {
   token_file: string;
 }
 /**
+ * What `key_value_store.delete` answers once the key is gone.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreDeleted".
+ */
+export interface KeyValueStoreDeleted {
+  /**
+   * Whether the key existed.
+   */
+  existed: boolean;
+}
+/**
+ * What `$/key` carries: the next key of the store a call lists.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKey".
+ */
+export interface KeyValueStoreKey {
+  /**
+   * The id of the `key_value_store.keys` call.
+   */
+  id: number | string;
+  /**
+   * The key.
+   */
+  key: string;
+}
+/**
+ * What `key_value_store.get` and `key_value_store.delete` take: the Run
+ * and the key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKeyParams".
+ */
+export interface KeyValueStoreKeyParams {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The Run whose store it is.
+   */
+  run_id: string;
+}
+/**
+ * What `key_value_store.keys` answers once it sent its last key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKeysEnded".
+ */
+export interface KeyValueStoreKeysEnded {
+  /**
+   * How many keys it sent.
+   */
+  count: number;
+}
+/**
+ * What `key_value_store.keys` takes: the Run, and the prefix every key it
+ * sends starts with.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKeysParams".
+ */
+export interface KeyValueStoreKeysParams {
+  /**
+   * The prefix of the keys it sends; every key when left out.
+   */
+  prefix?: string | null;
+  /**
+   * The Run whose store it is.
+   */
+  run_id: string;
+}
+/**
+ * What `key_value_store.set` answers once the value is committed.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreSet".
+ */
+export interface KeyValueStoreSet {}
+/**
+ * What `key_value_store.set` takes: the Run, the key and its value.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreSetParams".
+ */
+export interface KeyValueStoreSetParams {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The Run whose store it is.
+   */
+  run_id: string;
+  /**
+   * The value: any JSON but a top-level null, which `value_invalid`
+   * refuses; a nested null is kept.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `key_value_store.get` answers: the key's committed value, or null
+ * when the key is absent.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreValue".
+ */
+export interface KeyValueStoreValue {
+  /**
+   * The value, or null for an absent key.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
  * One Limit of the Usage ledger: a generic row, which a newer engine may
  * write with a scope kind, a Usage kind, a currency or a period this one
  * does not know (ADR 0041).

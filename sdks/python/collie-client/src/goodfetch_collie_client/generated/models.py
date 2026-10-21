@@ -150,6 +150,47 @@ class EngineInfoParams(BaseModel):
     )
 
 
+class KeyValueStoreDeleted(BaseModel):
+    """What `key_value_store.delete` answers once the key is gone."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    existed: bool
+    """Whether the key existed."""
+
+
+class KeyValueStoreKeysEnded(BaseModel):
+    """What `key_value_store.keys` answers once it sent its last key."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many keys it sent."""
+
+
+class KeyValueStoreSet(BaseModel):
+    """What `key_value_store.set` answers once the value is committed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class KeyValueStoreValue(BaseModel):
+    """
+    What `key_value_store.get` answers: the key's committed value, or null
+    when the key is absent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: Any
+    """The value, or null for an absent key."""
+
+
 class Lifecycle(StrEnum):
     """Where a Run is (ADR 0029)."""
 
@@ -903,6 +944,65 @@ class HelloResult(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class KeyValueStoreKey(BaseModel):
+    """What `$/key` carries: the next key of the store a call lists."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: RequestId
+    """The id of the `key_value_store.keys` call."""
+    key: str
+    """The key."""
+
+
+class KeyValueStoreKeyParams(BaseModel):
+    """
+    What `key_value_store.get` and `key_value_store.delete` take: the Run
+    and the key.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key."""
+    run_id: RunId
+    """The Run whose store it is."""
+
+
+class KeyValueStoreKeysParams(BaseModel):
+    """
+    What `key_value_store.keys` takes: the Run, and the prefix every key it
+    sends starts with.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    prefix: str | None = None
+    """The prefix of the keys it sends; every key when left out."""
+    run_id: RunId
+    """The Run whose store it is."""
+
+
+class KeyValueStoreSetParams(BaseModel):
+    """What `key_value_store.set` takes: the Run, the key and its value."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key."""
+    run_id: RunId
+    """The Run whose store it is."""
+    value: Any
+    """
+    The value: any JSON but a top-level null, which `value_invalid`
+    refuses; a nested null is kept.
+    """
 
 
 class Navigated(BaseModel):

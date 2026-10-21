@@ -370,6 +370,14 @@ class SettingUnknownError(ProgramError):
         super().__init__(message, code="setting_unknown", group="program", retryable=False)
 
 
+class ValueInvalidError(ProgramError):
+    """The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="value_invalid", group="program", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
@@ -410,5 +418,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
+    "value_invalid": ValueInvalidError,
 }
 """The exception class of each Error code."""

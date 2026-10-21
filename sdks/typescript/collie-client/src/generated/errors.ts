@@ -455,6 +455,15 @@ export class SettingUnknownError extends ProgramError {
   }
 }
 
+/**
+ * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.
+ */
+export class ValueInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "value_invalid", group: "program", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
@@ -496,4 +505,5 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  value_invalid: ValueInvalidError,
 };

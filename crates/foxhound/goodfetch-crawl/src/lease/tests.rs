@@ -72,7 +72,10 @@ fn on_paused_clock(test: impl AsyncFnOnce(Leases, Clock)) {
     });
 }
 
-/// Covers: story:3-40
+/// The lease check a handler's page passes before each command (#720,
+/// #761) refuses once the lease ran out.
+///
+/// Covers: story:3-40, story:3-42
 #[test]
 fn a_default_lease_ends_seventy_seconds_after_its_grant() {
     on_paused_clock(async |leases, clock| {
@@ -108,7 +111,9 @@ fn a_renewal_while_the_attempt_waits_lengthens_its_wait() {
     });
 }
 
-/// Covers: story:3-40
+/// The lease check refuses once the attempt released its lease.
+///
+/// Covers: story:3-40, story:3-42
 #[test]
 fn a_released_lease_ends_its_wait_and_lets_nothing_more_leave() {
     on_paused_clock(async |leases, clock| {

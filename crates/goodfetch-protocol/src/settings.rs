@@ -17,7 +17,7 @@ use serde_json::{Map, Value, json};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    Product, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -329,6 +329,7 @@ pub const CONFIG_EXPLAIN: Operation = Operation {
     description: "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<ConfigExplainParams>,
     result: schema_of::<SettingsExplanation>,
     events: &[],

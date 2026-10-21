@@ -25,3 +25,7 @@ pub fn of_error(code: &str, group: ErrorGroup) -> u8 {
 pub fn unanswered() -> u8 {
     ErrorGroup::Internal.exit_code()
 }
+
+/// A command interrupted by `SIGINT` (Ctrl-C), its call cancelled when it
+/// could be: the shell's `128 + 2`.
+pub const INTERRUPTED: u8 = 130;

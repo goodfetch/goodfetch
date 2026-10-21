@@ -161,8 +161,9 @@ fn as_setting(key: &str, value: Value) -> Result<Value, String> {
 }
 
 /// The milliseconds of a duration written as a whole number with no unit
-/// or `ms`, `s`, `m` or `h`.
-fn milliseconds(text: &str) -> Option<u64> {
+/// or `ms`, `s`, `m` or `h`: the one duration syntax of the command line,
+/// which the generated commands' `--timeout` reads too.
+pub(crate) fn milliseconds(text: &str) -> Option<u64> {
     let unit_at = text
         .find(|character: char| !character.is_ascii_digit())
         .unwrap_or(text.len());

@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
-    OperationKind, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 use crate::run::{RUN_ID_PATTERN, RunId, RunStarted, Tags};
 use crate::settings::ProjectSettings;
@@ -180,6 +180,7 @@ pub const CRAWL_START: Operation = Operation {
     description: "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
+    reach: Reach::AllSurfaces,
     params: schema_of::<CrawlStartParams>,
     result: schema_of::<RunStarted>,
     events: &[],

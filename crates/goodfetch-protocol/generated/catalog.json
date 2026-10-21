@@ -491,6 +491,7 @@
         "$ref": "#/$defs/ConfigExplainParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SettingsExplanation"
       },
@@ -509,6 +510,7 @@
         "$ref": "#/$defs/CrawlStartParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -527,6 +529,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStatus"
       },
@@ -545,6 +548,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStopping"
       },
@@ -563,6 +567,7 @@
         "$ref": "#/$defs/EngineInfoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/EngineInfo"
       },
@@ -584,6 +589,7 @@
         "$ref": "#/$defs/EventsSubscribeParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
       },
@@ -602,6 +608,7 @@
         "$ref": "#/$defs/PageBodyParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
       },
@@ -620,6 +627,7 @@
         "$ref": "#/$defs/RunAbortParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -638,6 +646,7 @@
         "$ref": "#/$defs/RunFailedRequestsParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/FailedRequests"
       },
@@ -656,6 +665,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -674,6 +684,7 @@
         "$ref": "#/$defs/RunOutcomesParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/CrawlRequestOutcomes"
       },
@@ -692,6 +703,7 @@
         "$ref": "#/$defs/RunStartParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -712,6 +724,7 @@
         "$ref": "#/$defs/SampleCrawlParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleCrawlResult"
       },
@@ -735,6 +748,7 @@
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
       },

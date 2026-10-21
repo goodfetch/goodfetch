@@ -9,10 +9,14 @@
 # The `sdk-typescript` cases below run in the `attached` mode only: the
 # Daemon transport (#220 and area 11's Daemon ticket) adds `daemon` by
 # removing their `modes` line (agent decision, pending owner review).
+#
+# The `cli` cases below run in the `attached` mode only: the CLI reaches a
+# Daemon with area 11's Daemon ticket (#1183), which adds `daemon` by
+# removing their `modes` line (agent decision, pending owner review).
 
 [suite]
 name = "clients"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "lifecycle"
@@ -48,4 +52,28 @@ name = "product-conformance"
 id = "collie-accepted-by-foxhound"
 covers = ["story:11-8"]
 surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability]]
+name = "time"
+
+[[capability.case]]
+id = "interrupt-cancels-the-call"
+covers = ["story:11-198"]
+surfaces = ["cli"]
+modes = ["attached"]
+
+[[capability]]
+name = "catalog-mapping"
+
+[[capability.case]]
+id = "sequence-follows-until-it-ends"
+covers = ["story:11-198"]
+surfaces = ["cli"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "deprecated-command-warns"
+covers = ["story:11-204"]
+surfaces = ["cli"]
 modes = ["attached"]

@@ -9,6 +9,7 @@
 
 mod attached;
 mod browsers;
+mod client_conformance;
 mod commands;
 mod config;
 mod daemon;

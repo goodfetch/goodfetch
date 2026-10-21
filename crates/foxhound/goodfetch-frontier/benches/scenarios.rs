@@ -28,12 +28,13 @@ pub(crate) fn requests(heavy: usize, small: usize) -> Vec<(String, i64)> {
 
 /// Enqueues `requests` in order, each into its domain's queue while it has
 /// room, then admits every one in turn and ends it; returns how many it
-/// admitted.
+/// admitted and how many domains it still keeps state for, none once
+/// every queue drained.
 #[expect(
     clippy::disallowed_methods,
     reason = "a pure rule's readings may start from any moment (ADR 0059)"
 )]
-pub(crate) fn admit_all(requests: Vec<(String, i64)>) -> usize {
+pub(crate) fn admit_all(requests: Vec<(String, i64)>) -> (usize, usize) {
     let now = Instant::now();
     let mut queues = DomainQueues::new(DomainKeys::default(), BOUND);
     for (order, (url, priority)) in requests.into_iter().enumerate() {
@@ -50,5 +51,5 @@ pub(crate) fn admit_all(requests: Vec<(String, i64)>) -> usize {
         queues.ended(&request.key, now, Ended::Done);
         admitted += 1;
     }
-    admitted
+    (admitted, queues.domains())
 }

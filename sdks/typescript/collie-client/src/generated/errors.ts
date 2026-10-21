@@ -456,6 +456,15 @@ export class SettingUnknownError extends ProgramError {
 }
 
 /**
+ * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
+ */
+export class UpgradeSourceUnsupportedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "upgrade_source_unsupported", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.
  */
 export class ValueInvalidError extends ProgramError {
@@ -505,5 +514,6 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  upgrade_source_unsupported: UpgradeSourceUnsupportedError,
   value_invalid: ValueInvalidError,
 };

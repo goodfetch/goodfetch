@@ -285,6 +285,21 @@ pub enum StartError {
     /// may cover the Run (ADR 0041).
     #[error("a Limit on {} cannot be evaluated by this engine", .0.scope.kind)]
     LimitNotUnderstood(Box<Limit>),
+    /// The Run index refuses this engine: its format is of another major,
+    /// or its lowest minor is newer than the engine (ADR 0098), so no Run
+    /// starts.
+    #[error("the Run index is {format} {found}, which this engine cannot use")]
+    Format {
+        /// The format's name.
+        format: &'static str,
+        /// The index's format version.
+        found: String,
+        /// What this engine makes of it.
+        compatibility: Compatibility,
+        /// The Product version to install, when its lowest minor refused
+        /// this engine.
+        install: Option<String>,
+    },
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -363,6 +378,9 @@ pub enum RunError {
         found: String,
         /// What this engine makes of it.
         compatibility: Compatibility,
+        /// The Product version to install, when a shared store's lowest
+        /// minor refused this engine (ADR 0098).
+        install: Option<String>,
     },
     /// The Run is bound to another machine (ADR 0056).
     #[error("the Run `{0}` is bound to another machine")]
@@ -395,11 +413,13 @@ impl RunError {
                 format,
                 found,
                 compatibility,
+                install,
             } => Self::Format {
                 run_id: run_id.clone(),
                 format,
                 found,
                 compatibility,
+                install,
             },
             other => Self::Unavailable {
                 run_id: run_id.clone(),
@@ -1532,6 +1552,7 @@ impl Registry {
             folder: folder.clone(),
             error,
         };
+        self.check_index().await?;
         self.may_start(&run_id, connection).await?;
         let lock = self.lock(&run_id, &folder).await?;
         let writer = Arc::new(self.owner.child());
@@ -1640,11 +1661,43 @@ impl Registry {
         }
     }
 
+    /// Refuses a start when the Run index's marker refuses this engine
+    /// (ADR 0098): an engine that finds its lowest minor raised past itself
+    /// takes no new Run. An index that cannot be opened stops no Run; its
+    /// row is restored by `runs reindex`.
+    async fn check_index(&self) -> Result<(), StartError> {
+        let path = self.setup.home.run_index(&self.setup.version);
+        let version = self.setup.version.clone();
+        match self
+            .owner
+            .blocking(move || run_index::check(&path, &version))
+            .await
+        {
+            Err(RunStateError::Format {
+                format,
+                found,
+                compatibility,
+                install,
+            }) => Err(StartError::Format {
+                format,
+                found,
+                compatibility,
+                install,
+            }),
+            Err(error) => {
+                tracing::warn!(%error, "the Run index cannot be read; the Run starts without it");
+                Ok(())
+            }
+            Ok(()) => Ok(()),
+        }
+    }
+
     async fn write_index(&self, row: RunIndexRow) {
         let path = self.setup.home.run_index(&self.setup.version);
+        let version = self.setup.version.clone();
         if let Err(error) = self
             .owner
-            .blocking(move || run_index::write(&path, &row))
+            .blocking(move || run_index::write(&path, &version, &row))
             .await
         {
             tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
@@ -1784,6 +1837,7 @@ impl Registry {
                 last_checkpoint: live.checkpoint.clone(),
             };
             let index = self.setup.home.run_index(&self.setup.version);
+            let version = self.setup.version.clone();
             let registry = self.runs.clone();
             let run_id = run_id.clone();
             self.ending_owner.spawn(async move {
@@ -1796,7 +1850,7 @@ impl Registry {
                     owner: None,
                     ..row
                 };
-                if let Err(error) = run_index::write(&index, &ended) {
+                if let Err(error) = run_index::write(&index, &version, &ended) {
                     tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
                 }
                 events
@@ -1867,6 +1921,7 @@ impl Registry {
             clock: self.setup.clock,
             entropy: self.setup.entropy.fork(),
             index: self.setup.home.run_index(&self.setup.version),
+            version: self.setup.version.clone(),
             events: self.setup.events.clone(),
             forwarder: Arc::clone(&self.setup.forwarder),
             owner: Arc::new(self.ending_owner.child()),
@@ -2140,6 +2195,18 @@ impl Registry {
                     run_id,
                     folder,
                     error,
+                },
+                StartError::Format {
+                    format,
+                    found,
+                    compatibility,
+                    install,
+                } => RunError::Format {
+                    run_id: run_id.clone(),
+                    format,
+                    found,
+                    compatibility,
+                    install,
                 },
                 StartError::Conflict { .. }
                 | StartError::LimitReached(_)

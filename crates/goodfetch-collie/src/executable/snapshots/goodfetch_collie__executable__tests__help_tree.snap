@@ -8,15 +8,17 @@ Collie, Goodfetch's Product for browser automation.
 Usage: goodfetch-collie [OPTIONS] <COMMAND>
 
 Commands:
-  browsers  Manages the browser builds this version pins in the Browser cache
-  config    Shows the settings and where each value comes from
-  daemon    Starts, stops and shows the Daemon of this executable's major, which both Products share
-  runs      Works on the runs of this executable's major, of both Products
-  engine    Calls the catalog's `engine` operations
-  events    Calls the catalog's `events` operations
-  run       Calls the catalog's `run` operations
-  page      Calls the catalog's `page` operations
-  sample    Calls the catalog's `sample` operations
+  browsers       Manages the browser builds this version pins in the Browser cache
+  config         Shows the settings and where each value comes from
+  daemon         Starts, stops and shows the Daemon of this executable's major, which both Products share
+  runs           Works on the runs of this executable's major, of both Products
+  upgrade-files  Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+  engine         Calls the catalog's `engine` operations
+  events         Calls the catalog's `events` operations
+  run            Calls the catalog's `run` operations
+  page           Calls the catalog's `page` operations
+  sample         Calls the catalog's `sample` operations
+  usage          Calls the catalog's `usage` operations
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -222,6 +224,17 @@ Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
+$ goodfetch-collie upgrade-files --help
+Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+
+Usage: goodfetch-collie upgrade-files [OPTIONS]
+
+Options:
+      --from <MAJOR>  The older major to upgrade from, such as `1` or `0.4`; the newest older major Goodfetch home holds when not given
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
 $ goodfetch-collie engine --help
 Calls the catalog's `engine` operations
 
@@ -311,8 +324,8 @@ Options:
       --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
       --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --tags <TAGS>        The Run's opaque tags
-      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
       --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
 $ goodfetch-collie run finish --help
@@ -506,3 +519,42 @@ Options:
   -h, --help          Print help
 
 Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.
+
+$ goodfetch-collie usage --help
+Calls the catalog's `usage` operations
+
+Usage: goodfetch-collie usage [OPTIONS] <COMMAND>
+
+Commands:
+  list  Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+  set   Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie usage list --help
+Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+
+Usage: goodfetch-collie usage list [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie usage set --help
+Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+
+Usage: goodfetch-collie usage set [OPTIONS] --amount <AMOUNT> --scope <SCOPE> --usage-kind <USAGE_KIND>
+
+Options:
+      --amount <AMOUNT>          How much it allows per period: a count of the Usage kind, or millionths of the currency
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over; none for a Limit that never starts again
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the caller's own when absent (its Client connection, its person, the engine's Daemon, the install)
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --json                     Prints the result as JSON
+  -h, --help                     Print help

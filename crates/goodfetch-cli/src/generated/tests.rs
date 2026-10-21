@@ -133,6 +133,8 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("key_value_store.keys", Offer::Follow),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),
+            ("usage.list", Offer::Command),
+            ("usage.set", Offer::Command),
         ]
     );
 }

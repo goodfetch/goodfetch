@@ -5,12 +5,17 @@
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
 //! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, and `runs reindex`, beside the commands `goodfetch-cli` generates
+//! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
 //! `engine info`, and the global `--color auto|always|never`; the CLI's
 //! other commands join with area 11. Every
 //! command but `daemon launched` first records the executable in the list
 //! of installed executables (ADR 0098).
+//!
+//! An executable more than three months past its release date prints the
+//! age notice on stderr before its command, once a day, unless
+//! `version.age_notice` is `false` (ADR 0030); a Daemon a start launched
+//! has no terminal and prints none.
 //!
 //! `main` reads the environment once and passes the map (ADR 0059); every
 //! `GOODFETCH_` variable in it must be a deployment variable, or the
@@ -38,8 +43,9 @@ use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_cli::generated::{Call, Generated};
-use goodfetch_cli::output::{ColourChoice, Human};
+use goodfetch_cli::output::{self, ColourChoice, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
+use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
@@ -60,6 +66,7 @@ mod config;
 mod daemon;
 mod runs;
 mod service;
+mod upgrade;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -119,6 +126,18 @@ enum Command {
     Runs {
         #[command(subcommand)]
         command: RunsCommand,
+    },
+    /// Gives this executable's major its own copy of an older major's
+    /// settings, Operator policy, Run index and runs in Goodfetch home,
+    /// never changing the older major's files.
+    UpgradeFiles {
+        /// The older major to upgrade from, such as `1` or `0.4`; the
+        /// newest older major Goodfetch home holds when not given.
+        #[arg(long, value_name = "MAJOR")]
+        from: Option<String>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -264,6 +283,10 @@ pub struct Start {
     pub product: Product,
     /// Its Product version, its crate's `CARGO_PKG_VERSION`.
     pub version: &'static str,
+    /// Its release date, `YYYY-MM-DD`, which a release build records in
+    /// `GOODFETCH_RELEASE_DATE`; none for any other build, which then never
+    /// prints the age notice (ADR 0030).
+    pub release_date: Option<&'static str>,
     /// Builds its composition, which [`main`] calls only once a command
     /// starts the engine, so `--version` and the help never build it.
     pub composition: fn() -> Composition,
@@ -284,6 +307,7 @@ pub struct Start {
 /// let exit_code = main(&Start {
 ///     product: Product::Collie,
 ///     version: env!("CARGO_PKG_VERSION"),
+///     release_date: None,
 ///     composition: goodfetch_collie::composition,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
@@ -370,6 +394,9 @@ pub fn main(start: &Start) -> ExitCode {
         tracing::error!("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows");
         return ExitCode::FAILURE;
     };
+    if !launched {
+        age_notice(start.release_date, &home, engine.identity());
+    }
     let entropy = match Entropy::from_os() {
         Ok(entropy) => entropy,
         Err(error) => {
@@ -516,6 +543,9 @@ fn run(
             };
             runs::reindex(engine.identity(), &home, &folder, paths, json)
         }
+        Command::UpgradeFiles { from, json } => {
+            upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
+        }
     }
 }
 
@@ -551,6 +581,20 @@ fn config_explain(
         machine.home,
         &request,
     )
+}
+
+/// Prints the age notice on stderr when it is due for an executable
+/// released on `release_date` (ADR 0030).
+fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity) {
+    let Some(released) = release_date.and_then(|date| date.parse::<jiff::civil::Date>().ok())
+    else {
+        return;
+    };
+    match AgeNotice::new(home, identity.clone()).due(released, Clock::system().wall()) {
+        Ok(Some(line)) => output::note(&line),
+        Ok(None) => {}
+        Err(error) => tracing::debug!(%error, "the age notice was not recorded"),
+    }
 }
 
 /// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`

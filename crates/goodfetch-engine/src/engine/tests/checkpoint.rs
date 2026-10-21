@@ -112,6 +112,7 @@ fn keeping() -> Contribution {
                             binding,
                             clean_up_digest: params["clean_up_digest"].as_str().map(str::to_owned),
                             checkpoint_interval: None,
+                            timeout: None,
                         })
                         .await
                         .unwrap();

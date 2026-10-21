@@ -18,6 +18,7 @@ use crate::sample;
 pub fn composition() -> Composition {
     goodfetch_collie::composition()
         .with(sample::contribution())
+        .with(goodfetch_frontier::contribution())
         .with(goodfetch_crawl::contribution())
 }
 

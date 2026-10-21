@@ -48,6 +48,7 @@ fn crawl_of(count: usize) -> Connection {
             url: format!("https://shop.test/{index}"),
             label: "page".to_owned(),
             payload: None,
+            priority: 0,
         })
         .collect();
     work_items::insert_seeds(&connection, &seeds).unwrap();
@@ -63,7 +64,14 @@ fn failure() -> Failure {
 
 /// Leases every pending work item and ends each as `end` says.
 fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
-    for leased in work_items::lease(connection, usize::MAX).unwrap() {
+    let pending: Vec<String> = connection
+        .prepare("SELECT id FROM work_items WHERE status = 'pending' ORDER BY position")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    for leased in work_items::lease(connection, &pending).unwrap() {
         let id = &leased.crawl_request.id;
         let index: usize = id.parse::<usize>().unwrap() - 1;
         let epoch = leased.lease_epoch;

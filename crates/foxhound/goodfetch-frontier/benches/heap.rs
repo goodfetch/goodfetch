@@ -9,14 +9,14 @@ use gungraun::Tool;
 use gungraun::prelude::*;
 
 #[library_benchmark]
-#[bench::thousand_urls(scenarios::synthetic_urls(1_000))]
-fn queue_unique(urls: Vec<String>) -> usize {
-    black_box(scenarios::queue_unique(black_box(urls)))
+#[bench::one_heavy_domain_and_a_thousand_small(scenarios::requests(64, 1_000))]
+fn admit(requests: Vec<(String, i64)>) -> (usize, usize) {
+    black_box(scenarios::admit_all(black_box(requests)))
 }
 
-library_benchmark_group!(name = frontier, benchmarks = queue_unique);
+library_benchmark_group!(name = admission, benchmarks = admit);
 
 main!(
     config = LibraryBenchmarkConfig::default().default_tool(Tool::DHAT),
-    library_benchmark_groups = frontier
+    library_benchmark_groups = admission
 );

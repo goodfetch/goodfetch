@@ -3,7 +3,8 @@
 //! with the license it is used under and where its source is, checked
 //! against ADR 0018's allowlist. A license the allowlist refuses for its use,
 //! or a declared input that states no source, is a finding naming the
-//! dependency and its ecosystem.
+//! dependency and its ecosystem; so is anything named or sourced from a
+//! watchlist (story 61), from which nothing but vendor names is taken.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -27,6 +28,7 @@ use self::entry::{Ecosystem, Entry, Usage};
 use self::license::{Allowlist, Verdict};
 use crate::check::Finding;
 use crate::environment::Environment;
+use crate::watchlist::Watchlist;
 
 /// What the inventory is built from, beyond the workspace's own files.
 pub(crate) struct Sources<'a> {
@@ -88,6 +90,22 @@ pub(crate) fn check(
                 "source-unknown",
                 subject(entry),
                 "it states no place its source is; state one",
+            ));
+        }
+        if let Some(watchlist) = std::iter::once(entry.name.as_str())
+            .chain(entry.source.as_deref())
+            .find_map(Watchlist::named_in)
+        {
+            findings.push(Finding::new(
+                "watchlist-source",
+                subject(entry),
+                format!(
+                    "it is {} ({}), a watchlist Goodfetch reads vendor names from and \
+                     takes nothing else (story 61); write the rule from the vendor's \
+                     documentation and Goodfetch's own captures",
+                    watchlist.name(),
+                    watchlist.license()
+                ),
             ));
         }
         notices.push(Notice {

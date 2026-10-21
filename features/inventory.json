@@ -439,6 +439,17 @@
       ]
     },
     {
+      "id": "error:deadline_exceeded",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:engine_exited",
       "kind": "error",
       "area": 11,
@@ -2992,6 +3003,17 @@
       ]
     },
     {
+      "id": "setting:admission.max_requests_per_minute",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser_cache.max_unused_age",
       "kind": "setting",
       "area": 3,
@@ -3032,6 +3054,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.domain_keys",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

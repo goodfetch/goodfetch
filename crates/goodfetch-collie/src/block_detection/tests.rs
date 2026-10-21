@@ -122,3 +122,32 @@ fn the_notice_inventory_declares_exactly_the_rules_outside_sources() {
         .collect();
     assert_eq!(named, inputs);
 }
+
+/// Every vendor `vendors.toml` counts as covered, which the watchlist job
+/// opens no issue for, names at least one rule, and every rule it names
+/// exists, so no vendor is counted covered without a rule.
+///
+/// Covers: story:8-61
+#[test]
+fn each_covered_vendor_names_rules_that_exist() {
+    let file: toml::Table =
+        toml::from_str(include_str!("vendors.toml")).expect("vendors.toml is TOML");
+    let rules: BTreeSet<&str> = RULES.iter().map(|rule| rule.name).collect();
+
+    for vendor in file["vendor"].as_array().expect("vendors are an array") {
+        let name = vendor["name"].as_str().expect("a vendor's name");
+        let named: Vec<&str> = vendor["rules"]
+            .as_array()
+            .expect("a vendor's rules")
+            .iter()
+            .map(|rule| rule.as_str().expect("a rule's name"))
+            .collect();
+        assert!(!named.is_empty(), "{name} names no rule");
+        for rule in named {
+            assert!(
+                rules.contains(rule),
+                "{name} names {rule}, which is no rule"
+            );
+        }
+    }
+}

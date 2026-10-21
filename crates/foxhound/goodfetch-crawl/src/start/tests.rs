@@ -15,8 +15,10 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+mod admission;
 mod model;
 mod resume;
+mod safe_point;
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -56,6 +58,8 @@ pub(crate) enum Reply {
     Records(Vec<Value>),
     /// Fails with this Error code and retryable flag.
     Fails(&'static str, bool),
+    /// Fails with this Error code, retryable flag and details.
+    FailsWith(&'static str, bool, Value),
     /// Skips its request with this message, as `ctx.skip` does.
     Skips(&'static str),
     /// Fails with `blocked` and this Block cause, as a page the site
@@ -146,6 +150,20 @@ impl Client {
                         }))
                         .await;
                     }
+                    Reply::FailsWith(code, retryable, details) => {
+                        let mut data = json!({ "code": code, "retryable": retryable });
+                        if let (Some(data), Value::Object(details)) =
+                            (data.as_object_mut(), details)
+                        {
+                            data.extend(details);
+                        }
+                        self.send(&json!({
+                            "jsonrpc": "2.0",
+                            "id": message["id"],
+                            "error": { "code": -32005, "message": "the handler failed", "data": data },
+                        }))
+                        .await;
+                    }
                     Reply::Skips(text) => {
                         self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "skipped": { "message": text } } }))
                             .await;
@@ -210,7 +228,8 @@ pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
     }
 }
 
-/// A Foxhound engine composed of the engine's operations and the crawl's.
+/// A Foxhound engine composed of the engine's operations, the Frontier's
+/// per-domain queues and the crawl's.
 pub(crate) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
@@ -219,6 +238,7 @@ pub(crate) fn engine() -> Engine {
     };
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
+        .with(goodfetch_frontier::contribution())
         .with(super::contribution());
     Engine::new(identity, &composition).unwrap()
 }
@@ -390,7 +410,7 @@ pub(crate) fn work_items(connection: &Connection) -> Vec<(String, String, i64, O
         .collect()
 }
 
-fn page_of(params: &Value) -> String {
+pub(super) fn page_of(params: &Value) -> String {
     params["crawl_request"]["url"].as_str().unwrap().to_owned()
 }
 

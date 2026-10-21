@@ -63,6 +63,7 @@ fn use_foxhound() -> Contribution {
                     binding: None,
                     clean_up_digest: None,
                     checkpoint_interval: None,
+                    timeout: None,
                 })
                 .await
                 .unwrap();
@@ -403,6 +404,53 @@ fn an_aborted_run_is_stopped_and_incomplete_and_a_start_under_its_run_id_returns
             &json!({ "kind": "abort", "by": "client" }),
             &json!("existing"),
             &json!("stopped"),
+        )
+    );
+}
+
+/// A Run its program drives stops at once when its `timeout.run` passes:
+/// the engine holds nothing in flight for it. Its clock starts at its
+/// start, so before then it still runs.
+///
+/// Covers: story:3-52, setting:timeout.run
+#[test]
+fn a_run_past_its_run_timeout_stops_incomplete_with_the_stop_reason_timeout() {
+    let env = TestEnv::new();
+    let listed = &env;
+
+    let (before, report) = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(
+                &mut client,
+                1,
+                "run.start",
+                json!({ "run_id": "timed", "settings": { "timeout": { "run": 60_000 } } }),
+            )
+            .await;
+            tokio::time::sleep(std::time::Duration::from_secs(59)).await;
+            let before = index_row(listed, "timed");
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let report = call(&mut client, 2, "run.finish", json!({ "run_id": "timed" })).await;
+            (before, report)
+        },
+    );
+
+    assert_eq!(
+        (
+            &before["lifecycle"],
+            &report["result"]["lifecycle"],
+            &report["result"]["completeness"],
+            &report["result"]["stop_reason"],
+        ),
+        (
+            &json!("running"),
+            &json!("stopped"),
+            &json!("incomplete"),
+            &json!({ "kind": "timeout" }),
         )
     );
 }

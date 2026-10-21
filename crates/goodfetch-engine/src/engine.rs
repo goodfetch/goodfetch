@@ -15,6 +15,7 @@ use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::run::{RunKind, RunOwner};
 
+use crate::admission::Gates;
 use crate::attached::{ParentWatch, PrivateFiles};
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
@@ -38,6 +39,7 @@ pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
     drivers: BTreeMap<RunKind, Driver>,
+    gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
 }
@@ -69,6 +71,7 @@ impl Engine {
             }),
             tables: composition.run_state_tables(),
             drivers: composition.drivers(),
+            gates: composition.admission_gates()?,
             events: EventsOptions::default(),
             console: composition.console(),
         })
@@ -200,6 +203,7 @@ impl Engine {
                 run_state: dependencies.run_state,
                 tables: self.tables.clone(),
                 drivers: self.drivers.clone(),
+                gates: self.gates.clone(),
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),

@@ -4132,6 +4132,12 @@
           "arrived_in": "0.1",
           "description": "The data the program attaches for its handler."
         },
+        "priority": {
+          "arrived_in": "0.1",
+          "description": "Its priority among the requests of its domain: higher goes first,\nand a priority never orders requests of different domains (ADR\n0004); 0 by default.",
+          "format": "int64",
+          "type": "integer"
+        },
         "url": {
           "arrived_in": "0.1",
           "description": "Its URL.",
@@ -4499,6 +4505,19 @@
           "properties": {
             "kind": {
               "const": "migrate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Its `timeout.run` passed, and it stopped at its next safe point,\nresumable with a fresh clock (ADR 0080); no Error code of its own.",
+          "properties": {
+            "kind": {
+              "const": "timeout",
               "type": "string"
             }
           },
@@ -4883,6 +4902,24 @@
             "arrived_in": "0.1",
             "description": "The largest value a higher layer may give a count or a duration.",
             "properties": {
+              "admission": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_requests_per_minute": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                  }
+                },
+                "type": "object"
+              },
               "browser_cache": {
                 "additionalProperties": false,
                 "properties": {
@@ -5034,6 +5071,24 @@
             "arrived_in": "0.1",
             "description": "The values it sets and locks: no higher layer changes them.",
             "properties": {
+              "admission": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_requests_per_minute": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                  }
+                },
+                "type": "object"
+              },
               "browser_cache": {
                 "additionalProperties": false,
                 "properties": {
@@ -5098,6 +5153,13 @@
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
+                  "domain_keys": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
+                    "type": "object"
+                  },
                   "handler": {
                     "additionalProperties": false,
                     "properties": {
@@ -5416,6 +5478,24 @@
             "arrived_in": "0.1",
             "description": "The values it sets, which higher layers may change.",
             "properties": {
+              "admission": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_requests_per_minute": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                  }
+                },
+                "type": "object"
+              },
               "browser_cache": {
                 "additionalProperties": false,
                 "properties": {
@@ -5480,6 +5560,13 @@
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
+                  "domain_keys": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
+                    "type": "object"
+                  },
                   "handler": {
                     "additionalProperties": false,
                     "properties": {
@@ -5823,6 +5910,24 @@
             "arrived_in": "0.1",
             "description": "The settings it sets, nested by key.",
             "properties": {
+              "admission": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_requests_per_minute": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                  }
+                },
+                "type": "object"
+              },
               "browser_cache": {
                 "additionalProperties": false,
                 "properties": {
@@ -5887,6 +5992,13 @@
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
+                  "domain_keys": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
+                    "type": "object"
+                  },
                   "handler": {
                     "additionalProperties": false,
                     "properties": {

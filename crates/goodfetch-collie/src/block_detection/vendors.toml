@@ -1,0 +1,46 @@
+# The vendors the block-detection rules in `rules.rs` cover, each with the
+# rules that cover it and, in `listed_as`, any other name webappanalyzer or
+# Scrapfly's Antibot-Detector lists it under (names compare as their
+# lowercase letters and digits). The watchlist job (`xtask watchlist`, story
+# 61) opens an issue for each vendor a watchlist lists that no entry here
+# matches; `block_detection`'s tests check that every rule named here exists.
+# Names only: nothing else of either watchlist enters Goodfetch. A vendor
+# gains an entry with the rule written for it from its own documentation and
+# Goodfetch's captures.
+
+[[vendor]]
+name = "Cloudflare"
+listed_as = ["Cloudflare Bot Management"]
+rules = ["cloudflare_challenge", "cloudflare_block"]
+
+[[vendor]]
+name = "Cloudflare Turnstile"
+listed_as = ["turnstile"]
+rules = ["captcha_widget"]
+
+[[vendor]]
+name = "reCAPTCHA"
+rules = ["captcha_widget"]
+
+[[vendor]]
+name = "hCaptcha"
+rules = ["captcha_widget"]
+
+[[vendor]]
+name = "FunCaptcha"
+listed_as = ["Arkose Labs"]
+rules = ["captcha_widget"]
+
+[[vendor]]
+name = "HUMAN"
+listed_as = ["PerimeterX"]
+rules = ["press_and_hold"]
+
+[[vendor]]
+name = "Imperva"
+listed_as = ["Incapsula"]
+rules = ["incapsula_block"]
+
+[[vendor]]
+name = "Sucuri"
+rules = ["sucuri_block"]

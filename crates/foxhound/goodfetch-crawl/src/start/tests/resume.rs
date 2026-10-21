@@ -212,3 +212,70 @@ fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once() {
         )
     );
 }
+
+/// A crawl its `timeout.run` stopped writes a Checkpoint at that stop, and
+/// its resume, on a fresh clock with no timeout, opens its admission from
+/// the per-domain journal and delivers only the work item left pending.
+/// Covers: story:3-30, story:3-35, operation:run.resume
+#[test]
+fn a_crawl_its_timeout_stopped_checkpoints_then_resumes_only_its_pending_work() {
+    let env = TestEnv::new();
+    let seeds: Value = ["https://a.test/1", "https://b.test/1", "https://c.test/1"]
+        .iter()
+        .map(|url| json!({ "url": url, "label": "page" }))
+        .collect();
+    let (stopped, handled, finished) = crawl(
+        || {
+            configure(&env, ONE_AT_A_TIME);
+            default_dependencies(&env, RunStateOptions::default())
+        },
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "timed",
+                        "seeds": seeds,
+                        "settings": {
+                            "timeout": { "run": 15_000 },
+                            "admission": { "max_requests_per_minute": 6 },
+                        },
+                    }),
+                    &mut answer_all,
+                )
+                .await;
+            let stopped = client
+                .call("run.finish", json!({ "run_id": "timed" }), &mut answer_all)
+                .await;
+            client.handled.clear();
+            client
+                .call("run.resume", json!({ "run_id": "timed" }), &mut answer_all)
+                .await;
+            let finished = client
+                .call("run.finish", json!({ "run_id": "timed" }), &mut answer_all)
+                .await;
+            (stopped, delivered(client), finished)
+        },
+    );
+
+    assert_eq!(
+        (
+            stopped["result"]["stop_reason"].clone(),
+            stopped["result"]["checkpoint"]["run_epoch"].clone(),
+            handled,
+            finished["result"]["lifecycle"].clone(),
+            work_items(&run_file(&env, "timed")),
+        ),
+        (
+            json!({ "kind": "timeout" }),
+            json!(1),
+            vec![("https://c.test/1".to_owned(), 1)],
+            json!("finished"),
+            vec![
+                ("1".to_owned(), "succeeded".to_owned(), 1, None),
+                ("2".to_owned(), "succeeded".to_owned(), 1, None),
+                ("3".to_owned(), "succeeded".to_owned(), 1, None),
+            ],
+        )
+    );
+}

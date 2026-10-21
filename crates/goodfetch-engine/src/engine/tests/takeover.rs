@@ -68,6 +68,7 @@ fn grow() -> Contribution {
                     binding: None,
                     clean_up_digest: None,
                     checkpoint_interval: None,
+                    timeout: None,
                 })
                 .await
                 .unwrap();

@@ -71,6 +71,7 @@ use self::folder::{
 use self::reader::Following;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
+use crate::admission::{Admission, Gates};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
@@ -80,7 +81,7 @@ use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
 use crate::run_index;
 use crate::run_state::{self, RunState, RunStateError, RunStateOptions, RunStateTables};
-use crate::settings::{RunSettings, Settings};
+use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
 
 /// A Run's state, in its folder.
@@ -109,6 +110,8 @@ pub(crate) struct RunsSetup {
     pub(crate) run_state: RunStateOptions,
     /// The tables the composition adds to every run file.
     pub(crate) tables: Vec<RunStateTables>,
+    /// The gate in admission the composition passes in, if any.
+    pub(crate) gates: Option<Arc<dyn Gates>>,
     /// The engine's clock.
     pub(crate) clock: Clock,
     /// The engine's entropy, from which Run IDs draw.
@@ -195,6 +198,9 @@ pub struct Start {
     pub clean_up_digest: Option<String>,
     /// How often it writes a Checkpoint, from `checkpoint.interval`.
     pub checkpoint_interval: Option<Duration>,
+    /// Its `timeout.run`, none when unset: once it passes, counted from
+    /// this start, the Run stops at its next safe point (ADR 0080).
+    pub timeout: Option<Duration>,
 }
 
 /// What a resume asks for.
@@ -205,6 +211,9 @@ pub struct Resume {
     pub checkpoint: Option<PathBuf>,
     /// How often it writes a Checkpoint from now on.
     pub checkpoint_interval: Option<Duration>,
+    /// Its `timeout.run` from now on, none when unset, counted from the
+    /// resume on a fresh clock (ADR 0080).
+    pub timeout: Option<Duration>,
 }
 
 /// What a resume found.
@@ -403,6 +412,9 @@ pub enum Ending {
     Finished,
     /// An error in the engine ended it: `failed`.
     Failed,
+    /// It reached the safe point a stop asked for: `stopped`, for the
+    /// reason [`Run::stopping`] gave.
+    Stopped(StopReason),
 }
 
 /// Why a Run ends.
@@ -502,6 +514,8 @@ pub struct Run {
     folder: PathBuf,
     state: RunState,
     clock: Clock,
+    gates: Option<Arc<dyn Gates>>,
+    stop: Arc<watch::Sender<Option<StopReason>>>,
     owner: Arc<TaskOwner>,
     runs: Runs,
 }
@@ -531,10 +545,88 @@ impl Run {
         self.clock
     }
 
-    /// Cancelled when the Run stops: its driver stops at its next safe
-    /// point.
+    /// Cancelled when the Run stops at once, by an abort: its driver
+    /// abandons each attempt in flight.
     pub fn cancellation(&self) -> &CancellationToken {
         self.owner.token()
+    }
+
+    /// Answers once something asks the Run to stop at its next safe point,
+    /// such as its `timeout.run` passing, with the reason it stops for: its
+    /// driver then admits nothing new, lets each attempt in flight commit
+    /// or be abandoned under its lease, and ends it with
+    /// [`Ending::Stopped`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing; a later call answers the same.
+    pub async fn stopping(&self) -> StopReason {
+        let mut stop = self.stop.subscribe();
+        let asked = stop.wait_for(Option::is_some).await.map(|reason| *reason);
+        match asked {
+            Ok(Some(reason)) => reason,
+            _ => std::future::pending().await,
+        }
+    }
+
+    /// Starts the tasks that ask the Run to stop at its next safe point:
+    /// once its `timeout` passes; and for a Run its program drives, which
+    /// has nothing in flight in the engine, the one that then stops it.
+    fn watch_safe_points(&self, timeout: Option<Duration>, ended_by: EndedBy) {
+        if let Some(timeout) = timeout {
+            let timed = self.clone();
+            self.spawn(async move {
+                tokio::select! {
+                    () = timed.cancellation().cancelled() => {}
+                    () = timed.clock.sleep(timeout) => timed.stop_at_safe_point(StopReason::Timeout),
+                }
+            });
+        }
+        if ended_by == EndedBy::Finish {
+            let stopped = self.clone();
+            self.spawn(async move {
+                tokio::select! {
+                    () = stopped.cancellation().cancelled() => {}
+                    reason = stopped.stopping() => stopped.end(Ending::Stopped(reason)).await,
+                }
+            });
+        }
+    }
+
+    /// Asks the Run to stop at its next safe point for `reason`; the first
+    /// reason asked stays.
+    fn stop_at_safe_point(&self, reason: StopReason) {
+        self.stop.send_if_modified(|stop| {
+            let unset = stop.is_none();
+            if unset {
+                *stop = Some(reason);
+            }
+            unset
+        });
+    }
+
+    /// Its admission under `settings`: the gate in admission the
+    /// composition passes in, opened from what its run file journaled, and
+    /// its rate cap; `None` when the composition passes in no gate.
+    ///
+    /// # Errors
+    ///
+    /// When its run file cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn admission(&self, settings: &Resolved) -> Result<Option<Admission>, RunStateError> {
+        let Some(gates) = self.gates.clone() else {
+            return Ok(None);
+        };
+        let opening = settings.clone();
+        let (wall, now) = (self.clock.wall(), self.clock.now());
+        let gate = self
+            .state
+            .read(move |connection| gates.open(&opening, connection, wall, now))
+            .await?;
+        Ok(Some(Admission::new(gate, settings)))
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -560,6 +652,7 @@ impl Run {
         let end = match ending {
             Ending::Finished => End::Finished,
             Ending::Failed => End::Failed,
+            Ending::Stopped(reason) => End::Stopped(reason),
         };
         let _ = self
             .runs
@@ -1284,6 +1377,8 @@ impl Registry {
                 folder: folder.clone(),
                 state,
                 clock: self.setup.clock,
+                gates: self.setup.gates.clone(),
+                stop: Arc::new(watch::Sender::new(None)),
                 owner: Arc::new(self.owner.child()),
                 runs: self.handle(connection),
             }),
@@ -1305,6 +1400,7 @@ impl Registry {
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
         let run = live.run.clone().expect("invariant: a Run begins live");
+        run.watch_safe_points(start.timeout, start.ended_by);
         self.live.insert(run_id.clone(), live);
         if let Some(interval) = start.checkpoint_interval {
             run.spawn(periodic_checkpoints(run.clone(), interval));
@@ -1660,6 +1756,7 @@ impl Registry {
             run_id,
             checkpoint,
             checkpoint_interval,
+            timeout,
         } = resume;
         if let Some(live) = self.live.get(&run_id) {
             return Ok(Resumed::Existing(RunStarted {
@@ -1710,6 +1807,8 @@ impl Registry {
                 folder: folder.clone(),
                 state,
                 clock: self.setup.clock,
+                gates: self.setup.gates.clone(),
+                stop: Arc::new(watch::Sender::new(None)),
                 owner: Arc::new(self.owner.child()),
                 runs: self.handle(connection),
             }),
@@ -1734,6 +1833,7 @@ impl Registry {
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
         let run = live.run.clone().expect("invariant: a Run resumes live");
+        run.watch_safe_points(timeout, live.ended_by);
         let (kind, needs) = (live.kind, live.needs);
         self.live.insert(run_id.clone(), live);
         self.setup

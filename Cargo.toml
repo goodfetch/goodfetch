@@ -51,6 +51,8 @@ goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
+# Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
 goodfetch-test-support = { path = "crates/goodfetch-test-support" }
@@ -124,6 +126,9 @@ jsonschema = { version = "0.59.0", default-features = false }
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 # Model-based tests of run state and delivery (ADR 0060).
 proptest-state-machine = { version = "0.9.0", default-features = false, features = ["std"] }
+# The full Public Suffix List, private entries included, compiled in: a
+# crawl's domain keys (ADR 0004).
+psl = { version = "2.1.244", default-features = false, features = ["helpers"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 quick-xml = { version = "0.41", default-features = false }
 quote = { version = "1.0.47", default-features = false }

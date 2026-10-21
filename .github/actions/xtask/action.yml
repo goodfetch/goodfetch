@@ -1,6 +1,7 @@
 # Builds `xtask` on a GitHub-hosted runner for the jobs that run none of the
 # product and need nothing else: the results store's ingest, its scan's
-# checks of the ceiling and the diagnostic runs' choice (ADR 0064). The
+# checks of the ceiling, the diagnostic runs' choice (ADR 0064) and the
+# watchlist job (story 61). The
 # pinned toolchain and the build come from a cache, which these jobs, all on
 # `main` (schedule and workflow_run), save, so the daily ingest fits its
 # 2-minute timeout (ADR 0135).

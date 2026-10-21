@@ -32,7 +32,7 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
-    SettingUnknownDetails,
+    SettingUnknownDetails, TIMEOUT_RUN,
 };
 
 use crate::composition::{CallContext, CallError, Handler};
@@ -346,6 +346,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
+            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
         })
         .await
         .map_err(start_error)?;
@@ -421,6 +422,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             run_id: params.run_id,
             checkpoint: params.checkpoint.map(PathBuf::from),
             checkpoint_interval: checkpoint_interval(settings.resolved()),
+            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
         })
         .await
         .map_err(|error| run_error_of(error, context.identity(), RUN_RESUME.name))?;

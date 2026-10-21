@@ -123,21 +123,28 @@ fn without_trace_lines() -> TestEnv {
     TestEnv::new().with_variable("GOODFETCH_LOG", "info")
 }
 
-/// Covers: story:11-208, command:engine.info, command:run.finish
+/// Covers: story:11-208, command:engine.info
 #[rstest]
-#[case::result_stripped_colour_equals_no_color(&["engine", "info"], ColourProperty::StrippedColourEqualsNoColor)]
-#[case::result_empty_no_color_keeps_colour(&["engine", "info"], ColourProperty::EmptyNoColorKeepsColour)]
-#[case::result_color_always_overrides_no_color(&["engine", "info"], ColourProperty::ColorAlwaysOverridesNoColor)]
-#[case::failure_stripped_colour_equals_no_color(&["run", "finish", "missing"], ColourProperty::StrippedColourEqualsNoColor)]
-#[case::failure_empty_no_color_keeps_colour(&["run", "finish", "missing"], ColourProperty::EmptyNoColorKeepsColour)]
-#[case::failure_color_always_overrides_no_color(&["run", "finish", "missing"], ColourProperty::ColorAlwaysOverridesNoColor)]
-fn colour_never_carries_meaning_alone(
-    #[case] arguments: &[&str],
-    #[case] property: ColourProperty,
-) {
+#[case::stripped_colour_equals_no_color(ColourProperty::StrippedColourEqualsNoColor)]
+#[case::empty_no_color_keeps_colour(ColourProperty::EmptyNoColorKeepsColour)]
+#[case::color_always_overrides_no_color(ColourProperty::ColorAlwaysOverridesNoColor)]
+fn a_results_colour_never_carries_meaning_alone(#[case] property: ColourProperty) {
     let env = without_trace_lines();
 
-    let checked = property.check(&env, COLLIE, arguments);
+    let checked = property.check(&env, COLLIE, &["engine", "info"]);
+
+    assert!(checked.is_ok(), "{checked:?}");
+}
+
+/// Covers: story:11-208, command:run.finish
+#[rstest]
+#[case::stripped_colour_equals_no_color(ColourProperty::StrippedColourEqualsNoColor)]
+#[case::empty_no_color_keeps_colour(ColourProperty::EmptyNoColorKeepsColour)]
+#[case::color_always_overrides_no_color(ColourProperty::ColorAlwaysOverridesNoColor)]
+fn a_failures_colour_never_carries_meaning_alone(#[case] property: ColourProperty) {
+    let env = without_trace_lines();
+
+    let checked = property.check(&env, COLLIE, &["run", "finish", "missing"]);
 
     assert!(checked.is_ok(), "{checked:?}");
 }

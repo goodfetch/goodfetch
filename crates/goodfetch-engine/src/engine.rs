@@ -2,26 +2,29 @@
 //! serves Connections from the values it is given (ADR 0059): the Goodfetch
 //! home, the `Clock`, the `Entropy`, the blocking policy and where run state
 //! goes, with its event stream's buffers. An Attached engine serves the one Connection its network gives it
-//! and stops when that Connection ends, its live Runs stopped as aborted by
-//! their Client (ADRs 0024 and 0078). A Daemon serves every Connection its
+//! and, on the OS, its private endpoint (the `attached` module), and stops
+//! when that Connection ends or its parent is gone, its live Runs stopped
+//! as aborted by their Client (ADRs 0024 and 0078). A Daemon serves every Connection its
 //! listener gives it until it stops: idle, asked to, or handing over to its
 //! major's pick (the `daemon` module).
 
 use std::sync::Arc;
 
+use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
-use goodfetch_protocol::daemon::DaemonEndpoint;
+use goodfetch_protocol::run::RunOwner;
 
+use crate::attached::{ParentWatch, PrivateFiles};
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::console::{self, ConsoleBuild};
 use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
-use crate::forward::ToDaemon;
+use crate::forward::ToOwner;
 use crate::home::{Home, RunStateLocation};
 use crate::product::Identity;
-use crate::rpc::{self, Dispatch};
+use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{Runs, RunsSetup};
 use crate::settings::{Settings, SettingsFiles};
@@ -105,7 +108,7 @@ impl Engine {
             owner,
             runs,
             events,
-            None,
+            Access::Attached(None),
         )
         .await;
     }
@@ -126,7 +129,11 @@ impl Engine {
     ) -> DaemonEnd {
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
-        let (runs, events) = self.start_runs(dependencies, &owner, Some(options.endpoint.clone()));
+        let (runs, events) = self.start_runs(
+            dependencies,
+            &owner,
+            Some(RunOwner::Daemon(options.endpoint.clone())),
+        );
         let console = match (
             self.console,
             std::mem::replace(&mut options.console, DaemonConsole::Absent),
@@ -160,12 +167,12 @@ impl Engine {
     }
 
     /// The engine's event stream and Runs registry, tasks of `owner`; the
-    /// Run index names `endpoint` as the owner of its live Runs.
+    /// Run index names `reached_at` as the owner of its live Runs.
     fn start_runs(
         &self,
         dependencies: Dependencies,
         owner: &TaskOwner,
-        endpoint: Option<DaemonEndpoint>,
+        reached_at: Option<RunOwner>,
     ) -> (Runs, Events) {
         let events = Events::start(self.events, owner);
         let settings = Settings::new(
@@ -173,7 +180,7 @@ impl Engine {
             self.identity().product,
             owner.child(),
         );
-        let forwarder = Arc::new(ToDaemon {
+        let forwarder = Arc::new(ToOwner {
             home: dependencies.home.clone(),
             version: self.identity().product_version.clone(),
             clock: dependencies.clock,
@@ -182,7 +189,7 @@ impl Engine {
             RunsSetup {
                 settings,
                 product: self.identity().product,
-                endpoint,
+                reached_at,
                 forwarder,
                 home: dependencies.home,
                 version: self.identity().product_version.clone(),
@@ -199,8 +206,11 @@ impl Engine {
     }
 
     /// Runs as an Attached engine on `dependencies`: serves the one
-    /// Connection `network` gives it, stops its live Runs once that
-    /// Connection ends, then stops every task it started.
+    /// Connection `network` gives it and, on the OS, its private endpoint,
+    /// whose every Connection must say `hello` with its token (ADRs 0024
+    /// and 0031); stops its live Runs once that one Connection ends or, on
+    /// the OS, once its parent is gone, then stops every task it started
+    /// and removes its private endpoint.
     ///
     /// # Cancel safety
     ///
@@ -210,16 +220,131 @@ impl Engine {
         mut network: Network,
         dependencies: Dependencies,
     ) -> Result<(), TransportError> {
+        let on_the_os = matches!(network, Network::Os);
+        let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
-        let (runs, events) = self.start_runs(dependencies, &owner, None);
+        let private = if on_the_os {
+            private_endpoint(network, &owner).await
+        } else {
+            None
+        };
+        let (runs, events) = self.start_runs(
+            dependencies,
+            &owner,
+            private
+                .as_ref()
+                .map(|(_, endpoint, _)| RunOwner::Attached(endpoint.clone())),
+        );
         let connection_owner = owner.child();
-        self.serve(connection, &connection_owner, runs.clone(), events)
-            .await;
+        let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
+        let stdio = rpc::serve(
+            Arc::clone(&self.dispatch),
+            connection,
+            &connection_owner,
+            runs.clone(),
+            events.clone(),
+            Access::Attached(reported),
+        );
+        let gone = async {
+            match parent {
+                Some(parent) => parent.gone().await,
+                None => std::future::pending().await,
+            }
+        };
+        let accepting = owner.child();
+        let mut private_files = None;
+        if let Some((listener, _, files)) = private {
+            accepting.spawn(serve_private_endpoint(
+                Arc::clone(&self.dispatch),
+                listener,
+                Arc::from(files.token()),
+                accepting.child(),
+                runs.clone(),
+                events,
+            ));
+            private_files = Some(files);
+        }
+        tokio::select! {
+            () = stdio => {}
+            () = gone => tracing::warn!("the Attached engine's parent is gone: its Runs stop"),
+        }
+        accepting.stop().await;
         runs.stop_all().await;
         drop(runs);
+        connection_owner.stop().await;
         owner.stop().await;
+        drop(private_files);
         Ok(())
+    }
+}
+
+/// Opens an Attached engine's private endpoint on `network`: its listener,
+/// what the Client is told of it, and its files. `None`, logged, when the
+/// OS refuses it; the engine then serves its stdio alone.
+async fn private_endpoint(
+    network: Network,
+    owner: &TaskOwner,
+) -> Option<(DaemonListener, PrivateEndpoint, PrivateFiles)> {
+    let files = match owner.blocking(PrivateFiles::create).await {
+        Ok(files) => files,
+        Err(error) => {
+            tracing::warn!(%error, "the private endpoint's files cannot be made: no worker or Daemon reaches this engine");
+            return None;
+        }
+    };
+    match network.listen(&files.socket()).await {
+        Ok((listener, address)) => {
+            let endpoint = PrivateEndpoint {
+                address,
+                token_file: files.token_file(),
+            };
+            Some((listener, endpoint, files))
+        }
+        Err(error) => {
+            tracing::warn!(%error, "the private endpoint cannot listen: no worker or Daemon reaches this engine");
+            None
+        }
+    }
+}
+
+/// Serves every Connection of an Attached engine's private endpoint, each
+/// opening with a `hello` that carries `token`, its tasks children of
+/// `owner`, until the listener fails or `owner` stops.
+async fn serve_private_endpoint(
+    dispatch: Arc<Dispatch>,
+    mut listener: DaemonListener,
+    token: Arc<str>,
+    owner: TaskOwner,
+    runs: Runs,
+    events: Events,
+) {
+    loop {
+        let connection = tokio::select! {
+            () = owner.token().cancelled() => return,
+            accepted = listener.accept() => match accepted {
+                Ok(connection) => connection,
+                Err(TransportError::DialerClosed) => return,
+                Err(error) => {
+                    tracing::warn!(%error, "the private endpoint stopped accepting");
+                    return;
+                }
+            },
+        };
+        let (dispatch, token, runs, events) = (
+            Arc::clone(&dispatch),
+            Arc::clone(&token),
+            runs.clone(),
+            events.clone(),
+        );
+        let its_owner = owner.child();
+        owner.spawn(async move {
+            tokio::select! {
+                () = its_owner.token().cancelled() => {}
+                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token)) => {}
+            }
+            its_owner.stop().await;
+        });
     }
 }
 

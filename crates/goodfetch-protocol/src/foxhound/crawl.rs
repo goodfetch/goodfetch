@@ -2,7 +2,9 @@
 //! 0093 and 0102): `crawl.start` begins a crawl's Run from its seeds, and
 //! the engine leases each work item to the program's handler as the handler
 //! request `crawl_request.handle`, whose answer carries the Records the
-//! attempt staged, committed once under its lease. Foxhound's own.
+//! attempt staged, committed once under its lease; `crawl.serve` offers
+//! another Connection's handler to the same crawl, as `workers=N` handler
+//! processes do. Foxhound's own.
 
 use std::borrow::Cow;
 
@@ -12,9 +14,9 @@ use serde_json::Value;
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
-    OperationKind, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
-use crate::run::{RUN_ID_PATTERN, RunId, RunStarted, Tags};
+use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -149,8 +151,17 @@ pub struct PushedRecord {
     pub data: Value,
 }
 
+/// A handler's skip of its request: `ctx.skip(message)` (ADR 0093).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HandlerSkip {
+    /// The handler's own text.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: String,
+}
+
 /// What a handler answers once its attempt returned: the outputs it staged,
-/// which commit once, under the attempt's lease (ADR 0003).
+/// which commit once, under the attempt's lease (ADR 0003), or its skip.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CrawlRequestHandled {
@@ -158,6 +169,11 @@ pub struct CrawlRequestHandled {
     #[serde(default)]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub records: Vec<PushedRecord>,
+    /// Its handler's skip: the request ends `skipped` with the reason
+    /// `handler`, and the attempt's Records are discarded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub skipped: Option<HandlerSkip>,
 }
 
 /// `crawl.start`.
@@ -166,6 +182,7 @@ pub const CRAWL_START: Operation = Operation {
     description: "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
+    reach: Reach::AllSurfaces,
     params: schema_of::<CrawlStartParams>,
     result: schema_of::<RunStarted>,
     events: &[],
@@ -175,10 +192,26 @@ pub const CRAWL_START: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.serve`.
+pub const CRAWL_SERVE: Operation = Operation {
+    name: "crawl.serve",
+    description: "Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunParams>,
+    result: schema_of::<RunReport>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `crawl_request.handle`.
 pub const CRAWL_REQUEST_HANDLE: HandlerRequest = HandlerRequest {
     name: "crawl_request.handle",
-    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
+    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
     params: schema_of::<CrawlRequestHandleParams>,
     result: schema_of::<CrawlRequestHandled>,
     stability: Stability::Experimental,
@@ -200,6 +233,16 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 pub const HANDLER_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "handler_lost",
     description: "The attempt's lease ended with no answer from the program's handler: its process ended, its Connection dropped, or it hung. The attempt committed nothing and counts against `crawl.retry.max`.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// An attempt whose handler's Connection ended (ADRs 0024 and 0093).
+pub const CLIENT_GONE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "client_gone",
+    description: "The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`.",
     group: ErrorGroup::Unavailable,
     retryable: true,
     exit_code: None,
@@ -283,10 +326,10 @@ fn no() -> Value {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[CRAWL_START],
+    operations: &[CRAWL_START, CRAWL_SERVE],
     events: &[],
     handler_requests: &[CRAWL_REQUEST_HANDLE],
-    error_codes: &[HANDLER_FAILED, HANDLER_LOST, LEASE_LOST],
+    error_codes: &[HANDLER_FAILED, HANDLER_LOST, CLIENT_GONE, LEASE_LOST],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

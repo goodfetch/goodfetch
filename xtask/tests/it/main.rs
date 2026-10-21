@@ -60,6 +60,7 @@ mod perf_drift;
 mod perf_run;
 mod pre_merge;
 mod quarantine;
+mod refusals;
 mod release_suite;
 mod repeat;
 mod rss;

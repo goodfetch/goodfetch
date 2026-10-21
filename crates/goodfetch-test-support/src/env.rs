@@ -170,6 +170,15 @@ impl TestEnv {
         self
     }
 
+    /// The same setup with one more variable in the map every child gets,
+    /// such as `GOODFETCH_LOG=info` for a run on a pseudo-terminal whose
+    /// transcript two runs compare (the trace lines carry their instant).
+    #[must_use]
+    pub fn with_variable(mut self, name: &str, value: &str) -> Self {
+        self.env.insert(name.to_owned(), value.to_owned());
+        self
+    }
+
     /// The test's own folder.
     pub fn folder(&self) -> &Path {
         self.folder.path()

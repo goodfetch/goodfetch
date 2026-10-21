@@ -9,17 +9,22 @@
 
 mod attached;
 mod browsers;
+mod client_conformance;
 mod commands;
 mod config;
 mod console;
 mod daemon;
 mod events;
 mod help;
+mod human_output;
 mod invalid_calls;
 mod journeys;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod log;
+mod parent_death;
+mod private_endpoint;
 mod run;
 mod service_manager;
+mod settings_flags;
 mod writer_lock;

@@ -106,8 +106,18 @@ prefix = "handler_"
 
 [[area]]
 number = 3
+kind = "operation"
+prefix = "crawl.serve"
+
+[[area]]
+number = 3
 kind = "error"
 prefix = "lease_lost"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "client_gone"
 
 [[area]]
 number = 3
@@ -360,6 +370,17 @@ prefix = "run."
 number = 11
 kind = "command"
 prefix = "sample."
+
+# The sequences, offered with `--follow` (#1180).
+[[area]]
+number = 11
+kind = "command"
+prefix = "events."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "page."
 
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).

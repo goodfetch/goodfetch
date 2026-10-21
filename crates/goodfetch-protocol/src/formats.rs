@@ -5,7 +5,10 @@
 //! `xtask codegen` writes the registry into the bundle as `formats`, which
 //! `xtask compat` reads.
 
+use std::cmp::Ordering;
+
 use schemars::{Schema, SchemaGenerator};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::browser_cache::BrowserCacheEntry;
@@ -43,7 +46,8 @@ impl Storage {
 /// A rule of ADR 0030 by which a reader treats another version of its
 /// format. Each later rule (the Response cache's, the Clean-up rules') joins
 /// with the first format that follows it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Rule {
     /// A reader reads its own major up to its own minor.
     Default,
@@ -51,6 +55,16 @@ pub enum Rule {
     /// changes and newer minors only add, so a reader reads every minor of
     /// its major, keeping what it does not know.
     FrozenMajor,
+    /// The shared stores' (ADR 0098): the Run index, the Schedule store,
+    /// the Saved identity store, user configuration and the Operator policy,
+    /// which engines of several minors open at once, record the lowest minor
+    /// of their major that can use them, and a reader opens a newer minor
+    /// unless that lowest minor is newer than its own.
+    SharedStore,
+    /// A handshake whose two sides settle on the lower of their minors, a
+    /// Browser host's with its engine (ADR 0096): only another major is
+    /// refused.
+    LowerMinor,
 }
 
 impl Rule {
@@ -59,35 +73,49 @@ impl Rule {
         match self {
             Self::Default => "default",
             Self::FrozenMajor => "frozen_major",
+            Self::SharedStore => "shared_store",
+            Self::LowerMinor => "lower_minor",
         }
     }
 
     /// What a reader at `reader` makes of a file, or a peer's `hello`, at
-    /// `found`.
+    /// `found`. A shared store read without its lowest minor counts as
+    /// needing its own minor.
     pub fn compatibility(self, reader: ProtocolVersion, found: ProtocolVersion) -> Compatibility {
-        match self {
-            Self::Default => {
-                if found.major < reader.major {
-                    Compatibility::OlderMajor
-                } else if found.major > reader.major {
-                    Compatibility::NewerMajor
-                } else if found.minor > reader.minor {
+        self.compatibility_of_store(reader, found, found.minor)
+    }
+
+    /// What a reader at `reader` makes of a store at `found` that records
+    /// `lowest_minor`, the lowest minor of its major that can use it (ADR
+    /// 0098). Only [`Rule::SharedStore`] reads it.
+    pub fn compatibility_of_store(
+        self,
+        reader: ProtocolVersion,
+        found: ProtocolVersion,
+        lowest_minor: u16,
+    ) -> Compatibility {
+        match found.major.cmp(&reader.major) {
+            Ordering::Less => Compatibility::OlderMajor,
+            Ordering::Greater => Compatibility::NewerMajor,
+            Ordering::Equal => {
+                let needs = match self {
+                    Self::Default => found.minor,
+                    Self::SharedStore => lowest_minor,
+                    Self::FrozenMajor | Self::LowerMinor => return Compatibility::Compatible,
+                };
+                if needs > reader.minor {
                     Compatibility::NewerMinor
                 } else {
                     Compatibility::Compatible
                 }
             }
-            Self::FrozenMajor => match found.major.cmp(&reader.major) {
-                std::cmp::Ordering::Less => Compatibility::OlderMajor,
-                std::cmp::Ordering::Greater => Compatibility::NewerMajor,
-                std::cmp::Ordering::Equal => Compatibility::Compatible,
-            },
         }
     }
 }
 
 /// A compatibility function's verdict on one pair of versions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Compatibility {
     /// The reader reads it.
     Compatible,
@@ -100,6 +128,32 @@ pub enum Compatibility {
     NewerMajor,
 }
 
+/// Who opens a protocol with `hello`, which decides the handshake's checks
+/// (ADRs 0066, 0095 and 0096).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HelloFrom {
+    /// A Client, which names the Product it needs: the engine checks it
+    /// before the version, under the format's rule.
+    Client,
+    /// A Browser host, which needs no Product and settles on the lower
+    /// minor with its engine ([`Rule::LowerMinor`]).
+    BrowserHost,
+    /// A Group member, refused by a group of the other Product.
+    GroupMember,
+}
+
+impl HelloFrom {
+    /// Its name in the bundle.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Client => "client",
+            Self::BrowserHost => "browser_host",
+            Self::GroupMember => "group_member",
+        }
+    }
+}
+
 /// One registered format.
 pub struct Format {
     /// Its name, the folder of its corpus under `compat/`.
@@ -110,6 +164,8 @@ pub struct Format {
     pub storage: Storage,
     /// The rule it follows.
     pub rule: Rule,
+    /// Who opens it with `hello`, for a protocol; none for a file.
+    pub hello_from: &'static [HelloFrom],
     /// The type of one document, row or message.
     pub schema: SchemaOf,
 }
@@ -121,6 +177,7 @@ pub const PROTOCOL: Format = Format {
     version: PROTOCOL_VERSION,
     storage: Storage::Transcript,
     rule: Rule::Default,
+    hello_from: &[HelloFrom::Client, HelloFrom::BrowserHost],
     schema: schema_of::<Message>,
 };
 
@@ -132,6 +189,7 @@ pub const BROWSER_CACHE: Format = Format {
     version: ProtocolVersion { major: 0, minor: 1 },
     storage: Storage::Json,
     rule: Rule::Default,
+    hello_from: &[],
     schema: schema_of::<BrowserCacheEntry>,
 };
 
@@ -143,6 +201,7 @@ pub const RUN_STATE: Format = Format {
     version: ProtocolVersion { major: 0, minor: 1 },
     storage: Storage::Sqlite,
     rule: Rule::Default,
+    hello_from: &[],
     schema: schema_of::<RunStateRow>,
 };
 
@@ -151,7 +210,8 @@ pub const RUN_INDEX: Format = Format {
     name: "run-index",
     version: ProtocolVersion { major: 0, minor: 1 },
     storage: Storage::Sqlite,
-    rule: Rule::Default,
+    rule: Rule::SharedStore,
+    hello_from: &[],
     schema: schema_of::<RunIndexRow>,
 };
 
@@ -161,7 +221,8 @@ pub const OPERATOR_POLICY: Format = Format {
     name: "operator-policy",
     version: ProtocolVersion { major: 0, minor: 1 },
     storage: Storage::Toml,
-    rule: Rule::Default,
+    rule: Rule::SharedStore,
+    hello_from: &[],
     schema: operator_policy_schema,
 };
 
@@ -172,7 +233,8 @@ pub const USER_CONFIGURATION: Format = Format {
     name: "user-configuration",
     version: ProtocolVersion { major: 0, minor: 1 },
     storage: Storage::Toml,
-    rule: Rule::Default,
+    rule: Rule::SharedStore,
+    hello_from: &[],
     schema: configuration_schema,
 };
 
@@ -186,6 +248,7 @@ pub const INSTALLED_EXECUTABLES: Format = Format {
     version: ProtocolVersion { major: 0, minor: 1 },
     storage: Storage::Json,
     rule: Rule::FrozenMajor,
+    hello_from: &[],
     schema: schema_of::<InstalledExecutables>,
 };
 

@@ -43,3 +43,18 @@ fn a_malformed_protocol_version_is_refused(#[case] text: &str) {
 
     assert!(read.is_err(), "{text:?} was read as {read:?}");
 }
+
+/// Covers: story:11-218
+#[test]
+fn the_catalog_marks_every_entry_it_keeps_to_the_sdks() {
+    let unmarked: Vec<&str> = crate::entries::MODULES
+        .iter()
+        .flat_map(|entries| entries.operations)
+        .filter(|operation| {
+            super::SDK_ONLY.contains(&operation.name) && operation.reach != super::Reach::SdkOnly
+        })
+        .map(|operation| operation.name)
+        .collect();
+
+    assert_eq!(unmarked, Vec::<&str>::new());
+}

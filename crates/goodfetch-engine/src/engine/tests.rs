@@ -13,6 +13,7 @@
 
 mod daemon;
 mod events;
+mod refusals;
 mod run;
 mod settings;
 mod takeover;
@@ -20,7 +21,7 @@ mod takeover;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{
-    Operation, OperationClass, OperationKind, Product, Stability, schema_of,
+    Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::connection::ProductVersion;
 use rstest::rstest;
@@ -45,6 +46,7 @@ const WAIT: Operation = Operation {
     description: "Waits until it is cancelled.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<Value>,
     result: schema_of::<Value>,
     events: &[],

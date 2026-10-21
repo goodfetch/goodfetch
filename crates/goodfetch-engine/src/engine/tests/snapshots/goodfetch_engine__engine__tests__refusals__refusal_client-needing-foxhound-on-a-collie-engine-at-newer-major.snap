@@ -1,0 +1,20 @@
+---
+source: crates/goodfetch-engine/src/engine/tests/refusals.rs
+expression: "pretty(&received[0])"
+---
+{
+  "error": {
+    "code": -32006,
+    "data": {
+      "code": "not_in_product",
+      "fix": "Connect to a Foxhound engine, or run with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`).",
+      "needs": "foxhound",
+      "product": "collie",
+      "product_version": "1.4.0",
+      "retryable": false
+    },
+    "message": "This Client needs Foxhound, and this engine is Collie 1.4.0."
+  },
+  "id": 0,
+  "jsonrpc": "2.0"
+}

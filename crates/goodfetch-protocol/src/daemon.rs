@@ -9,7 +9,6 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -17,8 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    Product, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
+pub use crate::connection::DaemonEndpoint;
 use crate::connection::ProductVersion;
 use crate::console::ConsoleState;
 
@@ -46,26 +46,6 @@ pub struct DaemonRuntimeFile {
     /// `console.address` asks for port 0.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub console: ConsoleState,
-}
-
-/// Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
-/// Linux, loopback TCP on Windows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DaemonEndpoint {
-    /// A Unix socket's path.
-    Unix(#[schemars(with = "String")] PathBuf),
-    /// A loopback address and port.
-    Tcp(#[schemars(with = "String")] SocketAddr),
-}
-
-impl std::fmt::Display for DaemonEndpoint {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unix(path) => write!(formatter, "{}", path.display()),
-            Self::Tcp(address) => write!(formatter, "{address}"),
-        }
-    }
 }
 
 fn ten_minutes() -> serde_json::Value {
@@ -155,6 +135,7 @@ pub const STATUS: Operation = Operation {
     description: "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<DaemonParams>,
     result: schema_of::<DaemonStatus>,
     events: &[],
@@ -170,6 +151,7 @@ pub const STOP: Operation = Operation {
     description: "Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<DaemonParams>,
     result: schema_of::<DaemonStopping>,
     events: &[],

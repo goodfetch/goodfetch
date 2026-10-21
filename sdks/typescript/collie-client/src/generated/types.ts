@@ -41,8 +41,9 @@ export type ConsoleState =
     }
   | "absent";
 /**
- * Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
- * Linux, loopback TCP on Windows.
+ * Where a Daemon or an Attached engine's private endpoint listens (ADR
+ * 0024): a `0600` Unix socket on macOS and Linux, loopback TCP on
+ * Windows.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "DaemonEndpoint".
@@ -640,6 +641,12 @@ export interface HelloParams {
  */
 export interface HelloResult {
   /**
+   * An Attached engine's private endpoint, reported to the Client of its
+   * stdio alone: where that Client's `workers=N` handler processes, and a
+   * Daemon forwarding a live action, connect (ADRs 0024 and 0031).
+   */
+  private_endpoint?: PrivateEndpoint | null;
+  /**
    * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
    * writes it.
    */
@@ -652,6 +659,31 @@ export interface HelloResult {
    * The protocol version the engine speaks.
    */
   protocol_version: string;
+}
+/**
+ * An Attached engine's private endpoint (ADRs 0024 and 0031): where it
+ * listens, a `0600` Unix socket on macOS and Linux or loopback TCP on
+ * Windows, and the `0600` file holding the token that each Connection's
+ * `hello` there carries, as a Daemon's does.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PrivateEndpoint".
+ */
+export interface PrivateEndpoint {
+  /**
+   * Where it listens.
+   */
+  address:
+    | {
+        unix: string;
+      }
+    | {
+        tcp: string;
+      };
+  /**
+   * The path of the file holding its token.
+   */
+  token_file: string;
 }
 /**
  * What `page.body` takes: the body to read.

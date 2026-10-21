@@ -1,7 +1,7 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
 canaries = ["proving_ground"]
-cli = ["env", "exercise", "locales", "snapshot"]
+cli = ["daemon", "env", "exercise", "locales", "snapshot"]
 colour = ["env", "pty"]
 crash_dumps = []
 crash_vfs = []

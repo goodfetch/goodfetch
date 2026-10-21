@@ -15,6 +15,7 @@
 
 mod canaries;
 mod cli;
+mod cli_json;
 #[cfg(target_os = "linux")]
 mod dns_namespace;
 mod endpoints;

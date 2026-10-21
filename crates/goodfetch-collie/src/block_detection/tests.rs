@@ -1,42 +1,83 @@
+use std::collections::BTreeSet;
+
 use goodfetch_protocol::block::BlockCause;
 use rstest::rstest;
 
+use super::rules::{GOODFETCH, HeaderMarker, RULES};
 use super::{Document, Response, classify};
 
-/// Each captured page of the Proving ground, with the status it was served
-/// with, classifies to the Block cause its corpus records; a page no rule
-/// decides is no block.
+/// The headers the corpus's interstitial is served with.
+const INTERSTITIAL_HEADERS: &[(&str, &str)] =
+    &[("cf-mitigated", "challenge"), ("cache-control", "no-store")];
+
+/// Each captured page of the Proving ground, with the status and headers it
+/// was served with, classifies to the Block cause its corpus records by the
+/// rule written for it; a page no rule decides, a vendor's script or widget
+/// on an ordinary page among them, is no block.
 ///
 /// Covers: story:8-58, story:8-59
 #[rstest]
-#[case::corpus_interstitial(403, include_str!("fixtures/interstitial.html"), Some(BlockCause::Challenge))]
-#[case::tier_move_challenge(403, include_str!("fixtures/protection-challenge.html"), Some(BlockCause::Challenge))]
-#[case::vendor_script_only(200, include_str!("fixtures/vendor-script.html"), None)]
-#[case::ordinary_article(200, include_str!("fixtures/article.html"), None)]
-#[case::not_found(404, include_str!("fixtures/not-found.html"), None)]
-#[case::interstitial_words_served_as_content(200, include_str!("fixtures/interstitial.html"), None)]
+#[case::challenge_header(403, INTERSTITIAL_HEADERS, include_str!("fixtures/interstitial.html"), Some((BlockCause::Challenge, "cloudflare_challenge")))]
+#[case::interstitial_without_its_header(403, &[], include_str!("fixtures/interstitial.html"), Some((BlockCause::Challenge, "interstitial_challenge")))]
+#[case::tier_move_challenge(403, &[], include_str!("fixtures/protection-challenge.html"), Some((BlockCause::Challenge, "interstitial_challenge")))]
+#[case::press_and_hold(403, &[], include_str!("fixtures/press-and-hold.html"), Some((BlockCause::Captcha, "press_and_hold")))]
+#[case::captcha(200, &[], include_str!("fixtures/captcha.html"), Some((BlockCause::Captcha, "captcha_widget")))]
+#[case::cloudflare_block(403, &[("cache-control", "no-store")], include_str!("fixtures/cloudflare-block.html"), Some((BlockCause::IpBlock, "cloudflare_block")))]
+#[case::incapsula_block(403, &[], include_str!("fixtures/incapsula-block.html"), Some((BlockCause::IpBlock, "incapsula_block")))]
+#[case::sucuri_block(403, &[], include_str!("fixtures/sucuri-block.html"), Some((BlockCause::IpBlock, "sucuri_block")))]
+#[case::ip_block(403, &[], include_str!("fixtures/ip-block.html"), Some((BlockCause::IpBlock, "ip_block_notice")))]
+#[case::rate_limit(429, &[("retry-after", "120")], include_str!("fixtures/rate-limit.html"), Some((BlockCause::RateLimit, "too_many_requests")))]
+#[case::vendor_script_only(200, &[], include_str!("fixtures/vendor-script.html"), None)]
+#[case::captcha_widget_on_a_contact_form(200, &[], "<form><div class=\"g-recaptcha\"></div><button>Send</button></form>", None)]
+#[case::ordinary_article(200, &[], include_str!("fixtures/article.html"), None)]
+#[case::not_found(404, &[], include_str!("fixtures/not-found.html"), None)]
+#[case::interstitial_words_served_as_content(200, &[], include_str!("fixtures/interstitial.html"), None)]
+#[case::firewall_words_served_as_content(200, &[], include_str!("fixtures/sucuri-block.html"), None)]
 fn a_captured_page_classifies_to_its_block_cause(
     #[case] status: u16,
+    #[case] headers: &[(&str, &str)],
     #[case] markup: &str,
-    #[case] expected: Option<BlockCause>,
+    #[case] expected: Option<(BlockCause, &str)>,
 ) {
-    let classification = classify(&Response { status }, &Document { markup });
+    let classification = classify(&Response { status, headers }, &Document { markup });
 
     assert_eq!(
-        classification.map(|classification| classification.cause),
+        classification.map(|classification| (classification.cause, classification.evidence.rule)),
         expected
     );
 }
 
-#[test]
-fn a_classification_names_the_rule_its_source_and_license_and_what_it_matched() {
-    let classification = classify(
-        &Response { status: 403 },
-        &Document {
-            markup: include_str!("fixtures/interstitial.html"),
-        },
-    )
-    .expect("the interstitial is a challenge");
+/// A classification's evidence names the rule, where it comes from, the
+/// license it is used under and what it matched.
+///
+/// Covers: story:8-60
+#[rstest]
+#[case::goodfetchs_own(
+    403,
+    &[],
+    include_str!("fixtures/interstitial.html"),
+    ("interstitial_challenge", "Goodfetch, from the Proving ground's block-detection corpus", "MIT OR Apache-2.0", 403, vec![], vec!["just a moment", "javascript and cookies"])
+)]
+#[case::seeded_from_a_header(
+    403,
+    INTERSTITIAL_HEADERS,
+    include_str!("fixtures/interstitial.html"),
+    ("cloudflare_challenge", "Spider", "MIT", 403, vec![HeaderMarker { name: "cf-mitigated", value: "challenge" }], vec![])
+)]
+#[case::seeded_from_a_page(
+    403,
+    &[],
+    include_str!("fixtures/incapsula-block.html"),
+    ("incapsula_block", "wafw00f", "BSD-3-Clause", 403, vec![], vec!["request unsuccessful", "incapsula incident id"])
+)]
+fn a_classification_names_the_rule_its_source_and_license_and_what_it_matched(
+    #[case] status: u16,
+    #[case] headers: &[(&str, &str)],
+    #[case] markup: &str,
+    #[case] expected: (&str, &str, &str, u16, Vec<HeaderMarker>, Vec<&str>),
+) {
+    let classification =
+        classify(&Response { status, headers }, &Document { markup }).expect("the page is a block");
 
     let evidence = classification.evidence;
     assert_eq!(
@@ -45,14 +86,39 @@ fn a_classification_names_the_rule_its_source_and_license_and_what_it_matched() 
             evidence.source,
             evidence.license,
             evidence.status,
+            evidence.headers,
             evidence.markers
         ),
-        (
-            "interstitial_challenge",
-            "Goodfetch, from the Proving ground's block-detection corpus",
-            "MIT OR Apache-2.0",
-            403,
-            vec!["just a moment", "javascript and cookies"]
-        )
+        expected
     );
+}
+
+/// The outside sources the rules name, with their licenses, are exactly the
+/// inputs `third-party.toml` declares for the notice inventory: no rule's
+/// source is missing from it, and it lists no source no rule uses.
+///
+/// Covers: story:8-60
+#[test]
+fn the_notice_inventory_declares_exactly_the_rules_outside_sources() {
+    let declared: toml::Table =
+        toml::from_str(include_str!("third-party.toml")).expect("third-party.toml is TOML");
+
+    let named: BTreeSet<(&str, &str)> = RULES
+        .iter()
+        .filter(|rule| rule.source.name != GOODFETCH.name)
+        .map(|rule| (rule.source.name, rule.source.license))
+        .collect();
+
+    let inputs: BTreeSet<(&str, &str)> = declared["input"]
+        .as_array()
+        .expect("inputs are an array")
+        .iter()
+        .map(|input| {
+            (
+                input["name"].as_str().expect("an input's name"),
+                input["license"].as_str().expect("an input's license"),
+            )
+        })
+        .collect();
+    assert_eq!(named, inputs);
 }

@@ -598,6 +598,60 @@
       ],
       "type": "object"
     },
+    "CommandError": {
+      "additionalProperties": true,
+      "description": "A failed command's error: what a Client's error object holds, with the\noperation the command called.",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "The Error code, or the name of the protocol failure.",
+          "type": "string"
+        },
+        "group": {
+          "$ref": "#/$defs/ErrorGroup",
+          "arrived_in": "0.1",
+          "description": "The group of the Error code, named for its remedy (ADR 0079)."
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What went wrong, for people; never matched on.",
+          "type": "string"
+        },
+        "operation": {
+          "arrived_in": "0.1",
+          "description": "The operation the command called, by its canonical name, such as\n`run.finish`.",
+          "type": "string"
+        },
+        "retryable": {
+          "arrived_in": "0.1",
+          "description": "Whether the same call may succeed when made again.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "group",
+        "retryable",
+        "message",
+        "operation"
+      ],
+      "type": "object"
+    },
+    "CommandFailed": {
+      "additionalProperties": false,
+      "description": "What a command prints under `--json` when it fails.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/CommandError",
+          "arrived_in": "0.1",
+          "description": "The failure."
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
     "Completeness": {
       "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
       "oneOf": [
@@ -1444,6 +1498,46 @@
         "retryable"
       ],
       "type": "object"
+    },
+    "ErrorGroup": {
+      "description": "The seven groups of Error codes, named for their remedy (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "program",
+          "description": "The program is wrong.",
+          "type": "string"
+        },
+        {
+          "const": "refused",
+          "description": "A policy, a Limit, a lock or a person refused.",
+          "type": "string"
+        },
+        {
+          "const": "page",
+          "description": "The page or site never reached the state the call needed.",
+          "type": "string"
+        },
+        {
+          "const": "model",
+          "description": "The Model provider's answer was unusable.",
+          "type": "string"
+        },
+        {
+          "const": "deadline_exceeded",
+          "description": "The deadline passed.",
+          "type": "string"
+        },
+        {
+          "const": "unavailable",
+          "description": "Something Goodfetch depends on is unreachable or gone.",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "A bug in Goodfetch.",
+          "type": "string"
+        }
+      ]
     },
     "ErrorObject": {
       "additionalProperties": false,
@@ -4074,7 +4168,7 @@
         },
         {
           "const": "cli",
-          "description": "The CLI, as a Client of a Daemon.",
+          "description": "The CLI, as a Client of its own Attached engine or of a Daemon.",
           "type": "string"
         },
         {
@@ -4277,6 +4371,9 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "command_failed": {
+    "$ref": "#/$defs/CommandFailed"
+  },
   "connection": {
     "cancel": {
       "params": {

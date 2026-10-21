@@ -9,8 +9,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, ProtocolVersion,
-    Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Stability, schema_of,
 };
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
@@ -104,6 +104,7 @@ pub const PAGE_BODY: Operation = Operation {
     name: "page.body",
     description: "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
     class: OperationClass::Read,
+    kind: OperationKind::Sequence,
     params: schema_of::<PageBodyParams>,
     result: schema_of::<PageBodyRead>,
     events: &[],

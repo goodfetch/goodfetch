@@ -9,9 +9,11 @@
 
 mod attached;
 mod browsers;
+mod commands;
 mod config;
 mod daemon;
 mod events;
+mod help;
 mod invalid_calls;
 mod journeys;
 #[cfg(target_os = "linux")]

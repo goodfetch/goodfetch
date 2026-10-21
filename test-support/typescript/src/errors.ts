@@ -53,6 +53,12 @@ export type TestSupportErrorCode =
   | "focus_not_visible"
   /** A keyboard walk's stop is entirely covered by other content (ADR 0073). */
   | "focus_obscured"
+  /** A `screen:` Feature has no route or no sign-in state in `console/screens.toml`, so its keyboard walk cannot open it (ADR 0073). */
+  | "screen_setup_missing"
+  /** `console/screens.toml` is no TOML, or an entry names no `screen:` Feature, repeats one, or has a field it does not define (ADR 0073). */
+  | "screen_setups_invalid"
+  /** A screen's route did not answer 2xx, so its keyboard walk would walk an error page (ADR 0073). */
+  | "screen_not_served"
   /** A browser command was asked for state its browser provider cannot set (ADR 0068). */
   | "provider_unsupported"
   /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */
@@ -116,7 +122,9 @@ export class TestSupportError extends Error {
 
   constructor(code: TestSupportErrorCode, message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = "TestSupportError";
+    // The code in the name puts it on every report line that shows the
+    // error, such as Playwright's, where only the message and stack travel.
+    this.name = `TestSupportError(${code})`;
     this.code = code;
   }
 }

@@ -19,6 +19,7 @@ ajv.addKeyword("arrived_in");
 ajv.addFormat("date-time", fullFormats["date-time"]);
 for (const [format, minimum, maximum] of [
   ["uint8", 0, 2 ** 8 - 1],
+  ["uint16", 0, 2 ** 16 - 1],
   ["int32", -(2 ** 31), 2 ** 31 - 1],
   ["uint32", 0, 2 ** 32 - 1],
   ["int64", Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],

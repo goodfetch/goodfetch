@@ -35,7 +35,8 @@ use crate::events::{Credits, Events};
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::Runs;
+use crate::runs::{Driver, Runs};
+use goodfetch_protocol::run::RunKind;
 
 /// A failure a call answers with: an Error code of the catalog, with its
 /// message and details, or a failure of the protocol itself.
@@ -322,6 +323,7 @@ pub struct Contribution {
     handlers: Vec<Handler>,
     run_state_tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
+    drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
 }
 
@@ -333,8 +335,17 @@ impl Contribution {
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
             politeness_tables: Vec::new(),
+            drivers: Vec::new(),
             admission_gates: None,
         }
+    }
+
+    /// The same, driving the Runs of `kind` it starts with `driver`, which a
+    /// resume starts again (ADR 0102).
+    #[must_use]
+    pub fn with_driver(mut self, kind: RunKind, driver: Driver) -> Self {
+        self.drivers.push((kind, driver));
+        self
     }
 
     /// The same, adding `handler`.
@@ -454,6 +465,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.politeness_tables.iter().copied())
+            .collect()
+    }
+
+    /// The driver of each kind of Run, the last given for a kind.
+    pub(crate) fn drivers(&self) -> BTreeMap<RunKind, Driver> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.drivers.iter().cloned())
             .collect()
     }
 

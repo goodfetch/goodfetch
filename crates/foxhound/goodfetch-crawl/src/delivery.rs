@@ -266,6 +266,33 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
     }
 }
 
+/// Drives a resumed crawl (ADRs 0002 and 0102): each attempt its committed
+/// state shows in flight, whose engine stopped without settling it, counts
+/// as `handler_lost` against `crawl.retry.max` and is retried or failed,
+/// then delivery goes on from the committed state, so the work since that
+/// state is redone.
+///
+/// # Cancel safety
+///
+/// As [`drive`]'s.
+pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, crawls: Crawls) {
+    let policy = CrawlPolicy::of(&settings.at_admission().await);
+    let retry_max = policy.retry_max;
+    if let Err(error) = run
+        .state()
+        .write(move |connection| {
+            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)
+        })
+        .await
+    {
+        tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
+        run.end(Ending::Failed).await;
+        return;
+    }
+    let joined = crawls.open(run.id().clone()).await;
+    drive(run, client, joined, crawls, settings).await;
+}
+
 /// Admits work items up to each serving Connection's room and starts an
 /// attempt for each on that Connection.
 async fn lease_to_servers(

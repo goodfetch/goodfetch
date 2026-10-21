@@ -28,7 +28,7 @@ use goodfetch_protocol::result_document::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use self::cases::{Case, Checks};
+use self::cases::{Case, Checks, Site};
 use self::connection::{Connection, Gone};
 pub use self::fabricated::{FabricatedHelloError, FabricatedHelloOutcome, send_fabricated_hello};
 pub use self::target::{EngineMode, EngineTarget, StartError};
@@ -40,6 +40,10 @@ use crate::writer::{WriteError, write_document};
 /// The protocol suite's case list, embedded so the suite runs wherever the
 /// harness does.
 const CASES: &str = include_str!("../../../conformance/protocol/cases.toml");
+
+/// The page suite's case list (spec #577), run through the same harness:
+/// a Collie program's pages over the protocol, on the Proving ground.
+const PAGE_CASES: &str = include_str!("../../../conformance/page/cases.toml");
 
 /// The delivery suite's case list, embedded the same way.
 const DELIVERY_CASES: &str = include_str!("../../../conformance/delivery/cases.toml");
@@ -66,6 +70,11 @@ impl ProtocolSuite {
     /// `conformance/protocol/cases.toml`.
     pub fn embedded() -> Self {
         Self::read(CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/page/cases.toml`.
+    pub fn page() -> Self {
+        Self::read(PAGE_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// `conformance/delivery/cases.toml`: a crawl's work items under their
@@ -186,6 +195,7 @@ pub fn run_protocol_suite(
     proving_ground: &ProvingGround,
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
+    let reached = Site::of(&task_list, proving_ground.address());
     let mut connection = Connection::new(target::Started::start(target)?);
     let hello = match hello(&mut connection, suite.product) {
         Ok(hello) => hello,
@@ -207,7 +217,7 @@ pub fn run_protocol_suite(
             }
             let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
             let mut checks = Checks::default();
-            if let Err(why) = case.run(&mut connection, target, &hello, &mut checks) {
+            if let Err(why) = case.run(&mut connection, target, &hello, &reached, &mut checks) {
                 checks.0.push(CaseCheck {
                     name: format!("the target answers the case's calls ({why})"),
                     passed: false,

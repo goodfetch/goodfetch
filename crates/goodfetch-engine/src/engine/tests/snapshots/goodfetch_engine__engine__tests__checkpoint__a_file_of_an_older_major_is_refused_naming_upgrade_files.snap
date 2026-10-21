@@ -1,0 +1,15 @@
+---
+source: crates/goodfetch-engine/src/engine/tests/checkpoint.rs
+expression: refused
+---
+CallError {
+    code: "format_version_unsupported",
+    message: "The file is run-state 0.1, of an older major than this engine's 1.0; run `upgrade-files` to upgrade it.",
+    retryable: false,
+    details: {
+        "fix": String("Run `upgrade-files`, then try again."),
+        "format": String("run-state"),
+        "found": String("0.1"),
+        "supported": String("1.0"),
+    },
+}

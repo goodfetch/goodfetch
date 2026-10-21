@@ -57,7 +57,7 @@ fn main() {
         id,
         platform: None,
         url: "https://builds.goodfetch.test/chrome.zip".to_owned(),
-        archive_digest: Digest::of(b"never downloaded"),
+        archive_digest: Some(Digest::of(b"never downloaded")),
         digest,
     };
     let pinned_by = PinnedBy {

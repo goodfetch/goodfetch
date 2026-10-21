@@ -41,7 +41,10 @@ const SCHEMA: &[&str] = &[
         started_at TEXT NOT NULL,
         ended_at TEXT,
         policy_version TEXT,
-        weakened_by TEXT NOT NULL DEFAULT '[]'
+        weakened_by TEXT NOT NULL DEFAULT '[]',
+        journal_position INTEGER NOT NULL DEFAULT 0,
+        binding TEXT,
+        clean_up_digest TEXT
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
 ];
@@ -234,10 +237,11 @@ impl RunState {
 }
 
 /// Takes the next run epoch of the run file at `path` (ADR 0003): one
-/// higher than the one it holds, written and synced before the new writer
-/// opens it with [`RunState::open`], so a writer of an earlier epoch commits
-/// nothing more. Only the holder of the Run's writer lock calls it. It
-/// blocks: run it under a blocking policy.
+/// higher than both the one it holds and `after`, the run epoch a run file
+/// this one replaced held, so a copy's run epoch never goes down; written
+/// and synced before the new writer opens it with [`RunState::open`], so a
+/// writer of an earlier epoch commits nothing more. Only the holder of the
+/// Run's writer lock calls it. It blocks: run it under a blocking policy.
 ///
 /// # Errors
 ///
@@ -246,12 +250,13 @@ pub(crate) fn next_epoch(
     path: &Path,
     options: &RunStateOptions,
     tables: &[RunStateTables],
+    after: u64,
 ) -> Result<u64, RunStateError> {
     let connection = open_file(path, options.vfs.as_deref(), tables)?;
     let epoch: i64 = connection
         .query_row(
-            "UPDATE run SET epoch = epoch + 1 RETURNING epoch",
-            [],
+            "UPDATE run SET epoch = max(epoch, ?1) + 1 RETURNING epoch",
+            [i64::try_from(after).unwrap_or(i64::MAX)],
             |row| row.get(0),
         )
         .map_err(|error| sqlite_error(path, &error))?;
@@ -277,6 +282,22 @@ fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
         path: path.to_owned(),
         message: error.to_string(),
     }
+}
+
+/// Opens the run file at `path` to read it beside its writer, through the
+/// VFS `vfs`; WAL gives it a consistent view as of one commit per
+/// transaction.
+///
+/// # Errors
+///
+/// `Sqlite` when the file cannot be opened.
+pub(crate) fn open_reader(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateError> {
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    match vfs {
+        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
+        None => Connection::open_with_flags(path, flags),
+    }
+    .map_err(|error| sqlite_error(path, &error))
 }
 
 /// Opens the file, sets its durability and creates its tables.
@@ -426,6 +447,11 @@ fn commit_writes(
         .into_iter()
         .map(|job| job(Some((&transaction, path))))
         .collect();
+    if let Err(error) =
+        transaction.execute("UPDATE run SET journal_position = journal_position + 1", [])
+    {
+        return Err((completions, sqlite_error(path, &error)));
+    }
     match transaction.commit() {
         Ok(()) => Ok(completions),
         Err(error) => Err((completions, sqlite_error(path, &error))),

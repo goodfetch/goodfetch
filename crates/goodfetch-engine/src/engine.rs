@@ -8,11 +8,12 @@
 //! listener gives it until it stops: idle, asked to, or handing over to its
 //! major's pick (the `daemon` module).
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
-use goodfetch_protocol::run::RunOwner;
+use goodfetch_protocol::run::{RunKind, RunOwner};
 
 use crate::admission::Gates;
 use crate::attached::{ParentWatch, PrivateFiles};
@@ -28,7 +29,7 @@ use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{Runs, RunsSetup};
+use crate::runs::{Driver, Runs, RunsSetup};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
@@ -39,6 +40,7 @@ pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
+    drivers: BTreeMap<RunKind, Driver>,
     gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
@@ -73,6 +75,7 @@ impl Engine {
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
+            drivers: composition.drivers(),
             gates: composition.admission_gates()?,
             events: EventsOptions::default(),
             console: composition.console(),
@@ -204,6 +207,7 @@ impl Engine {
                 location: dependencies.run_state_location,
                 run_state: dependencies.run_state,
                 tables: self.tables.clone(),
+                drivers: self.drivers.clone(),
                 gates: self.gates.clone(),
                 politeness: dependencies.politeness,
                 politeness_tables: self.politeness_tables.clone(),

@@ -1,0 +1,16 @@
+---
+source: crates/goodfetch-engine/src/engine/tests/checkpoint.rs
+expression: "pretty(&refused.0[\"error\"])"
+---
+{
+  "code": -32006,
+  "data": {
+    "code": "format_version_unsupported",
+    "fix": "Upgrade Goodfetch to a version that reads run-state 1.0.",
+    "format": "run-state",
+    "found": "1.0",
+    "retryable": false,
+    "supported": "0.1"
+  },
+  "message": "The file is run-state 1.0, newer than this engine's 0.1; upgrade Goodfetch to read it."
+}

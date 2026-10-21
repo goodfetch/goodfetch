@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, PageBodyParams, PageBodyRead, RunAbortParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -71,6 +71,13 @@ class AsyncCollieOperations:
         """
         return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
 
+    async def page_goto(self, params: GotoParams) -> Navigated:
+        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.goto", params)))
+
     async def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
@@ -78,12 +85,47 @@ class AsyncCollieOperations:
         """
         return RunReport.model_construct(**_fields(await self._caller.call("run.abort", params)))
 
+    async def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Checkpoint.model_construct(**_fields(await self._caller.call("run.checkpoint", params)))
+
     async def run_finish(self, params: RunParams) -> RunReport:
         """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(await self._caller.call("run.finish", params)))
+
+    async def run_migrate(self, params: RunCheckpointParams) -> RunReport:
+        """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.migrate", params)))
+
+    async def run_new_page(self, params: NewPageParams) -> PageOpened:
+        """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(await self._caller.call("run.new_page", params)))
+
+    async def run_pause(self, params: RunParams) -> RunReport:
+        """Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.pause", params)))
+
+    async def run_resume(self, params: RunResumeParams) -> RunStarted:
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(await self._caller.call("run.resume", params)))
 
     async def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
@@ -140,6 +182,13 @@ class CollieOperations:
         """
         return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
 
+    def page_goto(self, params: GotoParams) -> Navigated:
+        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.goto", params)))
+
     def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
@@ -147,12 +196,47 @@ class CollieOperations:
         """
         return RunReport.model_construct(**_fields(self._caller.call("run.abort", params)))
 
+    def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Checkpoint.model_construct(**_fields(self._caller.call("run.checkpoint", params)))
+
     def run_finish(self, params: RunParams) -> RunReport:
         """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(self._caller.call("run.finish", params)))
+
+    def run_migrate(self, params: RunCheckpointParams) -> RunReport:
+        """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.migrate", params)))
+
+    def run_new_page(self, params: NewPageParams) -> PageOpened:
+        """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(self._caller.call("run.new_page", params)))
+
+    def run_pause(self, params: RunParams) -> RunReport:
+        """Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.pause", params)))
+
+    def run_resume(self, params: RunResumeParams) -> RunStarted:
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(self._caller.call("run.resume", params)))
 
     def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.

@@ -1,0 +1,6 @@
+# Which of goodfetch-cdp's top-level modules may import which (ADR 0126).
+[modules]
+connection = ["failure", "framing"]
+failure = []
+framing = []
+generated = []

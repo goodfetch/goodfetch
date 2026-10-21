@@ -54,6 +54,11 @@ cat >"$plist" <<EOF
 EOF
 chown root:wheel "$plist"
 chmod 644 "$plist"
+# The aliases are added here too: `launchctl bootstrap` starts the daemon's
+# first run without waiting for it, so the check below could run first.
+for address in $addresses; do
+  ifconfig lo0 alias "$address" up
+done
 launchctl bootout system "$plist" 2>/dev/null || true
 launchctl bootstrap system "$plist"
 

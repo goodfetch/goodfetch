@@ -487,17 +487,39 @@ const OTHER_SHA: &str = "fedcba9876543210fedcba9876543210fedcba98";
 const PULL_REQUEST: &str = "/repos/goodfetch/goodfetch/pulls/7";
 const COMMENTS: &str = "/repos/goodfetch/goodfetch/issues/7/comments?per_page=100&page=1";
 
+/// The organization membership of the comments' author, `jb`.
+const MEMBERSHIP: &str = "/orgs/goodfetch/memberships/jb";
+
 /// A pull request whose head is `HEAD_SHA`, with `body` and one comment.
 fn pull_request(body: &str, comment: &str, author_association: &str) -> GitHub {
+    pull_request_in_organization(body, comment, author_association, None)
+}
+
+/// As [`pull_request`], the comment's author `jb` having `role` in the
+/// organization that owns the repository; without a role, GitHub answers 404.
+fn pull_request_in_organization(
+    body: &str,
+    comment: &str,
+    author_association: &str,
+    role: Option<&str>,
+) -> GitHub {
     let pull_request = format!(
         r#"{{ "number": 7, "body": {}, "head": {{ "sha": "{HEAD_SHA}" }} }}"#,
         serde_json::to_string(body).unwrap()
     );
     let comments = format!(
-        r#"[ {{ "body": {}, "author_association": "{author_association}" }} ]"#,
+        r#"[ {{ "body": {}, "author_association": "{author_association}", "user": {{ "login": "jb" }} }} ]"#,
         serde_json::to_string(comment).unwrap()
     );
-    GitHub::serving(&[(PULL_REQUEST, &pull_request), (COMMENTS, &comments)])
+    let membership = role.map(|role| format!(r#"{{ "role": "{role}", "state": "active" }}"#));
+    let mut routes = vec![
+        (PULL_REQUEST, pull_request.as_str()),
+        (COMMENTS, comments.as_str()),
+    ];
+    if let Some(membership) = &membership {
+        routes.push((MEMBERSHIP, membership));
+    }
+    GitHub::serving(&routes)
 }
 
 /// Collie's wheel, 1.10 MB over `main`'s.
@@ -545,6 +567,43 @@ fn tripped_file_with_its_section_and_acceptance_on_the_head_passes(#[case] comme
 
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 0);
+}
+
+// GitHub marks an organization's owners MEMBER on its repositories, never
+// OWNER: the organization's role says who owns it.
+#[test]
+fn acceptance_by_an_owner_of_the_organization_that_owns_the_repository_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    write_wheel_grown_by_1_1_mb(&workspace);
+    let github = pull_request_in_organization(
+        SECTION,
+        &format!("Size increase accepted for {HEAD_SHA}."),
+        "MEMBER",
+        Some("admin"),
+    );
+
+    let outcome = increase_for_pull_request(&workspace, &github);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[rstest]
+#[case::plain_member(Some("member"))]
+#[case::no_membership_visible(None)]
+fn acceptance_by_a_member_who_does_not_own_the_organization_fails(#[case] role: Option<&str>) {
+    let workspace = Workspace::from_fixture("empty");
+    write_wheel_grown_by_1_1_mb(&workspace);
+    let github = pull_request_in_organization(
+        SECTION,
+        &format!("Size increase accepted for {HEAD_SHA}."),
+        "MEMBER",
+        role,
+    );
+
+    let outcome = increase_for_pull_request(&workspace, &github);
+
+    assert_eq!(outcome.code, 1, "{:?}", outcome.findings());
 }
 
 #[rstest]

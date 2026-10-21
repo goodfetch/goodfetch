@@ -68,10 +68,11 @@ fi
 shopt -s nullglob
 for entry in "$worktree"/target/*; do
   case ${entry##*/} in
-    # Cargo's build folders (the profiles' and the MSRV's), the tests'
-    # temporary folder with its fixture builds, and the TLA+ tools, each
-    # checked against its pinned SHA-256 when used.
-    CACHEDIR.TAG | debug | release | ci-test | msrv | tmp | tla-tools) ;;
+    # Cargo's build folders (the profiles', the MSRV's and the stress run's
+    # base listing's), the tests' temporary folder with its fixture builds,
+    # the TLA+ tools, each checked against its pinned SHA-256 when used, and
+    # the listings saved for the base of the next gate (below).
+    CACHEDIR.TAG | debug | release | ci-test | msrv | stress-base | tmp | tla-tools | stress-listings) ;;
     *) rm -rf "$entry" ;;
   esac
 done
@@ -85,7 +86,11 @@ echo "Running the local gate on #$number at $head in $worktree"
 (
   cd "$worktree"
   just fetch
-  just pre-merge all
+  # What the pull request's "Performance change" section and its owner's
+  # acceptance comment accept, read at this head for `just perf` (ADR 0134).
+  GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
+    perf pull-request --number "$number" --save target/perf-pull-request.json
+  GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
 )
 
 gh pr merge "$number" --merge --match-head-commit "$head" \
@@ -94,3 +99,22 @@ gh pr merge "$number" --merge --match-head-commit "$head" \
 
 Signed-off-by: $(git config user.name) <$(git config user.email)>"
 echo "Merged #$number at $head"
+
+# The next gate's stress run reads its base's listings from here, the base
+# being the tip of the base branch it must contain: this merge, whose tree is
+# the head's when the head contained the base's tip, as checked above. Saved
+# only then; otherwise the next stress run lists its base from a checkout of
+# it, as it does without them. The head's test binaries are built, so listing
+# them takes seconds.
+git fetch --quiet origin "$base" || true
+merged=$(git rev-parse "origin/$base")
+listings="$worktree/target/stress-listings"
+if [[ $(git rev-parse "$merged^{tree}") == $(git rev-parse "$head^{tree}") ]] &&
+  (cd "$worktree" && rm -rf "$listings" &&
+    cargo run --quiet --locked -p xtask -- stress listings --cargo-profile test --out "$listings" &&
+    mv "$listings/$head" "$listings/$merged"); then
+  echo "Saved the stress listings of $merged for the next gate"
+else
+  rm -rf "$listings"
+  echo "warning: the stress listings of $merged were not saved; the next stress run lists its base from a checkout" >&2
+fi

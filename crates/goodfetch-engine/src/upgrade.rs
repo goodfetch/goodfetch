@@ -229,13 +229,13 @@ pub fn upgrade_files(
         to: current.clone(),
         ..Upgraded::default()
     };
-    let (older, newer) = (home.root().join(&source), home.root().join(&current));
-    for file in files_of(&older)? {
+    let (from_folder, to_folder) = (home.root().join(&source), home.root().join(&current));
+    for file in files_of(&from_folder)? {
         let relative = file
-            .strip_prefix(&older)
+            .strip_prefix(&from_folder)
             .expect("invariant: a file found in a folder is under it")
             .to_owned();
-        let target = newer.join(&relative);
+        let target = to_folder.join(&relative);
         let shown = Path::new(&current).join(&relative);
         match std::fs::read(&target) {
             Ok(held) if held == read(&file)? => upgraded.unchanged.push(shown),

@@ -4,6 +4,10 @@
 //! This executable's own version is the only one it can have (ADR 0059),
 //! so the copy from a listed source is tested in process, from fixtures.
 #![expect(
+    clippy::disallowed_methods,
+    reason = "the tests write the Goodfetch home's files themselves"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]

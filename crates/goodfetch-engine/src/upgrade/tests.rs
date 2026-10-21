@@ -3,6 +3,10 @@
 //! source before the first release, and the copy itself from a table that
 //! lists one. Executables' versions are fabricated: no build carries a
 //! version override (ADR 0059).
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

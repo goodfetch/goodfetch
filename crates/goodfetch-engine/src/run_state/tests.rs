@@ -170,6 +170,10 @@ fn a_writer_of_an_older_run_epoch_commits_nothing() {
 /// snapshotted.
 ///
 /// Covers: story:3-95, format:run-state, error:format_version_unsupported
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 #[rstest::rstest]
 fn each_generated_refusal_of_a_run_file_is_refused(
     #[files("../goodfetch-protocol/generated/refusals/run-state/*.json")]

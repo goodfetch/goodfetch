@@ -4,6 +4,10 @@
 //! found only for an older major. Versions are fabricated: no build carries
 //! a version override (ADR 0059), so each engine here is a Product version
 //! the reader is given.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tests write the files the engine reads themselves"
+)]
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;

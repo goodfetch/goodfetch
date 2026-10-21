@@ -1,12 +1,18 @@
 //! The Run index's lowest-minor marker (ADR 0098), from fabricated
 //! versions: no build carries a version override (ADR 0059), so each engine
 //! here is an [`Opener`] of a fabricated format and Product version.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_INDEX};
-use goodfetch_protocol::run::{Lifecycle, PointInTime, Presence, RunId, RunIndexRow, RunKind};
+use goodfetch_protocol::run::{
+    Lifecycle, PointInTime, Presence, RunId, RunIndexRow, RunKind, Tags,
+};
 use rusqlite::Connection;
 
 use super::{rows_as, write_as};
@@ -49,7 +55,7 @@ fn row(run_id: &str) -> RunIndexRow {
         location: format!("runs/{run_id}"),
         kind: RunKind::Collie,
         needs: Product::Collie,
-        tags: Default::default(),
+        tags: Tags::default(),
         lifecycle: Lifecycle::Running,
         verdict: None,
         completeness: None,
@@ -110,7 +116,7 @@ fn an_engine_that_finds_the_lowest_minor_raised_stops_using_the_index() {
     lowest_minor::write_sqlite(
         &Connection::open(&path).unwrap(),
         RUN_INDEX.name,
-        &Marker {
+        Marker {
             version: version(1, 3),
             lowest_minor: 3,
         },
@@ -157,7 +163,7 @@ fn each_generated_refusal_of_the_run_index_gets_its_verdict(
     lowest_minor::write_sqlite(
         &Connection::open(&path).unwrap(),
         RUN_INDEX.name,
-        &Marker {
+        Marker {
             version: case.found,
             lowest_minor: case.lowest_minor.unwrap_or(0),
         },

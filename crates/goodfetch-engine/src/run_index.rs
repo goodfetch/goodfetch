@@ -129,7 +129,7 @@ fn in_transaction<T>(
     if writes {
         let marked = opener.written(found, None);
         if marked != found {
-            lowest_minor::write_sqlite(&transaction, RUN_INDEX.name, &marked)
+            lowest_minor::write_sqlite(&transaction, RUN_INDEX.name, marked)
                 .map_err(|error| failed(path, &error))?;
         }
     }

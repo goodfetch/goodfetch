@@ -93,9 +93,8 @@ pub fn major_order(name: &str) -> Option<(u64, u64)> {
     };
     match name.split_once('.') {
         Some(("0", minor)) if canonical(minor) => Some((0, minor.parse().ok()?)),
-        Some(_) => None,
         None if canonical(name) && name != "0" => Some((name.parse().ok()?, 0)),
-        None => None,
+        Some(_) | None => None,
     }
 }
 

@@ -49,7 +49,7 @@ fn a_run_index_marked_for_a_newer_minor_refuses_a_new_run() {
     write_sqlite(
         &index,
         RUN_INDEX.name,
-        &Marker {
+        Marker {
             version: RUN_INDEX.version,
             lowest_minor: 5,
         },

@@ -27,12 +27,8 @@
 //! and open them through an [`Opener`].
 
 use goodfetch_protocol::catalog::ProtocolVersion;
-use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::formats::{Compatibility, Format, RUN_INDEX, line_minor};
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
-
-use crate::home::Home;
-use crate::settings::{LOWEST_MINOR_KEY, SettingsFiles};
+use goodfetch_protocol::formats::{Compatibility, Format, line_minor};
+use rusqlite::{Connection, OptionalExtension as _};
 
 /// What a shared store records of its version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,50 +147,6 @@ impl Opener {
     }
 }
 
-/// The lowest Product version (major and minor) that can use every shared
-/// store of the major of `version` in `home` that records one above the
-/// major's first minor (ADR 0098), which the Daemon's pick must meet; none
-/// when every store any minor can use, and during `0.y` previews, whose
-/// line has the minor 0 alone. A store that cannot be read counts as
-/// marked for every minor: its engine reports it when it opens it.
-/// Blocking.
-pub fn floor(home: &Home, version: &ProductVersion) -> Option<ProtocolVersion> {
-    let engine = version.major_minor();
-    if engine.major == 0 {
-        return None;
-    }
-    let files = SettingsFiles::of(home, version);
-    let settings = [files.operator_policy(), files.user_configuration()]
-        .into_iter()
-        .filter_map(|path| {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the floor is read on its caller's blocking policy"
-            )]
-            let text = std::fs::read_to_string(path).ok()?;
-            let document: toml_edit::DocumentMut = text.parse().ok()?;
-            document
-                .get(LOWEST_MINOR_KEY)?
-                .as_integer()
-                .and_then(|minor| u16::try_from(minor).ok())
-        });
-    let index = home.run_index(version);
-    let run_index = index.is_file().then(|| {
-        Connection::open_with_flags(
-            &index,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .ok()
-        .and_then(|connection| read_sqlite(&connection, RUN_INDEX.name).ok().flatten())
-        .map(|marker| marker.lowest_minor)
-    });
-    let lowest = settings.chain(run_index.flatten()).max()?;
-    (lowest > 0).then_some(ProtocolVersion {
-        major: engine.major,
-        minor: lowest,
-    })
-}
-
 /// A Product version's line: its major, or `0.y` during previews.
 fn line(version: ProtocolVersion) -> (u16, u16) {
     if version.major == 0 {
@@ -244,7 +196,7 @@ pub(crate) fn read_sqlite(connection: &Connection, name: &str) -> rusqlite::Resu
 pub(crate) fn write_sqlite(
     connection: &Connection,
     name: &str,
-    marker: &Marker,
+    marker: Marker,
 ) -> rusqlite::Result<()> {
     connection.execute(
         "INSERT INTO format (name, version, lowest_minor) VALUES (?1, ?2, ?3)

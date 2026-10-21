@@ -67,10 +67,10 @@ fn an_old_executable_prints_its_notice_once_a_day() {
 
     let first = notice.due(date(2026, 6, 1), today).unwrap();
     let again = notice
-        .due(date(2026, 6, 1), today + Duration::from_secs(60 * 60))
+        .due(date(2026, 6, 1), today + Duration::from_hours(1))
         .unwrap();
     let next_day = notice
-        .due(date(2026, 6, 1), today + Duration::from_secs(24 * 60 * 60))
+        .due(date(2026, 6, 1), today + Duration::from_hours(24))
         .unwrap();
 
     assert_eq!(

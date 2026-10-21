@@ -100,6 +100,7 @@ impl Subject {
     fn open(&mut self) {
         let options = RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
+            ..RunStateOptions::default()
         };
         let state = self
             .runtime

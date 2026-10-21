@@ -51,8 +51,9 @@ use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow,
-    RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
+    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RUN_STATE_DURABILITY, RunAxes,
+    RunId, RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs,
+    StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
 use rusqlite::Connection;
@@ -80,7 +81,9 @@ use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
 use crate::run_index;
-use crate::run_state::{self, RunState, RunStateError, RunStateOptions, RunStateTables};
+use crate::run_state::{
+    self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
+};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
 
@@ -1242,6 +1245,18 @@ impl Registry {
         )
     }
 
+    /// How a Run's run file opens under its `settings`: in the durability
+    /// `run_state.durability` names, `full` when it has none.
+    fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
+        let durability = settings.map_or(Durability::Full, |settings| {
+            Durability::named(settings.resolved().value(RUN_STATE_DURABILITY.name))
+        });
+        RunStateOptions {
+            durability,
+            ..self.setup.run_state.clone()
+        }
+    }
+
     fn folder(&self, run_id: &RunId) -> PathBuf {
         let runs = match &self.setup.location {
             RunStateLocation::PerMajor => self.setup.home.runs(&self.setup.version),
@@ -1379,7 +1394,7 @@ impl Registry {
         let writer = Arc::new(self.owner.child());
         let state = RunState::open(
             folder.join(RUN_FILE),
-            &self.setup.run_state,
+            &self.opened_with(start.settings.as_ref()),
             self.setup.tables.clone(),
             1,
             &writer,
@@ -1851,7 +1866,8 @@ impl Registry {
                 needs: held.needs,
             }));
         }
-        let (lock, writer, state) = self.reopen(&run_id, checkpoint).await?;
+        let options = self.opened_with(settings.as_ref());
+        let (lock, writer, state) = self.reopen(&run_id, checkpoint, &options).await?;
         let folder = self.folder(&run_id);
         let (read, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
         let recorded = self
@@ -1957,6 +1973,7 @@ impl Registry {
         &mut self,
         run_id: &RunId,
         checkpoint: Option<PathBuf>,
+        options: &RunStateOptions,
     ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
         let folder = self.folder(run_id);
         let file = folder.join(RUN_FILE);
@@ -1991,14 +2008,10 @@ impl Registry {
                 .await
                 .map_err(|error| RunError::of_write(run_id, &folder, error))?;
         }
-        let (options, tables, next) = (
-            self.setup.run_state.clone(),
-            self.setup.tables.clone(),
-            file.clone(),
-        );
+        let (taking, tables, next) = (options.clone(), self.setup.tables.clone(), file.clone());
         let epoch = self
             .owner
-            .blocking(move || run_state::next_epoch(&next, &options, &tables, after))
+            .blocking(move || run_state::next_epoch(&next, &taking, &tables, after))
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         tracing::info!(
@@ -2009,15 +2022,9 @@ impl Registry {
             "took the Run's writer role to resume it"
         );
         let writer = Arc::new(self.owner.child());
-        let state = RunState::open(
-            file,
-            &self.setup.run_state,
-            self.setup.tables.clone(),
-            epoch,
-            &writer,
-        )
-        .await
-        .map_err(|error| RunError::of_state(run_id, &folder, error))?;
+        let state = RunState::open(file, options, self.setup.tables.clone(), epoch, &writer)
+            .await
+            .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         state
             .write(|connection| {
                 connection

@@ -309,6 +309,7 @@ impl StateMachineTest for Subject {
                 path.clone(),
                 &RunStateOptions {
                     vfs: Some(vfs.name().to_owned()),
+                    ..RunStateOptions::default()
                 },
                 vec![work_items::TABLES],
                 1,

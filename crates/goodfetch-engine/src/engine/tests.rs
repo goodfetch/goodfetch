@@ -13,6 +13,7 @@
 
 mod checkpoint;
 mod daemon;
+mod durability;
 mod events;
 mod refusals;
 mod run;

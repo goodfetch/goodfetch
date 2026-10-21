@@ -1114,7 +1114,7 @@
     {
       "id": "operation:run.checkpoint",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1146,7 +1146,7 @@
     {
       "id": "operation:run.migrate",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1178,7 +1178,7 @@
     {
       "id": "operation:run.pause",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1189,7 +1189,7 @@
     {
       "id": "operation:run.resume",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3331,6 +3331,28 @@
     },
     {
       "id": "setting:resolver.resolution_delay",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:run_state.durability",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:run_state.layout",
       "kind": "setting",
       "area": 3,
       "milestone": null,

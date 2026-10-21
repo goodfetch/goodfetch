@@ -31,6 +31,7 @@ mod private_endpoint;
 mod run;
 mod service_manager;
 mod settings_flags;
+mod usage;
 #[cfg(target_os = "linux")]
 mod virtual_display;
 mod writer_lock;

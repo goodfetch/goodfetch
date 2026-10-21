@@ -54,7 +54,7 @@ CREATE TABLE run (
         binding TEXT,
         clean_up_digest TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',16,NULL,NULL);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',18,NULL,NULL);
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -64,6 +64,13 @@ INSERT INTO "seeds" VALUES(2,'{"kind":"added","id":"2","url":"https://shop.test/
 INSERT INTO "seeds" VALUES(3,'{"kind":"not_added","reason":"duplicate","url":"https://SHOP.test:443/"}');
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
+CREATE TABLE usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT;
+INSERT INTO "usage" VALUES(1,1,2);
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,

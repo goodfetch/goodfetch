@@ -20,7 +20,8 @@
 // - `daemon`: the test's own Daemon, started by `goodfetch-test-env
 //   --daemon` in its own home and run by the executable of `product`
 //   (Collie's unless the screen is Foxhound's, ADR 0094), with the Console
-//   `consoleServer` serves beside it on its own port, and the Proving ground
+//   `consoleServer` serves on its own port (by default the one the Daemon
+//   serves from its executable's Console build), and the Proving ground
 //   of `provingGroundSeed` when set. All of it stops at teardown, leaving no
 //   runtime file and no process.
 // - `signIn`: the ways a person signs in to the test's Console (the
@@ -51,7 +52,12 @@ import { refuseUnknownCovers } from "./features.ts";
 import { startOidcProvider, type OidcClient } from "./oidc-provider.ts";
 import { ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
-import { startServedDaemon, type ConsoleServer, type ServedDaemon } from "./served-daemon.ts";
+import {
+  executableConsole,
+  startServedDaemon,
+  type ConsoleServer,
+  type ServedDaemon,
+} from "./served-daemon.ts";
 import { signInTo, type SignIn } from "./sign-in.ts";
 import { refuseStorageState } from "./storage-state.ts";
 import { watchPageErrors, type PageErrorWatch } from "./page-errors.ts";
@@ -89,6 +95,7 @@ export {
   type StartedOidcProvider,
 } from "./oidc-provider.ts";
 export {
+  executableConsole,
   startServedDaemon,
   type ConsoleServer,
   type ConsoleStart,
@@ -111,7 +118,7 @@ export interface ServedOptions {
   product: Product;
   /** The seed of the Proving ground `daemon` starts beside the Daemon; none when unset. */
   provingGroundSeed: number | undefined;
-  /** What serves the Console beside the test's Daemon, until the executables serve it (area 12). */
+  /** What serves the test's Console: the Daemon itself by default (`executableConsole`), or a stand-in for what its executable cannot serve yet (area 12). */
   consoleServer: ConsoleServer | undefined;
   /** The test tool manifest's path: `GOODFETCH_TEST_TOOLS`, which `just test` sets. */
   toolManifest: string | undefined;
@@ -149,7 +156,7 @@ export const test: TestType<
   translationEmulation: [false, { option: true }],
   product: ["collie", { option: true }],
   provingGroundSeed: [undefined, { option: true }],
-  consoleServer: [undefined, { option: true }],
+  consoleServer: [executableConsole, { option: true }],
   toolManifest: [process.env["GOODFETCH_TEST_TOOLS"], { option: true }],
   oidcProvider: [
     // oxlint-disable-next-line no-empty-pattern -- Playwright reads a fixture's dependencies from its first parameter's pattern; this one has none.

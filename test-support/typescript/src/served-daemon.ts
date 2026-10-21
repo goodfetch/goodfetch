@@ -5,9 +5,10 @@
 // Proving ground when the test asks for one. Tests then run in any order.
 //
 // The Console is served by a `ConsoleServer`, given the started Daemon and
-// the test's OIDC provider. The executables serve no Console yet (area 12),
-// so a test passes the server it stands in for; without one, the fixture
-// fails with `console_not_served`.
+// the test's OIDC provider: by default `executableConsole`, the Console the
+// Daemon serves itself from its executable's Console build, which has no
+// sign-in yet (area 12), so a test of sign-in passes the server it stands
+// in for; without one, the fixture fails with `console_not_served`.
 import { daemonOf, type DaemonDescription } from "./daemon.ts";
 import { TestSupportError } from "./errors.ts";
 import type { OidcClient } from "./oidc-provider.ts";
@@ -49,6 +50,36 @@ export interface ServedConsole {
 export interface ConsoleServer {
   serve(start: ConsoleStart): Promise<ServedConsole>;
 }
+
+/**
+ * The Console the test's Daemon serves itself, from its executable's
+ * Console build (ADR 0057), at the URL its runtime file reports. It has no
+ * sign-in yet (area 12): asking for one fails with `console_not_served`.
+ */
+export const executableConsole: ConsoleServer = {
+  serve: async ({ daemon }) => {
+    const url = daemon.console;
+    if (url === undefined || url === null) {
+      throw new TestSupportError(
+        "console_not_served",
+        "the test's Daemon serves no Console: its executable carries no Console build",
+      );
+    }
+    const noSignIn = (): never => {
+      throw new TestSupportError(
+        "console_not_served",
+        "the executable's Console has no sign-in yet (area 12): pass a `consoleServer` that has one",
+      );
+    };
+    return {
+      url,
+      signInLink: async () => noSignIn(),
+      singleSignOn: new URL("sso", url).href,
+      session: new URL("session", url).href,
+      close: async () => undefined,
+    };
+  },
+};
 
 /** A served test's Daemon, its home, and the Console it serves. */
 export interface ServedDaemon extends DaemonDescription, Omit<ServedConsole, "url" | "close"> {

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion};
 use crate::jsonrpc::RequestId;
+use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -330,6 +331,32 @@ pub const CALL_CANCELLED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A call past its deadline (ADR 0080, as ADR 0083 amends it): one Error
+/// code whatever the phase, whose `limit` names the timeout's setting.
+pub const DEADLINE_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "deadline_exceeded",
+    description: "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
+    group: ErrorGroup::DeadlineExceeded,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `deadline_exceeded` details.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DeadlineExceededDetails {
+    /// The timeout's setting, its value in milliseconds and the layer that
+    /// set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: SettingLimit,
+    /// How long the call waited, in milliseconds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub elapsed: u64,
+    /// What it waited for, such as `first_byte` or `navigation`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub waited_for: String,
+}
+
 /// Who stopped a call (ADR 0113).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -415,6 +442,7 @@ pub const ENTRIES: Entries = Entries {
         PROTOCOL_VERSION_UNSUPPORTED,
         NOT_IN_PRODUCT,
         CALL_CANCELLED,
+        DEADLINE_EXCEEDED,
         CLOSED,
         ENGINE_NOT_FOUND,
         ENGINE_EXITED,

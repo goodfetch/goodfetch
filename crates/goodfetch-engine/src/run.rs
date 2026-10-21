@@ -20,7 +20,7 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
-    SettingUnknownDetails,
+    SettingUnknownDetails, TIMEOUT_RUN,
 };
 
 use crate::composition::{CallContext, CallError, Handler};
@@ -234,6 +234,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             initialize: None,
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
+            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
         })
         .await
         .map_err(start_error)?;

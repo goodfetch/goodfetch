@@ -638,6 +638,47 @@ fn a_default_above_an_operator_policy_cap_takes_the_cap() {
     );
 }
 
+/// An unset clearable key is no bound, so an Operator policy cap bounds it.
+///
+/// Covers: story:3-51, setting:admission.max_requests_per_minute
+#[test]
+fn an_unset_rate_cap_under_an_operator_policy_cap_takes_the_cap() {
+    let layers = Layers {
+        operator_policy: policy(
+            json!({}),
+            json!({}),
+            json!({ "admission": { "max_requests_per_minute": 120 } }),
+        ),
+        ..Layers::default()
+    };
+
+    let effective = resolved(&layers);
+
+    let rate = effective.get("admission.max_requests_per_minute").unwrap();
+    assert_eq!(
+        (&rate.value, rate.layer),
+        (&json!(120), SettingsLayer::OperatorPolicy)
+    );
+}
+
+/// Covers: story:3-51, setting:admission.max_requests_per_minute
+#[test]
+fn a_run_going_with_no_rate_cap_takes_a_new_operator_policy_cap() {
+    let opened = resolved(&Layers::default());
+    let tightened = policy(
+        json!({}),
+        json!({}),
+        json!({ "admission": { "max_requests_per_minute": 30 } }),
+    );
+
+    let admitted = opened.under_caps_of(&tightened);
+
+    assert_eq!(
+        admitted.value("admission.max_requests_per_minute"),
+        &json!(30)
+    );
+}
+
 /// Covers: story:3-88, setting:crawl.retry.max
 #[test]
 fn a_run_already_going_takes_a_tightened_cap() {

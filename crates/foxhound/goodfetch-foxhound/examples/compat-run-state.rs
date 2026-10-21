@@ -3,7 +3,8 @@
 //! both Products' compositions add, over the in-memory network, on the test
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: a tagged crawl
 //! of two seeds, one with a Payload, whose handler pushes Records for the
-//! first and fails on the second, which `run.finish` ends; and a Run its
+//! first and fails on the second, whose first byte never came, so its
+//! domain still backs off when `run.finish` ends it; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, which `run.abort` stops. It writes each Run's file, as
 //! SQL text, into the folder given as the only argument: `crawl.sql` and
@@ -79,7 +80,17 @@ fn handle(request: &Value) -> Value {
         json!({
             "jsonrpc": "2.0",
             "id": id,
-            "error": { "code": -32001, "message": "a bug", "data": { "code": "handler_failed", "retryable": true } },
+            "error": {
+                "code": -32005,
+                "message": "no first byte",
+                "data": {
+                    "code": "deadline_exceeded",
+                    "retryable": false,
+                    "limit": { "key": "timeout.first_byte", "value": 30_000, "layer": "default" },
+                    "elapsed": 30_000,
+                    "waited_for": "first_byte",
+                },
+            },
         })
     }
 }

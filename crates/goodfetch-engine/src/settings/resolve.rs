@@ -244,8 +244,8 @@ impl Resolved {
                 continue;
             };
             effective.cap = Some(cap.clone());
-            if let (Some(value), Some(bound)) = (effective.value.as_u64(), cap.as_u64())
-                && value > bound
+            if let Some(bound) = cap.as_u64()
+                && above(&effective.value, bound)
             {
                 effective.value = cap.clone();
                 effective.layer = SettingsLayer::OperatorPolicy;
@@ -475,9 +475,12 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             layers.run.origin,
         )?;
     }
-    if let (Some(cap), Some(value)) = (&state.cap, state.effective.value.as_u64())
+    if let Some(cap) = &state.cap
         && state.effective.layer == SettingsLayer::Default
-        && cap.value.as_u64().is_some_and(|bound| value > bound)
+        && cap
+            .value
+            .as_u64()
+            .is_some_and(|bound| above(&state.effective.value, bound))
     {
         state.effective.value = cap.value.clone();
         state.effective.layer = SettingsLayer::OperatorPolicy;
@@ -495,6 +498,12 @@ fn limit(key: &str, value: &Value, layer: SettingsLayer) -> SettingLimit {
         value: value.clone(),
         layer,
     }
+}
+
+/// Whether `value`, a count or a duration, or `null` for no bound, is above
+/// `bound`.
+fn above(value: &Value, bound: u64) -> bool {
+    value.is_null() || value.as_u64().is_some_and(|value| value > bound)
 }
 
 /// Takes `value` from `layer` for `key` unless something holds the key.

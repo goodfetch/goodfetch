@@ -17,6 +17,7 @@ tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 tracing.workspace = true
 
 [dev-dependencies]
+goodfetch-frontier.workspace = true
 goodfetch-test-support.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true

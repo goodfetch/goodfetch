@@ -19,7 +19,7 @@ use goodfetch_protocol::run::{
     Lifecycle, RUN_NOT_FOUND, RunDetails, RunKind, RunParams, RunReport, RunStarted, StartInput,
     StartedAs,
 };
-use goodfetch_protocol::settings::RunOrigin;
+use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
 use crate::delivery;
 use crate::outcomes;
@@ -109,6 +109,7 @@ async fn start(
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
+            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
         })
         .await
         .map_err(start_error)?;

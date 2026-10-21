@@ -238,6 +238,12 @@ class Seed(BaseModel):
     """Its Label."""
     payload: Any | None = None
     """The data the program attaches for its handler."""
+    priority: int | None = None
+    """
+    Its priority among the requests of its domain: higher goes first,
+    and a priority never orders requests of different domains (ADR
+    0004); 0 by default.
+    """
     url: str
     """Its URL."""
 

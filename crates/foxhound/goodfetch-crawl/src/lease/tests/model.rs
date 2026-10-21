@@ -301,6 +301,7 @@ impl StateMachineTest for Subject {
                 url: format!("https://shop.test/{page}"),
                 label: "page".to_owned(),
                 payload: None,
+                priority: 0,
             })
             .collect();
         let (state, leases) = runtime.block_on(async {
@@ -346,7 +347,13 @@ impl StateMachineTest for Subject {
                 let state = subject.state().clone();
                 let leased = subject
                     .runtime
-                    .block_on(state.write(|connection| work_items::lease(connection, 1)))
+                    .block_on(state.write(|connection| {
+                        let first: Vec<String> = connection
+                            .prepare("SELECT id FROM work_items WHERE status = 'pending' ORDER BY position LIMIT 1")?
+                            .query_map([], |row| row.get(0))?
+                            .collect::<rusqlite::Result<_>>()?;
+                        work_items::lease(connection, &first)
+                    }))
                     .unwrap();
                 for leased in leased {
                     let _clock = subject.runtime.enter();

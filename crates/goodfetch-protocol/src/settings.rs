@@ -651,6 +651,18 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `admission.max_requests_per_minute` (RT-02, ADR 0004).
+pub const ADMISSION_MAX_REQUESTS_PER_MINUTE: Setting = Setting {
+    name: "admission.max_requests_per_minute",
+    description: "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission.",
+    kind: ValueKind::Count,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -681,6 +693,7 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_RUN,
         TIMEOUT_NAVIGATION,
         TIMEOUT_FIRST_BYTE,
+        ADMISSION_MAX_REQUESTS_PER_MINUTE,
     ],
     hook_stages: &[],
     shared_type_values: &[],

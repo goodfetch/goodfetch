@@ -7,8 +7,11 @@
 //! blocked. A work item's every ending writes its outcome in the same
 //! commit, in commit order, with the errors of the attempts that failed
 //! since its previous ending, each kept as it failed. Each statement runs
-//! inside one of the run-state writer's commits.
+//! inside one of the run-state writer's commits. Each pending work item
+//! also waits under its domain key and priority, from which its per-domain
+//! queue fills again, after a drain or a resume (ADR 0004).
 
+use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
@@ -34,9 +37,13 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
-            error_code TEXT
+            error_code TEXT,
+            domain_key TEXT,
+            priority INTEGER NOT NULL
         ) STRICT",
         "CREATE INDEX IF NOT EXISTS work_items_by_status ON work_items (status, position)",
+        "CREATE INDEX IF NOT EXISTS work_items_by_domain
+            ON work_items (status, domain_key, priority DESC, position)",
         "CREATE TABLE IF NOT EXISTS records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -79,6 +86,8 @@ pub(crate) struct Leased {
     pub(crate) attempt: u32,
     /// The lease's epoch.
     pub(crate) lease_epoch: u64,
+    /// Its domain key and priority, under which it waits again on a retry.
+    pub(crate) waiting: Waiting,
 }
 
 /// What an attempt that committed no Record failed with.
@@ -110,8 +119,8 @@ fn integer(value: u64) -> i64 {
 /// Adds each seed as a pending work item, in order, at depth 0.
 pub(crate) fn insert_seeds(connection: &Connection, seeds: &[Seed]) -> rusqlite::Result<()> {
     let mut insert = connection.prepare(
-        "INSERT INTO work_items (id, position, url, label, depth, payload, status, attempts, lease_epoch)
-         VALUES (?1, ?2, ?3, ?4, 0, ?5, 'pending', 0, 0)",
+        "INSERT INTO work_items (id, position, url, label, depth, payload, status, attempts, lease_epoch, priority)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, 'pending', 0, 0, ?6)",
     )?;
     for (position, seed) in seeds.iter().enumerate() {
         let position = i64::try_from(position + 1).unwrap_or(i64::MAX);
@@ -121,25 +130,83 @@ pub(crate) fn insert_seeds(connection: &Connection, seeds: &[Seed]) -> rusqlite:
             &seed.url,
             &seed.label,
             seed.payload.as_ref().map(Value::to_string),
+            seed.priority,
         ))?;
     }
     Ok(())
 }
 
-/// Leases up to `count` pending work items, in order: each one's attempts
-/// and lease epoch go up by one.
-pub(crate) fn lease(connection: &Connection, count: usize) -> rusqlite::Result<Vec<Leased>> {
+/// Each work item not keyed yet, with its URL.
+pub(crate) fn unkeyed(connection: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    connection
+        .prepare("SELECT id, url FROM work_items WHERE domain_key IS NULL ORDER BY position")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect()
+}
+
+/// Records each work item's domain key.
+pub(crate) fn set_keys(connection: &Connection, keys: &[(String, String)]) -> rusqlite::Result<()> {
+    let mut update = connection.prepare("UPDATE work_items SET domain_key = ?2 WHERE id = ?1")?;
+    for (id, key) in keys {
+        update.execute((id, key))?;
+    }
+    Ok(())
+}
+
+/// The pending work items of `key`, or of every key when `None`, at most
+/// `bound` of each key, each key's highest priority first and then in
+/// order: what fills its per-domain queue.
+pub(crate) fn waiting(
+    connection: &Connection,
+    key: Option<&str>,
+    bound: usize,
+) -> rusqlite::Result<Vec<Waiting>> {
+    let bound = i64::try_from(bound).unwrap_or(i64::MAX);
+    let row = |row: &rusqlite::Row<'_>| {
+        Ok(Waiting {
+            id: row.get(0)?,
+            key: row.get(1)?,
+            priority: row.get(2)?,
+            order: row.get(3)?,
+        })
+    };
+    match key {
+        Some(key) => connection
+            .prepare(
+                "SELECT id, domain_key, priority, position FROM work_items
+                 WHERE status = 'pending' AND domain_key = ?1
+                 ORDER BY priority DESC, position LIMIT ?2",
+            )?
+            .query_map((key, bound), row)?
+            .collect(),
+        None => connection
+            .prepare(
+                "SELECT id, domain_key, priority, position FROM (
+                     SELECT id, domain_key, priority, position, row_number() OVER (
+                         PARTITION BY domain_key ORDER BY priority DESC, position
+                     ) AS rank
+                     FROM work_items WHERE status = 'pending' AND domain_key IS NOT NULL
+                 ) WHERE rank <= ?1 ORDER BY position",
+            )?
+            .query_map([bound], row)?
+            .collect(),
+    }
+}
+
+/// Leases each pending work item of `ids`, in that order: each one's
+/// attempts and lease epoch go up by one.
+pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result<Vec<Leased>> {
     let mut statement = connection.prepare(
         "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
-         WHERE id IN (SELECT id FROM work_items WHERE status = 'pending' ORDER BY position LIMIT ?1)
-         RETURNING id, url, label, payload, attempts, lease_epoch, position",
+         WHERE id = ?1 AND status = 'pending'
+         RETURNING id, url, label, payload, attempts, lease_epoch, domain_key, priority, position",
     )?;
-    let mut leased = statement
-        .query_map([i64::try_from(count).unwrap_or(i64::MAX)], |row| {
-            let payload: Option<String> = row.get(3)?;
-            Ok((
-                row.get::<_, i64>(6)?,
-                Leased {
+    let mut leased = Vec::with_capacity(ids.len());
+    for id in ids {
+        let row = statement
+            .query_row([id], |row| {
+                let payload: Option<String> = row.get(3)?;
+                Ok(Leased {
                     crawl_request: CrawlRequest {
                         id: row.get(0)?,
                         url: row.get(1)?,
@@ -148,12 +215,18 @@ pub(crate) fn lease(connection: &Connection, count: usize) -> rusqlite::Result<V
                     },
                     attempt: row.get(4)?,
                     lease_epoch: u64::try_from(row.get::<_, i64>(5)?).unwrap_or_default(),
-                },
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    leased.sort_by_key(|(position, _)| *position);
-    Ok(leased.into_iter().map(|(_, leased)| leased).collect())
+                    waiting: Waiting {
+                        id: row.get(0)?,
+                        key: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                        priority: row.get(7)?,
+                        order: row.get(8)?,
+                    },
+                })
+            })
+            .optional()?;
+        leased.extend(row);
+    }
+    Ok(leased)
 }
 
 /// Whether the work item `id` is still leased under `lease_epoch`.

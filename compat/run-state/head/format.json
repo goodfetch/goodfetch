@@ -214,6 +214,19 @@
               "by"
             ],
             "type": "object"
+          },
+          {
+            "description": "Its `timeout.run` passed, and it stopped at its next safe point,\nresumable with a fresh clock (ADR 0080); no Error code of its own.",
+            "properties": {
+              "kind": {
+                "const": "timeout",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
           }
         ]
       },

@@ -1,6 +1,8 @@
-//! A crawl's delivery (ADRs 0003, 0024 and 0093): the Run's driver, which
-//! leases pending work items to the handler of each Connection serving the
-//! crawl (the one that started it, and each `workers=N` handler process
+//! A crawl's delivery (ADRs 0003, 0004, 0024 and 0093): the Run's driver,
+//! which admits pending work items through the Run's admission, the
+//! per-domain queues Foxhound's composition passes in as the gate in
+//! admission under the Run's rate cap, and leases them to the handler of
+//! each Connection serving the crawl (the one that started it, and each `workers=N` handler process
 //! that joined it with `crawl.serve`), at most `crawl.handler.concurrency`
 //! at once on each, each lease committed in run state
 //! before its `crawl_request.handle` request is sent; commits an answered
@@ -15,22 +17,33 @@
 //! refused with `lease_lost`. An attempt whose Connection ended is
 //! `client_gone`, never the handler's own `handler_failed`, and is retried
 //! on a Connection still serving. Once every work item is done, it
-//! finishes the Run. When the Run stops, the attempts in flight are
-//! abandoned and their work items return to pending without counting; when
+//! finishes the Run. When the Run is asked to stop at its next safe point,
+//! such as once its `timeout.run` passed, it admits nothing new, lets each
+//! attempt in flight commit or be abandoned under its lease, and then stops
+//! the Run. When the Run stops at once, by an abort, the attempts in flight
+//! are abandoned and their work items return to pending without counting;
+//! when
 //! no Connection serves the crawl any more, the driver delivers nothing
 //! more and waits for the Run to stop or a Connection to join.
 
+use goodfetch_engine::admission::{Admission, Ended};
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{Ending, Run};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
+use goodfetch_protocol::run::StopReason;
+use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
+use tokio::time::Instant;
 
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
@@ -81,6 +94,16 @@ struct Serving {
 }
 
 impl Serving {
+    /// A handler process that joined the crawl with `crawl.serve`.
+    fn joined(server: Server) -> Self {
+        Self {
+            client: server.client,
+            left: Some(server.left),
+            in_flight: 0,
+            gone: false,
+        }
+    }
+
     /// Whether it takes new work items.
     fn serves(&mut self) -> bool {
         !self.gone
@@ -123,44 +146,40 @@ async fn deliver(
     settings: &RunSettings,
 ) {
     let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
+    let mut admission = match open(run, settings).await {
+        Ok(admission) => admission,
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
+            run.end(Ending::Failed).await;
+            return;
+        }
+    };
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
+    let mut stop: Option<StopReason> = None;
     loop {
-        let policy = CrawlPolicy::of(&settings.at_admission().await);
-        for (place, server) in servers.iter_mut().enumerate() {
-            if !server.serves() || server.in_flight >= policy.handler_concurrency {
-                continue;
-            }
-            let room = policy.handler_concurrency - server.in_flight;
-            match run
-                .state()
-                .write(move |connection| work_items::lease(connection, room))
-                .await
-            {
-                Ok(leased) => {
-                    for leased in leased {
-                        let lease = run_leases.grant(
-                            &leased.crawl_request.id,
-                            leased.lease_epoch,
-                            policy.lease_length(),
-                        );
-                        server.in_flight += 1;
-                        attempts.spawn(attempt(
-                            run.clone(),
-                            place,
-                            server.client.clone(),
-                            leased,
-                            lease,
-                        ));
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be leased");
-                    run.end(Ending::Failed).await;
-                    return;
-                }
-            }
+        let resolved = settings.at_admission().await;
+        let policy = CrawlPolicy::of(&resolved);
+        admission.update(&resolved);
+        if stop.is_none()
+            && let Err(error) = lease_to_servers(
+                run,
+                &run_leases,
+                policy,
+                &mut admission,
+                servers,
+                &mut attempts,
+            )
+            .await
+        {
+            tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be leased");
+            run.end(Ending::Failed).await;
+            return;
         }
         if attempts.is_empty() {
+            if let Some(reason) = stop {
+                run.end(Ending::Stopped(reason)).await;
+                return;
+            }
             if !servers.iter_mut().any(Serving::serves) {
                 tokio::select! {
                     biased;
@@ -168,18 +187,23 @@ async fn deliver(
                         release(run).await;
                         return;
                     }
+                    reason = run.stopping() => {
+                        stop = Some(reason);
+                        continue;
+                    }
                     Some(server) = joined.recv() => {
-                        servers.push(Serving { client: server.client, left: Some(server.left), in_flight: 0, gone: false });
+                        servers.push(Serving::joined(server));
                         continue;
                     }
                 }
             }
-            match run.state().read(work_items::any_pending).await {
-                Ok(false) => {
+            match when_idle(run, &mut admission).await {
+                Ok(Idle::Admit) => continue,
+                Ok(Idle::Wait) => {}
+                Ok(Idle::Done) => {
                     run.end(Ending::Finished).await;
                     return;
                 }
-                Ok(true) => continue,
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
                     run.end(Ending::Failed).await;
@@ -187,6 +211,13 @@ async fn deliver(
                 }
             }
         }
+        let free = stop.is_none()
+            && servers
+                .iter_mut()
+                .any(|server| server.serves() && server.in_flight < policy.handler_concurrency);
+        let wake = free
+            .then(|| admission.ready_at(run.clock().now()))
+            .flatten();
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -194,22 +225,224 @@ async fn deliver(
                 release(run).await;
                 return;
             }
+            reason = run.stopping(), if stop.is_none() => {
+                stop = Some(reason);
+            }
             Some(server) = joined.recv() => {
-                servers.push(Serving { client: server.client, left: Some(server.left), in_flight: 0, gone: false });
+                servers.push(Serving::joined(server));
             }
             Some(ended) = attempts.join_next() => {
-                let Ok(attempt) = ended else {
-                    continue;
-                };
-                let server = &mut servers[attempt.server];
-                server.in_flight -= 1;
-                if let Answer::ClientGone = attempt.answer {
-                    server.gone = true;
+                if let Ok(attempt) = ended {
+                    settled(run, settings, &mut admission, servers, attempt).await;
                 }
-                let policy = CrawlPolicy::of(&settings.at_admission().await);
-                settle(run, policy, attempt).await;
             }
+            () = sleep_until(run.clock(), wake), if wake.is_some() => {}
         }
+    }
+}
+
+/// Admits work items up to each serving Connection's room and starts an
+/// attempt for each on that Connection.
+async fn lease_to_servers(
+    run: &Run,
+    run_leases: &Leases,
+    policy: CrawlPolicy,
+    admission: &mut Admission,
+    servers: &mut [Serving],
+    attempts: &mut JoinSet<Attempt>,
+) -> Result<(), RunStateError> {
+    for (place, server) in servers.iter_mut().enumerate() {
+        if !server.serves() || server.in_flight >= policy.handler_concurrency {
+            continue;
+        }
+        let room = policy.handler_concurrency - server.in_flight;
+        for leased in admit(run, admission, room).await? {
+            let lease = run_leases.grant(
+                &leased.crawl_request.id,
+                leased.lease_epoch,
+                policy.lease_length(),
+            );
+            server.in_flight += 1;
+            attempts.spawn(attempt(
+                run.clone(),
+                place,
+                server.client.clone(),
+                leased,
+                lease,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether a handler's failure says the site did not answer in time: a
+/// `deadline_exceeded` whose `limit` is the response's first byte or the
+/// navigation, which backs the domain off like a refused or timed-out
+/// connection (ADR 0086). A `Retry-After`, a 429 and a 503 join with the
+/// fetch tiers (area 5).
+fn site_timed_out(code: &str, details: &Map<String, Value>) -> bool {
+    code == DEADLINE_EXCEEDED.name
+        && details
+            .get("limit")
+            .and_then(|limit| limit.get("key"))
+            .and_then(Value::as_str)
+            .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key))
+}
+
+/// What a crawl with no attempt in flight does next.
+enum Idle {
+    /// Admit the work items its queues now hold.
+    Admit,
+    /// Wait until its admission is ready or the Run stops.
+    Wait,
+    /// Finish: no work item is pending.
+    Done,
+}
+
+/// What a crawl with no attempt in flight does next: its queues filled
+/// again from the pending work items when they hold none ready.
+async fn when_idle(run: &Run, admission: &mut Admission) -> Result<Idle, RunStateError> {
+    if admission.ready_at(run.clock().now()).is_some() {
+        return Ok(Idle::Wait);
+    }
+    fill(run, admission, None).await?;
+    if admission.ready_at(run.clock().now()).is_some() {
+        return Ok(Idle::Admit);
+    }
+    Ok(if run.state().read(work_items::any_pending).await? {
+        Idle::Wait
+    } else {
+        Idle::Done
+    })
+}
+
+/// Settles an attempt that ended under the Run's policy now, frees its
+/// place on its Connection, returns its domain's turn, puts a retried work
+/// item back in its queue and journals what the queues changed.
+async fn settled(
+    run: &Run,
+    settings: &RunSettings,
+    admission: &mut Admission,
+    servers: &mut [Serving],
+    attempt: Attempt,
+) {
+    let server = &mut servers[attempt.server];
+    server.in_flight -= 1;
+    if let Answer::ClientGone = attempt.answer {
+        server.gone = true;
+    }
+    let waiting = attempt.leased.waiting.clone();
+    let domain = match &attempt.answer {
+        Answer::Failed { code, details, .. } if site_timed_out(code, details) => Ended::BackOff,
+        _ => Ended::Done,
+    };
+    let policy = CrawlPolicy::of(&settings.at_admission().await);
+    let retried = settle(run, policy, attempt).await;
+    admission.ended(&waiting.key, run.clock().now(), domain);
+    if retried {
+        admission.enqueue(waiting);
+    }
+    journal(run, admission).await;
+}
+
+/// Opens the Run's admission, the gate Foxhound's composition passes in,
+/// keys the work items not keyed yet and fills each domain's queue.
+async fn open(run: &Run, settings: &RunSettings) -> Result<Admission, String> {
+    let resolved = settings.at_admission().await;
+    let mut admission = run
+        .admission(&resolved)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or("the composition passes in no gate in admission")?;
+    let unkeyed = run
+        .state()
+        .read(work_items::unkeyed)
+        .await
+        .map_err(|error| error.to_string())?;
+    let keys: Vec<(String, String)> = unkeyed
+        .into_iter()
+        .map(|(id, url)| {
+            let key = admission.key(&url);
+            (id, key)
+        })
+        .collect();
+    run.state()
+        .write(move |connection| work_items::set_keys(connection, &keys))
+        .await
+        .map_err(|error| error.to_string())?;
+    fill(run, &mut admission, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(admission)
+}
+
+/// Fills the queue of `key`, or of every key when `None`, from the pending
+/// work items, at most its bound.
+async fn fill(
+    run: &Run,
+    admission: &mut Admission,
+    key: Option<String>,
+) -> Result<(), RunStateError> {
+    let bound = admission.bound();
+    let waiting = run
+        .state()
+        .read(move |connection| work_items::waiting(connection, key.as_deref(), bound))
+        .await?;
+    for waiting in waiting {
+        admission.enqueue(waiting);
+    }
+    Ok(())
+}
+
+/// Admits up to `room` work items ready now and leases them, then fills
+/// again each domain's queue that drained.
+async fn admit(
+    run: &Run,
+    admission: &mut Admission,
+    room: usize,
+) -> Result<Vec<Leased>, RunStateError> {
+    let now = run.clock().now();
+    let mut ids = Vec::new();
+    let mut drained = Vec::new();
+    while ids.len() < room {
+        let Some(admitted) = admission.admit(now) else {
+            break;
+        };
+        if admitted.drained {
+            drained.push(admitted.key);
+        }
+        ids.push(admitted.id);
+    }
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let leased = run
+        .state()
+        .write(move |connection| work_items::lease(connection, &ids))
+        .await?;
+    for key in drained {
+        fill(run, admission, Some(key)).await?;
+    }
+    Ok(leased)
+}
+
+/// Writes what the gate changed into the run file.
+async fn journal(run: &Run, admission: &mut Admission) {
+    let clock = run.clock();
+    if let Some(journal) = admission.journal(clock.wall(), clock.now())
+        && let Err(error) = run
+            .state()
+            .write(move |connection| journal(connection))
+            .await
+    {
+        tracing::warn!(%error, run_id = %run.id(), "the crawl's per-domain queues were not journaled");
+    }
+}
+
+/// Sleeps until `moment`, if any.
+async fn sleep_until(clock: Clock, moment: Option<Instant>) {
+    if let Some(moment) = moment {
+        clock.sleep_until(moment).await;
     }
 }
 
@@ -283,8 +516,9 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
 
 /// Commits an attempt's outcome: its Records once while its lease holds,
 /// its handler's skip, its block, or its work item retried or failed; then
-/// releases its lease.
-async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
+/// releases its lease. Answers whether its work item waits again for a
+/// retry.
+async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
     let Attempt {
         leased,
         lease,
@@ -318,7 +552,7 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
             {
                 Ok(()) => {
                     lease.release();
-                    return;
+                    return false;
                 }
                 Err(CommitError::LeaseLost) => failure(
                     LEASE_LOST.name.to_owned(),
@@ -327,7 +561,7 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
                 ),
                 Err(CommitError::RunState(error)) => {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
-                    return;
+                    return false;
                 }
             }
         }
@@ -351,6 +585,7 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
             None => failure(code, retryable, message),
         },
     };
+    let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
     let recorded = match &unsuccessful {
         Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
             Some(failure.code.clone())
@@ -368,12 +603,15 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) {
             if let Some(code) = recorded {
                 run.record_outcome(&code);
             }
+            retried
         }
         Ok(false) => {
             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
+            false
         }
         Err(error) => {
             tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+            false
         }
     }
 }

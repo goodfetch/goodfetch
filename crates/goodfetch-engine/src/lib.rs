@@ -8,6 +8,7 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
+pub mod admission;
 mod attached;
 mod body;
 pub mod browser_cache;
@@ -18,6 +19,7 @@ mod composition;
 mod config;
 pub mod console;
 pub mod daemon;
+pub mod deadline;
 pub mod dns;
 mod engine;
 pub mod entropy;

@@ -20,14 +20,14 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 /// A running Attached engine of Foxhound's executable.
-struct Attached {
+pub(crate) struct Attached {
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
 }
 
 impl Attached {
-    fn start(env: &TestEnv) -> Self {
+    pub(crate) fn start(env: &TestEnv) -> Self {
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-foxhound"));
         command
             .arg("attached-engine")
@@ -49,7 +49,7 @@ impl Attached {
         engine
     }
 
-    fn send(&mut self, message: &Value) {
+    pub(crate) fn send(&mut self, message: &Value) {
         let stdin = self.stdin.as_mut().unwrap();
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
@@ -57,7 +57,7 @@ impl Attached {
         stdin.flush().unwrap();
     }
 
-    fn next(&mut self) -> Option<Value> {
+    pub(crate) fn next(&mut self) -> Option<Value> {
         let message = self.stdout.try_next().unwrap()?;
         serde_json::from_value::<Message>(message.clone()).unwrap();
         Some(message)
@@ -65,7 +65,7 @@ impl Attached {
 
     /// Sends the call `id`, answers each handler request with `handler`
     /// until its reply comes, and answers that reply.
-    fn call(
+    pub(crate) fn call(
         &mut self,
         id: &str,
         method: &str,
@@ -90,12 +90,12 @@ impl Attached {
 
     /// Whether the engine writes nothing on its stdout for `quiet`; a
     /// message written meanwhile is kept for the next read.
-    fn is_quiet_for(&mut self, quiet: Duration) -> bool {
+    pub(crate) fn is_quiet_for(&mut self, quiet: Duration) -> bool {
         self.stdout.is_quiet_for(quiet)
     }
 
     /// Ends the input and waits for the engine to exit.
-    fn finish(mut self) -> bool {
+    pub(crate) fn finish(mut self) -> bool {
         drop(self.stdin.take());
         while self.next().is_some() {}
         self.process.child().wait().unwrap().success()

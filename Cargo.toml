@@ -176,7 +176,9 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).
 ulid = { version = "3.0.0", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
-# WHATWG URL parsing, as Playwright resolves a URL glob (ADR 0081).
+# The WHATWG URL Standard's parser, IDNA included: every URL a crawl's
+# Frontier meets (ADR 0120), and a URL glob resolved as Playwright resolves
+# one (ADR 0081).
 url = { version = "2.5.8", default-features = false, features = ["std"] }
 # Mozilla's root certificates, which the Browser cache's pinned downloads
 # trust (ADR 0043), as ureq's rustls already does.

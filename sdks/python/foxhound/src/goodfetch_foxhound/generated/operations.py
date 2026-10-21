@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunReport, RunStarted
-from .models import CrawlRequestOutcomes, CrawlStartParams, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlStartParams, Enqueued, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -39,6 +39,13 @@ class AsyncFoxhoundOperations:
         """
         return RunStarted.model_construct(**_fields(await self._caller.call("crawl.start", params)))
 
+    async def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
+        """Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Enqueued.model_construct(**_fields(await self._caller.call("crawl_request.enqueue", params)))
+
     async def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
         """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
 
@@ -52,6 +59,13 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestOutcomes.model_construct(**_fields(await self._caller.call("run.outcomes", params)))
+
+    async def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
+        """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunSeeds.model_construct(**_fields(await self._caller.call("run.seeds", params)))
 
     async def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""
@@ -79,6 +93,13 @@ class FoxhoundOperations:
         """
         return RunStarted.model_construct(**_fields(self._caller.call("crawl.start", params)))
 
+    def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
+        """Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Enqueued.model_construct(**_fields(self._caller.call("crawl_request.enqueue", params)))
+
     def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
         """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
 
@@ -92,6 +113,13 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestOutcomes.model_construct(**_fields(self._caller.call("run.outcomes", params)))
+
+    def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
+        """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunSeeds.model_construct(**_fields(self._caller.call("run.seeds", params)))
 
     def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""

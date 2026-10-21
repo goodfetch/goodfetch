@@ -51,7 +51,7 @@ fn crawl_of(count: usize) -> Connection {
             priority: 0,
         })
         .collect();
-    work_items::insert_seeds(&connection, &seeds).unwrap();
+    work_items::admit_seeds(&connection, &seeds).unwrap();
     connection
 }
 

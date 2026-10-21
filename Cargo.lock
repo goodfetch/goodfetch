@@ -1317,6 +1317,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]

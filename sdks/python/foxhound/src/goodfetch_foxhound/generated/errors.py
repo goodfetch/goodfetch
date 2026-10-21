@@ -11,6 +11,14 @@ from typing import Final
 from goodfetch_collie_client.generated.errors import GoodfetchError, ProgramError, RefusedError, UnavailableError
 
 
+class AttemptEndedError(ProgramError):
+    """The call names an attempt that already ended: its handler returned, it failed or was skipped, its lease ended, or its Run stopped. Nothing it asked for was done, so a forgotten `await` never silently loses a link."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="attempt_ended", group="program", retryable=False)
+
+
 class ClientGoneError(UnavailableError):
     """The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`."""
 
@@ -52,6 +60,7 @@ class SampleCrawlRefusedError(RefusedError):
 
 
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
+    "attempt_ended": AttemptEndedError,
     "client_gone": ClientGoneError,
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,

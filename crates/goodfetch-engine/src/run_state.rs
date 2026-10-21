@@ -4,7 +4,9 @@
 //! that commits every write its mailbox holds in one transaction. Each
 //! commit is accepted only under the writer's run epoch: a writer whose
 //! epoch the file no longer holds commits nothing. The file opens through a
-//! VFS named by a value, none in production, the crash VFS in tests.
+//! VFS named by a value, none in production, the crash VFS in tests. Each
+//! acknowledged commit moves a counter on, which a reader of the file's
+//! committed state waits on for more, never holding the writer back.
 //!
 //! The file holds its format's `major.minor` (ADR 0066), the Run's own row
 //! and tags, and the tables each contribution of the composition adds, such
@@ -15,7 +17,7 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_STATE};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::tasks::TaskOwner;
 
@@ -114,6 +116,7 @@ pub struct RunState {
     mailbox: mpsc::Sender<QueuedWrite>,
     path: PathBuf,
     epoch: u64,
+    commits: watch::Receiver<u64>,
 }
 
 impl RunState {
@@ -145,15 +148,17 @@ impl RunState {
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let actor_path = path.clone();
         let mut connection = connection;
+        let (committed, commits) = watch::channel(0_u64);
         owner
             .actor("run-state-writer", jobs, move |group: Vec<QueuedWrite>| {
-                commit_group(&mut connection, &actor_path, epoch, group);
+                commit_group(&mut connection, &actor_path, epoch, group, &committed);
             })
             .map_err(|error| sqlite_error(&path, &error))?;
         Ok(Self {
             mailbox,
             path,
             epoch,
+            commits,
         })
     }
 
@@ -165,6 +170,14 @@ impl RunState {
     /// The run epoch it writes under, which each of its commits checks.
     pub fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    /// How many commits it acknowledged, which moves on once each is in the
+    /// file and before its writes are answered: a reader of the file waits
+    /// on it for more committed state. Its sender is gone once the writer
+    /// stops.
+    pub fn commits(&self) -> watch::Receiver<u64> {
+        self.commits.clone()
     }
 
     /// Runs `work` in the writer's next commit, grouped with every write
@@ -365,12 +378,21 @@ fn run_in_savepoint<T>(
     }
 }
 
-/// Commits `group` in one transaction under `epoch`, then answers each
-/// write: all of them with the failure when the transaction fails or the
-/// file holds another epoch.
-fn commit_group(connection: &mut Connection, path: &Path, epoch: u64, group: Vec<QueuedWrite>) {
+/// Commits `group` in one transaction under `epoch`, counts the commit in
+/// `commits`, then answers each write: all of them with the failure when
+/// the transaction fails or the file holds another epoch.
+fn commit_group(
+    connection: &mut Connection,
+    path: &Path,
+    epoch: u64,
+    group: Vec<QueuedWrite>,
+    commits: &watch::Sender<u64>,
+) {
     let (completions, committed) = match commit_writes(connection, path, epoch, group) {
-        Ok(completions) => (completions, Ok(())),
+        Ok(completions) => {
+            commits.send_modify(|count| *count += 1);
+            (completions, Ok(()))
+        }
         Err((completions, error)) => (completions, Err(error)),
     };
     for completion in completions {

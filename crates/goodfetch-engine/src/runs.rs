@@ -15,7 +15,8 @@
 //! owner does not take it, the lock is retried with backoff, since a
 //! reader's test may hold it for a moment (the `writer` module), before the
 //! abort fails as busy. `runs reindex` rebuilds the Run index from the run
-//! folders ([`reindex`]).
+//! folders ([`reindex`]). A [`RunReader`] reads a Run's committed state
+//! without its writer lock, following this engine's writer while it works.
 //!
 //! A Checkpoint of a Run (ADRs 0002, 0102 and 0116) is written on
 //! `run.checkpoint`, every `checkpoint.interval` of its clock, and after the
@@ -60,6 +61,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+pub use self::reader::RunReader;
 pub use self::reindex::{Reindexed, reindex};
 pub use self::writer::{Writer, test_writer};
 
@@ -67,6 +69,7 @@ use self::folder::{
     Found, RunRow, canonical_inputs, input_differences, point_in_time, read_found, read_report,
     text, write_end,
 };
+use self::reader::Following;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::body;
@@ -458,6 +461,7 @@ enum Command {
         oneshot::Sender<Result<Resumed, RunError>>,
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
+    Reader(RunId, oneshot::Sender<RunReader>),
 }
 
 /// Whether an abort came forwarded from another engine, which counts on
@@ -592,6 +596,11 @@ impl Run {
         })
     }
 
+    /// The wall time now, as a point in time of the Run's (ADR 0102).
+    pub fn point_in_time(&self) -> PointInTime {
+        point_in_time(&self.clock)
+    }
+
     /// Records that the Run uses an entry of `product`'s, so that from now
     /// on it needs the larger of its Product and `product` (ADR 0098).
     ///
@@ -622,6 +631,7 @@ impl Runs {
             setup,
             owner: owner.child(),
             ending_owner: owner.child(),
+            readers: Arc::new(owner.child()),
             live: BTreeMap::new(),
             ended: BTreeMap::new(),
             runs: runs.downgrade(),
@@ -843,6 +853,27 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)
     }
 
+    /// A reader of the committed state of the Run `run_id`, which never
+    /// takes its writer lock: it follows the Run while this engine's writer
+    /// works it, and reads what is committed otherwise.
+    ///
+    /// # Errors
+    ///
+    /// `Stopped` when the registry has stopped; whether the Run exists is
+    /// the reader's first read's to say.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn reader(&self, run_id: RunId) -> Result<RunReader, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Reader(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        answered.await.map_err(|_| RunError::Stopped)
+    }
+
     /// The same Runs, each Run started through them belonging to the
     /// Daemon's Connection `connection`.
     pub(crate) fn on_connection(&self, connection: ConnectionId) -> Self {
@@ -953,6 +984,8 @@ struct Registry {
     setup: RunsSetup,
     owner: TaskOwner,
     ending_owner: TaskOwner,
+    /// Where readers of run state run their blocking reads.
+    readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
     ended: BTreeMap<RunId, RunReport>,
     runs: mpsc::WeakSender<Command>,
@@ -1029,8 +1062,12 @@ impl Registry {
                 Command::Machine(answer) => {
                     let _ = answer.send(self.machine().await);
                 }
+                Command::Reader(run_id, answer) => {
+                    let _ = answer.send(self.reader(&run_id));
+                }
             }
         }
+        self.readers.wait().await;
         self.ending_owner.wait().await;
         self.owner.wait().await;
     }
@@ -1048,6 +1085,20 @@ impl Registry {
             }
         }
         reports
+    }
+
+    fn reader(&self, run_id: &RunId) -> RunReader {
+        let following = self.live.get(run_id).map(|live| Following {
+            commits: live.run.as_ref().map(|run| run.state.commits()),
+            report: live.report.subscribe(),
+        });
+        RunReader::new(
+            run_id.clone(),
+            self.folder(run_id),
+            self.setup.run_state.vfs.clone(),
+            Arc::clone(&self.readers),
+            following,
+        )
     }
 
     fn folder(&self, run_id: &RunId) -> PathBuf {
@@ -2041,6 +2092,7 @@ impl Closing {
 
 mod folder;
 pub mod outcome;
+mod reader;
 mod reindex;
 mod takeover;
 mod writer;

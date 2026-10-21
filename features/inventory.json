@@ -973,6 +973,16 @@
       ]
     },
     {
+      "id": "operation:run.failed_requests",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.finish",
       "kind": "operation",
       "area": 3,
@@ -991,6 +1001,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.outcomes",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -9552,7 +9572,29 @@
       ]
     },
     {
+      "id": "story:3-149",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:3-15",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-150",
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",

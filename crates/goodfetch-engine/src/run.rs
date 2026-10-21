@@ -222,7 +222,8 @@ fn stopped() -> CallError {
     )
 }
 
-fn run_error(error: RunError, identity: &Identity) -> CallError {
+/// The Error code of a Run's failure to be finished, aborted or read.
+pub fn run_error(error: RunError, identity: &Identity) -> CallError {
     run_error_of(error, identity, RUN_ABORT.name)
 }
 

@@ -221,6 +221,18 @@
       "$ref": "#/$defs/Journey"
     }
   },
+  "formats": [
+    {
+      "hello_from": [],
+      "name": "sample-store",
+      "rule": "default",
+      "schema": {
+        "type": "object"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    }
+  ],
   "protocol_version": "0.1",
   "title": "Goodfetch protocol"
 }

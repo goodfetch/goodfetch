@@ -1,0 +1,19 @@
+---
+source: crates/goodfetch-engine/src/engine/tests/refusals.rs
+expression: "pretty(&received[0])"
+---
+{
+  "error": {
+    "code": -32006,
+    "data": {
+      "client_protocol_version": "1.0",
+      "code": "protocol_version_unsupported",
+      "engine_protocol_version": "0.1",
+      "fix": "Upgrade the engine to a version that speaks protocol 1.0, or use a Client of the engine's own version.",
+      "retryable": false
+    },
+    "message": "This Client speaks protocol 1.0, and this engine speaks 0.1: it accepts 0.0 to 0.1."
+  },
+  "id": 0,
+  "jsonrpc": "2.0"
+}

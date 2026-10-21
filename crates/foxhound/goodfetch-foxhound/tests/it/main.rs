@@ -13,6 +13,7 @@ mod crawl;
 mod daemon;
 mod frontier;
 mod journeys;
+mod limits;
 mod outcomes;
 mod service_manager;
 mod workers;

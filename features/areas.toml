@@ -258,6 +258,28 @@ number = 3
 kind = "command"
 prefix = "runs."
 
+# Area 3's Usage ledger (#231): Limits across runs, `usage`, their Error
+# codes and the ledger's format.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "usage."
+
+[[area]]
+number = 3
+kind = "command"
+prefix = "usage"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "limit_"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "usage-ledger"
+
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
 # runtime itself waits on or resolves (ADR 0059).
@@ -391,6 +413,11 @@ prefix = "page_crashed"
 number = 5
 kind = "error"
 prefix = "browser_launch_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "pattern_unsupported"
 
 [[area]]
 number = 6

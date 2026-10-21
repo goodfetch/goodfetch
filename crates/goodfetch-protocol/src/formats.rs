@@ -17,6 +17,7 @@ use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
 use crate::run::{RunIndexRow, RunStateRow};
+use crate::usage::Limit;
 
 /// How a format's files are stored in its corpus sets (ADR 0066).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,6 +253,20 @@ pub const INSTALLED_EXECUTABLES: Format = Format {
     schema: schema_of::<InstalledExecutables>,
 };
 
+/// The per-user Usage ledger in Goodfetch home (ADRs 0041 and 0098), outside
+/// the per-major folders: the Limits across runs, the Slices runs take
+/// against them and the Usage charged. Engines of every major and of both
+/// Products open it, so its major never changes and newer minors only add
+/// rows, tables and columns; its schema is one Limit's.
+pub const USAGE_LEDGER: Format = Format {
+    name: "usage-ledger",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<Limit>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -259,6 +274,7 @@ pub const FORMATS: &[&Format] = &[
     &RUN_INDEX,
     &RUN_STATE,
     &INSTALLED_EXECUTABLES,
+    &USAGE_LEDGER,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
 ];

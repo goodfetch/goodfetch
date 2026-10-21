@@ -33,6 +33,7 @@ pub mod http_client;
 mod info;
 pub mod installed;
 pub mod lease;
+pub mod ledger;
 pub mod pinned_download;
 mod product;
 pub mod rpc;
@@ -43,6 +44,7 @@ pub mod runs;
 pub mod settings;
 pub mod tasks;
 pub mod transport;
+mod usage;
 
 pub use composition::{
     CallContext, CallError, Composition, CompositionError, Contribution, Handler,

@@ -1,8 +1,9 @@
 //! Run state's writer for the Compatibility corpus (ADR 0066): runs fixed
 //! scenarios against Foxhound's engine, whose run files hold every table
 //! both Products' compositions add, over the in-memory network, on the test
-//! `Clock` and a fixed `Entropy` seed, in a home of its own: a tagged crawl
-//! of three seeds, one with a Payload and one the Frontier answers
+//! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
+//! install Limit, whose Slices its run state journals, a tagged crawl of
+//! three seeds, one with a Payload and one the Frontier answers
 //! `duplicate`, whose handler pushes Records for the first and fails on the
 //! second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it; and a Run its
@@ -52,6 +53,11 @@ fn scenario() -> Vec<Value> {
             0,
             "hello",
             json!({ "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "0.0.0" }),
+        ),
+        call(
+            10,
+            "usage.set",
+            json!({ "scope": "install", "usage_kind": "requests", "amount": 1_000 }),
         ),
         call(
             1,

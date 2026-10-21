@@ -137,6 +137,9 @@ proc-macro2 = { version = "1.0.107", default-features = false, features = ["span
 quick-xml = { version = "0.41", default-features = false }
 quote = { version = "1.0.47", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode"] }
+# The parser behind `regex`, read for the construct a refused URL pattern
+# uses (ADR 0081).
+regex-syntax = { version = "0.8.11", default-features = false, features = ["std"] }
 rstest = { version = "0.27.0", default-features = false }
 # Run state, the Usage ledger and the Politeness file (ADR 0057), on the
 # SQLite it bundles. goodfetch-test-support's crash VFS (ADR 0060) registers
@@ -174,7 +177,8 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 ulid = { version = "3.0.0", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 # The WHATWG URL Standard's parser, IDNA included: every URL a crawl's
-# Frontier meets (ADR 0120).
+# Frontier meets (ADR 0120), and a URL glob resolved as Playwright resolves
+# one (ADR 0081).
 url = { version = "2.5.8", default-features = false, features = ["std"] }
 # Mozilla's root certificates, which the Browser cache's pinned downloads
 # trust (ADR 0043), as ureq's rustls already does.

@@ -34,6 +34,20 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payload: Option<Value>,
+    /// Its priority among the requests of its domain: higher goes first,
+    /// and a priority never orders requests of different domains (ADR
+    /// 0004); 0 by default.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub priority: i64,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_zero(priority: &i64) -> bool {
+    *priority == 0
 }
 
 /// A crawl's seeds, at least one (ADR 0102).
@@ -263,6 +277,22 @@ pub const CRAWL_HANDLER_CONCURRENCY: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.domain_keys` (ADR 0004).
+pub const CRAWL_DOMAIN_KEYS: Setting = Setting {
+    name: "crawl.domain_keys",
+    description: "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
+    kind: ValueKind::Map(&ValueKind::Text),
+    default: empty_table,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn empty_table() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
 fn one_minute() -> Value {
     Value::from(60_000_u64)
 }
@@ -293,6 +323,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_RETRY_MAX,
         CRAWL_RETRY_HANDLER_FAILED,
         CRAWL_HANDLER_CONCURRENCY,
+        CRAWL_DOMAIN_KEYS,
     ],
     hook_stages: &[],
     shared_type_values: &[],

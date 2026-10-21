@@ -222,6 +222,16 @@ number = 3
 kind = "setting"
 prefix = "crawl.handler."
 
+[[area]]
+number = 3
+kind = "setting"
+prefix = "crawl.domain_keys"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "admission."
+
 # The keys #225 declares for the areas that build what they shape, each with
 # its area first (ADR 0083): Security and egress (4), Site access (5),
 # Collection (6).

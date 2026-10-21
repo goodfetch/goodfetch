@@ -54,14 +54,15 @@ use self::folder::{
 };
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
+use crate::admission::{Admission, Gates};
 use crate::body;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
 use crate::run_index;
-use crate::run_state::{RunState, RunStateOptions, RunStateTables};
-use crate::settings::Settings;
+use crate::run_state::{RunState, RunStateError, RunStateOptions, RunStateTables};
+use crate::settings::{Resolved, Settings};
 use crate::tasks::TaskOwner;
 
 /// A Run's state, in its folder.
@@ -86,6 +87,8 @@ pub(crate) struct RunsSetup {
     pub(crate) run_state: RunStateOptions,
     /// The tables the composition adds to every run file.
     pub(crate) tables: Vec<RunStateTables>,
+    /// The gate in admission the composition passes in, if any.
+    pub(crate) gates: Option<Arc<dyn Gates>>,
     /// The engine's clock.
     pub(crate) clock: Clock,
     /// The engine's entropy, from which Run IDs draw.
@@ -328,6 +331,7 @@ pub struct Run {
     folder: PathBuf,
     state: RunState,
     clock: Clock,
+    gates: Option<Arc<dyn Gates>>,
     owner: Arc<TaskOwner>,
     runs: Runs,
 }
@@ -361,6 +365,30 @@ impl Run {
     /// point.
     pub fn cancellation(&self) -> &CancellationToken {
         self.owner.token()
+    }
+
+    /// Its admission under `settings`: the gate in admission the
+    /// composition passes in, opened from what its run file journaled, and
+    /// its rate cap; `None` when the composition passes in no gate.
+    ///
+    /// # Errors
+    ///
+    /// When its run file cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn admission(&self, settings: &Resolved) -> Result<Option<Admission>, RunStateError> {
+        let Some(gates) = self.gates.clone() else {
+            return Ok(None);
+        };
+        let opening = settings.clone();
+        let (wall, now) = (self.clock.wall(), self.clock.now());
+        let gate = self
+            .state
+            .read(move |connection| gates.open(&opening, connection, wall, now))
+            .await?;
+        Ok(Some(Admission::new(gate, settings)))
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -924,6 +952,7 @@ impl Registry {
                 folder: folder.clone(),
                 state,
                 clock: self.setup.clock,
+                gates: self.setup.gates.clone(),
                 owner: Arc::new(self.owner.child()),
                 runs: Runs {
                     commands: self

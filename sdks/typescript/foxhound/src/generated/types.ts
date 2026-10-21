@@ -70,6 +70,12 @@ export interface Seed {
     [k: string]: unknown;
   };
   /**
+   * Its priority among the requests of its domain: higher goes first,
+   * and a priority never orders requests of different domains (ADR
+   * 0004); 0 by default.
+   */
+  priority?: number;
+  /**
    * Its URL.
    */
   url: string;

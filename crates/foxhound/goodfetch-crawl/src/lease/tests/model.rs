@@ -300,6 +300,7 @@ impl StateMachineTest for Subject {
                 url: format!("https://shop.test/{page}"),
                 label: "page".to_owned(),
                 payload: None,
+                priority: 0,
             })
             .collect();
         let (state, leases) = runtime.block_on(async {

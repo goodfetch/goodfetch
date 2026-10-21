@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use goodfetch_protocol::daemon::DaemonEndpoint;
 
+use crate::admission::Gates;
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
@@ -31,6 +32,7 @@ use crate::transport::{Connection, DaemonListener, Network, TransportError};
 pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
+    gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
 }
 
@@ -60,6 +62,7 @@ impl Engine {
                 handlers: composition.handlers()?,
             }),
             tables: composition.run_state_tables(),
+            gates: composition.admission_gates()?,
             events: EventsOptions::default(),
         })
     }
@@ -165,6 +168,7 @@ impl Engine {
                 location: dependencies.run_state_location,
                 run_state: dependencies.run_state,
                 tables: self.tables.clone(),
+                gates: self.gates.clone(),
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),

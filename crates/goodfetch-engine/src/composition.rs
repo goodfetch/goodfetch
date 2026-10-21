@@ -28,6 +28,7 @@ use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::admission::Gates;
 use crate::client::Client;
 use crate::events::{Credits, Events};
 use crate::product::Identity;
@@ -318,6 +319,7 @@ pub struct Contribution {
     name: &'static str,
     handlers: Vec<Handler>,
     run_state_tables: Vec<RunStateTables>,
+    admission_gates: Option<Arc<dyn Gates>>,
 }
 
 impl Contribution {
@@ -327,6 +329,7 @@ impl Contribution {
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
+            admission_gates: None,
         }
     }
 
@@ -341,6 +344,14 @@ impl Contribution {
     #[must_use]
     pub fn with_run_state_tables(mut self, tables: RunStateTables) -> Self {
         self.run_state_tables.push(tables);
+        self
+    }
+
+    /// The same, passing in `gates` as the gate in admission each Run opens
+    /// (ADR 0087).
+    #[must_use]
+    pub fn with_admission_gates(mut self, gates: Arc<dyn Gates>) -> Self {
+        self.admission_gates = Some(gates);
         self
     }
 
@@ -366,6 +377,14 @@ pub enum CompositionError {
         /// The operation.
         operation: &'static str,
         /// The first contribution that handles it.
+        first: &'static str,
+        /// The second.
+        second: &'static str,
+    },
+    /// Two gates in admission.
+    #[error("both `{first}` and `{second}` pass in a gate in admission")]
+    DuplicateGates {
+        /// The first contribution that passes one in.
         first: &'static str,
         /// The second.
         second: &'static str,
@@ -400,6 +419,18 @@ impl Composition {
             .iter()
             .flat_map(|contribution| contribution.run_state_tables.iter().copied())
             .collect()
+    }
+
+    /// The one gate in admission the contributions pass in, if any.
+    pub(crate) fn admission_gates(&self) -> Result<Option<Arc<dyn Gates>>, CompositionError> {
+        let mut passed = self.contributions.iter().filter_map(|contribution| {
+            Some((contribution.name, contribution.admission_gates.clone()?))
+        });
+        let first = passed.next();
+        if let (Some((first, _)), Some((second, _))) = (&first, passed.next()) {
+            return Err(CompositionError::DuplicateGates { first, second });
+        }
+        Ok(first.map(|(_, gates)| gates))
     }
 
     /// Each operation's one handler.

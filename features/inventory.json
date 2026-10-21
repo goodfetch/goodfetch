@@ -2699,6 +2699,17 @@
       ]
     },
     {
+      "id": "setting:admission.max_requests_per_minute",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser_cache.max_unused_age",
       "kind": "setting",
       "area": 3,
@@ -2717,6 +2728,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.domain_keys",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

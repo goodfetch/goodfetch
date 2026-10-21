@@ -44,6 +44,8 @@ chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
 expectrl = { version = "0.9.0", default-features = false }
 # The OS generator that seeds `Entropy` in production (ADR 0059).
 getrandom = { version = "0.3.4", default-features = false }
+# The pinned Chromium's CDP bindings and the client's connection (spec #577).
+goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # Both executables' command line, which Foxhound's reaches without Collie's
 # executable crate (ADR 0090).
 goodfetch-cli = { path = "crates/goodfetch-cli" }
@@ -53,6 +55,8 @@ goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
 # Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
+# Collie's pages, Sessions and browsers (spec #577).
+goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
 goodfetch-test-support = { path = "crates/goodfetch-test-support" }
@@ -212,7 +216,13 @@ exit = "deny"
 iter_over_hash_type = "deny"
 undocumented_unsafe_blocks = "deny"
 
-# Build profiles (ADRs 0057, 0061 and 0071). `dev` and `test` stay Cargo's.
+# Build profiles (ADRs 0057, 0061 and 0071). `dev` and `test` stay Cargo's,
+# but for SHA-256: every launch checks its browser build's digest, some
+# 400 MB, which unoptimized takes tens of seconds and optimized well under
+# one (#695).
+[profile.dev.package.sha2]
+opt-level = 3
+
 #
 # Release: fat LTO, one codegen unit, unwinding on panic, debug information
 # split out beside each executable (`.dwp` on Linux, `.dSYM` on macOS, `.pdb`

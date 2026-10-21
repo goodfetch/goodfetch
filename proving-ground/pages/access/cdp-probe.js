@@ -1,8 +1,10 @@
 // The probe of the debugging protocol's side effects: what a page sees when
 // a tool drives its browser over CDP, such as the Runtime domain reading an
 // error's stack to preview a console message, and the globals automation
-// libraries leave in the page. It reports that it ran, then each side
-// effect it saw; a browser no tool drives reports none.
+// libraries leave in the page, among them the marker of Goodfetch's guard
+// world, which only a guard not kept in its isolated world would show. It
+// reports that it ran, then each side effect it saw; a browser no tool
+// drives reports none.
 (() => {
   "use strict";
   const script = document.currentScript;
@@ -47,6 +49,7 @@
       "__playwright_evaluation_script__",
       "__puppeteer_evaluation_script__",
       "__webdriverFunc",
+      "__goodfetch_guard__",
     ];
     return (
       names.some((name) => name in window) ||

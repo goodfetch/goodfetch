@@ -67,7 +67,7 @@ fn pin(build: &str, url: String) -> PinnedArtifact {
         },
         platform: Some(BuildPlatform::LinuxX64),
         url,
-        archive_digest: ARCHIVE_DIGEST.parse::<Digest>().unwrap(),
+        archive_digest: Some(ARCHIVE_DIGEST.parse::<Digest>().unwrap()),
         digest: FILES_DIGEST.parse::<Digest>().unwrap(),
     }
 }

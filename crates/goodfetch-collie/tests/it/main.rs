@@ -22,6 +22,7 @@ mod journeys;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod log;
+mod page;
 mod parent_death;
 mod private_endpoint;
 mod run;

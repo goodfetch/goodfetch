@@ -39,9 +39,14 @@ impl fmt::Display for CrashDumps {
     }
 }
 
-/// Every file in `folder` and its subfolders, sorted; none when the folder
-/// is gone.
+/// The file Chromium's crash reporter, Crashpad, keeps at the root of its
+/// database whenever it runs, crash or no crash: its settings, no dump.
+const CRASHPAD_SETTINGS: &str = "settings.dat";
+
+/// Every file in `folder` and its subfolders, sorted, but Crashpad's own
+/// settings; none when the folder is gone.
 pub(crate) fn find(folder: &Path) -> io::Result<Vec<PathBuf>> {
+    let settings = folder.join(CRASHPAD_SETTINGS);
     let mut dumps = Vec::new();
     let mut folders = vec![folder.to_owned()];
     while let Some(folder) = folders.pop() {
@@ -54,7 +59,7 @@ pub(crate) fn find(folder: &Path) -> io::Result<Vec<PathBuf>> {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
                 folders.push(entry.path());
-            } else {
+            } else if entry.path() != settings {
                 dumps.push(entry.path());
             }
         }

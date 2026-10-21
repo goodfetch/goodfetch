@@ -15,8 +15,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
-use goodfetch_test_support::{TestEnv, cli};
+use goodfetch_engine::browser_cache::Platform;
+use goodfetch_protocol::browser_cache::{
+    BrowsersCleanOutput, BrowsersInstallOutput, InstallOutcome, InstalledArtifact,
+};
+use goodfetch_test_support::{TestEnv, browser_cache, cli};
 use serde_json::{Value, json};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -49,19 +52,35 @@ fn run(env: &TestEnv, arguments: &[&str], variables: &[(&str, &Path)]) -> Value 
     serde_json::from_str(&output.stdout).unwrap()
 }
 
+/// `browsers install` makes sure of each build the version pins for this
+/// platform, in the cache `GOODFETCH_BROWSERS_PATH` names, which already
+/// holds them here: no test downloads a browser.
 /// Covers: row:SDK-08, command:browsers.install
 #[test]
-fn browsers_install_fetches_what_the_version_pins_into_goodfetch_home() {
+fn browsers_install_makes_sure_of_each_build_the_version_pins() {
     let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
 
-    let output = run(&env, &["browsers", "install", "--json"], &[]);
+    let output = run(
+        &env,
+        &["browsers", "install", "--json"],
+        &[("GOODFETCH_BROWSERS_PATH", &cache)],
+    );
 
     let output: BrowsersInstallOutput = serde_json::from_value(output).unwrap();
+    let platform = Platform::current().build_platform();
     assert_eq!(
         output,
         BrowsersInstallOutput {
-            cache: env.home().join("browsers").display().to_string(),
-            artifacts: Vec::new(),
+            cache: cache.display().to_string(),
+            artifacts: goodfetch_collie::pinned_artifacts()
+                .into_iter()
+                .filter(|pin| pin.platform.is_none() || pin.platform == platform)
+                .map(|pin| InstalledArtifact {
+                    artifact: pin.id,
+                    outcome: InstallOutcome::AlreadyInstalled,
+                })
+                .collect(),
         }
     );
 }

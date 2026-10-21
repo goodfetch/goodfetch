@@ -115,6 +115,7 @@ async fn start(
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
             timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            settings: Some(settings.clone()),
         })
         .await
         .map_err(start_error)?;

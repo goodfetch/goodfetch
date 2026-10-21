@@ -1,0 +1,27 @@
+# The page suite's case list (spec #577, ticket #695): a Collie program's
+# pages over the protocol, run by `goodfetch-conformance`'s engine harness
+# against an Attached engine of Collie's executable on the local Proving
+# ground (ADR 0094), each case on a Run of its own whose `network.resolve`
+# maps the Proving ground's host names to its address (ADR 0059). The
+# engine finds its browser in the Browser cache its environment names. Bump
+# the version whenever a case changes.
+
+product = "collie"
+
+[suite]
+name = "page"
+version = "1"
+
+[[capability]]
+name = "sessions.default"
+
+[[capability.case]]
+id = "pages-open-in-the-runs-default-session"
+covers = ["story:5-61", "operation:run.new_page"]
+
+[[capability]]
+name = "navigation"
+
+[[capability.case]]
+id = "goto-answers-the-documents-response"
+covers = ["story:5-61", "operation:run.new_page", "operation:page.goto"]

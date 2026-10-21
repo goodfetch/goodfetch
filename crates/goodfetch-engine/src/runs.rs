@@ -65,7 +65,7 @@ use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
 use crate::run_index;
 use crate::run_state::{RunState, RunStateError, RunStateOptions, RunStateTables};
-use crate::settings::{Resolved, Settings};
+use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
 
 /// A Run's state, in its folder.
@@ -164,6 +164,8 @@ pub struct Start {
     /// Its `timeout.run`, none when unset: once it passes, counted from
     /// this start, the Run stops at its next safe point (ADR 0080).
     pub timeout: Option<Duration>,
+    /// Its resolved settings, which its pages and Sessions open under.
+    pub settings: Option<RunSettings>,
 }
 
 /// What a start found.
@@ -309,6 +311,7 @@ enum Command {
     ),
     LiveCount(oneshot::Sender<usize>),
     Folder(RunId, oneshot::Sender<PathBuf>),
+    Live(RunId, oneshot::Sender<Result<Run, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
 }
 
@@ -331,6 +334,7 @@ pub(crate) type ConnectionId = u64;
 pub struct Runs {
     commands: mpsc::Sender<Command>,
     settings: Settings,
+    home: Home,
     connection: Option<ConnectionId>,
 }
 
@@ -345,6 +349,7 @@ pub struct Run {
     stop: Arc<watch::Sender<Option<StopReason>>>,
     owner: Arc<TaskOwner>,
     runs: Runs,
+    settings: Option<Arc<RunSettings>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -365,6 +370,16 @@ impl Run {
     /// Its run state's writer.
     pub fn state(&self) -> &RunState {
         &self.state
+    }
+
+    /// Its folder, which holds its state and its Run trace.
+    pub fn folder(&self) -> &Path {
+        &self.folder
+    }
+
+    /// The settings it was started with, when its start resolved them.
+    pub fn settings(&self) -> Option<&RunSettings> {
+        self.settings.as_deref()
     }
 
     /// The engine's clock.
@@ -543,6 +558,7 @@ impl Runs {
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
+            home: setup.home.clone(),
             connection: None,
         };
         let registry = Registry {
@@ -565,6 +581,29 @@ impl Runs {
     /// The engine's settings, which a start resolves its Run's under.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// The Goodfetch home the engine runs in.
+    pub fn home(&self) -> &Home {
+        &self.home
+    }
+
+    /// The live Run of `run_id`, as its driver holds it.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` when no live Run has this Run ID, such as one that ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn live(&self, run_id: RunId) -> Result<Run, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Live(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        answered.await.map_err(|_| RunError::Stopped)?
     }
 
     /// Begins a Run, or returns the one its Run ID names.
@@ -846,6 +885,14 @@ impl Registry {
                 Command::Folder(run_id, answer) => {
                     let _ = answer.send(self.folder(&run_id));
                 }
+                Command::Live(run_id, answer) => {
+                    let live = self
+                        .live
+                        .get(&run_id)
+                        .and_then(|live| live.run.clone())
+                        .ok_or(RunError::NotFound(run_id));
+                    let _ = answer.send(live);
+                }
                 Command::Reader(run_id, answer) => {
                     let _ = answer.send(self.reader(&run_id));
                 }
@@ -1074,8 +1121,10 @@ impl Registry {
                         .upgrade()
                         .expect("invariant: the registry runs while a handle sends to it"),
                     settings: self.setup.settings.clone(),
+                    home: self.setup.home.clone(),
                     connection,
                 },
+                settings: start.settings.map(Arc::new),
             }),
             folder,
             kind: start.kind,

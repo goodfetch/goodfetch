@@ -1,0 +1,11 @@
+{
+  "chrome_for_testing": {
+    "build": "156.0.8078.4",
+    "platforms": {
+      "mac-arm64": {
+        "archive_digest": null,
+        "digest": "sha256:0cdc94490fec5802c08b6bd938d0cd3749f3fa391a3e7f1c648bcfe133f15684"
+      }
+    }
+  }
+}

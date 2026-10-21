@@ -83,7 +83,7 @@ fn pin(id: ArtifactId) -> PinnedArtifact {
         id,
         platform: None,
         url: "https://builds.goodfetch.test/chrome.zip".to_owned(),
-        archive_digest: Digest::of(b"no archive is downloaded here"),
+        archive_digest: Some(Digest::of(b"no archive is downloaded here")),
         digest: BUILD_DIGEST.parse().unwrap(),
     }
 }
@@ -243,6 +243,49 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
     assert_eq!(
         details.fix,
         "Run `goodfetch-collie browsers install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
+    );
+}
+
+/// A pin whose archive digest is not known yet is never downloaded, even
+/// into a cache the engine can write: only a cache that holds it serves it.
+/// Covers: error:browser_not_installed
+#[test]
+fn a_missing_build_whose_pin_names_no_archive_digest_is_not_installed() {
+    let env = TestEnv::new();
+    let cache = cache_in(&env);
+    let id = browser("156.0.8078.4");
+    let pinned = PinnedArtifact {
+        archive_digest: None,
+        ..pin(id.clone())
+    };
+
+    let refused = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pinned,
+            &pinned_by(),
+            &Fetching::new(Clock::system()),
+            now(&env),
+            &mut no_progress(),
+        ))
+        .err()
+        .unwrap();
+
+    let CacheError::BrowserNotInstalled { details, .. } = refused else {
+        panic!("expected browser_not_installed, got {refused:?}");
+    };
+    assert_eq!(
+        (
+            details.missing,
+            fs::read_dir(cache.root()).map_or(0, Iterator::count),
+        ),
+        (
+            MissingBrowser::Pinned {
+                artifact: id,
+                pinned_by: pinned_by(),
+                cache: cache.root().display().to_string(),
+            },
+            0
+        )
     );
 }
 

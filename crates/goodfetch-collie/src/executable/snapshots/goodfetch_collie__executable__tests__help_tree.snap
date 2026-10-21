@@ -14,8 +14,8 @@ Commands:
   runs      Works on the runs of this executable's major, of both Products
   engine    Calls the catalog's `engine` operations
   events    Calls the catalog's `events` operations
-  page      Calls the catalog's `page` operations
   run       Calls the catalog's `run` operations
+  page      Calls the catalog's `page` operations
   sample    Calls the catalog's `sample` operations
 
 Options:
@@ -268,42 +268,31 @@ Options:
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
 
-$ goodfetch-collie page --help
-Calls the catalog's `page` operations
-
-Usage: goodfetch-collie page [OPTIONS] <COMMAND>
-
-Commands:
-  body  Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
-
-Options:
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie page body --help
-Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
-
-Usage: goodfetch-collie page body [OPTIONS] --follow --body <BODY> --run-id <RUN_ID>
-
-Options:
-      --follow           Prints what the call sends as it arrives, until it ends
-      --body <BODY>      Its ID
-      --run-id <RUN_ID>  The Run whose folder holds it
-      --json             Prints what the call sends as one JSON object per line
-      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help             Print help
-
 $ goodfetch-collie run --help
 Calls the catalog's `run` operations
 
 Usage: goodfetch-collie run [OPTIONS] <COMMAND>
 
 Commands:
-  start   Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
-  finish  Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
-  abort   Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+  new-page  Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+  start     Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+  finish    Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
+  abort     Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
 
 Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie run new-page --help
+Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+
+Usage: goodfetch-collie run new-page [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run
+
+Options:
+      --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -348,6 +337,46 @@ Options:
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
+
+$ goodfetch-collie page --help
+Calls the catalog's `page` operations
+
+Usage: goodfetch-collie page [OPTIONS] <COMMAND>
+
+Commands:
+  goto  Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`
+  body  Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie page goto --help
+Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`
+
+Usage: goodfetch-collie page goto [OPTIONS] --url <URL> <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --url <URL>     The URL
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie page body --help
+Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+
+Usage: goodfetch-collie page body [OPTIONS] --follow --body <BODY> --run-id <RUN_ID>
+
+Options:
+      --follow           Prints what the call sends as it arrives, until it ends
+      --body <BODY>      Its ID
+      --run-id <RUN_ID>  The Run whose folder holds it
+      --json             Prints what the call sends as one JSON object per line
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
 
 $ goodfetch-collie sample --help
 Calls the catalog's `sample` operations

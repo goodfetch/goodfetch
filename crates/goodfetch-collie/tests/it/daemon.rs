@@ -43,13 +43,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Lays out a user configuration with a short `daemon.idle_timeout`, so a
 /// Daemon a test forgets never outlives it for long.
 pub(crate) fn short_idle(env: &TestEnv, milliseconds: u64) {
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
-    std::fs::write(
-        major.join("configuration.toml"),
-        format!("version = \"0.1\"\n\n[settings]\ndaemon.idle_timeout = {milliseconds}\n"),
-    )
-    .unwrap();
+    env.user_configuration(&format!("daemon.idle_timeout = {milliseconds}\n"));
 }
 
 /// Stops the test home's Daemon when the test ends, passing or failing.

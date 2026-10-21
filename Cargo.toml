@@ -33,6 +33,9 @@ publish = false
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
+# `xtask console build` compresses each file of a Console build, which the
+# executables embed and serve as they are (ADR 0057).
+brotli = { version = "9.0.0", default-features = false, features = ["std"] }
 # A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }

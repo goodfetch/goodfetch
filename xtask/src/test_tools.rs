@@ -3,7 +3,9 @@
 //! profile and in one invocation, so one test build per target serves both
 //! Products; then writes the test tool manifest of their absolute paths,
 //! which `goodfetch-test-support`'s `tools()` and `goodfetch-test-env` read.
-//! `just test` runs it before any runner starts.
+//! Collie's executable embeds its Console build, which it builds first
+//! (`xtask console build`, ADR 0057). `just test` runs it before any runner
+//! starts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -16,6 +18,7 @@ use std::process::{Command, ExitCode, Stdio};
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
+use crate::console;
 use crate::environment::Environment;
 use crate::metadata;
 
@@ -75,6 +78,13 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             features.extend(target.required_features);
             binaries.push(target.name);
         }
+    }
+    // Collie's executable embeds its Console build, which this workspace's
+    // Console package makes first (ADR 0057).
+    if binaries.iter().any(|binary| binary == "goodfetch-collie")
+        && root.join(console::PACKAGE).join("package.json").is_file()
+    {
+        console::build(root)?;
     }
     let mut manifest = BTreeMap::new();
     if !binaries.is_empty() {

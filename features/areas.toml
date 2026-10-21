@@ -365,6 +365,18 @@ number = 11
 kind = "error"
 prefix = "engine_"
 
+# Area 12, the Console (spec #592): its address and the Error code of its
+# port taken (#811).
+[[area]]
+number = 12
+kind = "error"
+prefix = "console_"
+
+[[area]]
+number = 12
+kind = "setting"
+prefix = "console."
+
 # Area 11, the Client surfaces (spec #608): the commands generated from the
 # catalog (#1174).
 [[area]]

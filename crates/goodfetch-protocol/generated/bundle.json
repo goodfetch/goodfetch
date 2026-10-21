@@ -818,6 +818,70 @@
       ],
       "type": "object"
     },
+    "ConsoleFailure": {
+      "description": "Why a Daemon's Console did not start: an Error code, its message and\nwhat to do instead.",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "The Error code, such as `console_port_in_use`.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What happened.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "ConsoleState": {
+      "description": "Where a Daemon's Console is, as its runtime file and `daemon status`\nreport it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The Console is served at this URL, such as `http://127.0.0.1:7801/`.",
+          "properties": {
+            "serving": {
+              "arrived_in": "0.1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "serving"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The Console did not start; the Daemon still serves its Clients.",
+          "properties": {
+            "failed": {
+              "$ref": "#/$defs/ConsoleFailure",
+              "arrived_in": "0.1"
+            }
+          },
+          "required": [
+            "failed"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "absent",
+          "description": "The engine carries no Console, as an SDK crate's linked engine.",
+          "type": "string"
+        }
+      ]
+    },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
@@ -1277,6 +1341,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "console": {
+          "$ref": "#/$defs/ConsoleState",
+          "arrived_in": "0.1",
+          "description": "Where its Console is served, or why it is not."
+        },
         "endpoint": {
           "$ref": "#/$defs/DaemonEndpoint",
           "arrived_in": "0.1",
@@ -1327,7 +1396,8 @@
         "clients",
         "live_runs",
         "kept_alive",
-        "idle_timeout"
+        "idle_timeout",
+        "console"
       ],
       "type": "object"
     },
@@ -5015,6 +5085,16 @@
                 },
                 "type": "object"
               },
+              "console": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
@@ -5383,6 +5463,16 @@
                       "type": "string"
                     },
                     "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "console": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                    "type": "string"
                   }
                 },
                 "type": "object"
@@ -5780,6 +5870,16 @@
                       "type": "string"
                     },
                     "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "console": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                    "type": "string"
                   }
                 },
                 "type": "object"

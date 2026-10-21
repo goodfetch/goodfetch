@@ -50,6 +50,7 @@ use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     HelloParams, NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, Surface,
 };
+use goodfetch_protocol::console::{CONSOLE_PORT_IN_USE, ConsoleState};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonRuntimeFile, DaemonStartOutput, DaemonStatus, DaemonStatusOutput,
     DaemonStopOutput, DaemonStopping,
@@ -641,10 +642,31 @@ pub(super) fn start(machine: &Machine<'_>, keep_alive: bool, json: bool) -> Exit
                     describe(&started.daemon)
                 ));
             }
-            ExitCode::SUCCESS
+            console_exit(&started.daemon.console)
         }
         Err(failure) => failure.report(),
     }
+}
+
+/// The exit code of a started Daemon whose Console is `console`: its Error
+/// code's when the Console did not start, which the Daemon's protocol
+/// outlives, else success.
+fn console_exit(console: &ConsoleState) -> ExitCode {
+    let ConsoleState::Failed(failure) = console else {
+        return ExitCode::SUCCESS;
+    };
+    tracing::error!(
+        code = failure.code.as_str(),
+        "{} {}",
+        failure.message,
+        failure.fix
+    );
+    ExitCode::from(
+        Some(&CONSOLE_PORT_IN_USE)
+            .filter(|definition| definition.name == failure.code)
+            .and_then(|definition| definition.exit_code)
+            .unwrap_or(1),
+    )
 }
 
 /// `daemon stop`.
@@ -729,8 +751,13 @@ fn describe(status: &DaemonStatus) -> String {
             status.idle_timeout / 1000
         )
     };
+    let console = match &status.console {
+        ConsoleState::Serving(url) => format!("its Console at {url}"),
+        ConsoleState::Failed(failure) => format!("no Console ({})", failure.code),
+        ConsoleState::Absent => "no Console".to_owned(),
+    };
     format!(
-        "{} {} (PID {}) at {}, {} Clients, {} live Runs, {idle}",
+        "{} {} (PID {}) at {}, {} Clients, {} live Runs, {idle}, {console}",
         status.product.name(),
         status.product_version,
         status.pid,

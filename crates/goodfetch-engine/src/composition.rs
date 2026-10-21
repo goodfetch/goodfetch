@@ -3,7 +3,7 @@
 //! executable crate passes the ones it links to the engine at start, a list
 //! in its `main`. Nothing registers itself by being linked. Today a
 //! contribution adds operation handlers and the tables it keeps in every
-//! run file; settings keys, Plugin kinds and Hook stages, Usage kinds and
+//! run file, and an executable crate adds its Console build; settings keys, Plugin kinds and Hook stages, Usage kinds and
 //! Limit scopes, Notifications and gates in admission join it with the
 //! tickets that build them.
 //!
@@ -29,6 +29,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::Client;
+use crate::console::ConsoleBuild;
 use crate::events::{Credits, Events};
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
@@ -365,6 +366,7 @@ impl Contribution {
 #[derive(Clone, Default)]
 pub struct Composition {
     contributions: Vec<Contribution>,
+    console: Option<&'static ConsoleBuild>,
 }
 
 /// A composition no engine can start from.
@@ -389,6 +391,20 @@ impl Composition {
     pub fn with(mut self, contribution: Contribution) -> Self {
         self.contributions.push(contribution);
         self
+    }
+
+    /// The same, serving `console` as its Daemon's Console: only an
+    /// executable crate passes one (ADR 0031), so an SDK crate's linked
+    /// engine serves none.
+    #[must_use]
+    pub fn with_console(mut self, console: &'static ConsoleBuild) -> Self {
+        self.console = Some(console);
+        self
+    }
+
+    /// The Console build it serves, if any.
+    pub fn console(&self) -> Option<&'static ConsoleBuild> {
+        self.console
     }
 
     /// The name of each contribution, in order.

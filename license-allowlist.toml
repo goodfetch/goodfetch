@@ -88,3 +88,22 @@ only = "unmodified-files"
 [[license]]
 id = "CC-BY-SA-4.0"
 only = "compiled-filter-lists"
+
+# Agent decision, pending owner review (#811): Inter and JetBrains Mono, the
+# Console's fonts, ship as font files under the SIL Open Font License, which
+# spec #592 decided (ADR 0073); OFL-1.1 for these two packages alone.
+[[license]]
+id = "OFL-1.1"
+only = { ecosystem = "npm", package = "@fontsource-variable/inter" }
+
+[[license]]
+id = "OFL-1.1"
+only = { ecosystem = "npm", package = "@fontsource-variable/jetbrains-mono" }
+
+# Agent decision, pending owner review (#811): caniuse-lite's browser data,
+# which Babel reads to pick its targets, comes with `@lingui/core`'s macro
+# package (ADR 0073); it runs at build time and none of it reaches the
+# Console's build.
+[[license]]
+id = "CC-BY-4.0"
+only = { ecosystem = "npm", package = "caniuse-lite" }

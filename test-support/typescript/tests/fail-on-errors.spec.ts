@@ -66,6 +66,21 @@ test.describe("watchPageErrors", () => {
     await expect(checked).rejects.toMatchObject({ code: "page_errors" });
   });
 
+  test("take answers the errors so far, after which check passes", async ({
+    context,
+    page,
+    cspPages,
+  }) => {
+    const watch = await watchPageErrors(context);
+    await page.goto(cspPages.url("page-error"));
+    await expect.poll(() => watch.errors.map((error) => error.kind)).toContain("page");
+
+    const taken = await watch.take();
+
+    expect(taken.map((error) => error.kind)).toContain("page");
+    await expect(watch.check()).resolves.toBeUndefined();
+  });
+
   test("check passes when no page made an error", async ({ context, page, cspPages }) => {
     const watch = await watchPageErrors(context);
     await page.goto(cspPages.url("clean"));
@@ -87,6 +102,18 @@ servedTest.describe("failOnErrors", () => {
       },
     );
   }
+
+  servedTest(
+    "passes a test that took the errors its page made on purpose",
+    async ({ page, cspPages, failOnErrors }) => {
+      await page.goto(cspPages.url("page-error"));
+      await expect.poll(() => failOnErrors.errors.map((error) => error.kind)).toContain("page");
+
+      const taken = await failOnErrors.take();
+
+      expect(taken.map((error) => error.kind)).toContain("page");
+    },
+  );
 
   servedTest("passes a test whose page is clean", async ({ page, cspPages }) => {
     await page.goto(cspPages.url("clean"));

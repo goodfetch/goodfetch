@@ -54,6 +54,49 @@ class Completeness(StrEnum):
     """It finished, but the engine cannot vouch that nothing was missed."""
 
 
+class ConsoleFailure(BaseModel):
+    """
+    Why a Daemon's Console did not start: an Error code, its message and
+    what to do instead.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The Error code, such as `console_port_in_use`."""
+    fix: str
+    """What to do instead."""
+    message: str
+    """What happened."""
+
+
+class ConsoleState1(BaseModel):
+    """The Console is served at this URL, such as `http://127.0.0.1:7801/`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    serving: str
+
+
+class ConsoleState2(BaseModel):
+    """The Console did not start; the Daemon still serves its Clients."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    failed: ConsoleFailure
+
+
+class ConsoleState(RootModel[ConsoleState1 | ConsoleState2 | Literal["absent"]]):
+    root: ConsoleState1 | ConsoleState2 | Literal["absent"]
+    """
+    Where a Daemon's Console is, as its runtime file and `daemon status`
+    report it.
+    """
+
+
 class DaemonEndpoint1(BaseModel):
     """A Unix socket's path."""
 
@@ -571,6 +614,8 @@ class DaemonStatus(BaseModel):
     )
     clients: Annotated[int, Field(ge=0)]
     """How many Clients are connected, the caller and Consoles included."""
+    console: ConsoleState
+    """Where its Console is served, or why it is not."""
     endpoint: DaemonEndpoint
     """Where it listens."""
     idle_timeout: Annotated[int, Field(ge=0)]

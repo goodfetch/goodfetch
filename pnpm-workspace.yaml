@@ -18,6 +18,10 @@ packages:
 # (STYLE.md, Dependencies). Remove both once the plugin drops micromatch.
 overrides:
   "eslint-plugin-lingui>micromatch": "npm:picomatch@2.3.2"
+  # Lingui's CLI (ADR 0073), which the Console's catalog check and its Vite
+  # plugin run, takes picomatch the same way: its patch calls picomatch's
+  # `isMatch` and `makeRe` where it called micromatch's `any` and `capture`.
+  "@lingui/cli>micromatch": "npm:picomatch@2.3.2"
 
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).
@@ -35,4 +39,5 @@ catalog:
   vitest: 5.0.5
 
 patchedDependencies:
+  "@lingui/cli@6.10.0": patches/@lingui__cli@6.10.0.patch
   eslint-plugin-lingui@0.16.0: patches/eslint-plugin-lingui@0.16.0.patch

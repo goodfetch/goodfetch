@@ -16,6 +16,7 @@ pub mod catalog;
 pub mod checkpoint;
 pub mod cli;
 pub mod connection;
+pub mod console;
 pub mod daemon;
 pub mod dns;
 pub mod emit;

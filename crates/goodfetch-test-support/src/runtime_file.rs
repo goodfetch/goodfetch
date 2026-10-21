@@ -67,6 +67,31 @@ pub struct RuntimeFile {
     pub version: String,
     /// The Daemon's process.
     pub pid: u32,
+    /// Where it serves its Console, or why it does not; `absent` in the
+    /// runtime file of an executable older than the Console's, which a skew
+    /// run starts.
+    #[serde(default)]
+    pub console: ConsoleState,
+}
+
+/// Where a Daemon's Console is, as its runtime file says.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsoleState {
+    /// Served at this URL, `http://127.0.0.1:<port>/`.
+    Serving(String),
+    /// Not started, for this reason.
+    Failed {
+        /// Its Error code, such as `console_port_in_use`.
+        code: String,
+        /// What happened.
+        message: String,
+        /// What to do instead.
+        fix: String,
+    },
+    /// None: an engine with no Console build, or the Scripted engine.
+    #[default]
+    Absent,
 }
 
 impl RuntimeFile {
@@ -122,7 +147,7 @@ impl RuntimeFile {
 }
 
 /// The per-major folder's name for a Product version.
-fn major_folder(product_version: &str) -> String {
+pub(crate) fn major_folder(product_version: &str) -> String {
     let mut numbers = product_version.split(['.', '-']);
     let major = numbers.next().unwrap_or("0");
     match (major, numbers.next()) {

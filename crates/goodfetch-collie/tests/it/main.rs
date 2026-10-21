@@ -14,6 +14,7 @@ mod checkpoint;
 mod client_conformance;
 mod commands;
 mod config;
+mod console;
 mod daemon;
 mod events;
 mod help;

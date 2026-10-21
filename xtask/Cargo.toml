@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+brotli.workspace = true
 clap.workspace = true
 flate2.workspace = true
 # Both Products' command lines, built in process for the `command:`

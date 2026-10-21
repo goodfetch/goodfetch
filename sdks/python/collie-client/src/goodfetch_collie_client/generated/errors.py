@@ -114,6 +114,14 @@ class ClosedError(ProgramError):
         super().__init__(message, code="closed", group="program", retryable=False)
 
 
+class ConsolePortInUseError(UnavailableError):
+    """The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="console_port_in_use", group="unavailable", retryable=False)
+
+
 class EngineExitedError(UnavailableError):
     """The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr."""
 
@@ -314,6 +322,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
     "closed": ClosedError,
+    "console_port_in_use": ConsolePortInUseError,
     "engine_exited": EngineExitedError,
     "engine_not_found": EngineNotFoundError,
     "engine_output_invalid": EngineOutputInvalidError,

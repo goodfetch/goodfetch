@@ -1,0 +1,6 @@
+---
+source: crates/goodfetch-engine/src/run_state/tests.rs
+assertion_line: 219
+expression: "format!(\"{}: {}\", refusal.code(), refusal.message())"
+---
+format_version_unsupported: The file is run-state 0.0, of an older major than this engine's 0.1; run `upgrade-files` to upgrade it.

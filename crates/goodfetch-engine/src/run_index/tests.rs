@@ -118,3 +118,54 @@ fn an_engine_that_finds_the_lowest_minor_raised_stops_using_the_index() {
         )
     );
 }
+
+/// Each generated refusal case of the Run index (ADR 0066), an index whose
+/// marker holds the fabricated version and lowest minor, opened by the
+/// engine the case names, or this one: the rule's verdict, each refusal's
+/// Error code and message snapshotted.
+///
+/// Covers: story:3-95, story:3-144, format:run-index, error:format_version_unsupported
+#[rstest::rstest]
+fn each_generated_refusal_of_the_run_index_gets_its_verdict(
+    #[files("../goodfetch-protocol/generated/refusals/run-index/*.json")]
+    #[mode = str]
+    case: &str,
+) {
+    let case: goodfetch_protocol::refusals::RefusalCase = serde_json::from_str(case).unwrap();
+    let engine = case.engine.unwrap_or_else(|| {
+        goodfetch_protocol::connection::ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+            .unwrap()
+            .major_minor()
+    });
+    let opener = Opener::new(&RUN_INDEX, engine);
+    let (_folder, path) = index();
+    write_as(&path, &opener, &row("before")).unwrap();
+    lowest_minor::write_sqlite(
+        &Connection::open(&path).unwrap(),
+        RUN_INDEX.name,
+        &Marker {
+            version: case.found,
+            lowest_minor: case.lowest_minor.unwrap_or(0),
+        },
+    )
+    .unwrap();
+
+    let read = rows_as(&path, &opener);
+
+    match (case.compatibility, read) {
+        (Compatibility::Compatible, read) => {
+            assert_eq!(read, Ok(vec![row("before")]), "{case:#?}");
+        }
+        (compatibility, Err(RunStateError::Format { found, install, .. })) => {
+            let refusal = match install {
+                Some(install) => crate::run::store_refusal(&RUN_INDEX, &found, &install),
+                None => crate::run::format_refusal(&RUN_INDEX, &found, compatibility),
+            };
+            insta::assert_snapshot!(
+                format!("run-index_{found}_{}", case.lowest_minor.unwrap_or(0)),
+                format!("{}: {}", refusal.code(), refusal.message())
+            );
+        }
+        (_, read) => panic!("{case:#?} was not refused: {read:?}"),
+    }
+}

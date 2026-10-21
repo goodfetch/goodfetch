@@ -315,6 +315,16 @@ fn settings_file_schema(generator: &mut SchemaGenerator, tables: &[Table]) -> Sc
             "arrived_in": "0.1",
         }),
     );
+    properties.insert(
+        "lowest_minor".to_owned(),
+        json!({
+            "type": "integer",
+            "minimum": 0,
+            "maximum": u16::MAX,
+            "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
+            "arrived_in": "0.1",
+        }),
+    );
     for table in tables {
         let mut schema = settings_table(table.holds);
         schema["description"] = json!(table.description);

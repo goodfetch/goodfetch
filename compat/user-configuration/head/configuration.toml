@@ -1,4 +1,5 @@
 version = "0.1"
+lowest_minor = 0
 
 [settings.console]
 address = "example"

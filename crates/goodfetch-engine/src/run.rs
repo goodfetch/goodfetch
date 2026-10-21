@@ -247,7 +247,51 @@ pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
             let (message, details) = identity.not_in_product(Requested::Name(key), *needs, false);
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
+        SettingsError::Format {
+            format,
+            found,
+            supported,
+            install,
+            ..
+        } => CallError::new(
+            &FORMAT_VERSION_UNSUPPORTED,
+            message,
+            &FormatVersionUnsupportedDetails {
+                format: (*format).to_owned(),
+                found: found.clone(),
+                supported: supported.clone(),
+                fix: match install {
+                    Some(install) => {
+                        format!("Install Goodfetch {install} or newer, then try again.")
+                    }
+                    None if error_is_older_major(error) => {
+                        "Run `upgrade-files`, then try again.".to_owned()
+                    }
+                    None => format!("Upgrade Goodfetch to a version that reads {format} {found}."),
+                },
+            },
+        ),
+        SettingsError::OlderMajorPolicy { major, current, .. } => CallError::new(
+            &FORMAT_VERSION_UNSUPPORTED,
+            message,
+            &FormatVersionUnsupportedDetails {
+                format: goodfetch_protocol::formats::OPERATOR_POLICY.name.to_owned(),
+                found: major.clone(),
+                supported: current.clone(),
+                fix: "Run `upgrade-files` with this Goodfetch, then try again.".to_owned(),
+            },
+        ),
     }
+}
+
+fn error_is_older_major(error: &SettingsError) -> bool {
+    matches!(
+        error,
+        SettingsError::Format {
+            compatibility: Compatibility::OlderMajor,
+            ..
+        }
+    )
 }
 
 fn stopped() -> CallError {

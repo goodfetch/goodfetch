@@ -10,6 +10,13 @@
     },
     "additionalProperties": false,
     "properties": {
+      "lowest_minor": {
+        "arrived_in": "0.1",
+        "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
+        "maximum": 65535,
+        "minimum": 0,
+        "type": "integer"
+      },
       "settings": {
         "additionalProperties": false,
         "arrived_in": "0.1",

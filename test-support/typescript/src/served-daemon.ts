@@ -14,7 +14,7 @@ import type { OidcClient } from "./oidc-provider.ts";
 import type { ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
-import { startTestEnv } from "./test-env.ts";
+import { startTestEnv, toolPath } from "./test-env.ts";
 
 /** What a Console is served beside. */
 export interface ConsoleStart {
@@ -61,6 +61,10 @@ export interface ServedDaemon extends DaemonDescription, Omit<ServedConsole, "ur
   readonly port: number;
   /** The Proving ground started on the test's seed, if it asked for one. */
   readonly provingGround: ProvingGroundDescription | undefined;
+  /** The executable that runs the Daemon: the test tool manifest's of `product`, or the test's `engine`. */
+  readonly executable: string;
+  /** The test's cleared environment, under which a command of the executable runs in the test's home. */
+  readonly env: Readonly<Record<string, string>>;
 }
 
 /** How to start a served test's Daemon. */
@@ -125,6 +129,8 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       url: url.href,
       port: Number(url.port),
       provingGround: testEnv.description.proving_ground,
+      executable: toolPath(testEnv.description.tools, start.product),
+      env: testEnv.description.env,
       signInLink: () => served.signInLink(),
       singleSignOn: served.singleSignOn,
       session: served.session,

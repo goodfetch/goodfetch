@@ -1180,3 +1180,19 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 151
+title = "As a maintainer, I want a Run's state table written out with its states (`running`, `stopped`, `finished`, `failed`), its events, its allowed transitions and the code of each refused pair, every pair a named test case, the registry changing a Run's Lifecycle only through it and its model-based tests using it as their reference, so that a late event changes nothing and an invalid transition is refused, never a warning (ADR 0128)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 152
+title = "As a maintainer, I want the engine's state table written out for a Connection (opening, open, closing, closed) and for the engine process (an Attached engine, a Daemon serving, handing over, draining, stopping), with their events, allowed transitions and the code of each refused pair, every pair a named test case, so that a Client's loss, an idle stop, a handover or a drain never leaves the engine in a state no one designed (ADR 0128)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"

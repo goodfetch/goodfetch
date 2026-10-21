@@ -14,6 +14,7 @@
 mod checkpoint;
 mod daemon;
 mod events;
+mod lifecycle;
 mod refusals;
 mod run;
 mod settings;

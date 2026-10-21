@@ -157,6 +157,7 @@ pub fn start_error(error: StartError) -> CallError {
         ),
         StartError::LimitReached(reached) => limit_reached(&reached),
         StartError::LimitNotUnderstood(limit) => limit_not_understood(*limit),
+        StartError::Internal { message, .. } => internal(message),
         StartError::Stopped => stopped(),
     }
 }
@@ -247,6 +248,15 @@ pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
     }
+}
+
+/// A failure only a bug in Goodfetch causes, such as a transition a Run's
+/// table refuses, already logged at `error` (ADR 0128).
+fn internal(message: String) -> CallError {
+    CallError::protocol(
+        goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+        message,
+    )
 }
 
 fn stopped() -> CallError {
@@ -347,6 +357,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
                 path: Some(folder.display().to_string()),
             },
         ),
+        RunError::Internal { message, .. } => internal(message),
         RunError::Stopped => stopped(),
     }
 }

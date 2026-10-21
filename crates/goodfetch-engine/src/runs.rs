@@ -5,7 +5,10 @@
 //! beside its state and the Run's first run epoch, records it in run state
 //! and in the Run index, returns the Run a start's Run ID already names, and
 //! ends each Run once, with its Run report: `finished` by `run.finish` or by
-//! its driver, `stopped` by an abort. Every axis change rewrites the Run's
+//! its driver, `stopped` by an abort. Its Lifecycle changes only as the
+//! Run's transition table ([`lifecycle`], ADR 0128) says: a late event
+//! changes nothing, and a refused one answers its Error code. Every axis
+//! change rewrites the Run's
 //! Run index row, then is published as `run.axes_changed`, a lossless event
 //! that a full subscriber's queue makes wait (ADR 0024).
 //!
@@ -51,9 +54,9 @@ use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, ReachedLimit, RunAxes, RunId,
-    RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags,
-    Verdict,
+    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RUN_IN_USE, ReachedLimit, RunAxes,
+    RunId, RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs,
+    StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
 use goodfetch_protocol::usage::Limit;
@@ -70,6 +73,7 @@ use self::folder::{
     Found, RunRow, canonical_inputs, input_differences, point_in_time, read_found, read_report,
     text, write_end,
 };
+use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::reader::Following;
 pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
@@ -87,6 +91,7 @@ use crate::run_index;
 use crate::run_state::{self, RunState, RunStateError, RunStateOptions, RunStateTables};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
+use crate::transition;
 
 /// A Run's state, in its folder.
 const RUN_FILE: &str = "run.sqlite";
@@ -285,6 +290,15 @@ pub enum StartError {
     /// may cover the Run (ADR 0041).
     #[error("a Limit on {} cannot be evaluated by this engine", .0.scope.kind)]
     LimitNotUnderstood(Box<Limit>),
+    /// The Run's transition table refused the start, which only a bug in
+    /// Goodfetch causes (ADR 0128).
+    #[error("the start of `{run_id}` was refused: {message}")]
+    Internal {
+        /// The Run ID.
+        run_id: RunId,
+        /// The refused transition.
+        message: String,
+    },
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -381,12 +395,38 @@ pub enum RunError {
         /// What failed.
         message: String,
     },
+    /// The Run's transition table refused what was asked, which only a
+    /// bug in Goodfetch causes (ADR 0128).
+    #[error("an action on `{run_id}` was refused: {message}")]
+    Internal {
+        /// The Run ID.
+        run_id: RunId,
+        /// The refused transition.
+        message: String,
+    },
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
 }
 
 impl RunError {
+    /// What the Run's table refusing an event to `run_id` in `folder`
+    /// answers: `run_in_use` when another writer holds it, an internal
+    /// error, logged at `error`, when only a bug causes it.
+    fn refused(run_id: &RunId, folder: &Path, refused: InvalidRunTransition) -> Self {
+        let refused = refused.logged();
+        match refused.refusal {
+            transition::Refusal::Program(code) if code == RUN_IN_USE.name => Self::InUse {
+                run_id: run_id.clone(),
+                folder: folder.to_owned(),
+            },
+            transition::Refusal::Program(_) | transition::Refusal::Internal => Self::Internal {
+                run_id: run_id.clone(),
+                message: refused.to_string(),
+            },
+        }
+    }
+
     /// The failure of a Run's state or Checkpoint as read or written for
     /// `run_id` in `folder`.
     fn of_state(run_id: &RunId, folder: &Path, error: RunStateError) -> Self {
@@ -453,6 +493,23 @@ enum End {
     Finished,
     Failed,
     Stopped(StopReason),
+}
+
+impl End {
+    /// The event of the Run's table it is.
+    fn event(&self) -> RunEvent {
+        match self {
+            Self::Finished => RunEvent::Finish,
+            Self::Failed => RunEvent::Fail,
+            Self::Stopped(reason) => match reason {
+                StopReason::Abort { .. } => RunEvent::Abort,
+                StopReason::Pause => RunEvent::Pause,
+                StopReason::Migrate => RunEvent::Migrate,
+                StopReason::Timeout => RunEvent::Timeout,
+                StopReason::Limit(_) => RunEvent::Limit,
+            },
+        }
+    }
 }
 
 /// What the registry is asked. The channel's blocks hold 32 commands
@@ -1222,6 +1279,9 @@ struct Live {
     connection: Option<ConnectionId>,
     /// The last Checkpoint written of it.
     checkpoint: Option<Checkpoint>,
+    /// Its Lifecycle, which only the Run's table changes: `running` until
+    /// its end is decided, then the Lifecycle it ends in.
+    lifecycle: Lifecycle,
 }
 
 struct Registry {
@@ -1436,6 +1496,16 @@ impl Registry {
                     differences,
                 });
             }
+            if let Err(refused) = lifecycle::apply(found.lifecycle, RunEvent::Start) {
+                let folder = self.folder(&run_id);
+                return Err(match RunError::refused(&run_id, &folder, refused) {
+                    RunError::InUse { run_id, folder } => StartError::InUse { run_id, folder },
+                    other => StartError::Internal {
+                        run_id,
+                        message: other.to_string(),
+                    },
+                });
+            }
             return Ok(Started::Existing(RunStarted {
                 run_id,
                 started_as: StartedAs::Existing,
@@ -1455,7 +1525,7 @@ impl Registry {
                 needs: live.needs,
                 caller: CALLER.to_owned(),
                 inputs: live.inputs.clone(),
-                lifecycle: Lifecycle::Running,
+                lifecycle: live.lifecycle,
             }));
         }
         let folder = self.folder(run_id);
@@ -1594,6 +1664,7 @@ impl Registry {
             lock: Arc::new(lock),
             connection,
             checkpoint: None,
+            lifecycle: Lifecycle::Running,
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -1737,81 +1808,76 @@ impl Registry {
         let nonce = self.setup.entropy.next_u64();
         let vfs = self.setup.run_state.vfs.clone();
         let events = self.setup.events.clone();
+        let live = &self.live[run_id];
+        let next = match lifecycle::apply(live.lifecycle, end.event()) {
+            Ok(Next::To(next)) => next,
+            Ok(Next::Unchanged) => return Ok(live.report.subscribe()),
+            Err(refused) => return Err(RunError::refused(run_id, &live.folder, refused)),
+        };
         let stopping = match &end {
-            End::Stopped(cause) if self.live[run_id].run.is_some() => Some(cause.clone()),
-            _ => None,
+            End::Stopped(cause) => Some(cause.clone()),
+            End::Finished | End::Failed => None,
         };
         if let Some(cause) = &stopping {
-            if let StopReason::Abort { by } = cause {
-                let aborting = RunAborting {
-                    run_id: run_id.clone(),
-                    by: *by,
-                };
-                events
-                    .publish(&RUN_ABORTING, Some(run_id.as_str()), &aborting)
-                    .await;
-            }
-            let stopping = RunStopping {
-                run_id: run_id.clone(),
-                cause: cause.clone(),
-            };
-            events
-                .publish(&RUN_STOPPING, Some(run_id.as_str()), &stopping)
-                .await;
+            announce_stop(&events, run_id, cause).await;
         }
         let live = self
             .live
             .get_mut(run_id)
             .expect("invariant: the Run was live a line above");
+        live.lifecycle = next;
         let receiver = live.report.subscribe();
-        if let Some(run) = live.run.take() {
-            let checkpoint_to = stopping.map(|_| CheckpointTo {
-                destination: location.unwrap_or_else(|| live.folder.join(CHECKPOINT_FILE)),
-                vfs,
-                nonce,
-                events: events.clone(),
-            });
-            let closing = Closing {
-                run,
-                writer: Arc::clone(&live.writer),
-                lock: Arc::clone(&live.lock),
-                started_at: live.started_at.clone(),
-                policy_version: live.policy_version.clone(),
-                weakened_by: live.weakened_by.clone(),
-                clock,
-                end,
-                checkpoint_to,
-                last_checkpoint: live.checkpoint.clone(),
+        let run = live
+            .run
+            .take()
+            .expect("invariant: a running Run keeps its writer until its end is decided");
+        let checkpoint_to = stopping.map(|_| CheckpointTo {
+            destination: location.unwrap_or_else(|| live.folder.join(CHECKPOINT_FILE)),
+            vfs,
+            nonce,
+            events: events.clone(),
+        });
+        let closing = Closing {
+            run,
+            writer: Arc::clone(&live.writer),
+            lock: Arc::clone(&live.lock),
+            started_at: live.started_at.clone(),
+            policy_version: live.policy_version.clone(),
+            weakened_by: live.weakened_by.clone(),
+            clock,
+            end,
+            lifecycle: next,
+            checkpoint_to,
+            last_checkpoint: live.checkpoint.clone(),
+        };
+        let index = self.setup.home.run_index(&self.setup.version);
+        let registry = self.runs.clone();
+        let run_id = run_id.clone();
+        self.ending_owner.spawn(async move {
+            let report = closing.end().await;
+            let ended = RunIndexRow {
+                lifecycle: report.lifecycle,
+                verdict: Some(report.verdict),
+                completeness: Some(report.completeness),
+                ended_at: Some(report.ended_at.clone()),
+                owner: None,
+                ..row
             };
-            let index = self.setup.home.run_index(&self.setup.version);
-            let registry = self.runs.clone();
-            let run_id = run_id.clone();
-            self.ending_owner.spawn(async move {
-                let report = closing.end().await;
-                let ended = RunIndexRow {
+            if let Err(error) = run_index::write(&index, &ended) {
+                tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
+            }
+            events
+                .publish_axes(RunAxes {
+                    run_id: run_id.clone(),
                     lifecycle: report.lifecycle,
                     verdict: Some(report.verdict),
                     completeness: Some(report.completeness),
-                    ended_at: Some(report.ended_at.clone()),
-                    owner: None,
-                    ..row
-                };
-                if let Err(error) = run_index::write(&index, &ended) {
-                    tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
-                }
-                events
-                    .publish_axes(RunAxes {
-                        run_id: run_id.clone(),
-                        lifecycle: report.lifecycle,
-                        verdict: Some(report.verdict),
-                        completeness: Some(report.completeness),
-                    })
-                    .await;
-                if let Some(registry) = registry.upgrade() {
-                    let _ = registry.send(Command::Ended(run_id, Box::new(report))).await;
-                }
-            });
-        }
+                })
+                .await;
+            if let Some(registry) = registry.upgrade() {
+                let _ = registry.send(Command::Ended(run_id, Box::new(report))).await;
+            }
+        });
         Ok(receiver)
     }
 
@@ -1892,9 +1958,10 @@ impl Registry {
             .get(&run_id)
             .and_then(|live| live.run.as_ref())
             .map(|run| run.state.epoch());
-        if live_epoch.is_none() {
-            match self.existing(&run_id).await {
-                Ok(Some(_)) => {}
+        let state = match self.live.get(&run_id) {
+            Some(live) => live.lifecycle,
+            None => match self.existing(&run_id).await {
+                Ok(Some(found)) => found.lifecycle,
                 Ok(None) => {
                     let _ = answer.send(Err(RunError::NotFound(run_id)));
                     return;
@@ -1907,7 +1974,11 @@ impl Registry {
                     }));
                     return;
                 }
-            }
+            },
+        };
+        if let Err(refused) = lifecycle::apply(state, RunEvent::Checkpoint) {
+            let _ = answer.send(Err(RunError::refused(&run_id, &folder, refused)));
+            return;
         }
         let taking = Taking {
             destination: location.unwrap_or_else(|| folder.join(CHECKPOINT_FILE)),
@@ -1939,16 +2010,6 @@ impl Registry {
         reason: StopReason,
         location: Option<PathBuf>,
     ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
-        let live = self.live.get(run_id).is_some_and(|live| live.run.is_some());
-        if live && reason == StopReason::Migrate {
-            let migrating = RunMigrating {
-                run_id: run_id.clone(),
-            };
-            self.setup
-                .events
-                .publish(&RUN_MIGRATING, Some(run_id.as_str()), &migrating)
-                .await;
-        }
         self.end_with(run_id, End::Stopped(reason), location).await
     }
 
@@ -1990,11 +2051,12 @@ impl Registry {
             timeout,
             settings,
         } = resume;
+        // A Run this engine writes is answered as it is.
         if let Some(live) = self.live.get(&run_id) {
             return Ok(Resumed::Existing(RunStarted {
                 run_id,
                 started_as: StartedAs::Existing,
-                lifecycle: Lifecycle::Running,
+                lifecycle: live.lifecycle,
                 needs: live.needs,
             }));
         }
@@ -2010,16 +2072,20 @@ impl Registry {
                 needs: held.needs,
             });
         }
-        if held.lifecycle == Lifecycle::Finished {
-            return Ok(Resumed::Existing(RunStarted {
-                run_id,
-                started_as: StartedAs::Existing,
-                lifecycle: Lifecycle::Finished,
-                needs: held.needs,
-            }));
-        }
-        let (lock, writer, state) = self.reopen(&run_id, checkpoint).await?;
         let folder = self.folder(&run_id);
+        let lifecycle = match lifecycle::apply(held.lifecycle, RunEvent::Resume) {
+            Ok(Next::To(next)) => next,
+            Ok(Next::Unchanged) => {
+                return Ok(Resumed::Existing(RunStarted {
+                    run_id,
+                    started_as: StartedAs::Existing,
+                    lifecycle: held.lifecycle,
+                    needs: held.needs,
+                }));
+            }
+            Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
+        };
+        let (lock, writer, state) = self.reopen(&run_id, held.lifecycle, checkpoint).await?;
         let (read, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
         let recorded = self
             .owner
@@ -2052,8 +2118,9 @@ impl Registry {
             lock: Arc::new(lock),
             connection,
             checkpoint: None,
+            lifecycle,
         };
-        let row = self.index_row(&live, Lifecycle::Running, None);
+        let row = self.index_row(&live, lifecycle, None);
         self.write_index(row).await;
         let run = live.run.clone().expect("invariant: a Run resumes live");
         run.watch_safe_points(timeout, live.ended_by);
@@ -2063,7 +2130,7 @@ impl Registry {
             .events
             .publish_axes(RunAxes {
                 run_id,
-                lifecycle: Lifecycle::Running,
+                lifecycle,
                 verdict: None,
                 completeness: None,
             })
@@ -2117,12 +2184,15 @@ impl Registry {
         Ok(held)
     }
 
-    /// Takes the writer role of `run_id` here: its lock, the Checkpoint
-    /// `checkpoint` made its run file when given, then the next run epoch,
-    /// under which its writer opens and marks it running again.
+    /// Takes the writer role of `run_id`, `held` as its state says: its
+    /// lock, which another writer's holding refuses as the Run's table says
+    /// (`WriterFound`), the Checkpoint `checkpoint` made its run file when
+    /// given, then the next run epoch, under which its writer opens and
+    /// marks it running again.
     async fn reopen(
         &mut self,
         run_id: &RunId,
+        held: Lifecycle,
         checkpoint: Option<PathBuf>,
     ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
         let folder = self.folder(run_id);
@@ -2131,7 +2201,12 @@ impl Registry {
             .lock(run_id, &folder)
             .await
             .map_err(|error| match error {
-                StartError::InUse { run_id, folder } => RunError::InUse { run_id, folder },
+                StartError::InUse { run_id, folder } => {
+                    match lifecycle::apply(held, RunEvent::WriterFound) {
+                        Err(refused) => RunError::refused(&run_id, &folder, refused),
+                        Ok(_) => RunError::InUse { run_id, folder },
+                    }
+                }
                 StartError::Unavailable {
                     run_id,
                     folder,
@@ -2141,6 +2216,7 @@ impl Registry {
                     folder,
                     error,
                 },
+                StartError::Internal { run_id, message } => RunError::Internal { run_id, message },
                 StartError::Conflict { .. }
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
@@ -2229,6 +2305,35 @@ impl Registry {
         let row = self.index_row(&self.live[run_id], Lifecycle::Running, None);
         self.write_index(row).await;
     }
+}
+
+/// Announces that the Run `run_id` stops for `cause` (RT-14): migrating or
+/// aborting when it is, then stopping.
+async fn announce_stop(events: &Events, run_id: &RunId, cause: &StopReason) {
+    if *cause == StopReason::Migrate {
+        let migrating = RunMigrating {
+            run_id: run_id.clone(),
+        };
+        events
+            .publish(&RUN_MIGRATING, Some(run_id.as_str()), &migrating)
+            .await;
+    }
+    if let StopReason::Abort { by } = cause {
+        let aborting = RunAborting {
+            run_id: run_id.clone(),
+            by: *by,
+        };
+        events
+            .publish(&RUN_ABORTING, Some(run_id.as_str()), &aborting)
+            .await;
+    }
+    let stopping = RunStopping {
+        run_id: run_id.clone(),
+        cause: cause.clone(),
+    };
+    events
+        .publish(&RUN_STOPPING, Some(run_id.as_str()), &stopping)
+        .await;
 }
 
 /// Writes a Checkpoint of a Run every `interval` of its clock until it
@@ -2338,6 +2443,8 @@ struct Closing {
     weakened_by: Vec<SettingLimit>,
     clock: Clock,
     end: End,
+    /// The Lifecycle the Run's table gave its end.
+    lifecycle: Lifecycle,
     /// A stop's Checkpoint, written once its end is.
     checkpoint_to: Option<CheckpointTo>,
     /// The last Checkpoint written before.
@@ -2357,14 +2464,15 @@ impl Closing {
             weakened_by,
             clock,
             end,
+            lifecycle,
             checkpoint_to,
             last_checkpoint,
         } = self;
         run.owner.stop().await;
-        let (lifecycle, stop_reason, completeness) = match end {
-            End::Finished => (Lifecycle::Finished, None, Completeness::Complete),
-            End::Failed => (Lifecycle::Failed, None, Completeness::Incomplete),
-            End::Stopped(reason) => (Lifecycle::Stopped, Some(reason), Completeness::Incomplete),
+        let (stop_reason, completeness) = match end {
+            End::Finished => (None, Completeness::Complete),
+            End::Failed => (None, Completeness::Incomplete),
+            End::Stopped(reason) => (Some(reason), Completeness::Incomplete),
         };
         let mut report = RunReport {
             run_id: run.id.clone(),
@@ -2423,6 +2531,7 @@ impl Closing {
 }
 
 mod folder;
+pub mod lifecycle;
 pub mod outcome;
 mod reader;
 mod reindex;

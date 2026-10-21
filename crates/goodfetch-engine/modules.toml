@@ -33,9 +33,10 @@ rpc = ["body", "client", "composition", "events", "product", "runs", "tasks", "t
 run = ["composition", "product", "runs", "settings"]
 run_index = ["run_state"]
 run_state = ["tasks"]
-runs = ["admission", "body", "checkpoint", "client", "clock", "entropy", "events", "home", "ledger", "run_index", "run_state", "settings", "tasks"]
+runs = ["admission", "body", "checkpoint", "client", "clock", "entropy", "events", "home", "ledger", "run_index", "run_state", "settings", "tasks", "transition"]
 settings = ["home", "tasks"]
 tasks = []
+transition = []
 transport = []
 
 # Which of `settings`'s own modules may import which.
@@ -59,11 +60,12 @@ activation = []
 # Which of `runs`'s own modules may import which.
 [submodules.runs]
 folder = []
+lifecycle = []
 outcome = []
 reader = ["folder"]
 reindex = ["folder", "writer"]
 slices = ["folder", "writer"]
-takeover = ["folder", "writer"]
+takeover = ["folder", "lifecycle", "writer"]
 writer = []
 
 # Which of `rpc`'s own modules may import which.
@@ -97,3 +99,7 @@ charging = ["sizing", "standing"]
 period = []
 sizing = []
 standing = []
+
+# Which of `transition`'s own modules may import which.
+[submodules.transition]
+engine = []

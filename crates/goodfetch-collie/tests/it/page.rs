@@ -130,6 +130,89 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
     );
 }
 
+/// `page.formats` reads the main content of the page a program is on as
+/// Markdown, answers only the formats asked, and answers a page with no
+/// main content with empty Markdown and `none`, a value.
+/// Covers: story:6-1, story:6-8, story:6-12, operation:page.formats
+#[test]
+fn a_program_reads_the_main_content_of_its_page_as_markdown() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "formats");
+    let product = proving_ground.url("extraction.test", "/markdown/mixed/product");
+    let navigation = proving_ground.url("extraction.test", "/markdown/none/navigation-only");
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "formats" }),
+    ));
+
+    call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": product }),
+    );
+    let markdown = call(
+        &mut engine,
+        4,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": { "markdown": true } }),
+    );
+    let envelope = call(
+        &mut engine,
+        5,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": {} }),
+    );
+    call(
+        &mut engine,
+        6,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": navigation }),
+    );
+    let none = call(
+        &mut engine,
+        7,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": { "markdown": { "content": "main" } } }),
+    );
+    call(
+        &mut engine,
+        8,
+        "run.finish",
+        &json!({ "run_id": "formats" }),
+    );
+    let (rest, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            &markdown["result"],
+            &envelope["result"],
+            &none["result"],
+            (rest, exited)
+        ),
+        (
+            &json!({
+                "url": product,
+                "base_url": product,
+                "main_content": "found",
+                "markdown": "## Desk Lamp\n\n**Price:** 39 €\n\n## Specifications\n\n| Power | 8 W |\n| --- | --- |\n| Colour | Black |\n\n## In the box\n\n- Lamp\n- USB cable\n",
+            }),
+            &json!({ "url": product, "base_url": product, "main_content": "found" }),
+            &json!({
+                "url": navigation,
+                "base_url": navigation,
+                "main_content": "none",
+                "markdown": "",
+            }),
+            (vec![], true)
+        )
+    );
+}
+
 /// Covers: error:browser_not_installed
 #[cfg(unix)]
 #[test]
@@ -400,5 +483,35 @@ fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
             &checked.documents[0]["error"]["operation"],
         ),
         (Some(3), &json!("closed"), &json!("page.goto"))
+    );
+}
+
+/// `page formats` through the command generated from the catalog, its
+/// request given as JSON: no engine holds a page the command names, so the
+/// call fails with `closed`.
+/// Covers: command:page.formats
+#[test]
+fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
+    let env = TestEnv::new();
+
+    let checked = cli(&env, COLLIE)
+        .args([
+            "page",
+            "formats",
+            "page-1",
+            "--formats",
+            r#"{"markdown":true}"#,
+            "--json",
+        ])
+        .json("CommandFailed")
+        .unwrap();
+
+    assert_eq!(
+        (
+            checked.output.exit,
+            &checked.documents[0]["error"]["code"],
+            &checked.documents[0]["error"]["operation"],
+        ),
+        (Some(3), &json!("closed"), &json!("page.formats"))
     );
 }

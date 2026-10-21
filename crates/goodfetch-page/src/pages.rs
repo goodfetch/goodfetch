@@ -1,8 +1,8 @@
-//! The page API's operations and the engine's pages (ADRs 0085 and 0092):
-//! each live Run's default Session, opened by its first `run.new_page` and
-//! shared by every later one, and each open page by its ID. A Run's pages
-//! and Session leave with it: when it stops, its browser closes and its
-//! entries go.
+//! The page API's operations, the formats of a page's document among them
+//! (ADR 0007), and the engine's pages (ADRs 0085 and 0092): each live Run's
+//! default Session, opened by its first `run.new_page` and shared by every
+//! later one, and each open page by its ID. A Run's pages and Session leave
+//! with it: when it stops, its browser closes and its entries go.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -11,10 +11,12 @@ use std::time::Duration;
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::runs::{Run, RunError};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_extractor::{Context, Document};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::{
-    GotoParams, Navigated, NewPageParams, PAGE_GOTO, PageId, PageOpened, RUN_NEW_PAGE, SessionId,
+    FormatsParams, GotoParams, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GOTO, PageFormats,
+    PageId, PageOpened, RUN_NEW_PAGE, SessionId,
 };
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
@@ -27,14 +29,15 @@ use crate::driver::{LocalBrowser, PageDriver, SessionDriver};
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What the page crate adds to the engine (ADR 0087): the handlers of
-/// `run.new_page` and `page.goto`, whose browsers come from `pins`, the
-/// builds the Product version pins.
+/// `run.new_page`, `page.goto` and `page.formats`, whose browsers come from
+/// `pins`, the builds the Product version pins.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
     let pages = Pages {
         state: Arc::new(Mutex::new(State::default())),
         pins,
     };
     let opening = pages.clone();
+    let going = pages.clone();
     Contribution::new("page")
         .with_handler(Handler::new(
             &RUN_NEW_PAGE,
@@ -46,8 +49,15 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
         .with_handler(Handler::new(
             &PAGE_GOTO,
             move |params: GotoParams, _context: CallContext| {
-                let pages = pages.clone();
+                let pages = going.clone();
                 async move { pages.goto(params).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_FORMATS,
+            move |params: FormatsParams, _context: CallContext| {
+                let pages = pages.clone();
+                async move { pages.formats(params).await }
             },
         ))
 }
@@ -75,7 +85,7 @@ struct RunPages {
 
 #[derive(Clone)]
 struct OpenPage {
-    run: RunId,
+    run: Run,
     driver: PageDriver,
 }
 
@@ -102,7 +112,7 @@ impl Pages {
         state.pages.insert(
             page.clone(),
             OpenPage {
-                run: run.id().clone(),
+                run: run.clone(),
                 driver,
             },
         );
@@ -143,31 +153,55 @@ impl Pages {
             stopping.cancelled().await;
             let mut state = pages.state.lock().await;
             state.runs.remove(&run_id);
-            state.pages.retain(|_, page| page.run != run_id);
+            state.pages.retain(|_, page| page.run.id() != &run_id);
         });
         opened
     }
 
-    async fn goto(&self, params: GotoParams) -> Result<Navigated, CallError> {
-        let page = self
-            .state
+    /// The open page `page_id`; `closed` when no page has that ID.
+    async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
+        self.state
             .lock()
             .await
             .pages
-            .get(&params.page_id)
+            .get(page_id)
             .cloned()
             .ok_or_else(|| {
                 CallError::new(
                     &CLOSED,
-                    format!(
-                        "the page `{}` is closed, or its Run ended",
-                        params.page_id.0
-                    ),
-                    &json!({ "page_id": params.page_id }),
+                    format!("the page `{}` is closed, or its Run ended", page_id.0),
+                    &json!({ "page_id": page_id }),
                 )
-            })?;
+            })
+    }
+
+    async fn goto(&self, params: GotoParams) -> Result<Navigated, CallError> {
+        let page = self.open(&params.page_id).await?;
         let response = page.driver.goto(&params.url).await?;
         Ok(Navigated { response })
+    }
+
+    /// The formats the request names, read from one serialization of the
+    /// page's document on a blocking thread of its Run's.
+    async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
+        let page = self.open(&params.page_id).await?;
+        let document = page.driver.document().await?;
+        let request = params.formats;
+        Ok(page
+            .run
+            .owner()
+            .blocking(move || {
+                goodfetch_extractor::formats(
+                    &Document {
+                        html: &document.html,
+                        url: &document.url,
+                        base_url: &document.base_url,
+                    },
+                    &request,
+                    &Context::default(),
+                )
+            })
+            .await)
     }
 }
 

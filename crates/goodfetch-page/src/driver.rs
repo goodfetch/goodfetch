@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::{browser, network, page, target};
+use goodfetch_cdp::generated::{browser, dom, network, page, target};
 use goodfetch_cdp::{Command, Connection, Failure, SessionId as TargetSession};
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
@@ -257,6 +257,16 @@ impl<B: Connect> SessionDriver<B> {
     }
 }
 
+/// A page's document as it stands, serialized once.
+pub(crate) struct SerializedDocument {
+    /// Its HTML.
+    pub(crate) html: String,
+    /// Its URL.
+    pub(crate) url: String,
+    /// Its base URL.
+    pub(crate) base_url: String,
+}
+
 /// One page's target, driven over its CDP session.
 #[derive(Clone)]
 pub(crate) struct PageDriver {
@@ -328,6 +338,44 @@ impl PageDriver {
                 &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
             )),
         }
+    }
+
+    /// The page's document as the DOM holds it now, serialized once, with
+    /// its URL and base URL.
+    pub(crate) async fn document(&self) -> Result<SerializedDocument, CallError> {
+        let call = Call::Document;
+        let root = self
+            .browser
+            .send(
+                Some(&self.session),
+                &dom::GetDocumentParams {
+                    depth: Some(0),
+                    pierce: None,
+                },
+                &call,
+            )
+            .await?
+            .root;
+        let html = self
+            .browser
+            .send(
+                Some(&self.session),
+                &dom::GetOuterHTMLParams {
+                    node_id: Some(root.node_id),
+                    backend_node_id: None,
+                    object_id: None,
+                    include_shadow_dom: None,
+                },
+                &call,
+            )
+            .await?
+            .outer_html;
+        let url = root.document_url.unwrap_or_default();
+        Ok(SerializedDocument {
+            html,
+            base_url: root.base_url.unwrap_or_else(|| url.clone()),
+            url,
+        })
     }
 }
 

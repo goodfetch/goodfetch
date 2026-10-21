@@ -4,7 +4,9 @@
 //! A lost browser or page is `page_crashed`, with how the browser ended
 //! when it is the browser that was lost; any other failure is the call's
 //! generic code: `navigation_failed` for a navigation, as ADR 0085 names
-//! it, and `browser_launch_failed` for opening a page.
+//! it, `browser_launch_failed` for opening a page, and `page_crashed` for
+//! reading a live page's document, which only a broken renderer refuses or
+//! leaves unanswered.
 
 use goodfetch_cdp::{Failure, Refusal};
 use goodfetch_engine::CallError;
@@ -22,6 +24,8 @@ pub(crate) enum Call {
         /// The browser's executable.
         executable: String,
     },
+    /// Reading the page's document, for its formats.
+    Document,
     /// A navigation to `url`.
     Navigation {
         /// Its URL.
@@ -55,6 +59,11 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
                 url: url.clone(),
                 error: None,
             },
+        ),
+        Call::Document => CallError::new(
+            &PAGE_CRASHED,
+            format!("the page did not give its document: {failure}"),
+            &PageCrashedDetails { browser_exit: None },
         ),
         Call::OpenPage { executable } => CallError::new(
             &BROWSER_LAUNCH_FAILED,

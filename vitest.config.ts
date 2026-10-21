@@ -7,7 +7,7 @@
 // Screenshot tests (`*.visual.test.ts[x]`) form the `visual` project, which
 // test support's shared visual config gives only inside the pinned Playwright
 // image (ADR 0073; ci/visual/).
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { CaseLogReporter, clientCaseTags, readClientCases } from "@goodfetch/test-support/case-log";
 import { readFeatureIds } from "@goodfetch/test-support/features";
@@ -115,11 +115,16 @@ const caseTags = clientCaseTags(readClientCases(caseList));
 // and in Browser Mode, with no threshold.
 const coverageFolder = process.env["GOODFETCH_COVERAGE"];
 
+// The Console's components render their messages through Lingui's macros
+// and its catalog, compiled as the Console's build compiles them (ADR 0073).
+// A copy of this config in a folder without the Console, as test support's
+// own runs of it make, takes no plugin.
+const consoleMessages = join(import.meta.dirname, "console", "collie", "lingui.config.ts");
+
 const config: ViteUserConfig = defineConfig({
-  // The Console's components render their messages through Lingui's macros
-  // and its catalog, compiled as the Console's build compiles them (ADR
-  // 0073; console/collie/lingui.config.ts).
-  plugins: [lingui({ macroTransform: true, configPath: "console/collie/lingui.config.ts" })],
+  plugins: existsSync(consoleMessages)
+    ? [lingui({ macroTransform: true, configPath: consoleMessages })]
+    : [],
   test: {
     ...(visual.update === undefined ? {} : { update: visual.update }),
     ...(coverageFolder === undefined

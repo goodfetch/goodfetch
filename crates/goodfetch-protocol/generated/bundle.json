@@ -912,6 +912,70 @@
       ],
       "type": "object"
     },
+    "CrawlRequestEnqueueParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt enqueues.",
+          "type": "string"
+        },
+        "document": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnqueueDocument"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Its Label.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The data the program attaches for its handler."
+        },
+        "priority": {
+          "arrived_in": "0.1",
+          "default": 0,
+          "description": "Its priority among the requests of its domain: higher goes first; 0\nby default.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL to add, absolute or relative to the document's base URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "url",
+        "label"
+      ],
+      "type": "object"
+    },
     "CrawlRequestHandleParams": {
       "description": "What `crawl_request.handle` gives the handler: one attempt of one work\nitem, under its lease.",
       "properties": {
@@ -1605,6 +1669,84 @@
       "additionalProperties": false,
       "description": "What `engine.info` takes: nothing.",
       "type": "object"
+    },
+    "EnqueueDocument": {
+      "additionalProperties": false,
+      "description": "The document a handler read, against which its relative URLs resolve.",
+      "properties": {
+        "base_href": {
+          "arrived_in": "0.1",
+          "description": "The `href` of its first `<base>` element, as written.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL the document was reached at, after every redirect.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "Enqueued": {
+      "description": "The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a\nvalue, never an error, since a request is one among many.",
+      "oneOf": [
+        {
+          "description": "The Frontier admitted it as a crawl request.",
+          "properties": {
+            "id": {
+              "arrived_in": "0.1",
+              "description": "The crawl request's ID within the Run.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "added",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its URL as the WHATWG URL Standard parsed it, resolved against\nits base: the URL its handler receives.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Frontier did not admit it.",
+          "properties": {
+            "kind": {
+              "const": "not_added",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/NotAddedReason",
+              "arrived_in": "0.1",
+              "description": "Why."
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its URL as it was given.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ErrorData": {
       "additionalProperties": true,
@@ -2771,6 +2913,61 @@
         "run_id"
       ],
       "type": "object"
+    },
+    "NotAddedReason": {
+      "description": "Why the Frontier did not add a request (ADRs 0093 and 0120).",
+      "oneOf": [
+        {
+          "const": "duplicate",
+          "description": "The Frontier already admitted a request of the same identity.",
+          "type": "string"
+        },
+        {
+          "const": "out_of_scope",
+          "description": "Its URL is outside the crawl's scope (`crawl.scope.*`).",
+          "type": "string"
+        },
+        {
+          "const": "domain_policy",
+          "description": "The Run's domain policy refuses its host.",
+          "type": "string"
+        },
+        {
+          "const": "max_depth",
+          "description": "It is deeper than `crawl.max_depth`.",
+          "type": "string"
+        },
+        {
+          "const": "max_requests",
+          "description": "The crawl already admitted `crawl.max_requests` requests.",
+          "type": "string"
+        },
+        {
+          "const": "unsupported_scheme",
+          "description": "Its URL's scheme is one the crawl cannot fetch: only `http` and\n`https` are.",
+          "type": "string"
+        },
+        {
+          "const": "invalid_url",
+          "description": "The WHATWG URL Standard's parser refuses its URL, or it is relative\nwhere nothing gives it a base, as a seed is.",
+          "type": "string"
+        },
+        {
+          "const": "max_url_length",
+          "description": "Its URL is longer than `crawl.max_url_length`.",
+          "type": "string"
+        },
+        {
+          "const": "max_path_segments",
+          "description": "Its URL's path has more segments than `crawl.max_path_segments`.",
+          "type": "string"
+        },
+        {
+          "const": "max_segment_repeats",
+          "description": "A segment of its URL's path repeats more than\n`crawl.max_segment_repeats`.",
+          "type": "string"
+        }
+      ]
     },
     "NotCleaned": {
       "description": "Why the clean-up did not run.",
@@ -4102,6 +4299,38 @@
           "arrived_in": "0.1",
           "description": "The Run's settings from the resume on, nested by key: the run layer\n(ADRs 0083 and 0102).",
           "type": "object"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunSeeds": {
+      "description": "What `run.seeds` answers.",
+      "properties": {
+        "seeds": {
+          "arrived_in": "0.1",
+          "description": "Each seed's answer, in the order the start gave the seeds; none for\na Run that is no crawl.",
+          "items": {
+            "$ref": "#/$defs/Enqueued"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "seeds"
+      ],
+      "type": "object"
+    },
+    "RunSeedsParams": {
+      "additionalProperties": false,
+      "description": "What `run.seeds` takes.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
         }
       },
       "required": [

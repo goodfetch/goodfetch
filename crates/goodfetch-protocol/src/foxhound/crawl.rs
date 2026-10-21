@@ -263,6 +263,16 @@ pub const CLIENT_GONE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A call on an attempt that already ended (ADR 0093).
+pub const ATTEMPT_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "attempt_ended",
+    description: "The call names an attempt that already ended: its handler returned, it failed or was skipped, its lease ended, or its Run stopped. Nothing it asked for was done, so a forgotten `await` never silently loses a link.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A commit refused because its attempt's lease ended (ADR 0003).
 pub const LEASE_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "lease_lost",
@@ -359,7 +369,13 @@ pub const ENTRIES: Entries = Entries {
     operations: &[CRAWL_START, CRAWL_SERVE],
     events: &[],
     handler_requests: &[CRAWL_REQUEST_HANDLE],
-    error_codes: &[HANDLER_FAILED, HANDLER_LOST, CLIENT_GONE, LEASE_LOST],
+    error_codes: &[
+        HANDLER_FAILED,
+        HANDLER_LOST,
+        CLIENT_GONE,
+        LEASE_LOST,
+        ATTEMPT_ENDED,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

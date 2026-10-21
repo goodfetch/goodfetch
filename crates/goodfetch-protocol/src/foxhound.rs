@@ -2,10 +2,12 @@
 //! Outside `crates/foxhound/`, only this crate and `xtask` name this module.
 //! Its `sample` entries are samples until the crawl areas define the real
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
-//! items, and `outcomes` the reads of how its requests ended.
+//! items, `frontier` what its Frontier answers each seed and enqueue, and
+//! `outcomes` the reads of how its requests ended.
 
 pub mod block;
 pub mod crawl;
+pub mod frontier;
 pub mod outcomes;
 pub mod settings;
 pub mod usage;

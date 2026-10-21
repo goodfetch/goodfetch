@@ -32,6 +32,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The call names an attempt that already ended: its handler returned, it failed or was skipped, its lease ended, or its Run stopped. Nothing it asked for was done, so a forgotten `await` never silently loses a link.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "attempt_ended",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.",
       "exit_code": null,
       "group": "program",
@@ -696,6 +706,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.enqueue",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestEnqueueParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Enqueued"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
@@ -987,6 +1016,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.seeds",
+      "params": {
+        "$ref": "#/$defs/RunSeedsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunSeeds"
       },
       "stability": "experimental"
     },

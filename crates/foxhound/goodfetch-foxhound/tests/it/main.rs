@@ -11,6 +11,7 @@ mod admission;
 mod attached;
 mod crawl;
 mod daemon;
+mod frontier;
 mod journeys;
 mod limits;
 mod outcomes;

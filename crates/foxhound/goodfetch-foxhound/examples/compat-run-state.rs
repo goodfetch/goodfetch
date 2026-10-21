@@ -2,9 +2,10 @@
 //! scenarios against Foxhound's engine, whose run files hold every table
 //! both Products' compositions add, over the in-memory network, on the test
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
-//! install Limit, whose Slices its run state journals, a tagged crawl of two
-//! seeds, one with a Payload, whose handler pushes Records for the
-//! first and fails on the second, whose first byte never came, so its
+//! install Limit, whose Slices its run state journals, a tagged crawl of
+//! three seeds, one with a Payload and one the Frontier answers
+//! `duplicate`, whose handler pushes Records for the first and fails on the
+//! second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, which `run.abort` stops; and a Run bound to a
@@ -67,6 +68,7 @@ fn scenario() -> Vec<Value> {
                 "seeds": [
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },
+                    { "url": "https://SHOP.test:443/", "label": "home" },
                 ],
             }),
         ),

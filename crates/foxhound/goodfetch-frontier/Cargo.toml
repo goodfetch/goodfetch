@@ -15,13 +15,14 @@ goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 psl.workspace = true
 rusqlite.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["time"] }
+url.workspace = true
 
 [dev-dependencies]
 gungraun.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-serde_json.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]

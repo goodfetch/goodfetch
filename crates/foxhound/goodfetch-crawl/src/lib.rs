@@ -7,12 +7,15 @@
 //! is done; `crawl.serve` joins another Connection's handler to it, as
 //! `workers=N` handler processes do. Each work item's ending commits its
 //! outcome, which `run.outcomes` and `run.failed_requests` read from
-//! committed state. Its own crate under `crates/foxhound/`, since only
+//! committed state. A handler's `crawl_request.enqueue` adds a request
+//! from inside its attempt through the Frontier. Its own crate under
+//! `crates/foxhound/`, since only
 //! Foxhound links it (STYLE.md, reason 2); it fills the engine's
 //! interfaces: a Run's driver, the tables a contribution keeps in every
 //! run file, and reads of them.
 
 mod delivery;
+mod enqueue;
 mod lease;
 mod outcomes;
 mod policy;

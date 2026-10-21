@@ -3,7 +3,7 @@
 # `journeys/tasks/` holds the Proving ground's task lists, which
 # `xtask journeys tasks` writes from seeds (its generated names, such as
 # `portal-b6caa2ba`, are no words).
-extend-exclude = ["rnd/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE", "journeys/tasks/"]
+extend-exclude = ["rnd/", "crates/goodfetch-cdp/protocol.json", "crates/goodfetch-cdp/src/generated/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE", "journeys/tasks/"]
 
 [default]
 # Words typos misreads in the ADRs: a vendor's name, "mis-templated",

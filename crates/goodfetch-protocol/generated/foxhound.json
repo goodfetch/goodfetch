@@ -1473,6 +1473,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "lease_lost",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
       "exit_code": null,
       "group": "unavailable",
@@ -1762,7 +1772,7 @@
     {
       "arrived_in": "0.1",
       "deprecated": null,
-      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy.",
+      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
       "name": "crawl_request.handle",
       "params": {
         "$ref": "#/$defs/CrawlRequestHandleParams"
@@ -2669,6 +2679,55 @@
     }
   ],
   "shared_type_values": [
+    {
+      "arrived_in": "0.1",
+      "description": "A page that asks a person to prove they are human.",
+      "name": "captcha",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page that checks the browser before it lets it through.",
+      "name": "challenge",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A wall that asks for consent before it shows the page (ADR 0048).",
+      "name": "consent_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A trap page a person would never reach; only Foxhound's Frontier produces it.",
+      "name": "decoy",
+      "product": "foxhound",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused the address the request came from.",
+      "name": "ip_block",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site asked to be paid for the page (ADR 0045).",
+      "name": "payment_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused because too many requests came too fast.",
+      "name": "rate_limit",
+      "product": "collie",
+      "type": "block_cause"
+    },
     {
       "arrived_in": "0.1",
       "description": "Pages the sample crawl visited.",

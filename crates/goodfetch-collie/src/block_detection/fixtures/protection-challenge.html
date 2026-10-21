@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Just a moment...</title></head>
+<body>
+<main id="challenge">
+<h1>Checking your browser before accessing this site.</h1>
+<p>This takes a moment and needs JavaScript.</p>
+</main>
+<script data-nonce="c0715ed6a1480036">
+// The tier-move site's Challenge: it computes the clearance from the page's
+// nonce (each character folded into 7 as `hash * 31 + code`, kept to 32
+// bits, in lowercase hex), sets it as a cookie and loads the page again. A
+// browser runs it; a plain HTTP client never does.
+(() => {
+  "use strict";
+  const nonce = document.currentScript.getAttribute("data-nonce");
+  let hash = 7;
+  for (const character of nonce) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  document.cookie = `clearance=${hash.toString(16)}; path=/; SameSite=Lax`;
+  window.location.reload();
+})();
+</script>
+</body>
+</html>

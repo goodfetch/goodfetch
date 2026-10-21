@@ -5,3 +5,4 @@ export * from "./operations.ts";
 export * from "./events.ts";
 export * from "./errors.ts";
 export * from "./plugins.ts";
+export type * from "./shared-types.ts";

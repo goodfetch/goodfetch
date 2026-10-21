@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::connection::{Connection, Gone};
 use super::stop;
-use super::target::{self, EngineTarget, StartError};
+use super::target::{self, EngineTarget, START_DEADLINE, StartError};
 
 /// What a running engine answered a fabricated `hello`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,7 +109,7 @@ pub fn send_fabricated_hello(
     connection
         .request(ENGINE_INFO.name, &json!({}))
         .map_err(unanswered)?;
-    let first = connection.first_message().map_err(unanswered)?;
+    let first = connection.next_within(START_DEADLINE).map_err(unanswered)?;
     let outcome = match reading(&first, id) {
         Some(FabricatedHelloOutcome::Refused { error_code, .. }) => {
             FabricatedHelloOutcome::Refused {

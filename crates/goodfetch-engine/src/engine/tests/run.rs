@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::catalog::{Operation, OperationClass, Product, Stability, schema_of};
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Stability, schema_of,
+};
 use goodfetch_protocol::run::{RunKind, Tags};
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -31,6 +33,7 @@ const USE_FOXHOUND: Operation = Operation {
     name: "test.use_foxhound",
     description: "Starts a Run that uses an entry only Foxhound carries.",
     class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<Value>,
     result: schema_of::<Value>,
     events: &[],

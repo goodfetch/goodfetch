@@ -13,8 +13,10 @@
 //! decisions put in the bundle
 //! joins here once its types exist, through the same `xtask codegen`: the
 //! exit-code table (ADR 0069) and the Feature inventory schemas (ADR 0072).
-//! The bundle's `outputs` maps each command's path, such as `daemon.start`,
-//! to the type of its `--json` output (ADR 0069). The
+//! The bundle's `outputs` maps each hand-written command's path, such as
+//! `daemon.start`, to the type of its `--json` output (ADR 0069); a command
+//! generated from an operation prints the operation's `result`, and every
+//! command that fails prints the bundle's `command_failed`. The
 //! format registry is the bundle's `formats`, which `xtask compat` reads: an
 //! array of `{name, version, storage, rule, schema}`, where `storage` is
 //! `json`, `sqlite` or `transcript`. The bundle's `connection` holds the
@@ -35,6 +37,7 @@ use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
     Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
+use crate::cli::CommandFailed;
 use crate::connection::{CancelParams, HelloParams, HelloResult};
 use crate::daemon::{
     DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput, DaemonStatusOutput,
@@ -106,6 +109,7 @@ pub fn emit() -> Emitted {
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
     });
+    let command_failed = generator.subschema_for::<CommandFailed>();
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
@@ -122,6 +126,7 @@ pub fn emit() -> Emitted {
             "formats": formats,
             "connection": connection,
             "outputs": outputs,
+            "command_failed": command_failed,
             "documents": {
                 "result_document": result_document,
                 "case_log_entry": case_log_entry,
@@ -244,6 +249,7 @@ fn operation_entry(
         "product": product.as_str(),
         "description": operation.description,
         "class": operation.class.as_str(),
+        "kind": operation.kind.as_str(),
         "params": (operation.params)(generator),
         "result": (operation.result)(generator),
         "events": operation.events.iter().map(|event| event.name).collect::<Vec<_>>(),

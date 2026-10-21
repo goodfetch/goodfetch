@@ -151,6 +151,17 @@ where
     let engine = engine();
     goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies(env);
+        // The test `tracing` subscriber writes the dispatch records into the
+        // test's exercise record (ADR 0072), as `attached_with`'s does.
+        let clock = dependencies.clock;
+        let unset = tracing::dispatcher::get_default(
+            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
+        );
+        let _subscriber = unset.then(|| {
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }))
+        });
         let install = InstallDatabase::open(
             &install_file(env),
             &env.home().join("1").join("runs"),

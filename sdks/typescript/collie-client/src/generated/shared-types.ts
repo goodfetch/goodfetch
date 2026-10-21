@@ -26,7 +26,9 @@ export type LimitScope = "connection" | "daemon" | "install" | "person" | "token
 /**
  * A `usage_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
+ * - `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
+ * - `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
  * - `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.
  * - `sample_echoes`: Texts the sample operation repeated.
  */
-export type UsageKind = "requests" | "sample_echoes" | (string & {});
+export type UsageKind = "paid_solves" | "proxy_bytes" | "requests" | "sample_echoes" | (string & {});

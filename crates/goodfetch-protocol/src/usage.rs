@@ -35,6 +35,14 @@ pub const CONNECTION: &str = "connection";
 /// and, with the browser, a page's navigations.
 pub const REQUESTS: &str = "requests";
 
+/// The Usage kind of the bytes a run sent and received through a proxy,
+/// counted per proxy kind (area 8 charges it).
+pub const PROXY_BYTES: &str = "proxy_bytes";
+
+/// The Usage kind of paid solves, counted by currency at the solving
+/// service's configured price (ADR 0035; area 8 reserves it).
+pub const PAID_SOLVES: &str = "paid_solves";
+
 /// Who set a Limit, which decides whether it allows paying (ADR 0045).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -254,6 +262,18 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::UsageKind,
             name: REQUESTS,
             description: "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PROXY_BYTES,
+            description: "Bytes a run sent and received through a proxy, per proxy kind.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PAID_SOLVES,
+            description: "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

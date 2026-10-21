@@ -47,6 +47,8 @@ mod scale;
 mod schedule;
 mod serve;
 mod statuses;
+#[cfg(unix)]
+mod stop;
 mod task_list;
 #[cfg(target_os = "linux")]
 mod tc_netem;

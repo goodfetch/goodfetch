@@ -84,7 +84,7 @@ fn a_bad_duration_is_a_usage_error(#[case] duration: &str) {
 /// Covers: story:11-203
 #[rstest]
 #[case::a_text_setting("ai.model=45s", json!({ "ai.model": "45s" }))]
-#[case::an_unknown_key("timeout.navigatio=45s", json!({ "timeout.navigatio": "45s" }))]
+#[case::an_unknown_key("timeout.navigation_=45s", json!({ "timeout.navigation_": "45s" }))]
 fn only_a_duration_setting_reads_a_suffix(#[case] flag: &str, #[case] expected: Value) {
     assert_eq!(set(flag), expected);
 }

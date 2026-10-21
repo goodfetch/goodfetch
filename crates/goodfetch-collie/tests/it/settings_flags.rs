@@ -144,7 +144,7 @@ fn run_start_sends_the_settings_flags_as_the_runs_settings() {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
-        .args(["run", "start", "--set", "timeout.navigatio=45s", "--json"])
+        .args(["run", "start", "--set", "timeout.navigation_=45s", "--json"])
         .json("CommandFailed")
         .unwrap();
 

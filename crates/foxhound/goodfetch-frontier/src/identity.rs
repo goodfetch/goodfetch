@@ -5,7 +5,7 @@
 
 use url::{Position, Url};
 
-/// The query parameters a key drops by name: Crawl4AI's click IDs.
+/// The query parameters a key drops by name: `Crawl4AI`'s click IDs.
 const TRACKING: [&str; 2] = ["gclid", "fbclid"];
 
 /// The query parameters a key drops by their name's prefix: Crawlee's.
@@ -87,28 +87,42 @@ fn normalize_encoding(text: &str) -> String {
         let encoded = (bytes[at] == b'%')
             .then(|| Some((hex(*bytes.get(at + 1)?)?, hex(*bytes.get(at + 2)?)?)))
             .flatten();
-        match encoded {
-            Some((high, low)) => {
-                let byte = high * 16 + low;
-                if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-                    normalized.push(char::from(byte));
-                } else {
-                    normalized.push('%');
-                    normalized.push_str(&format!("{byte:02X}"));
-                }
-                at += 3;
+        if let Some((high, low)) = encoded {
+            let byte = high * 16 + low;
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                normalized.push(char::from(byte));
+            } else {
+                normalized.push('%');
+                normalized.push(char::from(bytes[at + 1].to_ascii_uppercase()));
+                normalized.push(char::from(bytes[at + 2].to_ascii_uppercase()));
             }
-            None => {
-                let next = text[at..]
-                    .char_indices()
-                    .nth(1)
-                    .map_or(text.len(), |(offset, _)| at + offset);
-                normalized.push_str(&text[at..next]);
-                at = next;
-            }
+            at += 3;
+        } else {
+            let next = text[at..]
+                .char_indices()
+                .nth(1)
+                .map_or(text.len(), |(offset, _)| at + offset);
+            normalized.push_str(&text[at..next]);
+            at = next;
         }
     }
     normalized
+}
+
+/// The fuzz target's body for the URL key (ADR 0067): reads `data` as an
+/// `href` on a page, resolved as the Frontier resolves an enqueue; the key
+/// of a URL that parses must be a URL whose key is itself. It panics only
+/// on a bug.
+pub fn fuzz_url_key(data: &[u8]) {
+    let href = String::from_utf8_lossy(data);
+    let base = Url::parse("http://shop.test/shelf/page;v=1?b=2&a=1#top")
+        .expect("invariant: the base URL parses");
+    let Ok(url) = crate::url::parse(&href, Some(&base)) else {
+        return;
+    };
+    let key = url_key(&url);
+    let reparsed = Url::parse(&key).expect("invariant: a URL's key is a URL");
+    assert_eq!(url_key(&reparsed), key, "a key's key is the key itself");
 }
 
 /// The value of a hexadecimal digit.

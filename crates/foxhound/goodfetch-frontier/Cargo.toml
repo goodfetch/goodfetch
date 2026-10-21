@@ -20,6 +20,7 @@ tokio = { workspace = true, features = ["time"] }
 url.workspace = true
 
 [dev-dependencies]
+goodfetch-test-support.workspace = true
 gungraun.workspace = true
 proptest.workspace = true
 rstest.workspace = true

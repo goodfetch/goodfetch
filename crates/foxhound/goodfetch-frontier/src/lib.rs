@@ -21,7 +21,7 @@ use goodfetch_engine::Contribution;
 
 pub use admit::{Candidate, Identified, admit};
 pub use domain_key::DomainKeys;
-pub use identity::url_key;
+pub use identity::{fuzz_url_key, url_key};
 pub use queues::DomainQueues;
 pub use url::document_base;
 

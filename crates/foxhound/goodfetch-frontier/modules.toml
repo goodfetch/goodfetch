@@ -2,7 +2,7 @@
 [modules]
 admit = ["url"]
 domain_key = []
-identity = []
+identity = ["url"]
 queues = ["domain_key"]
 seeds = []
 url = []

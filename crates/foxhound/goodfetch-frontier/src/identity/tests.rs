@@ -1,3 +1,4 @@
+use proptest::prelude::*;
 use rstest::rstest;
 use url::Url;
 
@@ -79,4 +80,28 @@ fn the_key_keeps_apart(#[case] one: &str, #[case] other: &str) {
 #[case::a_url_with_nothing_to_change("https://a.test:8443/a/b?c=d", "https://a.test:8443/a/b?c=d")]
 fn the_key_of(#[case] url: &str, #[case] expected: &str) {
     assert_eq!(key(url), expected);
+}
+
+/// `href`s as pages write them: relative and absolute, with the
+/// characters the key's rules read.
+fn href_like() -> impl Strategy<Value = String> {
+    "(https?://[a-z.]{1,8}|//[a-z]{1,4}|\\.{0,2}/)?([a-zA-Z0-9/;=~.%\\-_+é ]|%[0-9a-fA-F]{2}){0,16}(\\?([a-zA-Z0-9_=&%;+.~é ]|%[0-9a-fA-F]{2}){0,16})?(#[a-z]{0,4})?"
+}
+
+proptest! {
+    /// A key is a URL whose key is itself, whatever the `href`.
+    ///
+    /// Covers: story:6-213
+    #[test]
+    fn the_key_of_a_key_is_itself(href in prop_oneof![any::<String>(), href_like()]) {
+        let base = Url::parse("http://a.test/shelf/page?b=2&a=1").unwrap();
+        if let Ok(url) = base.join(&href) {
+            let key = url_key(&url);
+            prop_assert_eq!(url_key(&Url::parse(&key).unwrap()), key);
+        }
+    }
+}
+
+mod url_key_target {
+    goodfetch_test_support::fuzz_replay!(crate::identity::fuzz_url_key, "fuzz/url_key");
 }

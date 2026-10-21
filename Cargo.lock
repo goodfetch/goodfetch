@@ -1310,6 +1310,7 @@ version = "0.0.0"
 dependencies = [
  "goodfetch-engine",
  "goodfetch-protocol",
+ "goodfetch-test-support",
  "gungraun",
  "proptest",
  "psl",

@@ -3,7 +3,8 @@
 //! takes is `<namespace> <member>`, words joined by `-`, whose flags are its
 //! params, `--<parameter>` in kebab-case, a value-bound command taking its
 //! value's ID (`run_id` for `run`) as its first positional argument, and
-//! `--json` printing the result as JSON. Help comes from the catalog's
+//! `--json` printing the result as JSON; an operation that takes `settings`
+//! takes them as the [`SettingsFlags`]. Help comes from the catalog's
 //! descriptions. Foxhound's executable carries these commands unchanged
 //! (ADR 0090).
 //!
@@ -16,7 +17,7 @@
 
 use std::process::ExitCode;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Args as _, Command, FromArgMatches as _};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorGroup, Operation, OperationKind, Product};
 use goodfetch_protocol::cli::{CommandError, CommandFailed};
@@ -26,6 +27,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
 use crate::engine_choice::{self, Answer};
+use crate::settings_flags::SettingsFlags;
 use crate::{exit_codes, output};
 
 /// The Product whose catalog the commands come from: Collie's, which both
@@ -34,6 +36,10 @@ const PRODUCT: Product = Product::Collie;
 
 /// The flag that prints the result as JSON.
 const JSON: &str = "json";
+
+/// The param that takes the run layer's settings (ADR 0083), which a
+/// command takes as its [`SettingsFlags`].
+const SETTINGS: &str = "settings";
 
 /// The generated commands beside an executable's hand-written ones.
 pub struct Generated {
@@ -133,23 +139,31 @@ fn members(group: Command) -> Command {
 /// The command of `operation`, its help in the form of the hand-written
 /// commands': the description with no closing period.
 fn command(operation: &'static Operation) -> Command {
-    let mut command =
-        Command::new(spelled(member(operation))).about(sentence(operation.description));
-    if let Some(deprecated) = operation.deprecated {
-        command = command.after_help(format!(
-            "Deprecated since {}: {}",
-            deprecated.since, deprecated.note
-        ));
-    }
-    parameters(operation)
+    let command = parameters(operation)
         .into_iter()
-        .fold(command, |command, parameter| command.arg(parameter.arg()))
+        .fold(
+            Command::new(spelled(member(operation))),
+            |command, parameter| match parameter.form {
+                Form::Settings => SettingsFlags::augment_args(command),
+                _ => command.arg(parameter.arg()),
+            },
+        )
         .arg(
             Arg::new(JSON)
                 .long(JSON)
                 .action(ArgAction::SetTrue)
                 .help("Prints the result as JSON"),
         )
+        // After the settings flags, whose derived arguments set an `about`
+        // of their own.
+        .about(sentence(operation.description));
+    match operation.deprecated {
+        Some(deprecated) => command.after_help(format!(
+            "Deprecated since {}: {}",
+            deprecated.since, deprecated.note
+        )),
+        None => command,
+    }
 }
 
 /// `text` on one line, with no closing period, as clap shows doc comments.
@@ -186,6 +200,9 @@ enum Form {
     Json,
     /// A repeatable flag, each value read as `Text` or `Json`.
     Repeated { json: bool },
+    /// The run layer's `settings`: `--set` and `--settings`, the
+    /// [`SettingsFlags`].
+    Settings,
 }
 
 impl Parameter {
@@ -200,7 +217,7 @@ impl Parameter {
                 .long(spelled(&self.name))
                 .required(self.required)
                 .action(ArgAction::Set),
-            Form::Repeated { .. } => arg
+            Form::Repeated { .. } | Form::Settings => arg
                 .long(spelled(&self.name))
                 .required(self.required)
                 .action(ArgAction::Append),
@@ -227,6 +244,10 @@ impl Parameter {
             Form::Repeated { json } => matches
                 .get_many::<String>(&self.name)
                 .map(|values| Value::Array(values.map(|text| read(text, json)).collect())),
+            Form::Settings => {
+                let run_layer = SettingsFlags::from_arg_matches(matches).ok()?.run_layer();
+                (!run_layer.is_empty()).then_some(Value::Object(run_layer))
+            }
         }
     }
 }
@@ -254,6 +275,8 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
             let type_of = resolved(schema, &definitions);
             let form = if *name == value_id && required {
                 Form::Value
+            } else if name == SETTINGS {
+                Form::Settings
             } else {
                 match type_name(type_of) {
                     Some("boolean") => Form::Switch,

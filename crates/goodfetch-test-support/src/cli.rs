@@ -123,6 +123,14 @@ impl Cli<'_> {
         arguments.into_iter().fold(self, Cli::arg)
     }
 
+    /// Gives the executable `input` on its standard input, which is empty
+    /// otherwise, as `--settings -` reads it.
+    #[must_use]
+    pub fn stdin(mut self, input: impl Into<Vec<u8>>) -> Self {
+        self.command.write_stdin(input);
+        self
+    }
+
     /// Sets one more variable, over the test's map and the helper's own.
     #[must_use]
     pub fn env(mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {

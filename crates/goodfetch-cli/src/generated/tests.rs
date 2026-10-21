@@ -2,21 +2,28 @@
 //! call, read from the catalog and from entries made up for one case each
 //! (ADR 0099).
 
+use clap::Command;
+use clap::error::ErrorKind;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::entries::operations_of;
+use proptest::prelude::{prop, prop_assert_eq, proptest};
 use rstest::rstest;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
-use super::{Offer, PRODUCT, offer};
+use super::{Call, Offer, PRODUCT, command, duration, member, members_of, offer};
 
 /// What the made-up operations take.
 #[derive(Serialize, Deserialize, JsonSchema)]
 struct WidgetParams {
     /// The widget's ID.
     widget_id: String,
+    /// How long the call may take, in milliseconds; `null` for no timeout.
+    #[serde(default)]
+    timeout: Option<u64>,
 }
 
 /// What they answer.
@@ -115,4 +122,94 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("config.explain", Offer::Command),
         ]
     );
+}
+
+static SPIN: Operation = operation("widget.spin", OperationKind::RoundTrip, Reach::AllSurfaces);
+static FRAMES: Operation = operation("widget.frames", OperationKind::Sequence, Reach::AllSurfaces);
+static WAIT_FOR_STOP: Operation = operation(
+    "widget.wait_for_stop",
+    OperationKind::Waiter,
+    Reach::AllSurfaces,
+);
+
+/// The params `arguments` give `operation`'s command, or clap's refusal.
+fn parse(operation: &'static Operation, arguments: &[&str]) -> Result<Value, clap::Error> {
+    let matches = command(operation).try_get_matches_from(
+        std::iter::once(member(operation)).chain(arguments.iter().copied()),
+    )?;
+    Ok(Value::Object(Call::of(operation, &matches).params))
+}
+
+/// Covers: story:11-198
+#[test]
+fn an_entry_of_an_offered_kind_adds_its_command() {
+    let group = members_of(
+        Command::new("widget"),
+        [&SPIN, &FRAMES, &WAIT_FOR_STOP].into_iter(),
+    );
+
+    let names: Vec<&str> = group.get_subcommands().map(Command::get_name).collect();
+    assert_eq!(names, ["spin", "frames"]);
+}
+
+#[test]
+fn a_sequences_command_takes_follow_and_refuses_to_run_without_it() {
+    let refused = parse(&FRAMES, &["w1"]).unwrap_err();
+
+    assert_eq!(
+        (refused.kind(), refused.exit_code()),
+        (ErrorKind::MissingRequiredArgument, 2)
+    );
+    assert_eq!(
+        parse(&FRAMES, &["w1", "--follow"]).unwrap(),
+        json!({ "widget_id": "w1" })
+    );
+}
+
+#[rstest]
+#[case::omitted(&[], json!({ "widget_id": "w1" }))]
+#[case::seconds(&["--timeout", "45s"], json!({ "widget_id": "w1", "timeout": 45_000 }))]
+#[case::milliseconds(&["--timeout", "45000"], json!({ "widget_id": "w1", "timeout": 45_000 }))]
+#[case::minutes(&["--timeout", "2m"], json!({ "widget_id": "w1", "timeout": 120_000 }))]
+#[case::hours(&["--timeout", "1h"], json!({ "widget_id": "w1", "timeout": 3_600_000 }))]
+#[case::suffixed_milliseconds(&["--timeout", "250ms"], json!({ "widget_id": "w1", "timeout": 250 }))]
+#[case::none(&["--timeout", "none"], json!({ "widget_id": "w1", "timeout": null }))]
+fn timeout_sets_the_three_states_of_a_calls_timeout(
+    #[case] arguments: &[&str],
+    #[case] params: Value,
+) {
+    let mut line = vec!["w1"];
+    line.extend_from_slice(arguments);
+
+    assert_eq!(parse(&SPIN, &line).unwrap(), params);
+}
+
+#[rstest]
+#[case::zero("0")]
+#[case::zero_seconds("0s")]
+#[case::negative("-5")]
+#[case::no_number("soon")]
+#[case::unknown_unit("5d")]
+fn a_timeout_that_is_no_positive_duration_is_a_usage_error(#[case] timeout: &str) {
+    let refused = parse(&SPIN, &["w1", &format!("--timeout={timeout}")]).unwrap_err();
+
+    assert_eq!(
+        (refused.kind(), refused.exit_code()),
+        (ErrorKind::ValueValidation, 2)
+    );
+}
+
+proptest! {
+    #[test]
+    fn a_duration_in_any_unit_reads_as_its_milliseconds(
+        count in 1_u64..=1_000_000,
+        (unit, milliseconds) in prop::sample::select(
+            vec![("ms", 1), ("s", 1_000), ("m", 60_000), ("h", 3_600_000)]
+        ),
+    ) {
+        prop_assert_eq!(
+            duration(&format!("{count}{unit}")),
+            duration(&(count * milliseconds).to_string())
+        );
+    }
 }

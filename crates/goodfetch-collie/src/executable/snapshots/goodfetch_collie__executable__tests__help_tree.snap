@@ -13,6 +13,8 @@ Commands:
   daemon    Starts, stops and shows the Daemon of this executable's major, which both Products share
   runs      Works on the runs of this executable's major, of both Products
   engine    Calls the catalog's `engine` operations
+  events    Calls the catalog's `events` operations
+  page      Calls the catalog's `page` operations
   run       Calls the catalog's `run` operations
   sample    Calls the catalog's `sample` operations
 
@@ -221,6 +223,51 @@ Options:
       --json  Prints the result as JSON
   -h, --help  Print help
 
+$ goodfetch-collie events --help
+Calls the catalog's `events` operations
+
+Usage: goodfetch-collie events <COMMAND>
+
+Commands:
+  subscribe  Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie events subscribe --help
+Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it
+
+Usage: goodfetch-collie events subscribe [OPTIONS] --follow
+
+Options:
+      --follow         Prints what the call sends as it arrives, until it ends
+      --after <AFTER>  The position of the last event the Client read: the subscription resumes after it, or starts with `events.resync` when the engine no longer holds it. Absent, it starts with the next event
+      --json           Prints what the call sends as one JSON object per line
+  -h, --help           Print help
+
+$ goodfetch-collie page --help
+Calls the catalog's `page` operations
+
+Usage: goodfetch-collie page <COMMAND>
+
+Commands:
+  body  Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie page body --help
+Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+
+Usage: goodfetch-collie page body [OPTIONS] --follow --body <BODY> --run-id <RUN_ID>
+
+Options:
+      --follow           Prints what the call sends as it arrives, until it ends
+      --body <BODY>      Its ID
+      --run-id <RUN_ID>  The Run whose folder holds it
+      --json             Prints what the call sends as one JSON object per line
+  -h, --help             Print help
+
 $ goodfetch-collie run --help
 Calls the catalog's `run` operations
 
@@ -293,4 +340,4 @@ Options:
       --json         Prints the result as JSON
   -h, --help         Print help
 
-Deprecated since 0.1: A sample entry, which the real catalog replaces.
+Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.

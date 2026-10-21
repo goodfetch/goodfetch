@@ -81,6 +81,68 @@ class DatasetRecords(BaseModel):
     """How many the Dataset's schema rejected."""
 
 
+class EnqueueDocument(BaseModel):
+    """The document a handler read, against which its relative URLs resolve."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    base_href: str | None = None
+    """The `href` of its first `<base>` element, as written."""
+    url: str
+    """The URL the document was reached at, after every redirect."""
+
+
+class Enqueued1(BaseModel):
+    """The Frontier admitted it as a crawl request."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """The crawl request's ID within the Run."""
+    kind: Literal["added"]
+    url: str
+    """
+    Its URL as the WHATWG URL Standard parsed it, resolved against
+    its base: the URL its handler receives.
+    """
+
+
+class NotAddedReason(StrEnum):
+    """Why the Frontier did not add a request (ADRs 0093 and 0120)."""
+
+    duplicate = "duplicate"
+    """The Frontier already admitted a request of the same identity."""
+    out_of_scope = "out_of_scope"
+    """Its URL is outside the crawl's scope (`crawl.scope.*`)."""
+    domain_policy = "domain_policy"
+    """The Run's domain policy refuses its host."""
+    max_depth = "max_depth"
+    """It is deeper than `crawl.max_depth`."""
+    max_requests = "max_requests"
+    """The crawl already admitted `crawl.max_requests` requests."""
+    unsupported_scheme = "unsupported_scheme"
+    """
+    Its URL's scheme is one the crawl cannot fetch: only `http` and
+    `https` are.
+    """
+    invalid_url = "invalid_url"
+    """
+    The WHATWG URL Standard's parser refuses its URL, or it is relative
+    where nothing gives it a base, as a seed is.
+    """
+    max_url_length = "max_url_length"
+    """Its URL is longer than `crawl.max_url_length`."""
+    max_path_segments = "max_path_segments"
+    """Its URL's path has more segments than `crawl.max_path_segments`."""
+    max_segment_repeats = "max_segment_repeats"
+    """
+    A segment of its URL's path repeats more than
+    `crawl.max_segment_repeats`.
+    """
+
+
 class NothingCommitted(StrEnum):
     """Why a succeeded request committed no Record (ADR 0103)."""
 
@@ -168,6 +230,17 @@ class RunOutcomesParams(BaseModel):
     """Only outcomes of these kinds; absent, every kind."""
     labels: list[str] | None = None
     """Only outcomes of requests of these Labels; absent, every Label."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class RunSeedsParams(BaseModel):
+    """What `run.seeds` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
     run_id: RunId
     """The crawl's Run."""
 
@@ -281,6 +354,40 @@ class SkipReason(StrEnum):
     """The Run's Model allowance was reached."""
     content_type = "content_type"
     """Its response's content type is not one its Label takes."""
+
+
+class CrawlRequestEnqueueParams(BaseModel):
+    """
+    What `crawl_request.enqueue` takes: one request to add, from one attempt
+    of a crawl request.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt enqueues."""
+    document: EnqueueDocument | None = None
+    """
+    The document the handler read, whose base URL a relative `url`
+    resolves against; absent, the crawl request's own URL is the base.
+    """
+    label: str
+    """Its Label."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    payload: Any | None = None
+    """The data the program attaches for its handler."""
+    priority: int | None = 0
+    """
+    Its priority among the requests of its domain: higher goes first; 0
+    by default.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    url: str
+    """The URL to add, absolute or relative to the document's base URL."""
 
 
 class CrawlRequestOutcome1(BaseModel):
@@ -449,6 +556,27 @@ class CrawlStartParams(BaseModel):
     """The Run's opaque tags."""
 
 
+class Enqueued2(BaseModel):
+    """The Frontier did not admit it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its URL as it was given."""
+
+
+class Enqueued(RootModel[Enqueued1 | Enqueued2]):
+    root: Enqueued1 | Enqueued2
+    """
+    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+    value, never an error, since a request is one among many.
+    """
+
+
 class FailedRequests(BaseModel):
     """What `run.failed_requests` answers."""
 
@@ -457,3 +585,16 @@ class FailedRequests(BaseModel):
     )
     requests: list[CrawlRequestOutcome]
     """The latest outcome of each such request, in commit order."""
+
+
+class RunSeeds(BaseModel):
+    """What `run.seeds` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    seeds: list[Enqueued]
+    """
+    Each seed's answer, in the order the start gave the seeds; none for
+    a Run that is no crawl.
+    """

@@ -97,6 +97,64 @@ export type NothingCommitted = "none_pushed" | "none_kept";
  */
 export type Seeds = [Seed, ...Seed[]];
 /**
+ * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+ * value, never an error, since a request is one among many.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "Enqueued".
+ */
+export type Enqueued =
+  | {
+      /**
+       * The crawl request's ID within the Run.
+       */
+      id: string;
+      kind: "added";
+      /**
+       * Its URL as the WHATWG URL Standard parsed it, resolved against
+       * its base: the URL its handler receives.
+       */
+      url: string;
+    }
+  | {
+      kind: "not_added";
+      /**
+       * Why.
+       */
+      reason:
+        | "duplicate"
+        | "out_of_scope"
+        | "domain_policy"
+        | "max_depth"
+        | "max_requests"
+        | "unsupported_scheme"
+        | "invalid_url"
+        | "max_url_length"
+        | "max_path_segments"
+        | "max_segment_repeats";
+      /**
+       * Its URL as it was given.
+       */
+      url: string;
+    };
+/**
+ * Why the Frontier did not add a request (ADRs 0093 and 0120).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "NotAddedReason".
+ */
+export type NotAddedReason =
+  | "duplicate"
+  | "out_of_scope"
+  | "domain_policy"
+  | "max_depth"
+  | "max_requests"
+  | "unsupported_scheme"
+  | "invalid_url"
+  | "max_url_length"
+  | "max_path_segments"
+  | "max_segment_repeats";
+/**
  * The word `now`: from the next commit on.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -169,6 +227,67 @@ export interface AttemptError {
    * What it said.
    */
   message: string;
+}
+/**
+ * What `crawl_request.enqueue` takes: one request to add, from one attempt
+ * of a crawl request.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlRequestEnqueueParams".
+ */
+export interface CrawlRequestEnqueueParams {
+  /**
+   * The ID of the crawl request whose attempt enqueues.
+   */
+  crawl_request_id: string;
+  /**
+   * The document the handler read, whose base URL a relative `url`
+   * resolves against; absent, the crawl request's own URL is the base.
+   */
+  document?: EnqueueDocument | null;
+  /**
+   * Its Label.
+   */
+  label: string;
+  /**
+   * The attempt's lease epoch, as `crawl_request.handle` gave it.
+   */
+  lease_epoch: number;
+  /**
+   * The data the program attaches for its handler.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its priority among the requests of its domain: higher goes first; 0
+   * by default.
+   */
+  priority?: number;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+  /**
+   * The URL to add, absolute or relative to the document's base URL.
+   */
+  url: string;
+}
+/**
+ * The document a handler read, against which its relative URLs resolve.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "EnqueueDocument".
+ */
+export interface EnqueueDocument {
+  /**
+   * The `href` of its first `<base>` element, as written.
+   */
+  base_href?: string | null;
+  /**
+   * The URL the document was reached at, after every redirect.
+   */
+  url: string;
 }
 /**
  * The request it ends.
@@ -382,6 +501,31 @@ export interface RunOutcomesParams {
    * Only outcomes of requests of these Labels; absent, every Label.
    */
   labels?: string[] | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+}
+/**
+ * What `run.seeds` answers.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunSeeds".
+ */
+export interface RunSeeds {
+  /**
+   * Each seed's answer, in the order the start gave the seeds; none for
+   * a Run that is no crawl.
+   */
+  seeds: Enqueued[];
+}
+/**
+ * What `run.seeds` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunSeedsParams".
+ */
+export interface RunSeedsParams {
   /**
    * The crawl's Run.
    */

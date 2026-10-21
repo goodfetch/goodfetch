@@ -2,10 +2,11 @@
 //! Outside `crates/foxhound/`, only this crate and `xtask` name this module.
 //! Its `sample` entries are samples until the crawl areas define the real
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
-//! items.
+//! items, and `outcomes` the reads of how its requests ended.
 
 pub mod block;
 pub mod crawl;
+pub mod outcomes;
 pub mod settings;
 
 use schemars::JsonSchema;

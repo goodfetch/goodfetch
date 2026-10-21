@@ -204,6 +204,23 @@ fn a_locale_case_sets_lang_and_tz_only_for_the_child_it_runs() {
 }
 
 #[test]
+fn a_variable_the_setup_adds_reaches_the_child_over_the_maps_own() {
+    let env = unrecorded().with_variable("GOODFETCH_LOG", "info");
+
+    let output = probe_cli(&env, "probe::prints_its_environment")
+        .run()
+        .unwrap();
+
+    assert!(
+        output
+            .stdout
+            .lines()
+            .any(|line| line.ends_with("env:GOODFETCH_LOG=info")),
+        "{output}"
+    );
+}
+
+#[test]
 fn a_locale_outside_the_shared_table_fails_the_run_before_it_starts() {
     let env = unrecorded();
 

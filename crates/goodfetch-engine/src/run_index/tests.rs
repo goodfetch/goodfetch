@@ -60,17 +60,31 @@ fn row(run_id: &str) -> RunIndexRow {
     }
 }
 
+/// A crawl's row, which needs Foxhound.
+fn crawl_row(run_id: &str) -> RunIndexRow {
+    RunIndexRow {
+        kind: RunKind::Crawl,
+        needs: Product::Foxhound,
+        ..row(run_id)
+    }
+}
+
 fn marker(path: &PathBuf) -> Option<Marker> {
     lowest_minor::read_sqlite(&Connection::open(path).unwrap(), RUN_INDEX.name).unwrap()
 }
 
+/// A newer minor, a Foxhound engine's, adds a crawl's row an older engine
+/// reads: the marker records the newer format and keeps its lowest minor,
+/// and the older engine reads the Foxhound row as it was written (ADRs
+/// 0094 and 0098).
+///
 /// Covers: story:3-144, format:run-index
 #[test]
 fn a_newer_minor_that_adds_a_row_an_older_engine_reads_leaves_the_marker_unchanged() {
     let (_folder, path) = index();
     write_as(&path, &older(), &row("older")).unwrap();
 
-    write_as(&path, &newer(), &row("newer")).unwrap();
+    write_as(&path, &newer(), &crawl_row("newer")).unwrap();
 
     assert_eq!(
         (marker(&path), rows_as(&path, &older()).unwrap()),
@@ -79,7 +93,7 @@ fn a_newer_minor_that_adds_a_row_an_older_engine_reads_leaves_the_marker_unchang
                 version: version(1, 3),
                 lowest_minor: 0,
             }),
-            vec![row("newer"), row("older")]
+            vec![crawl_row("newer"), row("older")]
         )
     );
 }

@@ -584,6 +584,194 @@
         }
       ]
     },
+    "Limit": {
+      "description": "One Limit of the Usage ledger: a generic row, which a newer engine may\nwrite with a scope kind, a Usage kind, a currency or a period this one\ndoes not know (ADR 0041).",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the Usage kind's price in, an ISO 4217 code;\nnone for a Limit on the Usage itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "must_understand": {
+          "arrived_in": "0.1",
+          "description": "Whether an engine that cannot evaluate it must refuse the runs it\ncannot place outside it, with `limit_not_understood`.",
+          "type": "boolean"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again,\nsuch as a Client connection's."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "What it is on."
+        },
+        "set_by": {
+          "$ref": "#/$defs/LimitSetter",
+          "arrived_in": "0.1",
+          "description": "Who set it."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps, a value of a type both Products share.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount",
+        "must_understand",
+        "set_by"
+      ],
+      "type": "object"
+    },
+    "LimitScope": {
+      "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind: the major's name for a Daemon, the person's\nname, the token's name or the Client connection's ID; empty for the\ninstall.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    "LimitSetter": {
+      "description": "Who set a Limit, which decides whether it allows paying (ADR 0045).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, in the Console or an interactive CLI prompt.",
+          "type": "string"
+        },
+        {
+          "const": "managed_policy",
+          "description": "A managed Operator policy.",
+          "type": "string"
+        },
+        {
+          "const": "client",
+          "description": "A Client, which only adds a Limit of its own.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitStanding": {
+      "description": "What the engine that read a Limit makes of it.",
+      "oneOf": [
+        {
+          "const": "held",
+          "description": "It holds its runs to it.",
+          "type": "string"
+        },
+        {
+          "const": "foxhound",
+          "description": "It is on a value only Foxhound carries, such as `paid_fetch`, which\na Collie engine keeps untouched (ADR 0098).",
+          "type": "string"
+        },
+        {
+          "const": "not_understood",
+          "description": "It cannot evaluate it: a newer engine wrote it.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitUsage": {
+      "description": "One Limit with the Usage counted against it in its current period.",
+      "properties": {
+        "charged": {
+          "arrived_in": "0.1",
+          "description": "The Usage charged in the current period: what ended runs used, and\nwhat was reclaimed from dead engines' Slices.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held": {
+          "arrived_in": "0.1",
+          "description": "The Usage live runs hold in Slices they have not returned yet.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "left": {
+          "arrived_in": "0.1",
+          "description": "What is left of the amount in the current period.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "$ref": "#/$defs/Limit",
+          "arrived_in": "0.1",
+          "description": "The Limit."
+        },
+        "period_started_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the current period started; none for a Limit without one."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the next period starts; none for a Limit without one."
+        },
+        "standing": {
+          "$ref": "#/$defs/LimitStanding",
+          "arrived_in": "0.1",
+          "description": "What the engine that read it makes of it."
+        }
+      },
+      "required": [
+        "limit",
+        "standing",
+        "charged",
+        "held",
+        "left"
+      ],
+      "type": "object"
+    },
     "Navigated": {
       "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, or back or forward from the last entry of the page's\nhistory. A 404 or a 500 is a response, a value.",
       "properties": {
@@ -732,6 +920,46 @@
       ],
       "type": "object"
     },
+    "Period": {
+      "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
+      "properties": {
+        "every": {
+          "$ref": "#/$defs/PeriodLength",
+          "arrived_in": "0.1",
+          "description": "How long it counts."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its midnights are in, such as `Europe/Paris`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "every",
+        "time_zone"
+      ],
+      "type": "object"
+    },
+    "PeriodLength": {
+      "description": "How long a period Limit counts before it starts again (ADR 0041).",
+      "oneOf": [
+        {
+          "const": "day",
+          "description": "From one midnight to the next.",
+          "type": "string"
+        },
+        {
+          "const": "week",
+          "description": "From Monday's midnight to the next Monday's.",
+          "type": "string"
+        },
+        {
+          "const": "month",
+          "description": "From the first day's midnight to the next month's.",
+          "type": "string"
+        }
+      ]
+    },
     "PointInTime": {
       "description": "A point in time in UTC, as RFC 3339.",
       "format": "date-time",
@@ -788,6 +1016,58 @@
       "description": "A version `major.minor` (ADR 0030).",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "type": "string"
+    },
+    "ReachedLimit": {
+      "description": "The Limit a Run cannot take more of: what `limit_reached` details, and\nwhat a Run stopped for it names (ADR 0041).",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When its period starts again; none for a Limit without one."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
+      ],
+      "type": "object"
     },
     "Resync": {
       "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
@@ -1486,6 +1766,20 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ReachedLimit",
+          "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
+          "properties": {
+            "kind": {
+              "const": "limit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -1515,6 +1809,85 @@
       },
       "maxItems": 16,
       "type": "array"
+    },
+    "UsageListParams": {
+      "additionalProperties": false,
+      "description": "What `usage.list` takes.",
+      "type": "object"
+    },
+    "UsageListResult": {
+      "description": "What `usage.list` answers, and what `usage --json` prints.",
+      "properties": {
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "Every Limit of the Usage ledger, by scope, with its Usage.",
+          "items": {
+            "$ref": "#/$defs/LimitUsage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "limits"
+      ],
+      "type": "object"
+    },
+    "UsageSetParams": {
+      "additionalProperties": false,
+      "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the caller's own when absent (its Client\nconnection, its person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
     },
     "Verdict": {
       "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
@@ -1695,6 +2068,26 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "format_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_not_understood",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_reached",
       "product": "collie",
       "retryable": false
     },
@@ -2459,6 +2852,44 @@
         "$ref": "#/$defs/SampleEchoResult"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
+      "events": [],
+      "kind": "query",
+      "name": "usage.list",
+      "params": {
+        "$ref": "#/$defs/UsageListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.set",
+      "params": {
+        "$ref": "#/$defs/UsageSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
+      },
+      "stability": "experimental"
     }
   ],
   "plugin_kinds": [
@@ -2966,10 +3397,31 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Every run a Client connection starts, while it lasts.",
+      "name": "connection",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A wall that asks for consent before it shows the page (ADR 0048).",
       "name": "consent_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Daemon runs.",
+      "name": "daemon",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run of the user on the machine, whichever engine runs it.",
+      "name": "install",
+      "product": "collie",
+      "type": "limit_scope"
     },
     {
       "arrived_in": "0.1",
@@ -2980,10 +3432,31 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
+      "name": "paid_solves",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site asked to be paid for the page (ADR 0045).",
       "name": "payment_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a person starts.",
+      "name": "person",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Bytes a run sent and received through a proxy, per proxy kind.",
+      "name": "proxy_bytes",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",
@@ -2994,10 +3467,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+      "name": "requests",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Connection holding a named token starts.",
+      "name": "token",
+      "product": "collie",
+      "type": "limit_scope"
     }
   ]
 }

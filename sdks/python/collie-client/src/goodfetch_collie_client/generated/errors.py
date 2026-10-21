@@ -178,6 +178,22 @@ class FormatVersionUnsupportedError(UnavailableError):
         super().__init__(message, code="format_version_unsupported", group="unavailable", retryable=False)
 
 
+class LimitNotUnderstoodError(RefusedError):
+    """A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="limit_not_understood", group="refused", retryable=False)
+
+
+class LimitReachedError(RefusedError):
+    """A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="limit_reached", group="refused", retryable=False)
+
+
 class NameLookupFailedError(UnavailableError):
     """The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting."""
 
@@ -370,6 +386,8 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
+    "limit_not_understood": LimitNotUnderstoodError,
+    "limit_reached": LimitReachedError,
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,
     "navigation_failed": NavigationFailedError,

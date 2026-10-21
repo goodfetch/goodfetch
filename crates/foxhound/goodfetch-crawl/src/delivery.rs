@@ -29,8 +29,9 @@
 use goodfetch_engine::admission::{Admission, Ended, Waiting};
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::{Ending, Run};
+use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
@@ -40,6 +41,7 @@ use goodfetch_protocol::foxhound::crawl::{
 };
 use goodfetch_protocol::run::StopReason;
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::usage::REQUESTS;
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -277,7 +279,7 @@ async fn lease_to_servers(
     admission: &mut Admission,
     servers: &mut [Serving],
     attempts: &mut JoinSet<Attempt>,
-) -> Result<(), RunStateError> {
+) -> Result<(), ChargeError> {
     for (place, server) in servers.iter_mut().enumerate() {
         if !server.serves() || server.in_flight >= policy.handler_concurrency {
             continue;
@@ -442,12 +444,15 @@ async fn fill(
 }
 
 /// Admits up to `room` work items ready now and leases them, then fills
-/// again each domain's queue that drained.
+/// again each domain's queue that drained. Each one first charges the
+/// request it is against the Limits that hold the Run (ADR 0041): once one
+/// has nothing left, the Run is asked to stop at its next safe point and
+/// nothing more is admitted.
 async fn admit(
     run: &Run,
     admission: &mut Admission,
     room: usize,
-) -> Result<Vec<Leased>, RunStateError> {
+) -> Result<Vec<Leased>, ChargeError> {
     let now = run.clock().now();
     let mut ids = Vec::new();
     let mut drained = Vec::new();
@@ -455,6 +460,11 @@ async fn admit(
         let Some(admitted) = admission.admit(now) else {
             break;
         };
+        match run.charge(REQUESTS, 1).await {
+            Ok(()) => {}
+            Err(ChargeError::Refused(Refusal::Reached(_))) => break,
+            Err(error) => return Err(error),
+        }
         if admitted.drained {
             drained.push(admitted.key);
         }

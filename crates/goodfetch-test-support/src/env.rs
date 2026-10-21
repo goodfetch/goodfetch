@@ -19,6 +19,7 @@ use std::time::{Duration, SystemTime};
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
 use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
+use crate::runtime_file::major_folder;
 use crate::variables::{
     COVERAGE_VARIABLE, SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test,
 };
@@ -43,6 +44,14 @@ fn log_level() -> String {
 
 /// How long a folder name keeps the test's name.
 const NAME_LENGTH: usize = 64;
+
+/// The settings every test's user configuration starts with: the Console
+/// of every Daemon the test starts listens on a port the OS chooses, never
+/// on its major's fixed port (ADR 0059).
+pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\n";
+
+/// The user configuration's file in the per-major folder.
+const USER_CONFIGURATION: &str = "configuration.toml";
 
 /// One test's isolated setup. Its folder is removed when it drops, unless
 /// the test failed: then it is kept and listed on stderr. Dropping it also
@@ -114,6 +123,7 @@ impl TestEnv {
             env.insert(name.to_owned(), value.to_owned());
         }
         restrict_to_owner(&root.join("runtime"))?;
+        write_user_configuration(&home, "")?;
         env.insert("TZ".to_owned(), "UTC".to_owned());
         env.insert("LANG".to_owned(), "C.UTF-8".to_owned());
         env.insert(LOG_OUTPUT.0.to_owned(), LOG_OUTPUT.1.to_owned());
@@ -177,6 +187,19 @@ impl TestEnv {
     /// `<folder>/home`, the `GOODFETCH_HOME` of everything the test starts.
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// Writes the home's user configuration with `settings`, lines of TOML
+    /// under `[settings]`, after [`TEST_SETTINGS`], which every test's home
+    /// starts with, unless `settings` sets `console.address` itself.
+    ///
+    /// # Panics
+    ///
+    /// If the file cannot be written.
+    pub fn user_configuration(&self, settings: &str) {
+        write_user_configuration(&self.home, settings).unwrap_or_else(|error| {
+            panic!("the test's user configuration cannot be written: {error}")
+        });
     }
 
     /// `<home>/crash-dumps`, which the map names in
@@ -327,6 +350,23 @@ fn folder_name(test: &str) -> String {
         })
         .take(NAME_LENGTH)
         .collect()
+}
+
+/// Writes `home`'s user configuration of the workspace's major: its format
+/// version, then [`TEST_SETTINGS`] and `settings` under `[settings]`; when
+/// `settings` sets the Console's address itself, its value alone.
+fn write_user_configuration(home: &Path, settings: &str) -> io::Result<()> {
+    let folder = home.join(major_folder(env!("CARGO_PKG_VERSION")));
+    std::fs::create_dir_all(&folder)?;
+    let defaults = if settings.contains("console.address") {
+        ""
+    } else {
+        TEST_SETTINGS
+    };
+    std::fs::write(
+        folder.join(USER_CONFIGURATION),
+        format!("version = \"0.1\"\n\n[settings]\n{defaults}{settings}"),
+    )
 }
 
 #[cfg(unix)]

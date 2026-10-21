@@ -2,6 +2,7 @@
 [modules]
 block_detection = []
 composition = ["sample"]
+console_build = []
 executable = ["pins"]
 pins = []
 sample = []

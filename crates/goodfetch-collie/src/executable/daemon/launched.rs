@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{BufRead as _, BufReader};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::sync::Arc;
@@ -21,14 +22,18 @@ use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock, new_token};
-use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, pick};
-use goodfetch_engine::transport::{DaemonListener, Network};
+use goodfetch_engine::transport::{DaemonListener, Network, listen_console};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::console::{
+    ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, ConsoleFailure, ConsoleState, default_address,
+};
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT};
+use goodfetch_protocol::settings::SETTING_INVALID;
 
 use super::{Failure, Machine, multi_thread_runtime, now, unavailable};
 use goodfetch_cli::output;
@@ -135,11 +140,21 @@ pub(in crate::executable) fn launched(
             return unavailable("the Daemon's serving lock cannot be taken")(error).report();
         }
     };
-    let idle_timeout =
-        browsers::machine_settings(machine.home, identity.product, &identity.product_version)
-            .ok()
-            .and_then(|settings| settings.value(IDLE_TIMEOUT.name).as_u64())
-            .map_or(Duration::from_secs(600), Duration::from_millis);
+    let settings =
+        browsers::machine_settings(machine.home, identity.product, &identity.product_version).ok();
+    let idle_timeout = settings
+        .as_ref()
+        .and_then(|settings| settings.value(IDLE_TIMEOUT.name).as_u64())
+        .map_or(Duration::from_secs(600), Duration::from_millis);
+    let console_address = settings.as_ref().map_or_else(
+        || default_address(&identity.product_version).to_string(),
+        |settings| {
+            settings.value(CONSOLE_ADDRESS.name).as_str().map_or_else(
+                || default_address(&identity.product_version).to_string(),
+                str::to_owned,
+            )
+        },
+    );
     let (socket, _socket_folder) = match files.socket_place() {
         Ok(place) => place,
         Err(error) => return unavailable("the Daemon's socket has no folder")(error).report(),
@@ -151,11 +166,17 @@ pub(in crate::executable) fn launched(
     let ended = runtime.block_on(async {
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service).await?;
+        let (console, console_state) = if engine.serves_console() {
+            start_console(&console_address).await
+        } else {
+            (DaemonConsole::Absent, ConsoleState::Absent)
+        };
         let published = DaemonRuntimeFile {
             endpoint: endpoint.clone(),
             token: token.clone(),
             version: identity.product_version.clone(),
             pid,
+            console: console_state,
         };
         files
             .publish(&published)
@@ -179,6 +200,7 @@ pub(in crate::executable) fn launched(
                 pid,
                 keeps_socket: activated,
             }),
+            console,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,
@@ -189,6 +211,56 @@ pub(in crate::executable) fn launched(
     match ended {
         Ok((ended, activated)) => finish(machine, &files, pid, serving, ended, activated),
         Err(failure) => failure.report(),
+    }
+}
+
+/// The Daemon's Console (ADR 0031): its listener at `address`, the
+/// `console.address` setting, and the URL it is reached at; or, when the
+/// address is no `host:port` or another program holds its port, why it did
+/// not start, which fails only the Console, never the Daemon's protocol.
+async fn start_console(address: &str) -> (DaemonConsole, ConsoleState) {
+    let failed = |failure: ConsoleFailure| {
+        tracing::error!(
+            code = failure.code.as_str(),
+            "{} {}",
+            failure.message,
+            failure.fix
+        );
+        (
+            DaemonConsole::Failed(failure.clone()),
+            ConsoleState::Failed(failure),
+        )
+    };
+    let Ok(parsed) = address.parse::<SocketAddr>() else {
+        return failed(ConsoleFailure {
+            code: SETTING_INVALID.name.to_owned(),
+            message: format!("`console.address` is `{address}`, which is no `host:port`, so the Console did not start."),
+            fix: "Set `console.address` to an address and port, such as `127.0.0.1:7800`, then run `daemon restart`.".to_owned(),
+        });
+    };
+    match listen_console(parsed).await {
+        Ok(listener) => match listener.local_address() {
+            Ok(bound) => {
+                let url = format!("http://{bound}/");
+                tracing::info!(%url, "the Console serves");
+                (DaemonConsole::Listening { listener, url: url.clone() }, ConsoleState::Serving(url))
+            }
+            Err(error) => failed(ConsoleFailure {
+                code: SETTING_INVALID.name.to_owned(),
+                message: format!("The Console's listener at {address} has no address: {error}."),
+                fix: "Set `console.address` to another address, then run `daemon restart`.".to_owned(),
+            }),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => failed(ConsoleFailure {
+            code: CONSOLE_PORT_IN_USE.name.to_owned(),
+            message: format!("Another program holds {address}, so the Console did not start; the Daemon still serves its Clients."),
+            fix: "Set `console.address` to a free port in user configuration (port 0 takes any free one), or stop the program that holds it, then run `daemon restart`.".to_owned(),
+        }),
+        Err(error) => failed(ConsoleFailure {
+            code: SETTING_INVALID.name.to_owned(),
+            message: format!("The Console cannot listen at {address}: {error}."),
+            fix: "Set `console.address` to an address this machine has and a port it may take, then run `daemon restart`.".to_owned(),
+        }),
     }
 }
 

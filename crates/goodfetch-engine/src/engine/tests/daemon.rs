@@ -17,7 +17,7 @@ use tokio::sync::watch;
 
 use super::run::{call, index_row};
 use super::{Client, dependencies, engine};
-use crate::daemon::{DaemonEnd, DaemonOptions, Holds, Succession};
+use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
 use crate::engine::Engine;
 use crate::transport::{self, InMemoryDialer, Network};
 
@@ -65,6 +65,7 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
             pick,
             handovers: Arc::clone(handovers),
         }),
+        console: DaemonConsole::Absent,
     }
 }
 
@@ -347,6 +348,7 @@ fn daemon_status_counts_its_clients_and_live_runs() {
         json!({
             "product": "collie", "product_version": "1.4.0", "pid": 4242,
             "endpoint": { "unix": "daemon.sock" }, "clients": 2, "live_runs": 2,
+            "console": "absent",
             "kept_alive": false, "idle_timeout": 600_000,
         })
     );

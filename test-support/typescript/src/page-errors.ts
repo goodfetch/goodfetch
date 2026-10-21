@@ -34,6 +34,13 @@ export interface PageErrorWatch {
   readonly errors: readonly PageError[];
   /** Fails with `page_errors` when any error was recorded, once each open page has delivered those it raised. */
   check(): Promise<void>;
+  /**
+   * Answers and forgets every error recorded so far, once each open page
+   * has delivered those it raised: a test that provokes errors on purpose,
+   * such as the production CSP's refusals, asserts them, and `check` judges
+   * only those that come after.
+   */
+  take(): Promise<readonly PageError[]>;
 }
 
 /** The page's function, exposed by the watch, that each CSP violation calls. */
@@ -96,16 +103,23 @@ export async function watchPageErrors(context: BrowserContext): Promise<PageErro
       record("request_failed", `HTTP ${response.status()}`, response.url());
     }
   });
+  // A violation reaches the watch through the page's own event loop: one
+  // round trip to each open page lets those already raised arrive.
+  const delivered = async (): Promise<void> => {
+    await Promise.all(
+      context.pages().map(async (page) => {
+        await page.evaluate(() => 0).catch(() => undefined);
+      }),
+    );
+  };
   return {
     errors,
+    take: async () => {
+      await delivered();
+      return errors.splice(0);
+    },
     check: async () => {
-      // A violation reaches the watch through the page's own event loop:
-      // one round trip to each open page lets those already raised arrive.
-      await Promise.all(
-        context.pages().map(async (page) => {
-          await page.evaluate(() => 0).catch(() => undefined);
-        }),
-      );
+      await delivered();
       if (errors.length > 0) {
         const lines = errors.map((error) => `- ${error.kind} at ${error.url}: ${error.text}`);
         throw new TestSupportError(

@@ -20,6 +20,7 @@ use crate::catalog::{
 };
 pub use crate::connection::DaemonEndpoint;
 use crate::connection::ProductVersion;
+use crate::console::ConsoleState;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -41,6 +42,10 @@ pub struct DaemonRuntimeFile {
     /// Its process ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pid: u32,
+    /// Where its Console is served, with the port it bound when
+    /// `console.address` asks for port 0.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console: ConsoleState,
 }
 
 fn ten_minutes() -> serde_json::Value {
@@ -111,6 +116,9 @@ pub struct DaemonStatus {
     /// Its `daemon.idle_timeout`, in milliseconds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub idle_timeout: u64,
+    /// Where its Console is served, or why it is not.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console: ConsoleState,
 }
 
 /// What `daemon.stop` answers, before the Daemon stops.

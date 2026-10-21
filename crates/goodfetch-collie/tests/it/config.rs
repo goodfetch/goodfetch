@@ -48,11 +48,7 @@ fn lay_out(env: &TestEnv) {
         "version = \"0.1\"\n\n[lock.network.resolve]\n\"staging.example\" = [\"127.0.0.1\"]\n",
     )
     .unwrap();
-    fs::write(
-        major.join("configuration.toml"),
-        "version = \"0.1\"\n\n[settings]\ntimeout.navigation = 45000\ncrawl.retry.max = 5\n",
-    )
-    .unwrap();
+    env.user_configuration("timeout.navigation = 45000\ncrawl.retry.max = 5\n");
     fs::write(
         env.folder().join("goodfetch.toml"),
         "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 60000\nfirst_byte = 10000\n",

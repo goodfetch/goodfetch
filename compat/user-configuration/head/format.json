@@ -33,6 +33,16 @@
             },
             "type": "object"
           },
+          "browser": {
+            "additionalProperties": false,
+            "properties": {
+              "headless": {
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "browser_cache": {
             "additionalProperties": false,
             "properties": {

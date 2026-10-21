@@ -69,14 +69,17 @@ impl Drop for DiskImage {
 }
 
 /// Fills the filesystem of `folder` with a file of zeros until no space is
-/// left.
+/// left, then frees 16 KiB: room to create a file, not to write a
+/// Checkpoint, so the write fails part way and its file must go.
 fn fill(folder: &Path) {
     let mut filler = std::fs::File::create(folder.join("filler")).unwrap();
     let block = vec![0_u8; 64 * 1024];
     while filler.write_all(&block).is_ok() {}
     let small = [0_u8; 512];
     while filler.write_all(&small).is_ok() {}
-    let _ = filler.sync_all();
+    let full = filler.metadata().unwrap().len();
+    filler.set_len(full - 16 * 1024).unwrap();
+    filler.sync_all().unwrap();
 }
 
 /// The names of the files in `folder`, sorted.

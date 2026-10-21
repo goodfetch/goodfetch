@@ -5,6 +5,7 @@ CREATE TABLE domains (
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
+INSERT INTO "domains" VALUES('shop.test',1767603602000,1);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE records (
@@ -49,7 +50,7 @@ CREATE TABLE work_items (
             priority INTEGER NOT NULL
         ) STRICT;
 INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','home','{"depth":0}','succeeded',1,1,NULL,'shop.test',0);
-INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','product',NULL,'failed',1,1,'handler_failed','shop.test',0);
+INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','product',NULL,'failed',1,1,'deadline_exceeded','shop.test',0);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);

@@ -1,2 +1,4 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
+domain_key = []
+queues = ["domain_key"]

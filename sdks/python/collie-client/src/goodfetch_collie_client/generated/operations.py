@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, PageParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -71,12 +71,33 @@ class AsyncCollieOperations:
         """
         return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
 
+    async def page_go_back(self, params: PageParams) -> Navigated:
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.go_back", params)))
+
+    async def page_go_forward(self, params: PageParams) -> Navigated:
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.go_forward", params)))
+
     async def page_goto(self, params: GotoParams) -> Navigated:
-        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.
+        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return Navigated.model_construct(**_fields(await self._caller.call("page.goto", params)))
+
+    async def page_reload(self, params: PageParams) -> Navigated:
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.reload", params)))
 
     async def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
@@ -182,12 +203,33 @@ class CollieOperations:
         """
         return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
 
+    def page_go_back(self, params: PageParams) -> Navigated:
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.go_back", params)))
+
+    def page_go_forward(self, params: PageParams) -> Navigated:
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.go_forward", params)))
+
     def page_goto(self, params: GotoParams) -> Navigated:
-        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.
+        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return Navigated.model_construct(**_fields(self._caller.call("page.goto", params)))
+
+    def page_reload(self, params: PageParams) -> Navigated:
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.reload", params)))
 
     def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.

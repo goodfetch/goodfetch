@@ -1,8 +1,8 @@
 //! A Run's pages (ADRs 0085, 0092 and 0099): `run.new_page` opens a page in
 //! the Run's default Session, which the first call opens and every later
-//! one shares, and `page.goto` takes a page to a URL and answers the
-//! document's `Response`; and the Error codes a page's browser and its
-//! navigations fail with.
+//! one shares; `page.goto`, `page.reload`, `page.go_back` and
+//! `page.go_forward` navigate a page and answer the document's `Response`;
+//! and the Error codes a page's browser and its navigations fail with.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -170,6 +170,15 @@ pub struct GotoParams {
     pub url: String,
 }
 
+/// What `page.reload`, `page.go_back` and `page.go_forward` take: the page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PageParams {
+    /// The page.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub page_id: PageId,
+}
+
 /// The response to a request of a page, such as a navigation's document.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PageResponse {
@@ -187,9 +196,10 @@ pub struct PageResponse {
     pub headers: BTreeMap<String, String>,
 }
 
-/// What `page.goto` answers: the document's response, or none for a
-/// navigation within the same document or to a URL no server answers, such
-/// as `about:blank`. A 404 or a 500 is a response, a value.
+/// What a navigation answers: the document's response, or none for a
+/// navigation within the same document, to a URL no server answers, such as
+/// `about:blank`, or back or forward from the last entry of the page's
+/// history. A 404 or a 500 is a response, a value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Navigated {
     /// The document's response.
@@ -200,13 +210,22 @@ pub struct Navigated {
 /// What `navigation_failed` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct NavigationFailedDetails {
-    /// The URL the navigation went to.
+    /// The URL the navigation went to; empty when the page's history, which
+    /// names it for a reload or a step back or forward, did not read.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
     /// The browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`,
     /// when the browser named one.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub error: Option<String>,
+}
+
+/// What `navigation_interrupted` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NavigationInterruptedDetails {
+    /// The URL of the navigation that was superseded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
 }
 
 /// How a browser process ended (ADR 0113).
@@ -250,6 +269,16 @@ pub const NAVIGATION_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A navigation another superseded before it committed (ADR 0085).
+pub const NAVIGATION_INTERRUPTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "navigation_interrupted",
+    description: "Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A page whose renderer or browser was lost (ADRs 0085 and 0113).
 pub const PAGE_CRASHED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "page_crashed",
@@ -289,7 +318,7 @@ pub const RUN_NEW_PAGE: Operation = Operation {
 /// `page.goto`.
 pub const PAGE_GOTO: Operation = Operation {
     name: "page.goto",
-    description: "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.",
+    description: "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -302,15 +331,71 @@ pub const PAGE_GOTO: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `page.reload`.
+pub const PAGE_RELOAD: Operation = Operation {
+    name: "page.reload",
+    description: "Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<PageParams>,
+    result: schema_of::<Navigated>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `page.go_back`.
+pub const PAGE_GO_BACK: Operation = Operation {
+    name: "page.go_back",
+    description: "Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<PageParams>,
+    result: schema_of::<Navigated>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `page.go_forward`.
+pub const PAGE_GO_FORWARD: Operation = Operation {
+    name: "page.go_forward",
+    description: "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<PageParams>,
+    result: schema_of::<Navigated>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_NEW_PAGE, PAGE_GOTO, PAGE_BODY],
+    operations: &[
+        RUN_NEW_PAGE,
+        PAGE_GOTO,
+        PAGE_RELOAD,
+        PAGE_GO_BACK,
+        PAGE_GO_FORWARD,
+        PAGE_BODY,
+    ],
     events: &[],
     handler_requests: &[],
     error_codes: &[
         BODY_NOT_FOUND,
         NAVIGATION_FAILED,
+        NAVIGATION_INTERRUPTED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
     ],

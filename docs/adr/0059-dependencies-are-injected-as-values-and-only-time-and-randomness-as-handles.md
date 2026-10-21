@@ -51,6 +51,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 ### Network
 
 - **A `resolve` setting** maps host names to addresses, like curl's `--resolve`. It applies before any lookup, whichever resolver then runs: the engine's own (ADRs 0024 and 0044), the OS resolver Goodfetch uses on macOS and Windows, and Chromium through `--host-resolver-rules` wherever Chromium resolves on its own. A Session behind a proxy hands the name to the proxy, which resolves it, so the mapping does not reach it (ADR 0017). Tests point every Proving ground host name at loopback, which a run allowlists for tests (ADR 0017). Users get staging hosts and pinned addresses from the same setting. This ADR lets every layer of ADR 0028 set it and Operator policy lock it, since an address it gives still passes ADR 0017's check of resolved addresses.
+  > Note (#698, agent decision, pending owner review): after the `resolve` setting's rules, every Chromium the engine launches gets `MAP *.invalid ~NOTFOUND`, so a `.invalid` name (RFC 6761, section 6.4) fails as `net::ERR_NAME_NOT_RESOLVED` without a DNS query, and the test of an unresolvable name (pitfall H01) asks no live resolver.
 - **Proxies are tested against a real forward proxy** that the Proving ground serves. They are never mocked.
 - **Local addresses (ADR 0044) are tested on real extra addresses:**
   - Linux: `127.0.0.0/8`, or a network namespace under sudo.

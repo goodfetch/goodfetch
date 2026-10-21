@@ -210,6 +210,14 @@ class NavigationFailedError(PageError):
         super().__init__(message, code="navigation_failed", group="page", retryable=True)
 
 
+class NavigationInterruptedError(PageError):
+    """Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="navigation_interrupted", group="page", retryable=False)
+
+
 class NotADaemonError(ProgramError):
     """The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`."""
 
@@ -366,6 +374,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,
     "navigation_failed": NavigationFailedError,
+    "navigation_interrupted": NavigationInterruptedError,
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,

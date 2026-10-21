@@ -1,9 +1,10 @@
 //! Live actions forwarded to the engine that owns a Run (ADR 0031): an
 //! engine that cannot take a Run's writer lock asks the owner the Run index
-//! names. Today that owner is the Daemon of the engine's major, the one
-//! engine with an endpoint, reached with the token of its runtime file; an
-//! endpoint no running Daemon of the major publishes gets no call, and a
-//! Daemon that does not own the Run answers `run_not_owned`.
+//! names. A Daemon of the engine's major is reached with the token of its
+//! runtime file, and an endpoint no running Daemon of the major publishes
+//! gets no call; an Attached engine is reached at its private endpoint,
+//! with the token its token file holds. An owner that does not own the Run
+//! answers `run_not_owned`.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -14,10 +15,11 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
-use goodfetch_protocol::run::{RunAbortParams, RunId, RunReport};
+use goodfetch_protocol::run::{RunAbortParams, RunId, RunOwner, RunReport};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
+use crate::attached::read_token;
 use crate::clock::Clock;
 use crate::daemon::files::DaemonFiles;
 use crate::home::Home;
@@ -29,8 +31,9 @@ use crate::transport;
 /// and a Run's own abort then takes what its next safe point takes.
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 
-/// Forwards to the Daemon of one major.
-pub(crate) struct ToDaemon {
+/// Forwards to the owner the Run index names: a Daemon of one major, or an
+/// Attached engine.
+pub(crate) struct ToOwner {
     /// The Goodfetch home, which holds the Daemon's runtime file.
     pub(crate) home: Home,
     /// This engine's Product version, which names the major.
@@ -39,19 +42,34 @@ pub(crate) struct ToDaemon {
     pub(crate) clock: Clock,
 }
 
-impl Forwarder for ToDaemon {
+impl ToOwner {
+    /// Where `owner` listens and the token its `hello` takes; `None` when
+    /// it cannot be reached.
+    async fn reach(&self, owner: &RunOwner, tasks: &TaskOwner) -> Option<(DaemonEndpoint, String)> {
+        match owner {
+            RunOwner::Daemon(endpoint) => {
+                let files = DaemonFiles::of(&self.home, &self.version);
+                let running = tasks.blocking(move || files.running()).await.ok()??;
+                (&running.endpoint == endpoint).then_some((running.endpoint, running.token))
+            }
+            RunOwner::Attached(private) => {
+                let token_file = private.token_file.clone();
+                let token = tasks.blocking(move || read_token(&token_file)).await.ok()?;
+                Some((private.address.clone(), token))
+            }
+        }
+    }
+}
+
+impl Forwarder for ToOwner {
     fn abort<'a>(
         &'a self,
-        owner: &'a DaemonEndpoint,
+        owner: &'a RunOwner,
         run_id: &'a RunId,
         tasks: &'a TaskOwner,
     ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>> {
         Box::pin(async move {
-            let files = DaemonFiles::of(&self.home, &self.version);
-            let running = tasks.blocking(move || files.running()).await.ok()??;
-            if &running.endpoint != owner {
-                return None;
-            }
+            let (endpoint, token) = self.reach(owner, tasks).await?;
             let params = RunAbortParams {
                 run_id: run_id.clone(),
                 forwarded: true,
@@ -59,11 +77,11 @@ impl Forwarder for ToDaemon {
             let hello = HelloParams {
                 protocol_version: PROTOCOL_VERSION,
                 surface: Surface::Rust,
-                token: Some(running.token),
+                token: Some(token),
                 needs: Some(Product::Collie),
                 product_version: self.version.clone(),
             };
-            let answered = call(owner, &hello, &params, self.clock).await;
+            let answered = call(&endpoint, &hello, &params, self.clock).await;
             match answered {
                 Ok(report) => Some(report),
                 Err(reason) => {

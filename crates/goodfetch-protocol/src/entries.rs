@@ -76,7 +76,8 @@ mod tests {
                 "sample.echo",
                 "config.explain",
                 "sample.crawl",
-                "crawl.start"
+                "crawl.start",
+                "crawl.serve"
             ]
         );
     }

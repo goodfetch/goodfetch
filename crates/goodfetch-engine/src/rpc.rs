@@ -26,7 +26,7 @@ use crate::composition::CallError;
 use crate::product::{Identity, Requested};
 
 pub use connection::REFUSAL_TARGET;
-pub(crate) use connection::{Dispatch, serve};
+pub(crate) use connection::{Access, Dispatch, serve};
 pub(crate) use stream::handlers;
 
 /// The `tracing` target of dispatch's records.

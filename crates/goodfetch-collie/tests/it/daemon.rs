@@ -141,14 +141,20 @@ impl RawClient {
     /// Connects to the Daemon `found` names, and says `hello` needing
     /// `product`.
     pub(crate) fn opened(found: &RuntimeFile, product: &str) -> Self {
-        let mut client = Self::connected(found);
+        Self::opened_at(&found.endpoint, &found.token, product)
+    }
+
+    /// Connects to `endpoint`, a Daemon's or an Attached engine's private
+    /// endpoint, and says `hello` with `token`, needing `product`.
+    pub(crate) fn opened_at(endpoint: &DaemonEndpoint, token: &str, product: &str) -> Self {
+        let mut client = Self::connected(endpoint);
         let answer = client.call(
             0,
             "hello",
             &json!({
                 "protocol_version": PROTOCOL_VERSION.to_string(),
                 "surface": "sdk_typescript",
-                "token": found.token,
+                "token": token,
                 "needs": product,
                 "product_version": VERSION,
             }),
@@ -160,7 +166,7 @@ impl RawClient {
     /// Whether the Daemon `found` names closes, unanswered, a Connection
     /// whose `hello` carries `found`'s token.
     pub(crate) fn refused(found: &RuntimeFile) -> bool {
-        let mut client = Self::connected(found);
+        let mut client = Self::connected(&found.endpoint);
         client.send(&json!({
             "jsonrpc": "2.0",
             "id": 0,
@@ -176,22 +182,21 @@ impl RawClient {
         client.next().is_none()
     }
 
-    /// Connects to the Daemon `found` names, without a word.
-    fn connected(found: &RuntimeFile) -> Self {
-        let (reader, writer): (Box<dyn std::io::Read>, Box<dyn std::io::Write>) =
-            match &found.endpoint {
-                #[cfg(unix)]
-                DaemonEndpoint::Unix(path) => {
-                    let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
-                    (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-                }
-                #[cfg(not(unix))]
-                DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
-                DaemonEndpoint::Tcp(address) => {
-                    let stream = std::net::TcpStream::connect(address).unwrap();
-                    (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-                }
-            };
+    /// Connects to `endpoint`, without a word.
+    fn connected(endpoint: &DaemonEndpoint) -> Self {
+        let (reader, writer): (Box<dyn std::io::Read>, Box<dyn std::io::Write>) = match endpoint {
+            #[cfg(unix)]
+            DaemonEndpoint::Unix(path) => {
+                let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
+                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
+            }
+            #[cfg(not(unix))]
+            DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
+            DaemonEndpoint::Tcp(address) => {
+                let stream = std::net::TcpStream::connect(address).unwrap();
+                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
+            }
+        };
         Self {
             reader: BufReader::new(reader),
             writer,
@@ -484,7 +489,8 @@ fn the_daemon_socket_passes_its_endpoint_table_rows() {
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .filter(|record| {
-                record["target"] == json!("goodfetch::daemon::refusal")
+                record["target"] == json!("goodfetch::rpc::refusal")
+                    && record["fields"]["listener"] == json!("daemon_socket")
                     && record["fields"]["reason"] == json!(reason)
             })
             .count();
@@ -614,7 +620,7 @@ fn the_protocols_client_transcript_replays_against_the_daemon() {
     let _stops = StopsTheDaemon::of(&env, COLLIE);
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
-    let mut client = RawClient::connected(&found);
+    let mut client = RawClient::connected(&found.endpoint);
     let expected: Vec<Value> = ENGINE_TRANSCRIPT
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())

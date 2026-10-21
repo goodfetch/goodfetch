@@ -4,13 +4,16 @@
 //! `crawl_request.handle` request, commits the Records the handler staged
 //! once while the lease holds, retries an attempt that failed or got no
 //! answer under the Run's policy, and finishes the Run once every work item
-//! is done. Its own crate under `crates/foxhound/`, since only Foxhound
-//! links it (STYLE.md, reason 2); it fills the engine's interfaces: a Run's
-//! driver and the tables a contribution keeps in every run file.
+//! is done; `crawl.serve` joins another Connection's handler to it, as
+//! `workers=N` handler processes do. Its own crate under `crates/foxhound/`,
+//! since only Foxhound links it (STYLE.md, reason 2); it fills the
+//! engine's interfaces: a Run's driver and the tables a contribution keeps
+//! in every run file.
 
 mod delivery;
 mod lease;
 mod policy;
+mod serving;
 mod start;
 mod work_items;
 

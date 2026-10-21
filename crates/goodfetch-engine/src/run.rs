@@ -164,7 +164,8 @@ fn stopped() -> CallError {
     )
 }
 
-fn run_error(error: RunError, identity: &Identity) -> CallError {
+/// The Error code a failed action on a Run answers with.
+pub fn run_error(error: RunError, identity: &Identity) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
             &RUN_NOT_FOUND,

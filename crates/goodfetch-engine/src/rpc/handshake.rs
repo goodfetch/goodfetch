@@ -86,6 +86,7 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
                     protocol_version: PROTOCOL_VERSION,
                     product: identity.product,
                     product_version: identity.product_version.clone(),
+                    private_endpoint: None,
                 },
                 behind_gateway,
             });

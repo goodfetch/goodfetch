@@ -12,4 +12,5 @@ mod crawl;
 mod daemon;
 mod journeys;
 mod service_manager;
+mod workers;
 mod writer_lock;

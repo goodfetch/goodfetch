@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &[];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["handler_failed", "handler_lost", "lease_lost", "sample_crawl_refused"];
+pub const ERROR_CODES: &[&str] = &["client_gone", "handler_failed", "handler_lost", "lease_lost", "sample_crawl_refused"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];
@@ -23,7 +23,7 @@ pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages"];
 
 /// The operations only Foxhound carries.
-pub const OPERATIONS: &[&str] = &["crawl.start", "sample.crawl"];
+pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "sample.crawl"];
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];

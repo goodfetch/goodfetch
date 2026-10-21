@@ -14,6 +14,7 @@
 mod checkpoint;
 mod daemon;
 mod events;
+mod key_value_store;
 mod refusals;
 mod run;
 mod settings;

@@ -13,16 +13,26 @@
 //! - **A Session behind a proxy** hands the name to the proxy, which
 //!   resolves it, so neither the mapping nor a resolver sees it (ADR 0059).
 //!
+//! The engine's own resolver keeps its answers in [`cache`] as the records
+//! say, read on the [`Clock`], and asks for each IP family on its own, so a
+//! Happy Eyeballs race can start on the first family's answer (ADR 0118);
+//! `hickory-resolver`'s own cache is off. The system resolver keeps what
+//! the OS keeps.
+//!
 //! This module is the translation point of both resolvers' failures (ADR
 //! 0127). `hickory-resolver` runs its name-server connections as Tokio tasks
 //! of its own, outside any owner's tracker; they end with their
 //! connections. The system resolver's `getaddrinfo` runs on Tokio's blocking
 //! pool, since it cannot be cancelled once called.
 
+mod cache;
+
 use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
+pub use goodfetch_protocol::dns::IpFamily;
 use goodfetch_protocol::dns::{
     NAME_LOOKUP_FAILED, NAME_NOT_RESOLVED, NameLookupFailedDetails, NameNotResolvedDetails,
     NameResolver,
@@ -35,7 +45,11 @@ use hickory_resolver::config::{
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::net::{DnsError, NetError, NoRecords};
 use hickory_resolver::proto::op::ResponseCode;
+use hickory_resolver::proto::rr::{RData, RecordType};
+use tokio::sync::Mutex;
 
+use self::cache::{AnswerCache, Kept, Outcome};
+use crate::clock::Clock;
 use crate::composition::CallError;
 
 /// The `resolve` setting's value: host names mapped to the addresses they
@@ -128,6 +142,14 @@ pub enum Route {
     Proxy,
 }
 
+/// The family of `address`.
+pub fn family_of(address: IpAddr) -> IpFamily {
+    match address {
+        IpAddr::V4(_) => IpFamily::Ipv4,
+        IpAddr::V6(_) => IpFamily::Ipv6,
+    }
+}
+
 /// Who gave a name its addresses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnsweredBy {
@@ -211,37 +233,47 @@ impl From<LookupError> for CallError {
 }
 
 /// The engine's name resolution: the `resolve` mapping and the engine's own
-/// resolver, cheap to clone.
+/// resolver with its cache, cheap to clone; every clone shares the cache.
 #[derive(Clone)]
 pub struct Dns {
     mapping: Arc<HostMapping>,
     engine: TokioResolver,
+    clock: Clock,
+    cache: Arc<Mutex<AnswerCache>>,
 }
 
 impl Dns {
     /// Resolution with `mapping` and the engine's own resolver reading
-    /// `configuration`. It opens no socket until a lookup needs one.
-    pub fn new(mapping: HostMapping, configuration: ResolverConfiguration) -> Self {
+    /// `configuration`, whose answers are kept as their records say on
+    /// `clock`. It opens no socket until a lookup needs one.
+    pub fn new(mapping: HostMapping, configuration: ResolverConfiguration, clock: Clock) -> Self {
+        let mut options = configuration.options;
+        // The cache below keeps answers as ADR 0118 says; hickory's would
+        // also keep server failures.
+        options.cache_size = 0;
         let engine = TokioResolver::builder_with_config(
             configuration.config,
             TokioRuntimeProvider::default(),
         )
-        .with_options(configuration.options)
+        .with_options(options)
         .build()
         .expect("invariant: a resolver built from a parsed configuration and no TLS builds");
         Self {
             mapping: Arc::new(mapping),
             engine,
+            clock,
+            cache: Arc::new(Mutex::new(AnswerCache::default())),
         }
     }
 
-    /// The addresses of `name` for a Session whose connections take `route`.
+    /// The addresses of `name` for a Session whose connections take `route`,
+    /// IPv4 first.
     ///
     /// # Errors
     ///
     /// [`LookupError::NameNotResolved`] when the resolver has no address for
     /// it, and [`LookupError::LookupFailed`] when the engine's own
-    /// resolver's name servers gave no usable answer.
+    /// resolver's name servers gave no usable answer for either family.
     ///
     /// # Cancel safety
     ///
@@ -251,34 +283,134 @@ impl Dns {
         if route == Route::Proxy {
             return Ok(Resolution::ByProxy);
         }
-        if let Some(addresses) = self.mapping.addresses(name) {
-            return Ok(Resolution::Addresses {
-                addresses: addresses.to_vec(),
-                answered_by: AnsweredBy::Mapping,
-            });
-        }
-        if route == Route::LocalAddress || cfg!(target_os = "linux") {
-            self.engine_lookup(name).await
+        let (ipv4, ipv6) = tokio::join!(
+            self.addresses(name, IpFamily::Ipv4, route),
+            self.addresses(name, IpFamily::Ipv6, route),
+        );
+        let answered_by = if self.mapping.addresses(name).is_some() {
+            AnsweredBy::Mapping
+        } else if asks_the_engine(route) {
+            AnsweredBy::Engine
         } else {
-            system_lookup(name).await
+            AnsweredBy::System
+        };
+        match (ipv4, ipv6) {
+            (Err(ipv4), Err(ipv6)) => Err(ipv4.or(ipv6)),
+            (ipv4, ipv6) => Ok(Resolution::Addresses {
+                addresses: ipv4
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(ipv6.unwrap_or_default())
+                    .collect(),
+                answered_by,
+            }),
         }
     }
 
-    async fn engine_lookup(&self, name: &str) -> Result<Resolution, LookupError> {
-        match self.engine.lookup_ip(name).await {
+    /// The addresses of `name` in `family`, never empty, for a connection
+    /// that takes `route`. The engine's own resolver answers from its cache
+    /// while the records allow. Under [`Route::Proxy`], `name` is the
+    /// proxy's own, which the connection reaches directly.
+    ///
+    /// # Errors
+    ///
+    /// [`LookupError::NameNotResolved`] when the name has no address in
+    /// `family`, and [`LookupError::LookupFailed`] when the engine's own
+    /// resolver's name servers gave no usable answer.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Dns::lookup`]'s.
+    pub async fn addresses(
+        &self,
+        name: &str,
+        family: IpFamily,
+        route: Route,
+    ) -> Result<Vec<IpAddr>, LookupError> {
+        let resolver = if asks_the_engine(route) {
+            NameResolver::Engine
+        } else {
+            NameResolver::System
+        };
+        let found = if let Ok(literal) = name.parse::<IpAddr>() {
+            of_family(std::iter::once(literal), family)
+        } else if let Some(mapped) = self.mapping.addresses(name) {
+            of_family(mapped.iter().copied(), family)
+        } else if resolver == NameResolver::Engine {
+            return self.engine_addresses(name, family).await;
+        } else {
+            of_family(system_lookup(name).await?.into_iter(), family)
+        };
+        if found.is_empty() {
+            Err(not_resolved(name, resolver))
+        } else {
+            Ok(found)
+        }
+    }
+
+    /// Forgets what the engine's own resolver keeps for `name`, so the next
+    /// lookup asks its name servers again: every address it gave failed to
+    /// connect (RFC 8305 section 9).
+    pub async fn forget(&self, name: &str) {
+        self.cache.lock().await.forget(name);
+    }
+
+    async fn engine_addresses(
+        &self,
+        name: &str,
+        family: IpFamily,
+    ) -> Result<Vec<IpAddr>, LookupError> {
+        let kept = self.cache.lock().await.kept(name, family, self.clock.now());
+        match kept {
+            Some(Kept::Addresses(addresses)) => return Ok(addresses),
+            Some(Kept::Absent) => return Err(not_resolved(name, NameResolver::Engine)),
+            None => {}
+        }
+        let record_type = match family {
+            IpFamily::Ipv4 => RecordType::A,
+            IpFamily::Ipv6 => RecordType::AAAA,
+        };
+        let answered = self.engine.lookup(name, record_type).await;
+        self.engine.clear_lookup_cache(name, record_type);
+        let outcome = match answered {
             Ok(lookup) => {
-                let addresses = unique(lookup.iter());
-                if addresses.is_empty() {
-                    Err(not_resolved(name, NameResolver::Engine))
-                } else {
-                    Ok(Resolution::Addresses {
+                let addresses =
+                    unique(
+                        lookup
+                            .answers()
+                            .iter()
+                            .filter_map(|record| match &record.data {
+                                RData::A(address) => Some(IpAddr::V4(address.0)),
+                                RData::AAAA(address) => Some(IpAddr::V6(address.0)),
+                                _ => None,
+                            }),
+                    );
+                let ttl = lookup.answers().iter().map(|record| record.ttl).min();
+                match ttl {
+                    Some(ttl) if !addresses.is_empty() => Outcome::Addresses {
                         addresses,
-                        answered_by: AnsweredBy::Engine,
-                    })
+                        ttl: Duration::from_secs(u64::from(ttl)),
+                    },
+                    _ => Outcome::Absent { negative_ttl: None },
                 }
             }
-            Err(error) if is_absent(&error) => Err(not_resolved(name, NameResolver::Engine)),
-            Err(_) => Err(LookupError::LookupFailed {
+            Err(NetError::Dns(DnsError::NoRecordsFound(NoRecords {
+                response_code: ResponseCode::NXDomain | ResponseCode::NoError,
+                negative_ttl,
+                ..
+            }))) => Outcome::Absent {
+                negative_ttl: negative_ttl.map(|ttl| Duration::from_secs(u64::from(ttl))),
+            },
+            Err(_) => Outcome::Failure,
+        };
+        self.cache
+            .lock()
+            .await
+            .keep(name, family, outcome.clone(), self.clock.now());
+        match outcome {
+            Outcome::Addresses { addresses, .. } => Ok(addresses),
+            Outcome::Absent { .. } => Err(not_resolved(name, NameResolver::Engine)),
+            Outcome::Failure => Err(LookupError::LookupFailed {
                 name: name.to_owned(),
                 resolver: NameResolver::Engine,
             }),
@@ -286,37 +418,39 @@ impl Dns {
     }
 }
 
-/// A lookup through the operating system's resolver. Its failures are not
-/// told apart: the standard library reports `getaddrinfo`'s codes only as
-/// text, which ADR 0127 keeps unread.
-async fn system_lookup(name: &str) -> Result<Resolution, LookupError> {
-    match tokio::net::lookup_host((name, 0)).await {
-        Ok(found) => {
-            let addresses = unique(found.map(|address| address.ip()));
-            if addresses.is_empty() {
-                Err(not_resolved(name, NameResolver::System))
-            } else {
-                Ok(Resolution::Addresses {
-                    addresses,
-                    answered_by: AnsweredBy::System,
-                })
-            }
+impl LookupError {
+    /// The error two families' failed lookups make: a failure of the name
+    /// servers wins over a name with no address, which a retry would not
+    /// change.
+    pub(crate) fn or(self, other: Self) -> Self {
+        match (&self, &other) {
+            (Self::NameNotResolved { .. }, Self::LookupFailed { .. }) => other,
+            _ => self,
         }
-        Err(_) => Err(not_resolved(name, NameResolver::System)),
     }
 }
 
-/// Whether the name servers said the name has no address: it does not
-/// exist, or exists with no address record. Any other answer, a server
-/// failure or a refusal included, is no answer.
-fn is_absent(error: &NetError) -> bool {
-    matches!(
-        error,
-        NetError::Dns(DnsError::NoRecordsFound(NoRecords {
-            response_code: ResponseCode::NXDomain | ResponseCode::NoError,
-            ..
-        }))
-    )
+/// Whether a connection that takes `route` resolves through the engine's own
+/// resolver: on Linux, and from a local address on every OS.
+fn asks_the_engine(route: Route) -> bool {
+    route == Route::LocalAddress || cfg!(target_os = "linux")
+}
+
+/// The addresses of `addresses` in `family`.
+fn of_family(addresses: impl Iterator<Item = IpAddr>, family: IpFamily) -> Vec<IpAddr> {
+    addresses
+        .filter(|address| family_of(*address) == family)
+        .collect()
+}
+
+/// A lookup through the operating system's resolver, of both families.
+/// Its failures are not told apart: the standard library reports
+/// `getaddrinfo`'s codes only as text, which ADR 0127 keeps unread.
+async fn system_lookup(name: &str) -> Result<Vec<IpAddr>, LookupError> {
+    match tokio::net::lookup_host((name, 0)).await {
+        Ok(found) => Ok(unique(found.map(|address| address.ip()))),
+        Err(_) => Err(not_resolved(name, NameResolver::System)),
+    }
 }
 
 fn not_resolved(name: &str, resolver: NameResolver) -> LookupError {

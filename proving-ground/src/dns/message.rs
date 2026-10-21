@@ -1,7 +1,9 @@
 //! DNS messages as the DNS fixture reads and writes them (RFC 1035): a query
-//! of one question, and an answer of addresses with a TTL of 0, its name a
-//! pointer to the question's. A message that is itself an answer, or too
-//! short to carry an ID, gets no reply.
+//! of one question, and an answer of addresses with one TTL, its name a
+//! pointer to the question's, or a negative answer whose authority section
+//! holds the root's SOA with that TTL as its TTL and minimum (RFC 2308). A
+//! message that is itself an answer, or too short to carry an ID, gets no
+//! reply.
 
 use std::net::IpAddr;
 
@@ -9,8 +11,16 @@ use std::net::IpAddr;
 pub(crate) const A: u16 = 1;
 /// The record type of an IPv6 address.
 pub(crate) const AAAA: u16 = 28;
+/// The record type of a zone's start of authority.
+const SOA: u16 = 6;
 /// The Internet class.
 const CLASS_IN: u16 = 1;
+/// The root's name, which owns the SOA of every negative answer: it is an
+/// ancestor of any name asked.
+const ROOT: [u8; 1] = [0];
+/// The SOA's primary name server and mailbox, `ns.dns.test` and
+/// `hostmaster.dns.test`, in their wire form.
+const SOA_NAMES: &[u8] = b"\x02ns\x03dns\x04test\x00\x0ahostmaster\x03dns\x04test\x00";
 
 /// The header's length.
 const HEADER: usize = 12;
@@ -26,6 +36,7 @@ const QUESTION_NAME: [u8; 2] = [0xc0, 0x0c];
 pub(crate) enum Rcode {
     NoError = 0,
     FormatError = 1,
+    ServerFailure = 2,
     NameError = 3,
     NotImplemented = 4,
 }
@@ -108,11 +119,17 @@ fn name(message: &[u8], mut at: usize) -> Option<(String, usize)> {
     Some((labels.join("."), at + 1))
 }
 
-/// The answer to `query`: `rcode`, and each address of the asked type with a
-/// TTL of 0.
-pub(crate) fn answer(query: &Query, rcode: Rcode, addresses: &[IpAddr]) -> Vec<u8> {
+/// The answer to `query`: `rcode`, and each address of the asked type with
+/// `ttl`. A negative answer, an `NXDOMAIN` or no address at all, carries
+/// the root's SOA with `ttl`; a server failure carries nothing.
+pub(crate) fn answer(query: &Query, rcode: Rcode, addresses: &[IpAddr], ttl: u32) -> Vec<u8> {
     let count = u16::try_from(addresses.len()).expect("invariant: a name holds few addresses");
+    let negative = addresses.is_empty() && matches!(rcode, Rcode::NoError | Rcode::NameError);
     let mut message = header(query.id, query.recursion_desired, rcode, 1, count);
+    if negative {
+        // NSCOUNT: the SOA.
+        message[9] = 1;
+    }
     message.extend_from_slice(&query.question);
     for address in addresses {
         message.extend_from_slice(&QUESTION_NAME);
@@ -120,14 +137,28 @@ pub(crate) fn answer(query: &Query, rcode: Rcode, addresses: &[IpAddr]) -> Vec<u
             IpAddr::V4(address) => (A, address.octets().to_vec()),
             IpAddr::V6(address) => (AAAA, address.octets().to_vec()),
         };
-        message.extend_from_slice(&record_type.to_be_bytes());
-        message.extend_from_slice(&CLASS_IN.to_be_bytes());
-        message.extend_from_slice(&0u32.to_be_bytes());
-        let length = u16::try_from(data.len()).expect("invariant: an address is short");
-        message.extend_from_slice(&length.to_be_bytes());
-        message.extend_from_slice(&data);
+        record(&mut message, record_type, ttl, &data);
+    }
+    if negative {
+        message.extend_from_slice(&ROOT);
+        let mut data = SOA_NAMES.to_vec();
+        // SERIAL, REFRESH, RETRY and EXPIRE, then MINIMUM.
+        for number in [1, 3600, 600, 86_400, ttl] {
+            data.extend_from_slice(&number.to_be_bytes());
+        }
+        record(&mut message, SOA, ttl, &data);
     }
     message
+}
+
+/// Appends a record's type, class, TTL and data, after its name.
+fn record(message: &mut Vec<u8>, record_type: u16, ttl: u32, data: &[u8]) {
+    message.extend_from_slice(&record_type.to_be_bytes());
+    message.extend_from_slice(&CLASS_IN.to_be_bytes());
+    message.extend_from_slice(&ttl.to_be_bytes());
+    let length = u16::try_from(data.len()).expect("invariant: a record is short");
+    message.extend_from_slice(&length.to_be_bytes());
+    message.extend_from_slice(data);
 }
 
 /// An answer that carries only `rcode`.
@@ -172,7 +203,7 @@ mod tests {
     fn an_answer_repeats_the_question_and_points_each_record_at_its_name() {
         let query = parse(QUERY).unwrap();
 
-        let answer = answer(&query, Rcode::NoError, &["127.0.0.1".parse().unwrap()]);
+        let answer = answer(&query, Rcode::NoError, &["127.0.0.1".parse().unwrap()], 0);
 
         assert_eq!(
             answer,

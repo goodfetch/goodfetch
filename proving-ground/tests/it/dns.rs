@@ -1,14 +1,17 @@
 //! The DNS fixture `serve` starts on its own address (ADR 0067: rebinding
-//! is tested against it, never a public rebinding service): every answer
-//! has a TTL of 0; the host names the Proving ground serves resolve to its
-//! address; a name under `alternating.dns.test` answers the addresses its
-//! labels declare in turn, one per query, and one under `mixed.dns.test`
+//! is tested against it, never a public rebinding service): an answer has a
+//! TTL of 0 unless its name declares one, which its negative answers' SOA
+//! carries too (ADR 0118's resolver cache); the host names the Proving
+//! ground serves resolve to its address; a name under
+//! `alternating.dns.test` answers the entries its labels declare (addresses,
+//! `nx`, `servfail`) in turn, one per query, and one under `mixed.dns.test`
 //! answers them all at once. The forward proxies resolve through the same
 //! answers.
 //! Covers: story:2-82
 
 use std::net::IpAddr;
 
+use rstest::rstest;
 use serde_json::json;
 
 use crate::clients::{self, DnsAnswer, RecordType};
@@ -35,6 +38,7 @@ fn a_host_name_the_proving_ground_serves_resolves_to_its_address() {
         DnsAnswer {
             rcode: 0,
             answers: vec![(0, address("127.0.0.1"))],
+            negative_ttl: None,
         }
     );
 }
@@ -50,6 +54,7 @@ fn a_name_nobody_declared_does_not_exist() {
         DnsAnswer {
             rcode: 3,
             answers: Vec::new(),
+            negative_ttl: Some(0),
         }
     );
 }
@@ -104,6 +109,57 @@ fn an_ipv6_label_answers_only_aaaa_queries() {
             vec![(0, address("127.0.0.1"))],
         ]
     );
+}
+
+#[test]
+fn a_declared_ttl_is_the_ttl_of_every_answer() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = clients::dns_query(
+        &proving_ground.dns(),
+        "ttl-300.93-184-215-14.127-0-0-1.mixed.dns.test",
+        RecordType::A,
+    );
+
+    assert_eq!(
+        answer.answers,
+        [(300, address("93.184.215.14")), (300, address("127.0.0.1"))]
+    );
+}
+
+#[rstest]
+#[case::name_error("ttl-60.nx.mixed.dns.test", RecordType::A, 3)]
+#[case::no_address_of_the_family("ttl-60.127-0-0-1.mixed.dns.test", RecordType::Aaaa, 0)]
+fn a_negative_answer_carries_the_declared_ttl_in_its_soa(
+    #[case] name: &str,
+    #[case] record_type: RecordType,
+    #[case] rcode: u8,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = clients::dns_query(&proving_ground.dns(), name, record_type);
+
+    assert_eq!(
+        answer,
+        DnsAnswer {
+            rcode,
+            answers: Vec::new(),
+            negative_ttl: Some(60),
+        }
+    );
+}
+
+#[test]
+fn an_alternating_name_answers_a_server_failure_and_a_name_error_in_their_turn() {
+    let proving_ground = ProvingGround::start(SEED);
+    let dns = proving_ground.dns();
+    let name = "servfail.nx.127-0-0-1.alternating.dns.test";
+
+    let rcodes: Vec<_> = (0..4)
+        .map(|_| clients::dns_query(&dns, name, RecordType::A).rcode)
+        .collect();
+
+    assert_eq!(rcodes, [2, 3, 0, 2]);
 }
 
 #[test]

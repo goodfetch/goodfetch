@@ -18,6 +18,8 @@ use goodfetch_engine::browser_cache::{
     BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, MaxUnusedAge, Pins,
     Platform, kept_artifacts,
 };
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
@@ -70,7 +72,7 @@ pub(super) fn machine_settings(
 }
 
 /// What downloads may do under `settings`: `egress.offline` and the layer
-/// that set it, and `network.resolve`'s mapping.
+/// that set it, `network.resolve`'s mapping and the Happy Eyeballs delays.
 fn fetching(settings: &Resolved) -> Fetching {
     let offline = settings
         .get(EGRESS_OFFLINE.name)
@@ -85,7 +87,8 @@ fn fetching(settings: &Resolved) -> Fetching {
     Fetching {
         offline,
         resolve: mapping,
-        ..Fetching::default()
+        delays: Delays::of(settings),
+        ..Fetching::new(Clock::system())
     }
 }
 

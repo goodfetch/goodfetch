@@ -9,6 +9,7 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{
     AnsweredBy, Dns, HostMapping, LookupError, Resolution, ResolverConfiguration, Route,
 };
@@ -22,6 +23,7 @@ fn dns(server: &NameServer, mapping: HostMapping) -> Dns {
     Dns::new(
         mapping,
         ResolverConfiguration::name_servers([server.address()]),
+        Clock::system(),
     )
 }
 

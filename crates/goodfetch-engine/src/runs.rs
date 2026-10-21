@@ -1069,21 +1069,20 @@ impl Runs {
 
     /// Drains the engine (ADR 0049): from now on it takes no Run, starting
     /// or resuming, and each live Run stops at its next safe point with a
-    /// Checkpoint, `stopped` and resumable by its Run ID; answers once
-    /// every one ended.
+    /// Checkpoint, `stopped` and resumable by its Run ID; answers once the
+    /// engine takes no Run, with the [`Draining`] Runs, whose ends
+    /// [`Draining::ended`] waits for.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after it was sent still drains: the Runs stop,
-    /// and only the wait for their ends is lost.
-    pub(crate) async fn drain(&self) {
+    /// and only the answer is lost.
+    pub(crate) async fn drain(&self) -> Draining {
         let (answer, answered) = oneshot::channel();
         if self.commands.send(Command::Drain(answer)).await.is_err() {
-            return;
+            return Draining(Vec::new());
         }
-        for report in answered.await.unwrap_or_default() {
-            let _ = wait_for(report).await;
-        }
+        Draining(answered.await.unwrap_or_default())
     }
 
     /// Stops every live Run as aborted by its Client, as an Attached engine
@@ -1098,6 +1097,27 @@ impl Runs {
             return;
         }
         for report in answered.await.unwrap_or_default() {
+            let _ = wait_for(report).await;
+        }
+    }
+}
+
+/// The Runs a drain stops (ADR 0049).
+pub(crate) struct Draining(Vec<watch::Receiver<Option<RunReport>>>);
+
+impl Draining {
+    /// How many Runs it stops.
+    pub(crate) fn count(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Answers once every one ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the wait.
+    pub(crate) async fn ended(self) {
+        for report in self.0 {
             let _ = wait_for(report).await;
         }
     }

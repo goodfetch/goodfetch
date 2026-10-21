@@ -129,7 +129,7 @@ pub(in crate::executable) fn run(
         let grace = configured.drain_grace;
         let deadline = async move {
             let signal = signalled.received().await;
-            tracing::info!(signal, "the Daemon drains");
+            tracing::info!(signal, "the foreground Daemon was asked to drain");
             asked.cancel();
             // The engine's drain ends within the grace; this bounds what
             // follows it too.

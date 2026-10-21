@@ -474,12 +474,16 @@ pub(crate) async fn serve(
 
 /// Drains the Daemon's Runs, waiting at most `grace` for them to stop.
 async fn drain_runs(serving: &Serving, grace: Duration) {
-    tracing::info!(
-        live_runs = serving.runs.live_count().await,
-        "the Daemon drains: it takes no run and checkpoints each live run"
-    );
+    let drained = async {
+        let draining = serving.runs.drain().await;
+        tracing::info!(
+            live_runs = draining.count(),
+            "the Daemon drains: it takes no run and checkpoints each live run"
+        );
+        draining.ended().await;
+    };
     tokio::select! {
-        () = serving.runs.drain() => tracing::info!("the Daemon drained every run"),
+        () = drained => tracing::info!("the Daemon drained every run"),
         () = serving.clock.sleep(grace) => tracing::warn!(
             live_runs = serving.runs.live_count().await,
             "the drain grace passed: each run not yet at a safe point stays resumable from its run file"

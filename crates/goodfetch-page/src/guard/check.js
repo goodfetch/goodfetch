@@ -4,11 +4,16 @@
 // milliseconds pass, and answers what it saw last. A ready pointer target gets
 // the interception listener armed on the window, which cancels every event of
 // the gesture that reaches another element; a ready text target gets the
-// focus, and for `fill` its text selected.
+// focus, and for `fill` its text selected. CDP sends this one function, so its
+// helpers live inside it.
+/* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
+// eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
 async function check({ selector, action, events, slice }) {
   const world = globalThis;
+  // The arm's key, in the guard's world's own registry, which no page sees.
+  const ARM = Symbol.for("goodfetch.guard.arm");
   // An arm a cancelled call left behind never outlives the next check.
-  world.__goodfetchArm?.disarm();
+  world[ARM]?.disarm();
   const end = performance.now() + slice;
   const VOID = [
     "area",
@@ -163,12 +168,12 @@ async function check({ selector, action, events, slice }) {
       disarm() {
         clearTimeout(expiry);
         for (const type of events) window.removeEventListener(type, listener, true);
-        if (world.__goodfetchArm === arm) delete world.__goodfetchArm;
+        if (world[ARM] === arm) delete world[ARM];
       },
     };
     // The gesture follows at once; an arm whose call was dropped expires.
     const expiry = setTimeout(() => arm.disarm(), 10000);
-    world.__goodfetchArm = arm;
+    world[ARM] = arm;
     return { state: "ready", x, y };
   };
   for (;;) {

@@ -6,6 +6,7 @@
 )]
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{
     Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer,
 };
@@ -874,25 +875,19 @@ fn a_configuration_file_reads_its_settings_nested_by_key() {
     );
 }
 
+/// This crate's Product version, the engine's.
+fn engine() -> ProductVersion {
+    ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap()
+}
+
 /// Covers: format:user-configuration
 #[rstest]
 #[case::no_version("[settings.timeout]\nnavigation = 2000\n")]
-#[case::a_newer_minor("version = \"0.2\"\n")]
-#[case::a_newer_major("version = \"1.0\"\n")]
 #[case::an_entry_outside_settings("version = \"0.1\"\ntimeout = 1\n")]
+#[case::a_lowest_minor_that_is_no_minor("version = \"0.1\"\nlowest_minor = \"1\"\n")]
 #[case::no_toml("version = ")]
 fn a_settings_file_that_is_not_one_this_engine_reads_is_invalid(#[case] text: &str) {
     let read = configuration(SettingsLayer::UserConfiguration, text, Product::Collie);
-
-    assert_eq!(read.map(|_| ()).unwrap_err().code(), "setting_invalid");
-}
-
-/// Covers: format:operator-policy
-#[rstest]
-#[case::a_newer_minor("version = \"0.2\"\n")]
-#[case::a_newer_major("version = \"1.0\"\n")]
-fn an_operator_policy_of_a_version_this_engine_cannot_read_is_invalid(#[case] text: &str) {
-    let read = operator_policy(text, Product::Collie);
 
     assert_eq!(read.map(|_| ()).unwrap_err().code(), "setting_invalid");
 }
@@ -901,14 +896,14 @@ fn an_operator_policy_of_a_version_this_engine_cannot_read_is_invalid(#[case] te
 fn an_operator_policy_cap_is_on_a_count_or_a_duration() {
     let text = "version = \"0.1\"\n[cap.egress]\noffline = true\n";
 
-    let read = operator_policy(text, Product::Collie);
+    let read = operator_policy(text, Product::Collie, &engine());
 
     assert_eq!(read.map(|_| ()).unwrap_err().code(), "setting_invalid");
 }
 
 #[test]
 fn an_operator_policy_version_is_its_digest() {
-    let read = operator_policy("version = \"0.1\"\n", Product::Collie).unwrap();
+    let read = operator_policy("version = \"0.1\"\n", Product::Collie, &engine()).unwrap();
 
     assert_eq!(read.version.as_deref(), Some("sha256:0227dc879fda140d"));
 }
@@ -1013,3 +1008,5 @@ proptest! {
         }
     }
 }
+
+mod versions;

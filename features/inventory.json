@@ -429,6 +429,17 @@
       ]
     },
     {
+      "id": "command:upgrade-files",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:usage.list",
       "kind": "command",
       "area": 3,
@@ -954,6 +965,17 @@
       "id": "error:target_not_unique",
       "kind": "error",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:upgrade_source_unsupported",
+      "kind": "error",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3695,6 +3717,17 @@
       "id": "setting:tls.trusted_cas",
       "kind": "setting",
       "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:version.age_notice",
+      "kind": "setting",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

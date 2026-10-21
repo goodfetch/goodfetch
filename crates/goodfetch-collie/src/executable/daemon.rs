@@ -43,7 +43,7 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::{Home, major_name};
-use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick};
+use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
@@ -190,7 +190,7 @@ impl Machine<'_> {
         pick(
             &seen,
             &self.identity.product_version,
-            None,
+            stores_floor(self.home, &self.identity.product_version),
             now(),
             self.max_unused_age(),
         )
@@ -319,11 +319,14 @@ impl Machine<'_> {
     /// runtime file; whoever calls it holds the start lock.
     pub(super) fn start_pick(&self, keep_alive: bool) -> Result<DaemonRuntimeFile, Failure> {
         let Some(picked) = self.pick() else {
+            let install = stores_floor(self.home, &self.identity.product_version).map_or_else(
+                || self.identity.product_version.to_string(),
+                |floor| floor.to_string(),
+            );
             return Err(Failure::Unavailable(format!(
-                "no installed executable can run the Daemon of major {}: install {} {} or newer",
+                "no installed executable can run the Daemon of major {}, whose shared stores need Goodfetch {install} or newer: install {} {install} or newer",
                 self.major(),
                 self.identity.product.name(),
-                self.identity.product_version,
             )));
         };
         let (executable, build) = self.copy_of(&picked)?;

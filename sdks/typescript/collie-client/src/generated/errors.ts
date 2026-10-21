@@ -464,6 +464,15 @@ export class TargetNotUniqueError extends PageError {
   }
 }
 
+/**
+ * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
+ */
+export class UpgradeSourceUnsupportedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "upgrade_source_unsupported", group: "refused", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
@@ -506,4 +515,5 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
   target_not_unique: TargetNotUniqueError,
+  upgrade_source_unsupported: UpgradeSourceUnsupportedError,
 };

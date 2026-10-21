@@ -2,14 +2,14 @@
   "format": "protocol",
   "rule": "lower_minor",
   "reader": "0.1",
-  "found": "0.0",
-  "compatibility": "compatible",
+  "found": "0.2",
+  "compatibility": "newer_major",
   "hello": {
     "from": "browser_host",
     "engine": "collie",
     "reply": {
-      "accepted": {
-        "protocol_version": "0.0"
+      "refused": {
+        "error_code": "protocol_version_unsupported"
       }
     }
   }

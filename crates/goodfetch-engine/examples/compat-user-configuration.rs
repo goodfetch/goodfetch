@@ -13,8 +13,9 @@ mod settings_corpus;
 
 use std::path::PathBuf;
 
-use goodfetch_engine::settings::{USER_CONFIGURATION_FILE, configuration};
+use goodfetch_engine::settings::{USER_CONFIGURATION_FILE, user_configuration};
 use goodfetch_protocol::catalog::{Product, Setting};
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::SettingsLayer;
 
 fn any_key(_: &Setting) -> bool {
@@ -28,8 +29,10 @@ fn main() {
             .expect("invariant: xtask compat passes the output folder"),
     );
     let text = settings_corpus::every_key(&[("settings", any_key)]);
+    let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+        .expect("invariant: the crate's version is a Product version");
     for product in [Product::Collie, Product::Foxhound] {
-        configuration(SettingsLayer::UserConfiguration, &text, product)
+        user_configuration(SettingsLayer::UserConfiguration, &text, product, &version)
             .expect("invariant: both Products read what the engine wrote");
     }
     std::fs::write(output.join(USER_CONFIGURATION_FILE), text)

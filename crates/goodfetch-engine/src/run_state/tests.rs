@@ -164,16 +164,30 @@ fn a_writer_of_an_older_run_epoch_commits_nothing() {
     assert_eq!(refused, Err(RunStateError::Fenced { held: 1, found: 2 }));
 }
 
-/// A run file of a newer minor than this engine reads is refused, never
-/// misread (ADR 0030).
-#[test]
-fn a_run_file_of_a_newer_minor_is_refused() {
+/// Each generated refusal case of run state (ADR 0066): a run file whose
+/// header holds the fabricated version is refused, never misread, under
+/// ADR 0030's default rule, each refusal's Error code and message
+/// snapshotted.
+///
+/// Covers: story:3-95, format:run-state, error:format_version_unsupported
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[rstest::rstest]
+fn each_generated_refusal_of_a_run_file_is_refused(
+    #[files("../goodfetch-protocol/generated/refusals/run-state/*.json")]
+    #[mode = str]
+    case: &str,
+) {
+    let case: goodfetch_protocol::refusals::RefusalCase = serde_json::from_str(case).unwrap();
     let env = TestEnv::new();
+    let found = case.found.to_string();
     with_writer(&env, 1, async |state| {
         state
-            .write(|connection| {
+            .write(move |connection| {
                 connection
-                    .execute("UPDATE format SET version = '0.2'", [])
+                    .execute("UPDATE format SET version = ?1", [found])
                     .map(drop)
             })
             .await
@@ -195,10 +209,25 @@ fn a_run_file_of_a_newer_minor_is_refused() {
         opened
     });
 
-    assert!(matches!(
-        reopened,
-        Err(RunStateError::Format { found, .. }) if found == "0.2"
-    ));
+    let Err(RunStateError::Format {
+        format,
+        found,
+        compatibility,
+        install: None,
+    }) = reopened
+    else {
+        panic!("{case:#?} was not refused: {reopened:?}");
+    };
+    assert_eq!(compatibility, case.compatibility, "{case:#?}");
+    let refusal = crate::run::format_refusal(
+        &goodfetch_protocol::formats::RUN_STATE,
+        &found,
+        compatibility,
+    );
+    insta::assert_snapshot!(
+        format!("{format}_{found}"),
+        format!("{}: {}", refusal.code(), refusal.message())
+    );
 }
 
 /// What a writer acknowledged is there when the file opens again.

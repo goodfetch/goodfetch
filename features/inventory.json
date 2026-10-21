@@ -1200,7 +1200,7 @@
     {
       "id": "operation:run.seeds",
       "kind": "operation",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [

@@ -52,8 +52,12 @@ navigation = 30000
 first_byte = 30000
 handler = 30000
 
+[settings.admission]
+max_requests_per_minute = 4
+
 [settings.crawl]
 sample_pages = 4
+domain_keys = { "example.test" = "example" }
 
 [settings.crawl.retry]
 max = 4

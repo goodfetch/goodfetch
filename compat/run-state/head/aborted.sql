@@ -1,5 +1,10 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
+CREATE TABLE domains (
+            key TEXT NOT NULL PRIMARY KEY,
+            ready_at INTEGER,
+            backoffs INTEGER NOT NULL
+        ) STRICT;
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE records (
@@ -37,7 +42,11 @@ CREATE TABLE work_items (
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
-            error_code TEXT
+            error_code TEXT,
+            domain_key TEXT,
+            priority INTEGER NOT NULL
         ) STRICT;
+CREATE INDEX work_items_by_domain
+            ON work_items (status, domain_key, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);
 COMMIT;

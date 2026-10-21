@@ -148,3 +148,20 @@ fn the_dev_shm_size_is_read_from_its_mount_options() {
         (Some(64 * MEBIBYTE), None, None)
     );
 }
+
+/// A launch on the Run's own profile never reaches the OS keychain, which
+/// would ask the person at the machine for its password (ADR 0056 keeps
+/// the keychain only for a Profile directory used in place).
+#[test]
+fn a_launch_on_the_runs_profile_keeps_away_from_the_os_keychain() {
+    let built = arguments(&launch(false, None));
+
+    assert_eq!(
+        (
+            has(&built, "--use-mock-keychain"),
+            has(&built, "--password-store=basic"),
+            has(&built, "--no-first-run"),
+        ),
+        (true, true, true)
+    );
+}

@@ -195,9 +195,12 @@ enum End {
     Stopped(StopReason),
 }
 
+/// What the registry is asked. The channel's blocks hold 32 commands
+/// each, of the largest one's size, so the two that carry a Run's whole
+/// start or report box it: each is sent once per Run.
 enum Command {
     Start(
-        Start,
+        Box<Start>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Started, StartError>>,
     ),
@@ -212,7 +215,7 @@ enum Command {
     ),
     End(RunId, End),
     Uses(RunId, Product),
-    Ended(RunId, RunReport),
+    Ended(RunId, Box<RunReport>),
     StopAll(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
     StopConnection(
         ConnectionId,
@@ -392,7 +395,7 @@ impl Runs {
     pub async fn start(&self, start: Start) -> Result<Started, StartError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Start(start, self.connection, answer))
+            .send(Command::Start(Box::new(start), self.connection, answer))
             .await
             .map_err(|_| StartError::Stopped)?;
         answered.await.map_err(|_| StartError::Stopped)?
@@ -566,7 +569,7 @@ impl Registry {
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, connection, answer) => {
-                    let started = self.start(start, connection).await;
+                    let started = self.start(*start, connection).await;
                     let _ = answer.send(started);
                 }
                 Command::Finish(run_id, answer) => {
@@ -592,9 +595,9 @@ impl Registry {
                             ..
                         } = live;
                         drop(lock);
-                        waiters.send_replace(Some(report.clone()));
+                        waiters.send_replace(Some(RunReport::clone(&report)));
                     }
-                    self.ended.insert(run_id, report);
+                    self.ended.insert(run_id, *report);
                 }
                 Command::StopAll(answer) => {
                     let ids: Vec<RunId> = self.live.keys().cloned().collect();
@@ -959,7 +962,7 @@ impl Registry {
                     })
                     .await;
                 if let Some(registry) = registry.upgrade() {
-                    let _ = registry.send(Command::Ended(run_id, report)).await;
+                    let _ = registry.send(Command::Ended(run_id, Box::new(report))).await;
                 }
             });
         }

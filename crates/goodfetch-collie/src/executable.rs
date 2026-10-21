@@ -74,7 +74,11 @@ struct CommandLine {
     command: Command,
 }
 
+// Each command's own flags and subcommands are built only when it is the
+// one parsed or its help is shown, so `--version` and every other command
+// skip building the rest of the tree (ADR 0071's startup figure).
 #[derive(Subcommand)]
+#[command(defer = true)]
 enum Command {
     /// Runs as an Attached engine over stdio, which stops at the end of its
     /// input: what an SDK starts.
@@ -227,8 +231,9 @@ pub struct Start {
     pub product: Product,
     /// Its Product version, its crate's `CARGO_PKG_VERSION`.
     pub version: &'static str,
-    /// Its composition.
-    pub composition: Composition,
+    /// Builds its composition, which [`main`] calls only once a command
+    /// starts the engine, so `--version` and the help never build it.
+    pub composition: fn() -> Composition,
     /// Its command line, as the OS gave it.
     pub arguments: Vec<OsString>,
     /// Its environment, which `main` reads once (ADR 0059).
@@ -246,7 +251,7 @@ pub struct Start {
 /// let exit_code = main(&Start {
 ///     product: Product::Collie,
 ///     version: env!("CARGO_PKG_VERSION"),
-///     composition: goodfetch_collie::composition(),
+///     composition: goodfetch_collie::composition,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
 /// });
@@ -256,7 +261,7 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
-    let command_line = command(start.product).version(start.version);
+    let command_line = command_line(start.product).version(start.version);
     let binary = command_line.get_name().to_owned();
     let parsed = command_line
         .try_get_matches_from(&start.arguments)
@@ -309,7 +314,7 @@ pub fn main(start: &Start) -> ExitCode {
         // pipeline (area 1); until then every executable is a source build.
         channel: Channel::CratesIo,
     };
-    let engine = match Engine::new(identity, &start.composition) {
+    let engine = match Engine::new(identity, &(start.composition)()) {
         Ok(engine) => engine,
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");
@@ -483,7 +488,8 @@ fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
 
 /// The command line of `product`'s executable, without its version: its
 /// commands, flags and help, from which the Feature inventory generates its
-/// `command:` Features (ADR 0072).
+/// `command:` Features (ADR 0072). Every command in it is built, so reading
+/// its subcommands reads them all.
 ///
 /// # Examples
 ///
@@ -495,6 +501,14 @@ fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
 /// ```
 #[must_use]
 pub fn command(product: Product) -> clap::Command {
+    let mut command = command_line(product);
+    command.build();
+    command
+}
+
+/// The command line [`main`] parses, whose commands clap builds as it
+/// reaches them.
+fn command_line(product: Product) -> clap::Command {
     let (binary, about) = match product {
         Product::Collie => (
             "goodfetch-collie",

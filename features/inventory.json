@@ -1191,7 +1191,7 @@
     {
       "id": "operation:run.checkpoint",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1223,7 +1223,7 @@
     {
       "id": "operation:run.migrate",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1255,7 +1255,7 @@
     {
       "id": "operation:run.pause",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1266,7 +1266,7 @@
     {
       "id": "operation:run.resume",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

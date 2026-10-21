@@ -252,6 +252,23 @@ number = 3
 kind = "command"
 prefix = "daemon."
 
+# Area 3's versions (#226): `upgrade-files`, its refusal, and the setting
+# that turns the age notice off.
+[[area]]
+number = 3
+kind = "command"
+prefix = "upgrade-files"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "upgrade_source_unsupported"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "version."
+
 # Area 3's writer lock and Run index (#219): `runs reindex`.
 [[area]]
 number = 3

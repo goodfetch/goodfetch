@@ -77,18 +77,34 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
         }
     }
     let client = hello.protocol_version;
+    // During `0.y` previews each `0.y` minor counts as a major (ADR 0030),
+    // so a preview engine accepts its own version alone.
+    let preview = PROTOCOL_VERSION.major == 0;
+    let line = if preview {
+        PROTOCOL_VERSION.to_string()
+    } else {
+        format!("{}.x", PROTOCOL_VERSION.major)
+    };
     let (rule, sender, accepts, matching) = if hello.surface == Surface::BrowserHost {
         (
             Rule::LowerMinor,
             "Browser host",
-            format!("any {}.x", PROTOCOL_VERSION.major),
+            if preview {
+                line.clone()
+            } else {
+                format!("any {line}")
+            },
             "of the engine's major",
         )
     } else {
         (
             formats::PROTOCOL.rule,
             "Client",
-            format!("{}.0 to {PROTOCOL_VERSION}", PROTOCOL_VERSION.major),
+            if preview {
+                line.clone()
+            } else {
+                format!("{}.0 to {PROTOCOL_VERSION}", PROTOCOL_VERSION.major)
+            },
             "of the engine's own version",
         )
     };
@@ -107,10 +123,9 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
         Compatibility::NewerMinor | Compatibility::NewerMajor => format!(
             "Upgrade the engine to a version that speaks protocol {client}, or use a {sender} {matching}."
         ),
-        Compatibility::OlderMajor => format!(
-            "Upgrade the {sender} to one that speaks protocol {}.x.",
-            PROTOCOL_VERSION.major
-        ),
+        Compatibility::OlderMajor => {
+            format!("Upgrade the {sender} to one that speaks protocol {line}.")
+        }
     };
     Err(Refused::Version(
         format!(

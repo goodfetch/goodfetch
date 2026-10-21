@@ -50,7 +50,7 @@ pub fn reindex(
 ) -> Result<Reindexed, RunStateError> {
     let path = home.run_index(version);
     let per_major = home.per_major(version);
-    let listed: BTreeMap<RunId, RunIndexRow> = run_index::rows(&path)?
+    let listed: BTreeMap<RunId, RunIndexRow> = run_index::rows(&path, version)?
         .into_iter()
         .map(|row| (row.run_id.clone(), row))
         .collect();
@@ -72,7 +72,7 @@ pub fn reindex(
         }
     }
     let rows: Vec<RunIndexRow> = rows.into_values().collect();
-    run_index::replace(&path, &rows)?;
+    run_index::replace(&path, version, &rows)?;
     let count = |presence: Presence| {
         u64::try_from(rows.iter().filter(|row| row.presence == presence).count())
             .unwrap_or(u64::MAX)

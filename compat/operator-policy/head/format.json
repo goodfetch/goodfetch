@@ -546,6 +546,16 @@
             },
             "type": "object"
           },
+          "version": {
+            "additionalProperties": false,
+            "properties": {
+              "age_notice": {
+                "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "wall": {
             "additionalProperties": false,
             "properties": {
@@ -585,6 +595,13 @@
           }
         },
         "type": "object"
+      },
+      "lowest_minor": {
+        "arrived_in": "0.1",
+        "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
+        "maximum": 65535,
+        "minimum": 0,
+        "type": "integer"
       },
       "settings": {
         "additionalProperties": false,
@@ -949,6 +966,16 @@
                 },
                 "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
                 "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "version": {
+            "additionalProperties": false,
+            "properties": {
+              "age_notice": {
+                "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
               }
             },
             "type": "object"

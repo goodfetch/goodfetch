@@ -2,8 +2,8 @@
   "format": "protocol",
   "rule": "default",
   "reader": "0.1",
-  "found": "0.2",
-  "compatibility": "newer_minor",
+  "found": "0.0",
+  "compatibility": "older_major",
   "hello": {
     "from": "client",
     "engine": "collie",

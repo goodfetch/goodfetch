@@ -1,0 +1,17 @@
+---
+source: crates/goodfetch-engine/src/engine/tests/versions.rs
+assertion_line: 85
+expression: "serde_json::to_string_pretty(&started[\"error\"]).unwrap()"
+---
+{
+  "code": -32006,
+  "data": {
+    "code": "format_version_unsupported",
+    "fix": "Run `upgrade-files` with this Goodfetch, then try again.",
+    "format": "operator-policy",
+    "found": "0.9",
+    "retryable": false,
+    "supported": "1"
+  },
+  "message": "Goodfetch home holds an Operator policy only for the older major 0.9, at `[FOLDER]/home/0.9/operator-policy.toml`; run `upgrade-files` to give the major 1 its copy, then try again"
+}

@@ -92,6 +92,21 @@ pub fn major_name(version: &ProductVersion) -> String {
     }
 }
 
+/// The order of a per-major folder's name, `1` or `0.4`, by which majors
+/// compare: `None` for a name that is no major's.
+pub fn major_order(name: &str) -> Option<(u64, u64)> {
+    let canonical = |part: &str| {
+        !part.is_empty()
+            && part.bytes().all(|byte| byte.is_ascii_digit())
+            && (part == "0" || !part.starts_with('0'))
+    };
+    match name.split_once('.') {
+        Some(("0", minor)) if canonical(minor) => Some((0, minor.parse().ok()?)),
+        None if canonical(name) && name != "0" => Some((name.parse().ok()?, 0)),
+        Some(_) | None => None,
+    }
+}
+
 /// Where the run folders are: the per-major data folder's, unless
 /// `run_state.location` names another folder.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

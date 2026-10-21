@@ -98,6 +98,25 @@ pub fn format_refusal(format: &Format, found: &str, compatibility: Compatibility
     )
 }
 
+/// The refusal of a shared store of `format` at the version `found` whose
+/// lowest minor is newer than this engine (ADR 0098): the Product version
+/// `install` and newer can use it.
+pub fn store_refusal(format: &Format, found: &str, install: &str) -> CallError {
+    CallError::new(
+        &FORMAT_VERSION_UNSUPPORTED,
+        format!(
+            "The {} ({found}) was last written by a newer engine and can be used from Goodfetch {install} on, newer than this engine; install Goodfetch {install} or newer to use it.",
+            format.name
+        ),
+        &FormatVersionUnsupportedDetails {
+            format: format.name.to_owned(),
+            found: found.to_owned(),
+            supported: format.version.to_string(),
+            fix: format!("Install Goodfetch {install} or newer, then try again."),
+        },
+    )
+}
+
 /// Reads a start's Run ID, refusing one that is not with `run_id_invalid`.
 ///
 /// # Errors
@@ -157,6 +176,22 @@ pub fn start_error(error: StartError) -> CallError {
         ),
         StartError::LimitReached(reached) => limit_reached(&reached),
         StartError::LimitNotUnderstood(limit) => limit_not_understood(*limit),
+        StartError::Format {
+            format,
+            found,
+            compatibility,
+            install,
+        } => {
+            let format = goodfetch_protocol::formats::FORMATS
+                .iter()
+                .find(|known| known.name == format)
+                .copied()
+                .unwrap_or(&goodfetch_protocol::formats::RUN_INDEX);
+            match install {
+                Some(install) => store_refusal(format, &found, &install),
+                None => format_refusal(format, &found, compatibility),
+            }
+        }
         StartError::Stopped => stopped(),
     }
 }
@@ -246,7 +281,51 @@ pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
             let (message, details) = identity.not_in_product(Requested::Name(key), *needs, false);
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
+        SettingsError::Format {
+            format,
+            found,
+            supported,
+            install,
+            ..
+        } => CallError::new(
+            &FORMAT_VERSION_UNSUPPORTED,
+            message,
+            &FormatVersionUnsupportedDetails {
+                format: (*format).to_owned(),
+                found: found.clone(),
+                supported: supported.clone(),
+                fix: match install {
+                    Some(install) => {
+                        format!("Install Goodfetch {install} or newer, then try again.")
+                    }
+                    None if error_is_older_major(error) => {
+                        "Run `upgrade-files`, then try again.".to_owned()
+                    }
+                    None => format!("Upgrade Goodfetch to a version that reads {format} {found}."),
+                },
+            },
+        ),
+        SettingsError::OlderMajorPolicy { major, current, .. } => CallError::new(
+            &FORMAT_VERSION_UNSUPPORTED,
+            message,
+            &FormatVersionUnsupportedDetails {
+                format: goodfetch_protocol::formats::OPERATOR_POLICY.name.to_owned(),
+                found: major.clone(),
+                supported: current.clone(),
+                fix: "Run `upgrade-files` with this Goodfetch, then try again.".to_owned(),
+            },
+        ),
     }
+}
+
+fn error_is_older_major(error: &SettingsError) -> bool {
+    matches!(
+        error,
+        SettingsError::Format {
+            compatibility: Compatibility::OlderMajor,
+            ..
+        }
+    )
 }
 
 fn stopped() -> CallError {
@@ -301,6 +380,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
             format,
             found,
             compatibility,
+            install,
             ..
         } => {
             let format = goodfetch_protocol::formats::FORMATS
@@ -308,7 +388,10 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
                 .find(|known| known.name == format)
                 .copied()
                 .unwrap_or(&goodfetch_protocol::formats::RUN_STATE);
-            format_refusal(format, &found, compatibility)
+            match install {
+                Some(install) => store_refusal(format, &found, &install),
+                None => format_refusal(format, &found, compatibility),
+            }
         }
         RunError::BoundToMachine(run_id) => CallError::new(
             &SESSION_BOUND_TO_MACHINE,

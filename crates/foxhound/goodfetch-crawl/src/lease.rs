@@ -24,6 +24,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::run_state::{RunState, RunStateError};
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
+use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -217,8 +218,9 @@ impl WorkItemLease {
         }
     }
 
-    /// Commits `records` as its attempt's outputs, once, when it still
-    /// holds and the run file holds it too.
+    /// Commits `records` as its attempt's outputs, once, with its work
+    /// item's outcome ended at `ended_at`, when it still holds and the run
+    /// file holds it too.
     ///
     /// # Errors
     ///
@@ -233,6 +235,7 @@ impl WorkItemLease {
         &self,
         state: &RunState,
         records: Vec<PushedRecord>,
+        ended_at: PointInTime,
     ) -> Result<(), CommitError> {
         let lease = self.0.state.borrow().lease;
         if self.check().is_err() {
@@ -242,7 +245,9 @@ impl WorkItemLease {
         let work_item = self.0.work_item.to_string();
         let epoch = lease.epoch();
         match state
-            .write(move |connection| work_items::commit(connection, &work_item, epoch, &records))
+            .write(move |connection| {
+                work_items::commit(connection, &work_item, epoch, &records, &ended_at)
+            })
             .await
         {
             Ok(true) => {

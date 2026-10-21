@@ -65,13 +65,15 @@ const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>(
   fullyParallel: true,
   timeout: 300_000,
   reportSlowTests: { max: 0, threshold: 30_000 },
-  // Test support's Journey reporter writes each `console` variant's
-  // `journey` document into GOODFETCH_TEST_RESULT_DOCUMENTS, which `just
-  // test` sets (ADR 0063).
+  // Test support's result document reporter writes each `console` variant's
+  // `journey` document, and one `conformance` document per project naming a
+  // Console conformance target (`metadata.conformanceTarget`), into
+  // GOODFETCH_TEST_RESULT_DOCUMENTS, which `just test` sets (ADRs 0063 and
+  // 0068). The suite's case list is `conformance/console/cases.toml`.
   reporter: [
     ["list"],
     ["junit", { outputFile: "target/junit/playwright.xml" }],
-    ["@goodfetch/test-support/journey-reporter"],
+    ["@goodfetch/test-support/result-document-reporter"],
   ],
   updateSnapshots: visual.updateSnapshots,
   metadata: { features: readFeatureIds(import.meta.dirname) },

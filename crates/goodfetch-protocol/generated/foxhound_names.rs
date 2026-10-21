@@ -23,7 +23,7 @@ pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages"];
 
 /// The operations only Foxhound carries.
-pub const OPERATIONS: &[&str] = &["crawl.start", "sample.crawl"];
+pub const OPERATIONS: &[&str] = &["crawl.start", "run.failed_requests", "run.outcomes", "sample.crawl"];
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];

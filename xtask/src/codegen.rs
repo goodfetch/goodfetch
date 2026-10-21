@@ -4,7 +4,8 @@
 //! Product's projection, the names only Foxhound carries, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
-//! the Journey files' schema on its own, `journeys/journey.schema.json`, for
+//! each registered format's refusal cases (ADR 0066), the Journey files'
+//! schema on its own, `journeys/journey.schema.json`, for
 //! editors and the TypeScript and Python helpers (ADR 0063), and the result
 //! document's types those helpers write it with, in their `test-support/`
 //! packages. It also commits
@@ -47,6 +48,7 @@ use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
 use crate::check::Finding;
+use crate::compat;
 use crate::environment::Environment;
 use crate::features;
 use goodfetch_protocol::catalog::Product;
@@ -290,7 +292,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
     let catalog: Value =
         serde_json::from_slice(&emitted.catalog).context("reading the emitted catalog")?;
 
-    let mut files = BTreeMap::new();
+    let mut files = compat::refusals::files(&emitted.bundle)?;
     files.insert(format!("{PROTOCOL_GENERATED}/bundle.json"), emitted.bundle);
     files.insert(
         format!("{PROTOCOL_GENERATED}/catalog.json"),

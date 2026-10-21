@@ -1,0 +1,17 @@
+{
+  "format": "protocol",
+  "rule": "lower_minor",
+  "reader": "0.1",
+  "found": "0.0",
+  "compatibility": "compatible",
+  "hello": {
+    "from": "browser_host",
+    "engine": "collie",
+    "session_needs": "0.1",
+    "reply": {
+      "refused": {
+        "error_code": "browser_host_outdated"
+      }
+    }
+  }
+}

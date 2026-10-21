@@ -1,0 +1,75 @@
+# The watchlist job (spec #598, story 61; ADR 0035), weekly on `main`'s head,
+# on GitHub-hosted Linux: webappanalyzer (GPL-3.0) and Scrapfly's
+# Antibot-Detector (NPOSL-3.0) are watchlists, never sources. The job checks
+# out the two public lists, reads only the vendor names they list
+# (webappanalyzer's "Security" technologies, Antibot-Detector's `antibot` and
+# `captcha` detectors) and compares them with the vendors Collie's
+# block-detection rules cover
+# (`crates/goodfetch-collie/src/block_detection/vendors.toml`). For each
+# vendor no rule covers it opens one `watchlist` and `needs-triage` issue,
+# outside every milestone, at most 10 a run; a rerun never opens a second one
+# for a vendor that has one, open or closed, so closing an issue declines its
+# vendor. A rule for a listed vendor is written by hand from the vendor's
+# documentation and Goodfetch's own captures: the job writes no file, so no
+# list content reaches the rule data or the notice inventory, and `xtask
+# notices` refuses a source that names either list.
+#
+# Network: beyond its own repository and GitHub's interface for the issues,
+# the job reads only the two lists' public repositories, through
+# `actions/checkout`. It runs none of the product, so ADR 0043's deny does
+# not apply (ADR 0043 names the watchlist job outside its rule;
+# ci/egress/endpoints.toml). While the repository is private, it shares the
+# included minutes of the hosted jobs, a few minutes a week (ADR 0135).
+name: watchlist
+
+on:
+  schedule:
+    # Mondays.
+    - cron: "29 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: watchlist
+  cancel-in-progress: false
+
+jobs:
+  watchlist:
+    name: watchlist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # The job opens one issue per vendor no rule covers.
+      issues: write
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Check out webappanalyzer's technologies
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: enthec/webappanalyzer
+          path: watchlists/webappanalyzer
+          sparse-checkout: src
+          persist-credentials: false
+      - name: Check out Antibot-Detector's detectors
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: scrapfly/Antibot-Detector
+          path: watchlists/antibot-detector
+          sparse-checkout: detectors
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Open an issue for each listed vendor no rule covers
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- watchlist
+          --webappanalyzer watchlists/webappanalyzer
+          --antibot-detector watchlists/antibot-detector
+          --repository "$GITHUB_REPOSITORY"

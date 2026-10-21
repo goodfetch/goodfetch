@@ -51,6 +51,14 @@ export interface ConsoleServer {
   serve(start: ConsoleStart): Promise<ServedConsole>;
 }
 
+/** What the executable's Console answers a request for a sign-in link: it has none yet (area 12). */
+function noSignIn(): never {
+  throw new TestSupportError(
+    "console_not_served",
+    "the executable's Console has no sign-in yet (area 12): pass a `consoleServer` that has one",
+  );
+}
+
 /**
  * The Console the test's Daemon serves itself, from its executable's
  * Console build (ADR 0057), at the URL its runtime file reports. It has no
@@ -65,12 +73,6 @@ export const executableConsole: ConsoleServer = {
         "the test's Daemon serves no Console: its executable carries no Console build",
       );
     }
-    const noSignIn = (): never => {
-      throw new TestSupportError(
-        "console_not_served",
-        "the executable's Console has no sign-in yet (area 12): pass a `consoleServer` that has one",
-      );
-    };
     return {
       url,
       signInLink: async () => noSignIn(),

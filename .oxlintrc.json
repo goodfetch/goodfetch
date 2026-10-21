@@ -159,7 +159,12 @@
       }
     },
     {
-      "files": ["console/**/*.test.{ts,tsx}", "console/**/*.stories.tsx", "console/tests/**"],
+      "files": [
+        "console/**/*.test.{ts,tsx}",
+        "console/**/*.stories.tsx",
+        "console/tests/**",
+        "console/*/tests/**"
+      ],
       "jsPlugins": ["eslint-plugin-lingui"],
       "rules": {
         "lingui/no-unlocalized-strings": "off"

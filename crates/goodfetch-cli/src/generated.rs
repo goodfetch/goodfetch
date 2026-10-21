@@ -18,7 +18,7 @@ use std::process::ExitCode;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::catalog::{ErrorGroup, Operation, OperationKind, Product};
+use goodfetch_protocol::catalog::{ErrorGroup, Operation, OperationKind, Product, Reach, SDK_ONLY};
 use goodfetch_protocol::cli::{CommandError, CommandFailed};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
@@ -91,14 +91,39 @@ impl Generated {
     }
 }
 
+/// How the CLI offers an operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offer {
+    /// A command that prints the call's result.
+    Command,
+    /// A command that takes `--follow` and prints what the call sends as
+    /// it arrives, until the call ends: a sequence.
+    Follow,
+}
+
+/// How the CLI offers `operation`, if it does (ADR 0099): every round trip,
+/// query, read and opener is a command and every sequence one with
+/// `--follow`, unless the catalog keeps it off the CLI, to the SDKs or to
+/// a person; a waiter or an event is none. An operation the catalog's
+/// [`SDK_ONLY`] list names is none whatever its marker, so an entry added
+/// without one never becomes a command.
+pub fn offer(operation: &Operation) -> Option<Offer> {
+    if operation.reach != Reach::AllSurfaces || SDK_ONLY.contains(&operation.name) {
+        return None;
+    }
+    match operation.kind {
+        OperationKind::RoundTrip
+        | OperationKind::Query
+        | OperationKind::Read
+        | OperationKind::Opener => Some(Offer::Command),
+        OperationKind::Sequence => Some(Offer::Follow),
+        OperationKind::Waiter | OperationKind::Event => None,
+    }
+}
+
 /// The operations that are commands, in the catalog's order.
 fn commands() -> impl Iterator<Item = &'static Operation> {
-    operations_of(PRODUCT).filter(|operation| {
-        matches!(
-            operation.kind,
-            OperationKind::RoundTrip | OperationKind::Opener
-        )
-    })
+    operations_of(PRODUCT).filter(|operation| offer(operation).is_some())
 }
 
 fn namespace(operation: &Operation) -> &'static str {
@@ -432,3 +457,6 @@ fn group(error: &ErrorObject) -> ErrorGroup {
         })
         .unwrap_or(ErrorGroup::Internal)
 }
+
+#[cfg(test)]
+mod tests;

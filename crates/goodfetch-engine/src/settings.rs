@@ -153,7 +153,8 @@ impl Settings {
             recipe,
             run,
         };
-        let resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))?;
+        let resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))
+            .map_err(|error| self.0.files.named_in(error))?;
         Ok((
             RunSettings {
                 settings: self.clone(),

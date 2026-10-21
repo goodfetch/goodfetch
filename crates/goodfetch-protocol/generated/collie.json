@@ -1640,6 +1640,7 @@
         "$ref": "#/$defs/ConfigExplainParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SettingsExplanation"
       },
@@ -1658,6 +1659,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStatus"
       },
@@ -1676,6 +1678,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStopping"
       },
@@ -1694,6 +1697,7 @@
         "$ref": "#/$defs/EngineInfoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/EngineInfo"
       },
@@ -1715,6 +1719,7 @@
         "$ref": "#/$defs/EventsSubscribeParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
       },
@@ -1733,6 +1738,7 @@
         "$ref": "#/$defs/PageBodyParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
       },
@@ -1751,6 +1757,7 @@
         "$ref": "#/$defs/GotoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Navigated"
       },
@@ -1769,6 +1776,7 @@
         "$ref": "#/$defs/RunAbortParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -1787,6 +1795,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -1805,6 +1814,7 @@
         "$ref": "#/$defs/NewPageParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageOpened"
       },
@@ -1823,6 +1833,7 @@
         "$ref": "#/$defs/RunStartParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -1846,6 +1857,7 @@
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
       },

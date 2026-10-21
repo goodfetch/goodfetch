@@ -461,7 +461,7 @@
     {
       "arrived_in": "0.1",
       "deprecated": null,
-      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
+      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
       "name": "crawl_request.handle",
       "params": {
         "$ref": "#/$defs/CrawlRequestHandleParams"
@@ -521,6 +521,7 @@
         "$ref": "#/$defs/ConfigExplainParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SettingsExplanation"
       },
@@ -539,6 +540,7 @@
         "$ref": "#/$defs/CrawlStartParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -557,6 +559,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStatus"
       },
@@ -575,6 +578,7 @@
         "$ref": "#/$defs/DaemonParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DaemonStopping"
       },
@@ -593,6 +597,7 @@
         "$ref": "#/$defs/EngineInfoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/EngineInfo"
       },
@@ -614,6 +619,7 @@
         "$ref": "#/$defs/EventsSubscribeParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
       },
@@ -632,6 +638,7 @@
         "$ref": "#/$defs/PageBodyParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
       },
@@ -650,6 +657,7 @@
         "$ref": "#/$defs/GotoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Navigated"
       },
@@ -668,8 +676,28 @@
         "$ref": "#/$defs/RunAbortParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.failed_requests",
+      "params": {
+        "$ref": "#/$defs/RunFailedRequestsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/FailedRequests"
       },
       "stability": "experimental"
     },
@@ -686,6 +714,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },
@@ -704,8 +733,28 @@
         "$ref": "#/$defs/NewPageParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageOpened"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: \"now\"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.outcomes",
+      "params": {
+        "$ref": "#/$defs/RunOutcomesParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestOutcomes"
       },
       "stability": "experimental"
     },
@@ -722,6 +771,7 @@
         "$ref": "#/$defs/RunStartParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
       },
@@ -742,6 +792,7 @@
         "$ref": "#/$defs/SampleCrawlParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleCrawlResult"
       },
@@ -765,6 +816,7 @@
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
       },

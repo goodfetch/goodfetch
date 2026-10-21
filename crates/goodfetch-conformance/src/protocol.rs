@@ -15,6 +15,7 @@
 
 mod cases;
 mod connection;
+mod fabricated;
 mod target;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
@@ -29,6 +30,7 @@ use serde_json::{Value, json};
 
 use self::cases::{Case, Checks, Site};
 use self::connection::{Connection, Gone};
+pub use self::fabricated::{FabricatedHelloError, FabricatedHelloOutcome, send_fabricated_hello};
 pub use self::target::{EngineMode, EngineTarget, StartError};
 use crate::case_list::{CaseList, DeclaredCapability};
 use crate::host::{RUNTIME, platform};

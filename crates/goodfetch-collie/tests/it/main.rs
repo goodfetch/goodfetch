@@ -9,11 +9,13 @@
 
 mod attached;
 mod browsers;
+mod client_conformance;
 mod commands;
 mod config;
 mod daemon;
 mod events;
 mod help;
+mod human_output;
 mod invalid_calls;
 mod journeys;
 #[cfg(target_os = "linux")]
@@ -22,4 +24,5 @@ mod log;
 mod page;
 mod run;
 mod service_manager;
+mod settings_flags;
 mod writer_lock;

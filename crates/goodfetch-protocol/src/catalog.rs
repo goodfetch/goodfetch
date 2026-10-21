@@ -163,17 +163,29 @@ impl OperationClass {
 
 /// The shape an operation takes on every surface (ADR 0099), from which
 /// each generator applies its one form, such as a method in each SDK or a
-/// CLI command.
+/// CLI command. Whether a call can be cancelled is [`Operation::cancellable`],
+/// which an operation of any kind may be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationKind {
-    /// A call answered once with its result.
+    /// A call answered once with its result, which may wait (ADR 0080).
     RoundTrip,
+    /// A round trip that never waits, such as ADR 0085's questions
+    /// (`is_visible`, `count`), so it takes no timeout.
+    Query,
+    /// A read the SDK answers itself on a handle, such as `page.url` or
+    /// `run.id`.
+    Read,
     /// A call that opens a value the caller then names by its ID, such as a
     /// Run: its result carries the new value's ID, `<namespace>_id`.
     Opener,
     /// A call that stays in flight and sends its answer as notifications,
     /// such as an event subscription or a body read in chunks (ADR 0081).
     Sequence,
+    /// A wait for an application state, armed when it is called (ADR 0080).
+    Waiter,
+    /// A side activity a program listens to, such as a page's console
+    /// messages (ADR 0081).
+    Event,
 }
 
 impl OperationKind {
@@ -181,11 +193,59 @@ impl OperationKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RoundTrip => "round_trip",
+            Self::Query => "query",
+            Self::Read => "read",
             Self::Opener => "opener",
             Self::Sequence => "sequence",
+            Self::Waiter => "waiter",
+            Self::Event => "event",
         }
     }
 }
+
+/// Which surfaces offer an operation (ADRs 0011, 0089, 0092, 0099 and 0106).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reach {
+    /// Every surface of its Product: the SDKs, the CLI, MCP, skills, Code
+    /// mode and the Framework adapters.
+    AllSurfaces,
+    /// The SDKs only, to the program's own code: a Session's cookies and a
+    /// page's storage (ADR 0092), `page.lend` (ADR 0089), `effect.open` and
+    /// `effect.close` (ADR 0106). No CLI command, MCP tool, skill, Code mode
+    /// global or Framework adapter offers it.
+    SdkOnly,
+    /// A person's answer, given in the Console or an interactive CLI prompt
+    /// only (ADR 0011's list, such as a certificate's acceptance or a Limit
+    /// raise): no agent surface offers it, and the CLI offers it as a
+    /// prompt, never as a generated command.
+    PersonOnly,
+}
+
+impl Reach {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AllSurfaces => "all_surfaces",
+            Self::SdkOnly => "sdk_only",
+            Self::PersonOnly => "person_only",
+        }
+    }
+}
+
+/// The canonical names of the entries ADRs 0089, 0092 and 0106 keep to the
+/// SDKs, which the catalog marks [`Reach::SdkOnly`] when it defines them.
+/// Each surface generator other than the SDKs' refuses to offer an entry of
+/// these names, so one added without the marker fails its checks.
+pub const SDK_ONLY: [&str; 8] = [
+    "session.cookies",
+    "session.add_cookies",
+    "session.clear_cookies",
+    "page.local_storage",
+    "page.session_storage",
+    "page.lend",
+    "effect.open",
+    "effect.close",
+];
 
 /// Whether an entry is under semver's promise (ADR 0030).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -235,6 +295,8 @@ pub struct Operation {
     pub class: OperationClass,
     /// The shape it takes on every surface.
     pub kind: OperationKind,
+    /// The surfaces that offer it.
+    pub reach: Reach,
     /// The type of its params.
     pub params: SchemaOf,
     /// The type of its result.

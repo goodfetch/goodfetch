@@ -103,6 +103,16 @@ prefix = "run.abort"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.failed_requests"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.outcomes"
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "crawl.start"
 
 [[area]]
@@ -385,12 +395,18 @@ prefix = "run."
 [[area]]
 number = 11
 kind = "command"
-prefix = "page."
+prefix = "sample."
+
+# The sequences, offered with `--follow` (#1180).
+[[area]]
+number = 11
+kind = "command"
+prefix = "events."
 
 [[area]]
 number = 11
 kind = "command"
-prefix = "sample."
+prefix = "page."
 
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).

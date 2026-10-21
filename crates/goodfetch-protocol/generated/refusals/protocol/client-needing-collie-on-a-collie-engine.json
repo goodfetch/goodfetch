@@ -1,0 +1,17 @@
+{
+  "format": "protocol",
+  "rule": "default",
+  "reader": "0.1",
+  "found": "0.1",
+  "compatibility": "compatible",
+  "hello": {
+    "from": "client",
+    "engine": "collie",
+    "needs": "collie",
+    "reply": {
+      "accepted": {
+        "protocol_version": "0.1"
+      }
+    }
+  }
+}

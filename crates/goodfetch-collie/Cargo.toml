@@ -42,6 +42,8 @@ tracing-subscriber = { workspace = true, optional = true, features = ["env-filte
 goodfetch-collie = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# A stored body's ID, the SHA-256 of its bytes, for `page body --follow`.
+sha2.workspace = true
 insta.workspace = true
 # The clean-up's time in the page tests, and the pins' lever
 # (examples/pin-chrome-for-testing.rs), which downloads and unpacks the

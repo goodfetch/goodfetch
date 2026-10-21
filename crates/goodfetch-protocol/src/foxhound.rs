@@ -2,10 +2,11 @@
 //! Outside `crates/foxhound/`, only this crate and `xtask` name this module.
 //! Its `sample` entries are samples until the crawl areas define the real
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
-//! items.
+//! items, and `outcomes` the reads of how its requests ended.
 
 pub mod block;
 pub mod crawl;
+pub mod outcomes;
 pub mod settings;
 
 use schemars::JsonSchema;
@@ -13,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage, Instrument, Metric,
-    Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Setting,
-    SharedType, SharedTypeValue, Stability, schema_of,
+    Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Reach,
+    Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
 
@@ -82,6 +83,7 @@ pub const ENTRIES: Entries = Entries {
         description: "Visits sample pages, each repeating a text.",
         class: OperationClass::Effect,
         kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
         params: schema_of::<SampleCrawlParams>,
         result: schema_of::<SampleCrawlResult>,
         events: &[&SAMPLE_CRAWLED],

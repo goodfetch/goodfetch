@@ -152,12 +152,22 @@ fn browser_cache_max_unused_age_in_a_runs_settings_is_not_applicable() {
         json!({ "run_id": "set", "settings": { "browser_cache": { "max_unused_age": 1000 } } }),
     );
 
+    let folder = env.home().join("1");
     assert_eq!(
         (
             &started["error"]["data"]["code"],
-            &started["error"]["data"]["layer"]
+            &started["error"]["data"]["layer"],
+            &started["error"]["data"]["fix"],
         ),
-        (&json!("setting_not_applicable"), &json!("run"))
+        (
+            &json!("setting_not_applicable"),
+            &json!("run"),
+            &json!(format!(
+                "set `browser_cache.max_unused_age` in user configuration, `{}`, or an Operator policy, `{}`",
+                folder.join("configuration.toml").display(),
+                folder.join("operator-policy.toml").display()
+            )),
+        )
     );
 }
 

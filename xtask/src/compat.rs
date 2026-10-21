@@ -11,6 +11,8 @@
 //!
 //! Each set holds the writer's files and `format.json`, the format's name,
 //! version, storage and schema as the registry gave them.
+//!
+//! `refusals` writes each registered format's generated refusal cases.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -18,6 +20,7 @@
 
 mod coverage;
 mod frozen;
+pub(crate) mod refusals;
 mod registry;
 mod sql;
 mod tag;
@@ -349,6 +352,28 @@ pub(crate) fn write(cargo: &OsStr, root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Writes the refusal cases of every format the committed bundle registers,
+/// removing those of a format no longer registered.
+pub(crate) fn write_refusals(root: &Path) -> Result<()> {
+    let path = root.join(registry::BUNDLE);
+    let bundle = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let files = refusals::files(&bundle).with_context(|| format!("reading {}", path.display()))?;
+    let folder = root.join(refusals::FOLDER);
+    if folder.exists() {
+        std::fs::remove_dir_all(&folder)
+            .with_context(|| format!("removing {}", folder.display()))?;
+    }
+    for (relative, contents) in files {
+        let path = root.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
+}
+
 /// `xtask compat`'s commands.
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
@@ -368,6 +393,10 @@ pub(crate) enum Command {
         #[arg(long)]
         tag: String,
     },
+    /// Writes each registered format's refusal cases from its rule's table,
+    /// one file per case under `crates/goodfetch-protocol/generated/refusals/`,
+    /// which `xtask codegen --check` holds to the registry.
+    Refusals,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -378,6 +407,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             Ok(ExitCode::SUCCESS)
         }
         Command::Check => Ok(check::report(&check(cargo, root)?)),
+        Command::Refusals => {
+            write_refusals(root)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Freeze { tag } => {
             match freeze(root, &tag)? {
                 Freeze::Prerelease => output::line(&format!(

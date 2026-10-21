@@ -137,6 +137,12 @@ impl Connection {
         }
     }
 
+    /// Whether the target closes the Connection before writing anything
+    /// else.
+    pub(crate) fn closes(&mut self) -> bool {
+        matches!(self.started.next_line(DEADLINE), Next::Closed)
+    }
+
     /// Answers the engine's request `id` with `result`.
     pub(crate) fn reply(&mut self, id: &Value, result: &Value) -> Result<(), Gone> {
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))

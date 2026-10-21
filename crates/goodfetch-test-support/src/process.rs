@@ -81,6 +81,27 @@ impl Process {
         child.kill()?;
         child.wait()
     }
+
+    /// Sends it `SIGINT`, as Ctrl-C at a terminal does, through `kill -INT`,
+    /// without waiting for it to exit.
+    #[cfg(unix)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test helper's blocking `kill`, run outside any async worker (ADR 0062)"
+    )]
+    pub fn interrupt(&self) -> io::Result<()> {
+        let pid = self.child().id().to_string();
+        let status = std::process::Command::new("kill")
+            .args(["-INT", &pid])
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other(format!(
+                "`kill -INT {pid}` failed: {status}"
+            )))
+        }
+    }
 }
 
 /// The processes a test left alive after its teardown, which fail it: the

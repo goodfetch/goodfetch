@@ -147,24 +147,19 @@ impl Server {
             .expect("invariant: a bound listener has an address")
     }
 
-    /// Serves until the process receives Ctrl-C (or `SIGTERM` on Unix), then
-    /// closes every connection and waits for their tasks.
+    /// Serves until `stop_signal` is received, then closes every connection
+    /// and waits for their tasks.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future drops the listener; connection tasks already
     /// started run on until their connections close.
-    pub(crate) async fn run(self) -> Result<()> {
+    pub(crate) async fn run(self, mut stop_signal: StopSignal) {
         let tracker = TaskTracker::new();
         let stop = CancellationToken::new();
-        let stopped = stop_signal();
-        tokio::pin!(stopped);
         loop {
             tokio::select! {
-                result = &mut stopped => {
-                    result?;
-                    break;
-                }
+                () = stop_signal.received() => break,
                 accepted = self.listener.accept() => {
                     let Ok((stream, source)) = accepted else {
                         // A connection that failed before it was accepted
@@ -197,7 +192,6 @@ impl Server {
         tracker.close();
         stop.cancel();
         tracker.wait().await;
-        Ok(())
     }
 }
 
@@ -394,23 +388,54 @@ where
     }
 }
 
-/// Resolves when the process is told to stop.
-async fn stop_signal() -> Result<()> {
+/// The signals that tell the process to stop: Ctrl-C and, on Unix,
+/// `SIGTERM`. It listens from the moment it is made, so a signal that
+/// arrives before [`StopSignal::received`] is first awaited waits for it
+/// instead of meeting the default action, which ends the process at once.
+pub(crate) struct StopSignal {
     #[cfg(unix)]
-    {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .context("listening for SIGTERM")?;
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => result.context("listening for Ctrl-C"),
-            _ = terminate.recv() => Ok(()),
+    interrupt: tokio::signal::unix::Signal,
+    #[cfg(unix)]
+    terminate: tokio::signal::unix::Signal,
+    #[cfg(windows)]
+    ctrl_c: tokio::signal::windows::CtrlC,
+}
+
+impl StopSignal {
+    /// Starts listening, inside the runtime. `serve` calls it before it
+    /// reports its address, since a caller may stop it as soon as it reads
+    /// the report.
+    pub(crate) fn listen() -> Result<Self> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            Ok(Self {
+                interrupt: signal(SignalKind::interrupt()).context("listening for Ctrl-C")?,
+                terminate: signal(SignalKind::terminate()).context("listening for SIGTERM")?,
+            })
+        }
+        #[cfg(windows)]
+        {
+            Ok(Self {
+                ctrl_c: tokio::signal::windows::ctrl_c().context("listening for Ctrl-C")?,
+            })
         }
     }
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c()
-            .await
-            .context("listening for Ctrl-C")
+
+    /// Resolves when the process is told to stop.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel safe: a signal that arrives while nothing awaits it is kept
+    /// for the next call.
+    async fn received(&mut self) {
+        #[cfg(unix)]
+        tokio::select! {
+            _ = self.interrupt.recv() => {}
+            _ = self.terminate.recv() => {}
+        }
+        #[cfg(windows)]
+        self.ctrl_c.recv().await;
     }
 }
 

@@ -35,6 +35,7 @@ fmt-check:
 # Formatting checks, then every linter and the repository's own static checks.
 lint: fmt-check
     cargo metadata --locked --format-version 1 > /dev/null
+    ci/fuzz-check.sh locked
     pnpm install --lockfile-only --frozen-lockfile
     uv lock --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings

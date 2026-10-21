@@ -50,9 +50,18 @@ path = "junit.xml"
 # so copies whose artifacts share names never meet. At most four run at once,
 # in every profile: each slot builds the fixture's dependencies once, and four
 # Cargo builds beside the other tests keep the host's cores shared.
+#
+# `daemon install`'s real installs (`service_manager::`) register services
+# with the user's own service manager, which the whole user shares: one at
+# a time, each named by its test's Goodfetch home (TESTING.md, Isolation).
 [test-groups]
 fixture-builds = { max-threads = 4 }
+service-manager = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
 test-group = "fixture-builds"
+
+[[profile.default.overrides]]
+filter = "kind(test) & test(/^service_manager::/)"
+test-group = "service-manager"

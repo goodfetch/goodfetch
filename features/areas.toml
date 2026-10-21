@@ -173,6 +173,12 @@ number = 3
 kind = "command"
 prefix = "daemon."
 
+# Area 3's writer lock and Run index (#219): `runs reindex`.
+[[area]]
+number = 3
+kind = "command"
+prefix = "runs."
+
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
 # runtime itself waits on or resolves (ADR 0059).

@@ -220,6 +220,31 @@ impl RunState {
     }
 }
 
+/// Takes the next run epoch of the run file at `path` (ADR 0003): one
+/// higher than the one it holds, written and synced before the new writer
+/// opens it with [`RunState::open`], so a writer of an earlier epoch commits
+/// nothing more. Only the holder of the Run's writer lock calls it. It
+/// blocks: run it under a blocking policy.
+///
+/// # Errors
+///
+/// As [`RunState::open`], and `Sqlite` when the file holds no Run.
+pub(crate) fn next_epoch(
+    path: &Path,
+    options: &RunStateOptions,
+    tables: &[RunStateTables],
+) -> Result<u64, RunStateError> {
+    let connection = open_file(path, options.vfs.as_deref(), tables)?;
+    let epoch: i64 = connection
+        .query_row(
+            "UPDATE run SET epoch = epoch + 1 RETURNING epoch",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| sqlite_error(path, &error))?;
+    Ok(u64::try_from(epoch).unwrap_or_default())
+}
+
 fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),

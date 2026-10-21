@@ -10,9 +10,10 @@ use std::collections::BTreeMap;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::StoppedBy;
 use goodfetch_protocol::run::{
-    RUN_ABORT, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE, RUN_NOT_FOUND,
-    RUN_START, RUN_STATE_UNAVAILABLE, RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails,
-    RunKind, RunParams, RunReport, RunStartParams, RunStarted, StartedAs,
+    RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
+    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_START, RUN_STATE_UNAVAILABLE, RunAbortParams,
+    RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails, RunKind, RunParams, RunReport,
+    RunStartParams, RunStarted, StartedAs,
 };
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
@@ -24,7 +25,7 @@ use goodfetch_protocol::settings::{
 
 use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
-use crate::runs::{EndedBy, RunError, Start, StartError, Started};
+use crate::runs::{EndedBy, Forwarded, RunError, Start, StartError, Started};
 use crate::settings::{Opening, SettingsError};
 
 /// The `run.*` handlers.
@@ -163,12 +164,44 @@ fn stopped() -> CallError {
     )
 }
 
-fn run_error(error: RunError) -> CallError {
+fn run_error(error: RunError, identity: &Identity) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
             &RUN_NOT_FOUND,
             format!("No Run has the Run ID `{run_id}`."),
             &RunDetails { run_id, path: None },
+        ),
+        RunError::Busy { run_id, folder } => CallError::new(
+            &RUN_BUSY,
+            format!(
+                "Another engine writes the Run `{run_id}`, and the owner the Run index names did not take the action; try again later."
+            ),
+            &RunDetails {
+                run_id,
+                path: Some(folder.display().to_string()),
+            },
+        ),
+        RunError::NotOwned(run_id) => CallError::new(
+            &RUN_NOT_OWNED,
+            format!("This engine does not own the Run `{run_id}`."),
+            &RunDetails { run_id, path: None },
+        ),
+        RunError::NotInProduct { needs, .. } => {
+            let (message, details) =
+                identity.not_in_product(Requested::Name(RUN_ABORT.name), needs, false);
+            CallError::new(&NOT_IN_PRODUCT, message, &details)
+        }
+        RunError::Unavailable {
+            run_id,
+            folder,
+            error,
+        } => CallError::new(
+            &RUN_STATE_UNAVAILABLE,
+            format!("The state of the Run `{run_id}` is unavailable: {error}"),
+            &RunDetails {
+                run_id,
+                path: Some(folder.display().to_string()),
+            },
         ),
         RunError::Stopped => stopped(),
     }
@@ -219,13 +252,18 @@ async fn finish(params: RunParams, context: CallContext) -> Result<RunReport, Ca
         .runs()
         .finish(params.run_id)
         .await
-        .map_err(run_error)
+        .map_err(|error| run_error(error, context.identity()))
 }
 
-async fn abort(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {
+async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport, CallError> {
+    let forwarded = if params.forwarded {
+        Forwarded::Yes
+    } else {
+        Forwarded::No
+    };
     context
         .runs()
-        .abort(params.run_id, StoppedBy::Client)
+        .abort(params.run_id, StoppedBy::Client, forwarded)
         .await
-        .map_err(run_error)
+        .map_err(|error| run_error(error, context.identity()))
 }

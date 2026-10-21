@@ -14,7 +14,7 @@
 #     image (ci/image/Containerfile) through Docker or Podman, with
 #     CAP_NET_ADMIN for `tc netem`, as ci/vm/start.sh gives the job's
 #     container; `ci/os-services.sh setup` starts every Linux OS service
-#     there, and a missing one fails, as in CI.
+#     there but the user's service manager, and a missing one fails, as in CI.
 #   - On Linux the Pre-merge suite runs these tests on the host itself.
 #   - Without a container engine it lists itself as skipped with the reason
 #     (ADR 0061), as ci/perf.sh does.
@@ -32,7 +32,9 @@ filter='test(/^tc_netem::/) | test(/^extra_loopback::/) | test(/^os_services::ke
 filter+=' | test(=fetch_edge::the_ipv6_path_drops_connections_while_ipv4_answers)'
 
 if [[ "${1:-}" == in-container ]]; then
-  ci/os-services.sh setup
+  # Without the user's service manager: this container does not boot
+  # systemd, and none of the tests above install a service.
+  ci/os-services.sh setup --without-service-manager
   set -a
   # shellcheck source=/dev/null
   source "${RUNNER_TEMP:-/tmp}/goodfetch-os-services/env"

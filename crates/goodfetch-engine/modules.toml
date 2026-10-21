@@ -8,10 +8,11 @@ composition = ["client", "events", "product", "run_state", "runs"]
 config = ["composition", "run", "settings"]
 daemon = ["clock", "composition", "events", "home", "product", "rpc", "runs", "tasks", "transport"]
 dns = ["clock", "composition"]
-engine = ["clock", "composition", "daemon", "entropy", "events", "home", "product", "rpc", "run_state", "runs", "settings", "tasks", "transport"]
+engine = ["clock", "composition", "daemon", "entropy", "events", "forward", "home", "product", "rpc", "run_state", "runs", "settings", "tasks", "transport"]
 entropy = []
 events = ["tasks"]
 executables = ["composition"]
+forward = ["clock", "daemon", "home", "runs", "tasks", "transport"]
 happy_eyeballs = ["clock", "composition", "dns", "settings"]
 home = []
 http_client = ["clock", "dns", "happy_eyeballs"]
@@ -41,11 +42,19 @@ values = ["error", "keys"]
 # Which of `daemon`'s own modules may import which.
 [submodules.daemon]
 files = []
+service = []
+
+# Which of `transport`'s own modules may import which.
+[submodules.transport]
+activation = []
 
 # Which of `runs`'s own modules may import which.
 [submodules.runs]
 folder = []
 outcome = []
+reindex = ["folder", "writer"]
+takeover = ["folder", "writer"]
+writer = []
 
 # Which of `rpc`'s own modules may import which.
 [submodules.rpc]

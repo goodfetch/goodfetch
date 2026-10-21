@@ -36,7 +36,10 @@ use crate::catalog::{
     Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
 use crate::connection::{CancelParams, HelloParams, HelloResult};
-use crate::daemon::{DaemonStartOutput, DaemonStatusOutput, DaemonStopOutput};
+use crate::daemon::{
+    DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput, DaemonStatusOutput,
+    DaemonStopOutput, DaemonUninstallOutput,
+};
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
@@ -44,6 +47,7 @@ use crate::journey::{Journey, JourneyCatalog};
 use crate::page::Chunk;
 use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
+use crate::run::RunsReindexOutput;
 use crate::settings::SettingsExplanation;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
@@ -93,10 +97,14 @@ pub fn emit() -> Emitted {
         "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
         "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
         "config.explain": generator.subschema_for::<SettingsExplanation>(),
+        "daemon.install": generator.subschema_for::<DaemonInstallOutput>(),
         "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),
+        "daemon.rotate-token": generator.subschema_for::<DaemonRotateTokenOutput>(),
         "daemon.start": generator.subschema_for::<DaemonStartOutput>(),
         "daemon.status": generator.subschema_for::<DaemonStatusOutput>(),
         "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
+        "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
+        "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
     });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();

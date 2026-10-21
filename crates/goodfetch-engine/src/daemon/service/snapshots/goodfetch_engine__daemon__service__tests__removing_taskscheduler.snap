@@ -1,0 +1,6 @@
+---
+source: crates/goodfetch-engine/src/daemon/service/tests.rs
+expression: "lines.join(\"\\n\")"
+---
+schtasks /End /TN Goodfetch\goodfetch-daemon-1-cfa77cf6 (true)
+schtasks /Delete /TN Goodfetch\goodfetch-daemon-1-cfa77cf6 /F (true)

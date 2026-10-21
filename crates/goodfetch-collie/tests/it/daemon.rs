@@ -81,7 +81,7 @@ pub(crate) fn json_of(executable: &Path, env: &TestEnv, arguments: &[&str]) -> V
     serde_json::from_str(&output.stdout).unwrap()
 }
 
-fn validate(output: &Value, definition: &str) {
+pub(crate) fn validate(output: &Value, definition: &str) {
     let bundle: Value = serde_json::from_str(BUNDLE).unwrap();
     let schema = json!({ "$ref": format!("#/$defs/{definition}"), "$defs": bundle["$defs"] });
     let validator = jsonschema::validator_for(&schema).unwrap();
@@ -155,6 +155,25 @@ impl RawClient {
         );
         assert!(answer.get("result").is_some(), "{answer}");
         client
+    }
+
+    /// Whether the Daemon `found` names closes, unanswered, a Connection
+    /// whose `hello` carries `found`'s token.
+    pub(crate) fn refused(found: &RuntimeFile) -> bool {
+        let mut client = Self::connected(found);
+        client.send(&json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "hello",
+            "params": {
+                "protocol_version": PROTOCOL_VERSION.to_string(),
+                "surface": "sdk_typescript",
+                "token": found.token,
+                "needs": "collie",
+                "product_version": VERSION,
+            },
+        }));
+        client.next().is_none()
     }
 
     /// Connects to the Daemon `found` names, without a word.
@@ -250,6 +269,45 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
             true,
             json!({ "stopped": { "live_runs": 0 } }),
             Value::Null,
+        )
+    );
+}
+
+/// With no service installed, `daemon uninstall` has nothing to remove and
+/// `daemon rotate-token` refuses, since a Daemon's token is new at each
+/// launch; neither touches a service manager.
+///
+/// Covers: story:3-21, command:daemon.uninstall, command:daemon.rotate-token
+#[test]
+fn with_no_service_installed_uninstall_removes_nothing_and_no_token_rotates() {
+    let env = TestEnv::new();
+
+    let uninstalled = json_of(COLLIE.as_ref(), &env, &["daemon", "uninstall", "--json"]);
+    let rotated = cli(&env, COLLIE)
+        .args(["daemon", "rotate-token", "--json"])
+        .run()
+        .unwrap();
+    let status = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
+
+    validate(&uninstalled, "DaemonUninstallOutput");
+    assert_eq!(
+        (
+            uninstalled,
+            rotated.exit,
+            rotated.stdout.as_str(),
+            rotated
+                .stderr
+                .contains("no service with socket activation is installed"),
+            status["service"].clone(),
+            env.home().join("0.0").join("daemon.token").exists(),
+        ),
+        (
+            json!({ "removed": null }),
+            Some(1),
+            "",
+            true,
+            Value::Null,
+            false,
         )
     );
 }

@@ -20,6 +20,7 @@ mod engine;
 pub mod entropy;
 pub mod events;
 pub mod executables;
+mod forward;
 pub mod happy_eyeballs;
 pub mod home;
 pub mod http_client;

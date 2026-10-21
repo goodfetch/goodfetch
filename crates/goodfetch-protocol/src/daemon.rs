@@ -22,7 +22,6 @@ use crate::catalog::{
 pub use crate::connection::DaemonEndpoint;
 use crate::connection::ProductVersion;
 use crate::console::ConsoleState;
-use crate::run::RunId;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -139,7 +138,7 @@ pub const DAEMON_DRAINING: ErrorCodeDefinition = ErrorCodeDefinition {
 pub struct DaemonDrainingDetails {
     /// The Run ID of the run refused, when the call named one.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub run_id: Option<RunId>,
+    pub run_id: Option<String>,
 }
 
 /// A `daemon.*` operation called on an engine that is no Daemon.

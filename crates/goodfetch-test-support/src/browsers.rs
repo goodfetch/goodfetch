@@ -98,54 +98,13 @@ pub fn browser_cache(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
     if !source.is_dir() {
         return Err(BrowserCacheError::NotInstalled(source));
     }
-    let (root, entry) = build_entry(env);
-    link_tree(&source, &entry.join("files").join(platform))?;
-    record_entry(&entry)?;
-    Ok(root)
-}
-
-/// A Browser cache laid out as [`browser_cache`]'s, whose pinned build's
-/// executable is `script`, a shell script that stands in for the browser,
-/// such as one that leaves a descendant behind as it exits; its root, which
-/// the test passes as `GOODFETCH_BROWSERS_PATH`.
-///
-/// # Errors
-///
-/// `NoBuild` on a platform Chrome for Testing has no build for, or when the
-/// files cannot be written.
-#[cfg(unix)]
-pub fn stand_in_browser_cache(env: &TestEnv, script: &str) -> Result<PathBuf, BrowserCacheError> {
-    use std::os::unix::fs::PermissionsExt as _;
-    let platform = platform_folder().ok_or(BrowserCacheError::NoBuild)?;
-    let (root, entry) = build_entry(env);
-    let inside = if cfg!(target_os = "macos") {
-        "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
-    } else {
-        "chrome"
-    };
-    let executable = entry.join("files").join(platform).join(inside);
-    if let Some(folder) = executable.parent() {
-        fs::create_dir_all(folder)?;
-    }
-    fs::write(&executable, script)?;
-    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755))?;
-    record_entry(&entry)?;
-    Ok(root)
-}
-
-/// The cache's root in `env`'s folder, and the folder of the pinned
-/// build's entry in it.
-fn build_entry(env: &TestEnv) -> (PathBuf, PathBuf) {
     let root = env.folder().join("browsers");
     let entry = root
         .join("browser")
         .join("chrome-for-testing")
         .join(CHROME_FOR_TESTING_BUILD);
-    (root, entry)
-}
-
-/// Writes the entry's lock and its record, as an install does.
-fn record_entry(entry: &Path) -> io::Result<()> {
+    let files = entry.join("files").join(platform);
+    link_tree(&source, &files)?;
     fs::write(entry.join("lock"), "")?;
     let installed = serde_json::json!({
         "format_version": "0.1",
@@ -158,7 +117,8 @@ fn record_entry(entry: &Path) -> io::Result<()> {
         "installed_at": START_TIME,
         "used_at": START_TIME,
     });
-    fs::write(entry.join("entry.json"), installed.to_string())
+    fs::write(entry.join("entry.json"), installed.to_string())?;
+    Ok(root)
 }
 
 /// `source`'s tree at `target`: each file a hard link, or a copy across

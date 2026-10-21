@@ -163,7 +163,9 @@ fn draining(run_id: Option<RunId>) -> CallError {
     CallError::new(
         &DAEMON_DRAINING,
         "The Daemon is draining on `SIGTERM` and takes no run; start or resume it on the Daemon that replaces this one.",
-        &DaemonDrainingDetails { run_id },
+        &DaemonDrainingDetails {
+            run_id: run_id.map(|run_id| run_id.to_string()),
+        },
     )
 }
 

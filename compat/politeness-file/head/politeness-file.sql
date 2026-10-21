@@ -21,7 +21,7 @@ CREATE TABLE permits (
         engine TEXT NOT NULL,
         taken_at INTEGER NOT NULL
     ) STRICT;
-INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','903df1a0ade0b876',1767603602000);
+INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','28bd8653e56a5d40',1767603602000);
 CREATE TABLE returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT;
 INSERT INTO "returns" VALUES('shop.test',2);
 CREATE TABLE waiters (

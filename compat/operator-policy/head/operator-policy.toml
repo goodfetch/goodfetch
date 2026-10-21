@@ -1,5 +1,8 @@
 version = "0.1"
 
+[settings.console]
+address = "example"
+
 [settings.daemon]
 idle_timeout = 30000
 
@@ -71,6 +74,9 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[lock.console]
+address = "example"
 
 [lock.daemon]
 idle_timeout = 30000

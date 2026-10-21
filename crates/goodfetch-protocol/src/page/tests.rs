@@ -48,7 +48,6 @@ fn the_schema_of_an_empty_requests_result_has_no_format(
 #[rstest]
 #[case::true_(json!({ "markdown": true }))]
 #[case::options(json!({ "markdown": { "content": "main" } }))]
-#[case::options_left_out(json!({ "markdown": {} }))]
 fn markdown_is_asked_for_as_true_or_its_options_and_holds_the_main_content(#[case] value: Value) {
     let request = request(value);
 
@@ -60,6 +59,7 @@ fn markdown_is_asked_for_as_true_or_its_options_and_holds_the_main_content(#[cas
 
 #[rstest]
 #[case::false_(json!({ "markdown": false }))]
+#[case::options_without_content(json!({ "markdown": {} }))]
 #[case::an_unknown_content(json!({ "markdown": { "content": "everything" } }))]
 #[case::an_unknown_format(json!({ "screenshot": true }))]
 fn a_request_naming_no_format_the_protocol_has_is_refused(#[case] value: Value) {

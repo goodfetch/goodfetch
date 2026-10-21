@@ -724,9 +724,9 @@ export interface FormatsRequest {
  */
 export interface MarkdownOptions {
   /**
-   * How much of the page it holds; `main` when left out.
+   * How much of the page it holds.
    */
-  content?: "main";
+  content: "main";
 }
 /**
  * The formats a `page.formats` call asks for, each `true` or its options:
@@ -847,9 +847,9 @@ export interface PrivateEndpoint {
  */
 export interface MarkdownOptions1 {
   /**
-   * How much of the page it holds; `main` when left out.
+   * How much of the page it holds.
    */
-  content?: "main";
+  content: "main";
 }
 /**
  * What `page.goto` answers: the document's response, or none for a

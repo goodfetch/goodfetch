@@ -349,11 +349,10 @@ pub enum MarkdownContent {
 }
 
 /// The options of the `markdown` format.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MarkdownOptions {
-    /// How much of the page it holds; `main` when left out.
-    #[serde(default)]
+    /// How much of the page it holds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub content: MarkdownContent,
 }

@@ -196,8 +196,8 @@ class MarkdownOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    content: MarkdownContent | None = "main"
-    """How much of the page it holds; `main` when left out."""
+    content: MarkdownContent
+    """How much of the page it holds."""
 
 
 class PageBodyRead(BaseModel):

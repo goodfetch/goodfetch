@@ -2594,10 +2594,12 @@
         "content": {
           "$ref": "#/$defs/MarkdownContent",
           "arrived_in": "0.1",
-          "default": "main",
-          "description": "How much of the page it holds; `main` when left out."
+          "description": "How much of the page it holds."
         }
       },
+      "required": [
+        "content"
+      ],
       "type": "object"
     },
     "Message": {

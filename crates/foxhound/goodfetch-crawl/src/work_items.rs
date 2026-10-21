@@ -460,6 +460,24 @@ pub(crate) fn release_leases(connection: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Settles every work item still leased when its engine stopped without
+/// settling it, on a resume: its attempt counted, with the Error code
+/// `error_code`, it returns to pending while it has retries left of
+/// `retry_max`, and fails otherwise (ADR 0102).
+pub(crate) fn recover_leases(
+    connection: &Connection,
+    error_code: &str,
+    retry_max: u32,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE work_items SET error_code = ?1,
+             status = CASE WHEN attempts <= ?2 THEN ?3 ELSE ?4 END
+         WHERE status = ?5",
+        (error_code, i64::from(retry_max), PENDING, FAILED, LEASED),
+    )?;
+    Ok(())
+}
+
 /// Whether any work item is still pending.
 pub(crate) fn any_pending(connection: &Connection) -> rusqlite::Result<bool> {
     Ok(connection

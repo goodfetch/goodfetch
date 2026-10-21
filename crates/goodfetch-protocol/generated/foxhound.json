@@ -133,6 +133,62 @@
         }
       ]
     },
+    "Checkpoint": {
+      "description": "A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a\nconsistent, self-contained copy of a Run's state, complete at its\nlocation before it is reported, from which the Run resumes on this\nmachine or another one.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "journal_position": {
+          "arrived_in": "0.1",
+          "description": "The position of the run's journal it holds: how many commits of the\nrun file it contains. A resume from it redoes the work after.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where it is: the file's path on the engine's machine.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer that took it (ADR 0003), which a\ndestination compares and sets: one older than it holds is refused.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "time": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was taken."
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "size",
+        "digest",
+        "run_epoch",
+        "journal_position",
+        "time"
+      ],
+      "type": "object"
+    },
     "Completeness": {
       "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
       "oneOf": [
@@ -1456,6 +1512,26 @@
       ],
       "type": "object"
     },
+    "RunAborting": {
+      "description": "What `run.aborting` carries.",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/StoppedBy",
+          "arrived_in": "0.1",
+          "description": "Who aborts it."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "by"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -1500,6 +1576,51 @@
       ],
       "type": "object"
     },
+    "RunCheckpointParams": {
+      "additionalProperties": false,
+      "description": "What `run.checkpoint` takes.",
+      "properties": {
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointing": {
+      "description": "What `run.checkpointing` carries.",
+      "properties": {
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch the Checkpoint is taken under.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "run_epoch"
+      ],
+      "type": "object"
+    },
     "RunFailedRequestsParams": {
       "additionalProperties": false,
       "description": "What `run.failed_requests` takes.",
@@ -1525,6 +1646,20 @@
       "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
       "type": "string"
+    },
+    "RunMigrating": {
+      "description": "What `run.migrating` carries.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
     },
     "RunOrigin": {
       "description": "Where a run-layer value came from (ADR 0083).",
@@ -1618,6 +1753,18 @@
     "RunReport": {
       "description": "What a Run states about itself when it ends (ADR 0102): its three axes\n(ADR 0029) and when it ran.",
       "properties": {
+        "checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Checkpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The last Checkpoint written of it in this engine, when one was (ADR\n0102)."
+        },
         "completeness": {
           "$ref": "#/$defs/Completeness",
           "arrived_in": "0.1",
@@ -1684,6 +1831,47 @@
         "completeness",
         "started_at",
         "ended_at"
+      ],
+      "type": "object"
+    },
+    "RunResumeParams": {
+      "additionalProperties": false,
+      "description": "What `run.resume` takes.",
+      "properties": {
+        "checkpoint": {
+          "arrived_in": "0.1",
+          "description": "A Checkpoint to resume from, a path on the engine's machine, which\nbecomes the Run's state in this engine's run folder; by default the\nRun resumes from its run file on this machine.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings from the resume on, nested by key: the run layer\n(ADRs 0083 and 0102).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "run_id"
       ],
       "type": "object"
     },
@@ -1755,6 +1943,26 @@
         "started_as",
         "lifecycle",
         "needs"
+      ],
+      "type": "object"
+    },
+    "RunStopping": {
+      "description": "What `run.stopping` carries.",
+      "properties": {
+        "cause": {
+          "$ref": "#/$defs/StopReason",
+          "arrived_in": "0.1",
+          "description": "Why it stops."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "cause"
       ],
       "type": "object"
     },
@@ -2138,6 +2346,11 @@
           "const": "existing",
           "description": "Its Run ID named a Run started before with the same inputs, which is\nreturned as it is.",
           "type": "string"
+        },
+        {
+          "const": "resumed",
+          "description": "It was interrupted and goes on from its committed state, its run\nfile or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and\n0102).",
+          "type": "string"
         }
       ]
     },
@@ -2160,6 +2373,32 @@
           "required": [
             "kind",
             "by"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was paused: checkpointed and stopped, to be resumed by its Run ID\n(RT-11).",
+          "properties": {
+            "kind": {
+              "const": "pause",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was migrated: checkpointed and stopped, to be resumed from its\nCheckpoint on another machine (ADR 0002).",
+          "properties": {
+            "kind": {
+              "const": "migrate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         },
@@ -2379,6 +2618,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "file_write_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "format_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
       "exit_code": null,
       "group": "program",
@@ -2569,6 +2828,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "session_bound_to_machine",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.",
       "exit_code": null,
       "group": "program",
@@ -2681,10 +2950,58 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "A Run is being aborted: it stops at its next safe point. Lossless.",
+      "name": "run.aborting",
+      "payload": {
+        "$ref": "#/$defs/RunAborting"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.",
       "name": "run.axes_changed",
       "payload": {
         "$ref": "#/$defs/RunAxes"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.",
+      "name": "run.checkpointing",
+      "payload": {
+        "$ref": "#/$defs/RunCheckpointing"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is being migrated to another machine: it checkpoints, then stops. Lossless.",
+      "name": "run.migrating",
+      "payload": {
+        "$ref": "#/$defs/RunMigrating"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.",
+      "name": "run.stopping",
+      "payload": {
+        "$ref": "#/$defs/RunStopping"
       },
       "product": "collie",
       "stability": "experimental"
@@ -2980,6 +3297,27 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "events": [
+        "run.checkpointing"
+      ],
+      "kind": "round_trip",
+      "name": "run.checkpoint",
+      "params": {
+        "$ref": "#/$defs/RunCheckpointParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Checkpoint"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.",
@@ -3007,6 +3345,29 @@
       "name": "run.finish",
       "params": {
         "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.",
+      "events": [
+        "run.migrating",
+        "run.checkpointing",
+        "run.stopping"
+      ],
+      "kind": "round_trip",
+      "name": "run.migrate",
+      "params": {
+        "$ref": "#/$defs/RunCheckpointParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -3050,6 +3411,47 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/CrawlRequestOutcomes"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.",
+      "events": [
+        "run.checkpointing",
+        "run.stopping"
+      ],
+      "kind": "round_trip",
+      "name": "run.pause",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+      "events": [],
+      "kind": "opener",
+      "name": "run.resume",
+      "params": {
+        "$ref": "#/$defs/RunResumeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
       },
       "stability": "experimental"
     },
@@ -3185,6 +3587,25 @@
       "default": 2592000000,
       "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
       "name": "browser_cache.max_unused_age",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.",
+      "name": "checkpoint.interval",
       "product": "collie",
       "products": [
         "collie",

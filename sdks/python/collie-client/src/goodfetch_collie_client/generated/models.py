@@ -329,7 +329,7 @@ class Surface(StrEnum):
     rust = "rust"
     """A Rust program, through a Product's crate."""
     cli = "cli"
-    """The CLI, as a Client of a Daemon."""
+    """The CLI, as a Client of its own Attached engine or of a Daemon."""
     mcp = "mcp"
     """The MCP server, as a Client of a Daemon."""
     console = "console"

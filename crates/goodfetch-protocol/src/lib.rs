@@ -13,6 +13,7 @@ pub mod block;
 pub mod browser_cache;
 pub mod case_log;
 pub mod catalog;
+pub mod cli;
 pub mod connection;
 pub mod daemon;
 pub mod dns;

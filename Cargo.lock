@@ -1110,11 +1110,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "goodfetch-cli"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "goodfetch-collie"
 version = "0.0.0"
 dependencies = [
  "clap",
  "dirs",
+ "goodfetch-cli",
  "goodfetch-collie",
  "goodfetch-engine",
  "goodfetch-protocol",

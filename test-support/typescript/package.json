@@ -12,6 +12,7 @@
     "./journey-reporter": "./src/journey-reporter.ts",
     "./playwright": "./src/playwright.ts",
     "./protocol-adapter": "./src/protocol-adapter.ts",
+    "./screens": "./src/screens.ts",
     "./screenshot": "./src/screenshot.ts",
     "./visual-config": "./src/visual-config.ts",
     "./vitest-browser": "./src/vitest-browser.ts",

@@ -173,3 +173,72 @@ fn a_crawls_work_items_are_journaled_with_their_domain_and_its_drained_queues_re
         )
     );
 }
+
+/// A request whose response's first byte never came backs its domain off:
+/// the domain holds no turn for 2 s while the others go, and its retry
+/// waits them out (ADRs 0004, 0021 and 0086).
+///
+/// Covers: story:3-50
+#[test]
+fn a_domain_whose_first_byte_timed_out_backs_off_while_the_others_go() {
+    let env = TestEnv::new();
+    let seeds = json!([
+        seed("https://heavy.test/1"),
+        seed("https://heavy.test/2"),
+        seed("https://a.test/1"),
+    ]);
+    let mut timed_out = false;
+
+    let handled = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "slow", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| {
+                if page_of(params) == "https://heavy.test/1" && !timed_out {
+                    timed_out = true;
+                    return Reply::FailsWith(
+                        "deadline_exceeded",
+                        true,
+                        json!({
+                            "limit": { "key": "timeout.first_byte", "value": 30_000, "layer": "default" },
+                            "elapsed": 30_000,
+                            "waited_for": "first_byte",
+                        }),
+                    );
+                }
+                Reply::Records(vec![json!({ "page": page_of(params) })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "slow" }), &mut handler)
+                .await;
+            let first = client.arrivals.first().map(|(_, at)| *at);
+            client
+                .arrivals
+                .iter()
+                .filter(|(message, _)| message["method"] == "crawl_request.handle")
+                .map(|(message, at)| {
+                    (
+                        page_of(&message["params"]),
+                        *at - first.expect("a request came"),
+                    )
+                })
+                .collect::<Vec<_>>()
+        },
+    );
+
+    assert_eq!(
+        handled,
+        [
+            ("https://heavy.test/1".to_owned(), Duration::ZERO),
+            ("https://a.test/1".to_owned(), Duration::ZERO),
+            ("https://heavy.test/1".to_owned(), Duration::from_secs(2)),
+            ("https://heavy.test/2".to_owned(), Duration::from_secs(2)),
+        ]
+    );
+}

@@ -26,11 +26,13 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{Ending, Run};
 use goodfetch_engine::settings::RunSettings;
+use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
     HANDLER_LOST, LEASE_LOST,
 };
 use goodfetch_protocol::run::StopReason;
+use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
@@ -42,8 +44,13 @@ use crate::work_items::{self, Leased};
 enum Answer {
     /// The handler answered.
     Handled(CrawlRequestHandled),
-    /// The handler failed, or answered no result.
-    Failed { code: String, retryable: bool },
+    /// The handler failed, or answered no result; `backs_off` when the
+    /// site did not answer in time, which backs its domain off.
+    Failed {
+        code: String,
+        retryable: bool,
+        backs_off: bool,
+    },
     /// The lease ended with no answer.
     LeaseEnded,
     /// The program's Connection ended.
@@ -187,9 +194,15 @@ async fn when_idle(run: &Run, admission: &mut Admission) -> Result<Idle, RunStat
 /// what the queues changed.
 async fn settled(run: &Run, settings: &RunSettings, admission: &mut Admission, attempt: Attempt) {
     let waiting = attempt.leased.waiting.clone();
+    let domain = match attempt.answer {
+        Answer::Failed {
+            backs_off: true, ..
+        } => Ended::BackOff,
+        _ => Ended::Done,
+    };
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retried = settle(run, policy, attempt).await;
-    admission.ended(&waiting.key, run.clock().now(), Ended::Done);
+    admission.ended(&waiting.key, run.clock().now(), domain);
     if retried {
         admission.enqueue(waiting);
     }
@@ -315,10 +328,15 @@ async fn attempt(run: Run, client: Client, leased: Leased, lease: WorkItemLease)
             biased;
             answer = sent.answer() => match answer {
                 Ok(handled) => Answer::Handled(handled),
-                Err(ClientRequestError::Failed { code, retryable, .. }) => Answer::Failed { code, retryable },
+                Err(ClientRequestError::Failed { code, retryable, details, .. }) => Answer::Failed {
+                    backs_off: site_timed_out(&code, &details),
+                    code,
+                    retryable,
+                },
                 Err(ClientRequestError::Malformed(_)) => Answer::Failed {
                     code: HANDLER_FAILED.name.to_owned(),
                     retryable: false,
+                    backs_off: false,
                 },
                 Err(_) => Answer::ClientGone,
             },
@@ -387,7 +405,9 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
         Answer::LeaseEnded | Answer::ClientGone => {
             (HANDLER_LOST.name.to_owned(), HANDLER_LOST.retryable)
         }
-        Answer::Failed { code, retryable } => (code, retryable),
+        Answer::Failed {
+            code, retryable, ..
+        } => (code, retryable),
     };
     let retry = retry(&code, retryable);
     let recorded = code.clone();
@@ -410,6 +430,20 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
             false
         }
     }
+}
+
+/// Whether a handler's failure says the site did not answer in time: a
+/// `deadline_exceeded` whose `limit` is the response's first byte or the
+/// navigation, which backs the domain off like a refused or timed-out
+/// connection (ADR 0086). A `Retry-After`, a 429 and a 503 join with the
+/// fetch tiers (area 5).
+fn site_timed_out(code: &str, details: &serde_json::Map<String, serde_json::Value>) -> bool {
+    code == DEADLINE_EXCEEDED.name
+        && details
+            .get("limit")
+            .and_then(|limit| limit.get("key"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key))
 }
 
 /// Returns the leased work items to pending, without counting them.

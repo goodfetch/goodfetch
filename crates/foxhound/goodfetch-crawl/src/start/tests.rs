@@ -57,6 +57,8 @@ pub(super) enum Reply {
     Records(Vec<Value>),
     /// Fails with this Error code and retryable flag.
     Fails(&'static str, bool),
+    /// Fails with this Error code, retryable flag and details.
+    FailsWith(&'static str, bool, Value),
     /// Never answers.
     Silent,
 }
@@ -139,6 +141,20 @@ impl Client {
                             "jsonrpc": "2.0",
                             "id": message["id"],
                             "error": { "code": -32003, "message": "the handler failed", "data": { "code": code, "retryable": retryable } },
+                        }))
+                        .await;
+                    }
+                    Reply::FailsWith(code, retryable, details) => {
+                        let mut data = json!({ "code": code, "retryable": retryable });
+                        if let (Some(data), Value::Object(details)) =
+                            (data.as_object_mut(), details)
+                        {
+                            data.extend(details);
+                        }
+                        self.send(&json!({
+                            "jsonrpc": "2.0",
+                            "id": message["id"],
+                            "error": { "code": -32005, "message": "the handler failed", "data": data },
                         }))
                         .await;
                     }

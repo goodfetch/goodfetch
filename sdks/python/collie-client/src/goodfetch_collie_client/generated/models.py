@@ -181,6 +181,16 @@ class PageId(RootModel[str]):
     """A page of a Run, named by the engine when it opens it."""
 
 
+class PageParams(BaseModel):
+    """What `page.reload`, `page.go_back` and `page.go_forward` take: the page."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+
+
 class PageResponse(BaseModel):
     """The response to a request of a page, such as a navigation's document."""
 
@@ -736,9 +746,10 @@ class HelloResult(BaseModel):
 
 class Navigated(BaseModel):
     """
-    What `page.goto` answers: the document's response, or none for a
-    navigation within the same document or to a URL no server answers, such
-    as `about:blank`. A 404 or a 500 is a response, a value.
+    What a navigation answers: the document's response, or none for a
+    navigation within the same document, to a URL no server answers, such as
+    `about:blank`, or back or forward from the last entry of the page's
+    history. A 404 or a 500 is a response, a value.
     """
 
     model_config = ConfigDict(

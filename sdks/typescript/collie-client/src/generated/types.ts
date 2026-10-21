@@ -720,9 +720,10 @@ export interface PrivateEndpoint {
   token_file: string;
 }
 /**
- * What `page.goto` answers: the document's response, or none for a
- * navigation within the same document or to a URL no server answers, such
- * as `about:blank`. A 404 or a 500 is a response, a value.
+ * What a navigation answers: the document's response, or none for a
+ * navigation within the same document, to a URL no server answers, such as
+ * `about:blank`, or back or forward from the last entry of the page's
+ * history. A 404 or a 500 is a response, a value.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Navigated".
@@ -815,6 +816,18 @@ export interface PageOpened {
    * Its Session: the Run's default Session.
    */
   session_id: string;
+}
+/**
+ * What `page.reload`, `page.go_back` and `page.go_forward` take: the page.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageParams".
+ */
+export interface PageParams {
+  /**
+   * The page.
+   */
+  page_id: string;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream

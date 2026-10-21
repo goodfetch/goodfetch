@@ -403,3 +403,16 @@ prefix = "page."
 number = 8
 kind = "block-cause"
 prefix = ""
+
+# Area 6, Collection, Foxhound (specs #581 and #582): a handler's enqueue
+# (#828), whose answers the Frontier gives, and the call on an attempt that
+# ended, which every member of a handler's context answers (ADR 0093).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "crawl_request."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "attempt_ended"

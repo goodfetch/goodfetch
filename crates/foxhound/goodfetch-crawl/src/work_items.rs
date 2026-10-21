@@ -9,12 +9,16 @@
 //! since its previous ending, each kept as it failed. Each statement runs
 //! inside one of the run-state writer's commits. Each pending work item
 //! also waits under its domain key and priority, from which its per-domain
-//! queue fills again, after a drain or a resume (ADR 0004).
+//! queue fills again, after a drain or a resume (ADR 0004). A work item is
+//! added once per identity, exactly, by the run file's unique index, so the
+//! Frontier's duplicate check holds nothing in memory (STYLE.md).
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_frontier::{Candidate, Identified, admit};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
+use goodfetch_protocol::foxhound::frontier::Enqueued;
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, NothingCommitted, OutcomeRequest,
     SkipReason,
@@ -31,6 +35,7 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
+            identity TEXT NOT NULL,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
             payload TEXT,
@@ -41,7 +46,10 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             domain_key TEXT,
             priority INTEGER NOT NULL
         ) STRICT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS work_items_by_identity ON work_items (identity)",
         "CREATE INDEX IF NOT EXISTS work_items_by_status ON work_items (status, position)",
+        "CREATE INDEX IF NOT EXISTS work_items_unkeyed ON work_items (position)
+            WHERE domain_key IS NULL",
         "CREATE INDEX IF NOT EXISTS work_items_by_domain
             ON work_items (status, domain_key, priority DESC, position)",
         "CREATE TABLE IF NOT EXISTS records (
@@ -116,31 +124,107 @@ fn integer(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 
-/// Adds each seed as a pending work item, in order, at depth 0.
-pub(crate) fn insert_seeds(connection: &Connection, seeds: &[Seed]) -> rusqlite::Result<()> {
-    let mut insert = connection.prepare(
-        "INSERT INTO work_items (id, position, url, label, depth, payload, status, attempts, lease_epoch, priority)
-         VALUES (?1, ?2, ?3, ?4, 0, ?5, 'pending', 0, 0, ?6)",
-    )?;
-    for (position, seed) in seeds.iter().enumerate() {
-        let position = i64::try_from(position + 1).unwrap_or(i64::MAX);
-        insert.execute((
-            position.to_string(),
-            position,
-            &seed.url,
-            &seed.label,
-            seed.payload.as_ref().map(Value::to_string),
-            seed.priority,
-        ))?;
-    }
-    Ok(())
+/// What a work item the Frontier admits carries beside its URL.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Adding<'a> {
+    /// Its Label.
+    pub(crate) label: &'a str,
+    /// Its Payload.
+    pub(crate) payload: Option<&'a Value>,
+    /// Its priority within its domain.
+    pub(crate) priority: i64,
+    /// Its depth: 0 for a seed.
+    pub(crate) depth: u32,
 }
 
-/// Each work item not keyed yet, with its URL.
-pub(crate) fn unkeyed(connection: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+/// Admits each seed through the Frontier, as a pending work item at depth 0
+/// when added, and answers each seed's answer, in order.
+pub(crate) fn admit_seeds(
+    connection: &Connection,
+    seeds: &[Seed],
+) -> rusqlite::Result<Vec<Enqueued>> {
+    seeds
+        .iter()
+        .map(|seed| {
+            admit(Candidate::Seed { url: &seed.url }, |request| {
+                add(
+                    connection,
+                    request,
+                    Adding {
+                        label: &seed.label,
+                        payload: seed.payload.as_ref(),
+                        priority: seed.priority,
+                        depth: 0,
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+/// Adds `request` as a pending work item, next in order, its ID its
+/// position; `None` when a work item of its identity is already there.
+pub(crate) fn add(
+    connection: &Connection,
+    request: Identified<'_>,
+    adding: Adding<'_>,
+) -> rusqlite::Result<Option<String>> {
     connection
-        .prepare("SELECT id, url FROM work_items WHERE domain_key IS NULL ORDER BY position")?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .query_row(
+            "INSERT INTO work_items
+                 (id, position, url, identity, label, depth, payload, status, attempts, lease_epoch, priority)
+             SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, 'pending', 0, 0, ?6
+             FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items) WHERE true
+             ON CONFLICT (identity) DO NOTHING
+             RETURNING id",
+            (
+                request.url.as_str(),
+                request.identity,
+                adding.label,
+                adding.depth,
+                adding.payload.map(Value::to_string),
+                adding.priority,
+            ),
+            |row| row.get(0),
+        )
+        .optional()
+}
+
+/// The URL and depth of the work item `id` while its attempt under
+/// `lease_epoch` holds its lease; `None` once that attempt ended.
+pub(crate) fn attempt(
+    connection: &Connection,
+    id: &str,
+    lease_epoch: u64,
+) -> rusqlite::Result<Option<(String, u32)>> {
+    connection
+        .query_row(
+            "SELECT url, depth FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2",
+            (id, integer(lease_epoch)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+}
+
+/// Each work item not keyed yet, in order: its URL, and how it waits once
+/// keyed, its key still empty.
+pub(crate) fn unkeyed(connection: &Connection) -> rusqlite::Result<Vec<(String, Waiting)>> {
+    connection
+        .prepare(
+            "SELECT url, id, priority, position FROM work_items
+             WHERE domain_key IS NULL ORDER BY position",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                Waiting {
+                    id: row.get(1)?,
+                    key: String::new(),
+                    priority: row.get(2)?,
+                    order: row.get(3)?,
+                },
+            ))
+        })?
         .collect()
 }
 

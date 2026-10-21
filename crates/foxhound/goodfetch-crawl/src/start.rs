@@ -1,9 +1,10 @@
 //! `crawl.start` and Foxhound's crawl contribution (ADRs 0028, 0087, 0093
 //! and 0102): the start resolves the Run's settings, refused before the Run
-//! begins, begins a crawl's Run through the engine's Runs, its seeds
-//! written as its first work items in the transaction that records the
-//! Run, and hands the Run to its delivery on the starting Connection's
-//! Client. A Run ID that names a crawl of the same seeds returns it as it
+//! begins, begins a crawl's Run through the engine's Runs, each seed
+//! admitted by the Frontier as its first work items, and each seed's
+//! answer kept, in the transaction that records the Run, and hands the Run
+//! to its delivery on the starting Connection's Client. A start whose
+//! every seed was refused still starts, and its Run finishes at once. A Run ID that names a crawl of the same seeds returns it as it
 //! is; one of other seeds, or of a Run that is no crawl, fails with
 //! `run_conflict`.
 
@@ -22,16 +23,18 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
 use crate::delivery;
+use crate::enqueue;
 use crate::outcomes;
 use crate::serving::Crawls;
 use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
-/// the reads of its outcomes, and the work items', Records' and outcomes'
-/// tables of every run file.
+/// a handler's enqueue, the reads of its outcomes, and the work items',
+/// Records' and outcomes' tables of every run file.
 pub fn contribution() -> Contribution {
     let crawls = Crawls::default();
     let serving = crawls.clone();
+    let enqueuing = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
@@ -40,6 +43,7 @@ pub fn contribution() -> Contribution {
         .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
             serve(params, context, serving.clone())
         }))
+        .with_handler(enqueue::handler(enqueuing))
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
@@ -105,7 +109,8 @@ async fn start(
             inputs,
             ended_by: EndedBy::Driver,
             initialize: Some(Box::new(move |connection| {
-                work_items::insert_seeds(connection, &seeds)
+                let answers = work_items::admit_seeds(connection, &seeds)?;
+                goodfetch_frontier::seeds::answered(connection, &answers)
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
@@ -121,7 +126,7 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
-            let joined = crawls.open(run.id().clone()).await;
+            let joined = crawls.open(&run).await;
             run.spawn(delivery::drive(
                 run.clone(),
                 context.client().clone(),

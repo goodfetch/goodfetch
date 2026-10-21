@@ -2,8 +2,8 @@
 //! over a pair of byte streams, newline-delimited JSON-RPC each way, and
 //! records every message it reads and writes. It matches each message the
 //! Client sends on its method and the canonical JSON of its params, answers
-//! with the ID of the request the step before matched, and fails on a
-//! message no step expects and on a step left unused. The
+//! with the ID of the request the last `expect` of a request matched, and
+//! fails on a message no step expects and on a step left unused. The
 //! `goodfetch-scripted-engine` executable plays it over its own stdio.
 
 use std::fmt;
@@ -74,8 +74,8 @@ struct Player<C, E, R> {
     client: io::Lines<C>,
     engine: E,
     record: R,
-    /// The ID of the request the last `expect` matched, which `reply`
-    /// answers.
+    /// The ID of the request the last `expect` of a request matched, which
+    /// `reply` answers.
     answering: Option<Value>,
     /// The ID of the request the last `send` sent, which `await_reply`
     /// matches.
@@ -100,7 +100,11 @@ impl<C: BufRead, E: Write, R: Write> Player<C, E, R> {
                 if !matches {
                     return Err(unexpected(index, &describe(&wanted), &message));
                 }
-                self.answering = message.get("id").cloned();
+                // A notification, such as a `$/cancel`, leaves the request
+                // matched before it to answer.
+                if let Some(id) = message.get("id") {
+                    self.answering = Some(id.clone());
+                }
             }
             Step::Reply(reply) => {
                 let id = self

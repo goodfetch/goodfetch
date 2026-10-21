@@ -202,6 +202,21 @@ describe("playScript", () => {
     expect(played.done()).toEqual({ kind: "closed" });
   });
 
+  test("a reply after an expected cancel answers the call it cancels", async () => {
+    const played = playScript("self-test/call-cancelled.json");
+    const client = new TinyClient(played.transport);
+    await client.request("hello", collieHello);
+    await client.next();
+    const subscription = await client.request("events.subscribe", {});
+
+    await client.send({ jsonrpc: "2.0", method: "$/cancel", params: { id: subscription } });
+    const reply = await client.next();
+    await client.close();
+
+    expect(reply).toMatchObject({ id: subscription, error: { data: { code: "call_cancelled" } } });
+    expect(played.done()).toEqual({ kind: "finished" });
+  });
+
   test("a stalled script answers nothing until the Client gives up", async () => {
     const played = playScript("self-test/stall.json");
     const client = new TinyClient(played.transport);

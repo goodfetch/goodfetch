@@ -13,6 +13,7 @@ use goodfetch_protocol::dns::NameResolver;
 use rstest::rstest;
 
 use super::{AnsweredBy, Dns, HostMapping, LookupError, Resolution, ResolverConfiguration, Route};
+use crate::clock::Clock;
 use crate::composition::CallError;
 
 const PINNED: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 7));
@@ -20,7 +21,11 @@ const PINNED: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 7));
 /// A resolver with `mapping` and no name server, so any lookup that
 /// reaches one fails.
 fn dns(mapping: HostMapping) -> Dns {
-    Dns::new(mapping, ResolverConfiguration::name_servers([]))
+    Dns::new(
+        mapping,
+        ResolverConfiguration::name_servers([]),
+        Clock::system(),
+    )
 }
 
 fn lookup(dns: &Dns, name: &str, route: Route) -> Result<Resolution, LookupError> {

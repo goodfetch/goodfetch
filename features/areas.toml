@@ -65,6 +65,16 @@ prefix = "name_lookup_failed"
 [[area]]
 number = 3
 kind = "error"
+prefix = "address_family_unavailable"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "resolver."
+
+[[area]]
+number = 3
+kind = "error"
 prefix = "executable_blocked_by_smart_app_control"
 
 [[area]]

@@ -1,0 +1,13 @@
+---
+source: crates/goodfetch-engine/src/happy_eyeballs/tests.rs
+expression: "CallError::from(unavailable)"
+---
+CallError {
+    code: "address_family_unavailable",
+    message: "dual.proving.test has only IPv4 addresses, and the Session holds a local address of IPv6 alone",
+    retryable: false,
+    details: {
+        "held": String("ipv6"),
+        "name": String("dual.proving.test"),
+    },
+}

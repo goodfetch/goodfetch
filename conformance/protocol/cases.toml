@@ -1,0 +1,52 @@
+# The JSON-RPC protocol suite's case list (spec #152, #172): what any target
+# that speaks Goodfetch's protocol must answer, whether it is either
+# Product's Attached engine or Daemon, the Browser host or Goodfetch Cloud's
+# engine, so one suite covers local and cloud behaviour (ADRs 0001, 0022 and
+# 0096). `goodfetch-conformance` runs every case in order over one
+# Connection it opens with `hello`, announcing `product`: the smallest
+# Product that carries the suite's contract, on whose executable it runs
+# (ADRs 0094 and 0095). A case after the target closed the Connection is not
+# reached, which leaves its capability `unproved`. Each case ID names the
+# exchange the harness runs; bump the version whenever a case changes.
+
+product = "collie"
+
+[suite]
+name = "protocol"
+version = "1"
+
+[[capability]]
+name = "connection.hello"
+
+[[capability.case]]
+id = "hello-is-answered-with-the-engines-product"
+covers = ["story:2-50", "story:2-53"]
+
+[[capability]]
+name = "engine.info"
+
+[[capability.case]]
+id = "engine-info-names-the-engine-hello-named"
+covers = ["story:2-50", "story:2-53", "operation:engine.info"]
+
+[[capability]]
+name = "protocol.failures"
+
+[[capability.case]]
+id = "an-unknown-method-is-method-not-found"
+covers = ["story:2-50", "story:2-53"]
+
+[[capability.case]]
+id = "params-the-operation-does-not-take-are-invalid-params"
+covers = ["story:2-50", "story:2-53"]
+
+[[capability]]
+name = "cancellation"
+
+[[capability.case]]
+id = "a-call-in-flight-cancelled-ends-with-call-cancelled"
+covers = ["story:2-50", "story:2-53", "error:call_cancelled"]
+
+[[capability.case]]
+id = "cancelling-an-answered-call-leaves-the-connection-answering"
+covers = ["story:2-50", "story:2-53"]

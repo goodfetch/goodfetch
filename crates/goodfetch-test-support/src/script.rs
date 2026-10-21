@@ -67,8 +67,10 @@ pub enum Step {
     /// The next message from the Client: a request or a notification of
     /// this method, whose params are these, compared as canonical JSON.
     Expect(Expectation),
-    /// The engine's answer to the request the last `expect` matched, which
-    /// carries that request's ID; a script never writes an ID.
+    /// The engine's answer to the request the last `expect` of a request
+    /// matched, which carries that request's ID; an expected notification
+    /// between them, such as the `$/cancel` of that request, leaves it to
+    /// answer. A script never writes an ID.
     Reply(Reply),
     /// A message the engine starts: a request to one of the Client's
     /// handlers, or a notification such as an event.

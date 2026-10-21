@@ -17,5 +17,8 @@
 
 mod dns;
 mod downloads;
+mod happy_eyeballs;
+mod held_clock;
 mod name_server;
 mod nothing_leaves;
+mod resolver_cache;

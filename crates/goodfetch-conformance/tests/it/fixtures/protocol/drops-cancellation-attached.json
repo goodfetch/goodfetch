@@ -1,0 +1,96 @@
+{
+  "description": "The protocol suite's broken target: it answers every case up to cancellation, then drops the Connection with the cancelled call unanswered.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "rust",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "engine.info",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "product": "collie",
+          "product_version": "0.0.0",
+          "protocol_version": "0.1",
+          "product_major": 0
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "conformance.unknown_method",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32601,
+          "message": "No operation is named `conformance.unknown_method`.",
+          "data": {
+            "code": "method_not_found",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "engine.info",
+        "params": {
+          "unknown": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32602,
+          "message": "The params are not `engine.info`'s.",
+          "data": {
+            "code": "invalid_params",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 5
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

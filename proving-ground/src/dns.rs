@@ -1,17 +1,23 @@
 //! The DNS fixture (ADR 0067: rebinding is tested against it, never a public
 //! rebinding service), on its own UDP address, and the zone it answers from,
-//! which the forward proxies resolve through too. Every answer has a TTL of
-//! 0, so a resolver asks again each time:
+//! which the forward proxies resolve through too. An answer has a TTL of 0,
+//! so a resolver asks again each time, unless its name declares one:
 //!
 //! - each host name the Proving ground serves resolves to its address;
-//! - a name under `alternating.dns.test` answers the addresses its labels
+//! - a name under `alternating.dns.test` answers the entries its labels
 //!   declare in turn, one per query of each record type, as
 //!   `93-184-215-14.127-0-0-1.alternating.dns.test` alternates between a
 //!   public-looking address and a private one;
 //! - a name under `mixed.dns.test` answers all of them at once.
 //!
-//! An IPv4 label is its four numbers joined by `-`; an IPv6 label is its 32
-//! hexadecimal digits. Any other name does not exist (`NXDOMAIN`).
+//! An entry is an address, `nx` (the name does not exist, `NXDOMAIN`) or
+//! `servfail` (a server failure, `SERVFAIL`). An IPv4 label is its four
+//! numbers joined by `-`; an IPv6 label is its 32 hexadecimal digits; an A
+//! query takes the IPv4 addresses and an AAAA query the IPv6 ones, and both
+//! take every `nx` and `servfail`. A label `ttl-<seconds>` gives the name's
+//! answers that TTL, and its negative answers (RFC 2308) an SOA whose TTL
+//! and minimum are that TTL, so a resolver may keep them as long. Any other
+//! name does not exist.
 #![expect(
     clippy::disallowed_types,
     reason = "the DNS fixture opens its own UDP socket, outside the engine's transport (ADR 0060)"
@@ -59,6 +65,36 @@ impl Family {
     }
 }
 
+/// One entry a name under `alternating.dns.test` or `mixed.dns.test`
+/// declares.
+#[derive(Clone, Copy)]
+enum Entry {
+    Address(IpAddr),
+    NameError,
+    ServerFailure,
+}
+
+impl Entry {
+    /// Whether a query of `family` takes this entry.
+    fn answers(self, family: Family) -> bool {
+        match self {
+            Self::Address(address) => Family::of(address) == family,
+            Self::NameError | Self::ServerFailure => true,
+        }
+    }
+}
+
+/// What the fixture answers one query of one family.
+#[derive(Debug, PartialEq, Eq)]
+enum Reply {
+    /// These addresses, maybe none, each with this TTL.
+    Addresses(Vec<IpAddr>, u32),
+    /// The name does not exist, a negative answer kept for this TTL.
+    NameError(u32),
+    /// A server failure.
+    ServerFailure,
+}
+
 /// The names the fixture answers.
 pub(crate) struct Zone {
     /// The host names the Proving ground serves, in lowercase.
@@ -81,31 +117,33 @@ impl Zone {
         }
     }
 
-    /// The addresses `name` answers to a query of one family, which take
-    /// their turn; `None` when the name does not exist.
-    fn lookup(&self, name: &str, family: Family) -> Option<Vec<IpAddr>> {
+    /// What `name` answers to a query of one family, which takes its turn.
+    fn lookup(&self, name: &str, family: Family) -> Reply {
         let name = name.trim_end_matches('.').to_ascii_lowercase();
         if self.served.contains(&name) {
-            return Some(
+            return Reply::Addresses(
                 Some(self.site)
                     .filter(|address| Family::of(*address) == family)
                     .into_iter()
                     .collect(),
+                0,
             );
         }
         let (labels, alternating) = match (name.strip_suffix(ALTERNATING), name.strip_suffix(MIXED))
         {
             (Some(labels), _) => (labels, true),
             (None, Some(labels)) => (labels, false),
-            (None, None) => return None,
+            (None, None) => return Reply::NameError(0),
         };
-        let declared = labels.split('.').map(address).collect::<Option<Vec<_>>>()?;
-        let addresses: Vec<_> = declared
+        let Some((entries, ttl)) = declared(labels) else {
+            return Reply::NameError(0);
+        };
+        let entries: Vec<_> = entries
             .into_iter()
-            .filter(|address| Family::of(*address) == family)
+            .filter(|entry| entry.answers(family))
             .collect();
-        if !alternating || addresses.is_empty() {
-            return Some(addresses);
+        if !alternating || entries.is_empty() {
+            return mixed(&entries, ttl);
         }
         let turn = {
             let mut turns = self.turns.lock();
@@ -118,7 +156,7 @@ impl Zone {
                 *turn - 1
             }
         };
-        Some(vec![addresses[turn % addresses.len()]])
+        mixed(&entries[turn % entries.len()..][..1], ttl)
     }
 
     /// The address a forward proxy connects to for `host`: the host itself
@@ -131,7 +169,10 @@ impl Zone {
         }
         [Family::V4, Family::V6]
             .into_iter()
-            .find_map(|family| self.lookup(host, family)?.into_iter().next())
+            .find_map(|family| match self.lookup(host, family) {
+                Reply::Addresses(addresses, _) => addresses.into_iter().next(),
+                Reply::NameError(_) | Reply::ServerFailure => None,
+            })
     }
 
     /// The reply to one message, if it gets one.
@@ -146,16 +187,67 @@ impl Zone {
             AAAA => Some(Family::V6),
             _ => None,
         };
-        let answer = match family {
+        let reply = match family {
             Some(family) => self.lookup(&query.name, family),
             // A name that exists answers no record of another type.
-            None => self.lookup(&query.name, Family::V4).map(|_| Vec::new()),
+            None => match self.lookup(&query.name, Family::V4) {
+                Reply::Addresses(_, ttl) => Reply::Addresses(Vec::new(), ttl),
+                other => other,
+            },
         };
-        Some(match answer {
-            Some(addresses) => message::answer(&query, Rcode::NoError, &addresses),
-            None => message::answer(&query, Rcode::NameError, &[]),
+        Some(match reply {
+            Reply::Addresses(addresses, ttl) => {
+                message::answer(&query, Rcode::NoError, &addresses, ttl)
+            }
+            Reply::NameError(ttl) => message::answer(&query, Rcode::NameError, &[], ttl),
+            Reply::ServerFailure => message::answer(&query, Rcode::ServerFailure, &[], 0),
         })
     }
+}
+
+/// The entries and the TTL `labels` declare; `None` when a label is none of
+/// an entry or a TTL.
+fn declared(labels: &str) -> Option<(Vec<Entry>, u32)> {
+    let mut entries = Vec::new();
+    let mut ttl = 0;
+    for label in labels.split('.') {
+        match label {
+            "nx" => entries.push(Entry::NameError),
+            "servfail" => entries.push(Entry::ServerFailure),
+            _ => match label.strip_prefix("ttl-") {
+                Some(seconds) => ttl = seconds.parse().ok()?,
+                None => entries.push(Entry::Address(address(label)?)),
+            },
+        }
+    }
+    Some((entries, ttl))
+}
+
+/// The reply that answers `entries` at once: a server failure if one is a
+/// failure, else `NXDOMAIN` if one is, else every address.
+fn mixed(entries: &[Entry], ttl: u32) -> Reply {
+    if entries
+        .iter()
+        .any(|entry| matches!(entry, Entry::ServerFailure))
+    {
+        return Reply::ServerFailure;
+    }
+    if entries
+        .iter()
+        .any(|entry| matches!(entry, Entry::NameError))
+    {
+        return Reply::NameError(ttl);
+    }
+    Reply::Addresses(
+        entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Address(address) => Some(*address),
+                Entry::NameError | Entry::ServerFailure => None,
+            })
+            .collect(),
+        ttl,
+    )
 }
 
 /// An address label: four numbers joined by `-`, or 32 hexadecimal digits.

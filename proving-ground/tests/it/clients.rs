@@ -341,12 +341,14 @@ pub(crate) enum RecordType {
     Aaaa = 28,
 }
 
-/// What a DNS server answered: its response code and each answer's TTL and
-/// address, in order.
+/// What a DNS server answered: its response code, each answer's TTL and
+/// address, in order, and the negative TTL its authority section's SOA
+/// gives, the smaller of the SOA's TTL and its minimum (RFC 2308).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct DnsAnswer {
     pub(crate) rcode: u8,
     pub(crate) answers: Vec<(u32, IpAddr)>,
+    pub(crate) negative_ttl: Option<u32>,
 }
 
 /// Asks the DNS server at `server` for `name`'s records of one type, over
@@ -396,11 +398,30 @@ pub(crate) fn dns_query(server: &str, name: &str, record_type: RecordType) -> Dn
         answers.push((ttl, address));
         at += 10 + length;
     }
+    let authorities = usize::from(u16::from_be_bytes([message[8], message[9]]));
+    let mut negative_ttl = None;
+    for _ in 0..authorities {
+        at = skip_name(message, at);
+        let record_type = u16::from_be_bytes([message[at], message[at + 1]]);
+        let ttl = u32::from_be_bytes(message[at + 4..at + 8].try_into().expect("four bytes"));
+        let length = usize::from(u16::from_be_bytes([message[at + 8], message[at + 9]]));
+        let data = &message[at + 10..at + 10 + length];
+        if record_type == SOA {
+            // MNAME and RNAME, then five numbers, MINIMUM last.
+            let minimum = u32::from_be_bytes(data[length - 4..].try_into().expect("four bytes"));
+            negative_ttl = Some(ttl.min(minimum));
+        }
+        at += 10 + length;
+    }
     DnsAnswer {
         rcode: message[3] & 0x0f,
         answers,
+        negative_ttl,
     }
 }
+
+/// The record type of a zone's start of authority.
+const SOA: u16 = 6;
 
 /// The offset just past the name at `at`, a compression pointer included.
 fn skip_name(message: &[u8], mut at: usize) -> usize {

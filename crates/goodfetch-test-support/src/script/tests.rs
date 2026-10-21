@@ -183,11 +183,11 @@ fn violations(script: &Script, contract: &Contract) -> Vec<Violation> {
                     &method.params,
                     message.params.as_ref().unwrap_or(&Value::Null),
                 ));
-                answering = if method.notification {
-                    Answering::Nothing
-                } else {
-                    Answering::Request(method)
-                };
+                // A notification leaves the request before it to answer, as
+                // the player does.
+                if !method.notification {
+                    answering = Answering::Request(method);
+                }
             }
             Step::Reply(answer) => {
                 let method = match std::mem::replace(&mut answering, Answering::Nothing) {

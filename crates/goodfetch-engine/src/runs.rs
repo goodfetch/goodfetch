@@ -261,7 +261,7 @@ enum Waiting {
 }
 
 /// How a Run's driver ends it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {
     /// Its work is done: `finished`.
     Finished,
@@ -273,7 +273,7 @@ pub enum Ending {
 }
 
 /// Why a Run ends.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum End {
     Finished,
     Failed,
@@ -389,7 +389,10 @@ impl Run {
     /// Dropping the future loses nothing; a later call answers the same.
     pub async fn stopping(&self) -> StopReason {
         let mut stop = self.stop.subscribe();
-        let asked = stop.wait_for(Option::is_some).await.map(|reason| *reason);
+        let asked = stop
+            .wait_for(Option::is_some)
+            .await
+            .map(|reason| reason.clone());
         match asked {
             Ok(Some(reason)) => reason,
             _ => std::future::pending().await,

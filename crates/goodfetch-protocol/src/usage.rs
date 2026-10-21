@@ -1,0 +1,290 @@
+//! Limits across runs (ADR 0041): the Limits the per-user Usage ledger
+//! holds on the install, a Daemon, a person, a named token and a Client
+//! connection, each over a period in an explicit IANA time zone or none; the
+//! Usage charged against each, read with `usage.list` and added to with
+//! `usage.set`; the Error codes a start meets, `limit_reached` and
+//! `limit_not_understood`; and the Usage kinds and Limit scopes Collie adds
+//! to the types both Products share. Foxhound adds its own, such as
+//! `paid_fetch`, in its `foxhound` module (ADRs 0087 and 0088). Raising a
+//! Limit is a person's answer, which arrives with its own operation.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::catalog::{
+    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, SharedType, SharedTypeValue, Stability, schema_of,
+};
+use crate::run::{LimitScope, Period, PointInTime};
+
+const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+
+/// The scope kind of the install: every run of the user on the machine,
+/// whichever engine runs it.
+pub const INSTALL: &str = "install";
+/// The scope kind of a Daemon: every run it runs; its ID is its major's name.
+pub const DAEMON: &str = "daemon";
+/// The scope kind of a person: every run they start.
+pub const PERSON: &str = "person";
+/// The scope kind of a named token: every run a Connection holding it starts.
+pub const TOKEN: &str = "token";
+/// The scope kind of a Client connection: every run it starts while it lasts.
+pub const CONNECTION: &str = "connection";
+
+/// The Usage kind of the requests a run sends: a crawl's Crawl requests
+/// and, with the browser, a page's navigations.
+pub const REQUESTS: &str = "requests";
+
+/// Who set a Limit, which decides whether it allows paying (ADR 0045).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LimitSetter {
+    /// A person, in the Console or an interactive CLI prompt.
+    Person,
+    /// A managed Operator policy.
+    ManagedPolicy,
+    /// A Client, which only adds a Limit of its own.
+    Client,
+}
+
+impl LimitSetter {
+    /// Its name on the wire and in the Usage ledger.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::ManagedPolicy => "managed_policy",
+            Self::Client => "client",
+        }
+    }
+}
+
+/// One Limit of the Usage ledger: a generic row, which a newer engine may
+/// write with a scope kind, a Usage kind, a currency or a period this one
+/// does not know (ADR 0041).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Limit {
+    /// What it is on.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope: LimitScope,
+    /// The Usage kind it caps, a value of a type both Products share.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps the Usage kind's price in, an ISO 4217 code;
+    /// none for a Limit on the Usage itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// The period it counts over; none for a Limit that never starts again,
+    /// such as a Client connection's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period: Option<Period>,
+    /// How much it allows per period: a count of the Usage kind, or
+    /// millionths of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub amount: u64,
+    /// Whether an engine that cannot evaluate it must refuse the runs it
+    /// cannot place outside it, with `limit_not_understood`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub must_understand: bool,
+    /// Who set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub set_by: LimitSetter,
+}
+
+/// What the engine that read a Limit makes of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LimitStanding {
+    /// It holds its runs to it.
+    Held,
+    /// It is on a value only Foxhound carries, such as `paid_fetch`, which
+    /// a Collie engine keeps untouched (ADR 0098).
+    Foxhound,
+    /// It cannot evaluate it: a newer engine wrote it.
+    NotUnderstood,
+}
+
+/// One Limit with the Usage counted against it in its current period.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LimitUsage {
+    /// The Limit.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Limit,
+    /// What the engine that read it makes of it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub standing: LimitStanding,
+    /// The Usage charged in the current period: what ended runs used, and
+    /// what was reclaimed from dead engines' Slices.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub charged: u64,
+    /// The Usage live runs hold in Slices they have not returned yet.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub held: u64,
+    /// What is left of the amount in the current period.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub left: u64,
+    /// When the current period started; none for a Limit without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period_started_at: Option<PointInTime>,
+    /// When the next period starts; none for a Limit without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub resets_at: Option<PointInTime>,
+}
+
+/// What `usage.list` takes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UsageListParams {}
+
+/// What `usage.list` answers, and what `usage --json` prints.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UsageListResult {
+    /// Every Limit of the Usage ledger, by scope, with its Usage.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Vec<LimitUsage>,
+}
+
+/// What `usage.set` takes: a Limit of the caller's own, which holds beside
+/// the others, so the tightest one holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UsageSetParams {
+    /// The scope's kind.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope: String,
+    /// Which one of its kind; the caller's own when absent (its Client
+    /// connection, its person, the engine's Daemon, the install).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope_id: Option<String>,
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps the price in, an ISO 4217 code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// The period it counts over; none for a Limit that never starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period: Option<Period>,
+    /// How much it allows per period: a count of the Usage kind, or
+    /// millionths of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub amount: u64,
+}
+
+/// What `limit_not_understood` details: the Limit this engine cannot
+/// evaluate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LimitNotUnderstoodDetails {
+    /// The Limit.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Limit,
+}
+
+/// `usage.list`.
+pub const USAGE_LIST: Operation = Operation {
+    name: "usage.list",
+    description: "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
+    class: OperationClass::Read,
+    kind: OperationKind::Query,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<UsageListParams>,
+    result: schema_of::<UsageListResult>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `usage.set`.
+pub const USAGE_SET: Operation = Operation {
+    name: "usage.set",
+    description: "Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<UsageSetParams>,
+    result: schema_of::<LimitUsage>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `limit_reached`.
+pub const LIMIT_REACHED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "limit_reached",
+    description: "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `limit_not_understood`.
+pub const LIMIT_NOT_UNDERSTOOD: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "limit_not_understood",
+    description: "A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Every entry this module defines.
+pub const ENTRIES: Entries = Entries {
+    defined_in: module_path!(),
+    operations: &[USAGE_LIST, USAGE_SET],
+    events: &[],
+    handler_requests: &[],
+    error_codes: &[LIMIT_REACHED, LIMIT_NOT_UNDERSTOOD],
+    plugin_kinds: &[],
+    metrics: &[],
+    settings: &[],
+    hook_stages: &[],
+    shared_type_values: &[
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: REQUESTS,
+            description: "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::LimitScope,
+            name: INSTALL,
+            description: "Every run of the user on the machine, whichever engine runs it.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::LimitScope,
+            name: DAEMON,
+            description: "Every run a Daemon runs.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::LimitScope,
+            name: PERSON,
+            description: "Every run a person starts.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::LimitScope,
+            name: TOKEN,
+            description: "Every run a Connection holding a named token starts.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::LimitScope,
+            name: CONNECTION,
+            description: "Every run a Client connection starts, while it lasts.",
+            arrived_in: ARRIVED_IN,
+        },
+    ],
+};

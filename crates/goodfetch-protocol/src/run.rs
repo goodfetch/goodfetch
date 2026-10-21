@@ -313,7 +313,7 @@ impl Completeness {
 
 /// Why a Run stopped (ADR 0102); the other causes join with the tickets that
 /// stop Runs for them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StopReason {
     /// Its program, a person or a Client aborted it, a Connection's close
@@ -326,6 +326,87 @@ pub enum StopReason {
     /// Its `timeout.run` passed, and it stopped at its next safe point,
     /// resumable with a fresh clock (ADR 0080); no Error code of its own.
     Timeout,
+    /// It could not take another Slice of a Limit, and stopped at its next
+    /// safe point, resumable once the period starts again or a person
+    /// raises the Limit (ADR 0041).
+    Limit(ReachedLimit),
+}
+
+/// What a Limit is on: a scope kind, a value of a type both Products share
+/// (`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's
+/// `partitioned_crawl`), and which one of its kind (ADR 0041). A kind this
+/// reader does not know is kept as it is.
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+pub struct LimitScope {
+    /// The scope's kind.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: String,
+    /// Which one of its kind: the major's name for a Daemon, the person's
+    /// name, the token's name or the Client connection's ID; empty for the
+    /// install.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: String,
+}
+
+/// How long a period Limit counts before it starts again (ADR 0041).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PeriodLength {
+    /// From one midnight to the next.
+    Day,
+    /// From Monday's midnight to the next Monday's.
+    Week,
+    /// From the first day's midnight to the next month's.
+    Month,
+}
+
+impl PeriodLength {
+    /// Its name on the wire and in the Usage ledger.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Day => "day",
+            Self::Week => "week",
+            Self::Month => "month",
+        }
+    }
+}
+
+/// The period a Limit counts over, in an explicit IANA time zone, so that
+/// it never depends on the host's (ADR 0041).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct Period {
+    /// How long it counts.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub every: PeriodLength,
+    /// The IANA time zone its midnights are in, such as `Europe/Paris`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time_zone: String,
+}
+
+/// The Limit a Run cannot take more of: what `limit_reached` details, and
+/// what a Run stopped for it names (ADR 0041).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ReachedLimit {
+    /// The Limit's scope.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope: LimitScope,
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps a price in, for a price Limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// Its period; none for a Limit that never starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period: Option<Period>,
+    /// When its period starts again; none for a Limit without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub resets_at: Option<PointInTime>,
 }
 
 /// What kind of Run it is: a Collie Run its program drives, or a crawl

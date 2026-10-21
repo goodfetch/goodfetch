@@ -213,6 +213,24 @@ export class ExecutableBlockedBySmartAppControlError extends RefusedError {
 }
 
 /**
+ * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
+ */
+export class LimitNotUnderstoodError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_not_understood", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.
+ */
+export class LimitReachedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_reached", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.
  */
 export class NameLookupFailedError extends UnavailableError {
@@ -379,6 +397,8 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
+  limit_not_understood: LimitNotUnderstoodError,
+  limit_reached: LimitReachedError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
   not_a_daemon: NotADaemonError,

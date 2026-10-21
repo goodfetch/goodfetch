@@ -16,8 +16,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, Product,
-    ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    Product, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 use crate::connection::ProductVersion;
 
@@ -146,6 +146,7 @@ pub const STATUS: Operation = Operation {
     name: "daemon.status",
     description: "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
     class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<DaemonParams>,
     result: schema_of::<DaemonStatus>,
     events: &[],
@@ -160,6 +161,7 @@ pub const STOP: Operation = Operation {
     name: "daemon.stop",
     description: "Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed.",
     class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<DaemonParams>,
     result: schema_of::<DaemonStopping>,
     events: &[],

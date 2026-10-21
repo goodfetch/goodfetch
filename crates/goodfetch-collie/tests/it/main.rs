@@ -11,9 +11,11 @@ mod attached;
 mod browsers;
 #[cfg(target_os = "macos")]
 mod checkpoint;
+mod commands;
 mod config;
 mod daemon;
 mod events;
+mod help;
 mod invalid_calls;
 mod journeys;
 #[cfg(target_os = "linux")]

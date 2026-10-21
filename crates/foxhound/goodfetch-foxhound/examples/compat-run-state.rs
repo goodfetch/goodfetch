@@ -33,7 +33,9 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
 };
-use goodfetch_protocol::catalog::{Operation, OperationClass, Product, Stability, schema_of};
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Stability, schema_of,
+};
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
@@ -87,6 +89,7 @@ const BOUND: Operation = Operation {
     name: "compat.bound",
     description: "Starts a Run bound to a Browser host with a Clean-up rules digest.",
     class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<Value>,
     result: schema_of::<Value>,
     events: &[],

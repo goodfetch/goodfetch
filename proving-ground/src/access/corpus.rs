@@ -1,7 +1,8 @@
 //! The block-detection corpus (ADR 0035): hand-written pages that answer as a
 //! site's bot protection does when it refuses a page, one per Block cause,
-//! beside pages a rule must not take for a block, such as one that only
-//! loads a vendor's script. Each page's Block cause is written by hand. The
+//! and one per block-detection rule seeded from an outside source, beside
+//! pages a rule must not take for a block, such as one that only loads a
+//! vendor's script. Each page's Block cause is written by hand. The
 //! pages are written from the signals rules key on, never copied from a
 //! vendor's own pages.
 
@@ -22,7 +23,7 @@ struct Page {
 }
 
 /// The corpus, in the index's order.
-const PAGES: [Page; 9] = [
+const PAGES: [Page; 13] = [
     Page {
         path: "/corpus/interstitial",
         cause: "challenge",
@@ -50,6 +51,34 @@ const PAGES: [Page; 9] = [
         status: StatusCode::FORBIDDEN,
         headers: &[],
         body: "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Access denied</title></head>\n<body>\n<h1>Access denied</h1>\n<p>Your IP address has been blocked from this site. Reference: 0000-0000.</p>\n</body>\n</html>\n",
+    },
+    Page {
+        path: "/corpus/press-and-hold",
+        cause: "captcha",
+        status: StatusCode::FORBIDDEN,
+        headers: &[],
+        body: "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Access to this page has been denied</title></head>\n<body>\n<main>\n<h1>Access to this page has been denied</h1>\n<p>Press and hold the button to confirm you are a person.</p>\n<div id=\"px-captcha\"></div>\n</main>\n<script src=\"/corpus/captcha/captcha.js?a=c&amp;m=0\"></script>\n</body>\n</html>\n",
+    },
+    Page {
+        path: "/corpus/cloudflare-block",
+        cause: "ip_block",
+        status: StatusCode::FORBIDDEN,
+        headers: &[("cache-control", "no-store")],
+        body: "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Attention Required! | Cloudflare</title></head>\n<body>\n<main id=\"cf-wrapper\">\n<h1>Sorry, you have been blocked</h1>\n<p>You are unable to access this site. The site's security rules refused the request.</p>\n<p>Ray ID: 0000000000000000</p>\n</main>\n</body>\n</html>\n",
+    },
+    Page {
+        path: "/corpus/incapsula-block",
+        cause: "ip_block",
+        status: StatusCode::FORBIDDEN,
+        headers: &[],
+        body: "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Request unsuccessful</title></head>\n<body>\n<p>Request unsuccessful. Incapsula incident ID: 000000000000000000-0000000000000000</p>\n</body>\n</html>\n",
+    },
+    Page {
+        path: "/corpus/sucuri-block",
+        cause: "ip_block",
+        status: StatusCode::FORBIDDEN,
+        headers: &[],
+        body: "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Sucuri WebSite Firewall - Access Denied</title></head>\n<body>\n<main>\n<h1>Access Denied - Sucuri Website Firewall</h1>\n<p>Your request was blocked by the site's firewall.</p>\n</main>\n</body>\n</html>\n",
     },
     Page {
         path: "/corpus/labyrinth",

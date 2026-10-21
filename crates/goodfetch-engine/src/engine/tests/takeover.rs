@@ -15,7 +15,9 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use goodfetch_protocol::catalog::{Operation, OperationClass, Product, Stability, schema_of};
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Stability, schema_of,
+};
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
@@ -36,6 +38,7 @@ const GROW: Operation = Operation {
     name: "test.grow",
     description: "Starts a Run that needs Foxhound and leaves it running.",
     class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<Value>,
     result: schema_of::<Value>,
     events: &[],

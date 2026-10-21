@@ -1,0 +1,12 @@
+# How each Console screen's keyboard walk opens it (ADR 0073; TESTING.md,
+# Accessibility). `screens.spec.ts` gives every `screen:` Feature of the
+# inventory one served case; area 12 gives each screen here its route and
+# sign-in state, as one `[[screen]]` entry:
+#
+#   [[screen]]
+#   feature = "screen:/runs/$run"   # the screen's Feature
+#   route = "/runs/r-1"             # where it opens, every parameter filled
+#   sign_in = "signed-in"           # or "signed-out"
+#
+# A screen with no route or no sign-in state here fails its case with
+# `screen_setup_missing`, naming it; it is never skipped.

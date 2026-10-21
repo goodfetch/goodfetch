@@ -132,6 +132,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "lease_lost",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
       "exit_code": null,
       "group": "unavailable",
@@ -421,7 +431,7 @@
     {
       "arrived_in": "0.1",
       "deprecated": null,
-      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy.",
+      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
       "name": "crawl_request.handle",
       "params": {
         "$ref": "#/$defs/CrawlRequestHandleParams"

@@ -3,13 +3,13 @@
 // `goodfetch-conformance read` from the test tool manifest. A sample
 // Journey-shaped test drives the Proving ground's `catalog/2` task and its
 // oracle, and writes one `proved` and one `failed` document.
-import { readdirSync, readFileSync } from "node:fs";
-import { request } from "node:http";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect } from "vitest";
 import {
+  journeyVectors,
   test,
   toolPath,
   writeJourneyDocument,
@@ -17,6 +17,7 @@ import {
   type ProcessRecord,
   type TestEnvDescription,
 } from "@goodfetch/test-support";
+import { exchange, product, type TaskList } from "./catalog-product.ts";
 
 const root = new URL("../../../", import.meta.url);
 
@@ -31,29 +32,6 @@ ajv.addFormat("uint64", {
 });
 const isResultDocument = ajv.compile({ $ref: "#/$defs/ResultDocument", $defs: bundle.$defs });
 
-const vectors = new URL("test-support/fixtures/outcome-vectors/journey/", root);
-const names = readdirSync(vectors)
-  .filter((name) => name.endsWith(".json"))
-  .map((name) => name.replace(/\.json$/, ""));
-
-/** The facts a vector states, its tasks numbered in the `catalog` family. */
-function vectorFacts(name: string): JourneyFacts {
-  const vector: {
-    steps: JourneyFacts["steps"][number]["outcome"][];
-    checks: JourneyFacts["checks"][number]["outcome"][];
-    tasks: (NonNullable<JourneyFacts["tasks"][number]["answer"]>["outcome"] | null)[];
-  } = JSON.parse(readFileSync(new URL(`${name}.json`, vectors), "utf8"));
-  return {
-    ...variant,
-    steps: vector.steps.map((outcome, index) => ({ text: `Step ${index + 1}`, outcome })),
-    checks: vector.checks.map((outcome, index) => ({ text: `Check ${index + 1}`, outcome })),
-    tasks: vector.tasks.map((outcome, index) => {
-      const id = `catalog/${index + 1}`;
-      return outcome === null ? { id } : { id, answer: { task: id, outcome } };
-    }),
-  };
-}
-
 const variant = {
   journey_id: "J-002",
   surface: "sdk-typescript",
@@ -61,6 +39,8 @@ const variant = {
   platform: { os: "linux", arch: "x86_64" },
   runtime: "node-24",
 } as const;
+
+const vectors = journeyVectors(variant);
 
 /** Runs `goodfetch-conformance read <file>` and gives its exit code. */
 async function read(
@@ -87,11 +67,11 @@ function written(file: string): unknown {
 }
 
 describe("writeJourneyDocument", () => {
-  test.for(names)(
-    "writes the vector %s as a document the reader accepts",
-    async (name, { processes, testEnv }) => {
+  test.for(vectors)(
+    "writes the vector $name as a document the reader accepts",
+    async ({ facts }, { processes, testEnv }) => {
       const file = join(testEnv.folder, "journey.json");
-      writeJourneyDocument(file, vectorFacts(name));
+      writeJourneyDocument(file, facts);
 
       const code = await read(processes, testEnv, file);
 
@@ -138,60 +118,6 @@ async function startProvingGround(
       serve.child.kill("SIGKILL");
       await serve.exit;
     },
-  };
-}
-
-/** One HTTP exchange with the copy, naming `host` in the `Host` header. */
-function exchange(
-  provingGround: ProvingGround,
-  method: "GET" | "POST",
-  host: string,
-  path: string,
-  body?: unknown,
-): Promise<string> {
-  const [hostname, port] = provingGround.address.split(":");
-  return new Promise((resolve, reject) => {
-    const sent = request(
-      { method, hostname, port, path, headers: { host, "content-type": "application/json" } },
-      (response) => {
-        let text = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk: string) => {
-          text += chunk;
-        });
-        response.on("end", () => {
-          resolve(text);
-        });
-      },
-    );
-    sent.on("error", reject);
-    sent.end(body === undefined ? undefined : JSON.stringify(body));
-  });
-}
-
-interface Task {
-  readonly id: string;
-  readonly start_url: string;
-}
-
-interface TaskList {
-  readonly proving_ground: { readonly version: string; readonly seed: number };
-  readonly tasks: readonly Task[];
-}
-
-/** The product a `catalog` product page shows, read as any tool would. */
-function product(page: string): { id: string; name: string; price: string } {
-  const field = (pattern: RegExp): string => {
-    const found = pattern.exec(page)?.[1];
-    if (found === undefined) {
-      throw new Error(`the product page has no match for ${pattern}`);
-    }
-    return found;
-  };
-  return {
-    id: field(/<article class="product" data-id="([^"]+)"/),
-    name: field(/<h1 class="name">([^<]+)<\/h1>/),
-    price: field(/data-price="([^"]+)"/),
   };
 }
 

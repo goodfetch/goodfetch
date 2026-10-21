@@ -361,6 +361,16 @@
       ]
     },
     {
+      "id": "error:lease_lost",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:name_lookup_failed",
       "kind": "error",
       "area": 3,

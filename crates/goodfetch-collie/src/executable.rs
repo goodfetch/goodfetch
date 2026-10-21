@@ -5,7 +5,7 @@
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
 //! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, and `runs reindex`, beside the commands `goodfetch-cli` generates
+//! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
 //! `engine info`, and the global `--color auto|always|never`; the CLI's
 //! other commands join with area 11. Every
@@ -60,6 +60,7 @@ mod config;
 mod daemon;
 mod runs;
 mod service;
+mod upgrade;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -119,6 +120,18 @@ enum Command {
     Runs {
         #[command(subcommand)]
         command: RunsCommand,
+    },
+    /// Gives this executable's major its own copy of an older major's
+    /// settings, Operator policy, Run index and runs in Goodfetch home,
+    /// never changing the older major's files.
+    UpgradeFiles {
+        /// The older major to upgrade from, such as `1` or `0.4`; the
+        /// newest older major Goodfetch home holds when not given.
+        #[arg(long, value_name = "MAJOR")]
+        from: Option<String>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -515,6 +528,9 @@ fn run(
                 return ExitCode::FAILURE;
             };
             runs::reindex(engine.identity(), &home, &folder, paths, json)
+        }
+        Command::UpgradeFiles { from, json } => {
+            upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
         }
     }
 }

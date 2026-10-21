@@ -419,6 +419,15 @@ export class SettingUnknownError extends ProgramError {
   }
 }
 
+/**
+ * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, which `fix` says to upgrade through first, or a newer major than the executable's, which `fix` says to upgrade to. No file is changed.
+ */
+export class UpgradeSourceUnsupportedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "upgrade_source_unsupported", group: "refused", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
@@ -456,4 +465,5 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  upgrade_source_unsupported: UpgradeSourceUnsupportedError,
 };

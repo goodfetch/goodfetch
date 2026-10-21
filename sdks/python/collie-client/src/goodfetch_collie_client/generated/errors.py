@@ -338,6 +338,14 @@ class SettingUnknownError(ProgramError):
         super().__init__(message, code="setting_unknown", group="program", retryable=False)
 
 
+class UpgradeSourceUnsupportedError(RefusedError):
+    """`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, which `fix` says to upgrade through first, or a newer major than the executable's, which `fix` says to upgrade to. No file is changed."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="upgrade_source_unsupported", group="refused", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
@@ -374,5 +382,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
+    "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
 }
 """The exception class of each Error code."""

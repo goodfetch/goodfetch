@@ -37,7 +37,7 @@ use super::error::SettingsError;
 use super::keys;
 use super::resolve::Policy;
 use super::values::Values;
-use crate::home::{Home, major_name};
+use crate::home::{Home, major_name, major_order};
 use crate::lowest_minor::{Marker, Opener};
 
 /// The key beside `version` that records a shared settings file's lowest
@@ -186,22 +186,6 @@ impl SettingsFiles {
             })
             .max_by_key(|(order, _)| *order)
             .map(|(_, policy)| policy)
-    }
-}
-
-/// The order of a per-major folder's name, `1` or `0.4`: `None` for a
-/// folder that names no major.
-pub(crate) fn major_order(name: &str) -> Option<(u64, u64)> {
-    let canonical = |part: &str| {
-        !part.is_empty()
-            && part.bytes().all(|byte| byte.is_ascii_digit())
-            && (part == "0" || !part.starts_with('0'))
-    };
-    match name.split_once('.') {
-        Some(("0", minor)) if canonical(minor) => Some((0, minor.parse().ok()?)),
-        Some(_) => None,
-        None if canonical(name) && name != "0" => Some((name.parse().ok()?, 0)),
-        None => None,
     }
 }
 

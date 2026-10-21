@@ -16,8 +16,9 @@
 //! The bundle's `outputs` maps each command's path, such as `daemon.start`,
 //! to the type of its `--json` output (ADR 0069). The
 //! format registry is the bundle's `formats`, which `xtask compat` reads: an
-//! array of `{name, version, storage, rule, schema}`, where `storage` is
-//! `json`, `sqlite` or `transcript`. The bundle's `connection` holds the
+//! array of `{name, version, storage, rule, hello_from, schema}`, where
+//! `storage` is `json`, `sqlite`, `toml` or `transcript`, and `hello_from`
+//! lists who opens a protocol with `hello`. The bundle's `connection` holds the
 //! types of `hello` and `$/cancel`, which open and govern every Connection
 //! outside the catalog, and those of the streaming calls' notifications,
 //! the Client's `$/credit` and the engine's `$/events` and `$/chunk`; each Error code's entry carries its row of the
@@ -78,6 +79,7 @@ pub fn emit() -> Emitted {
                 "version": format.version.to_string(),
                 "storage": format.storage.as_str(),
                 "rule": format.rule.as_str(),
+                "hello_from": format.hello_from.iter().map(|from| from.as_str()).collect::<Vec<_>>(),
                 "schema": (format.schema)(&mut generator),
             })
         })

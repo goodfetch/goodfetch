@@ -3683,6 +3683,10 @@
   },
   "formats": [
     {
+      "hello_from": [
+        "client",
+        "browser_host"
+      ],
       "name": "protocol",
       "rule": "default",
       "schema": {
@@ -3692,6 +3696,7 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "browser-cache",
       "rule": "default",
       "schema": {
@@ -3701,8 +3706,9 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "run-index",
-      "rule": "default",
+      "rule": "shared_store",
       "schema": {
         "$ref": "#/$defs/RunIndexRow"
       },
@@ -3710,6 +3716,7 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "run-state",
       "rule": "default",
       "schema": {
@@ -3719,6 +3726,7 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "installed-executables",
       "rule": "frozen_major",
       "schema": {
@@ -3728,8 +3736,9 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "operator-policy",
-      "rule": "default",
+      "rule": "shared_store",
       "schema": {
         "additionalProperties": false,
         "properties": {
@@ -4590,8 +4599,9 @@
       "version": "0.1"
     },
     {
+      "hello_from": [],
       "name": "user-configuration",
-      "rule": "default",
+      "rule": "shared_store",
       "schema": {
         "additionalProperties": false,
         "properties": {

@@ -165,6 +165,17 @@
       ]
     },
     {
+      "id": "command:daemon.run",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:daemon.start",
       "kind": "command",
       "area": 3,

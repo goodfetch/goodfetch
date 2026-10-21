@@ -107,6 +107,7 @@ Commands:
   install       Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
   uninstall     Removes the major's per-user service, stopping its Daemon
   rotate-token  Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
+  run           Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -181,6 +182,15 @@ Usage: goodfetch-collie daemon rotate-token [OPTIONS]
 
 Options:
       --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon run --help
+Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
+
+Usage: goodfetch-collie daemon run [OPTIONS]
+
+Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 

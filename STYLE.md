@@ -104,7 +104,7 @@ The absolute ceilings and Performance targets these rules serve are in [ADR 0134
 - **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059). The handles' test constructors `Clock::paused` and `Entropy::seeded` are in `disallowed-methods` too, opted into only by test modules (ADR 0062) and bench target roots (ADR 0071).
   _Why:_ a test can then drive every clock the code reads, and hash order never reaches output.
 - **Denied:** `print_stdout` and `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes`, `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`). `std::io::stdout` and `std::io::stderr` are in `disallowed-methods`.
-- **Only three writers touch stdout or stderr:** the protocol transport, the CLI's output writer (its human output, its `--json` output and its hints on stderr) and the `tracing` subscriber's writer (stderr or a file). Everything else logs through `tracing`. The one exception is the test-only `goodfetch-scripted-engine`, which writes its script's messages to stdout under an `#[expect]` naming ADRs 0060 and 0069.
+- **Only three writers touch stdout or stderr:** the protocol transport, the CLI's output writer (its human output, its `--json` output and its hints on stderr) and the `tracing` subscriber's writer (stderr or a file, and stdout in `daemon run`, the foreground Daemon, where no protocol uses stdout: ADR 0049). Everything else logs through `tracing`. The one exception is the test-only `goodfetch-scripted-engine`, which writes its script's messages to stdout under an `#[expect]` naming ADRs 0060 and 0069.
   _Why:_ when the binary runs as an Attached engine started by an SDK, or as the stdio MCP server, stdout is the JSON-RPC channel, so one stray write corrupts the protocol; and the CLI's `--json` output is under semver (ADR 0030).
 - **Exceptions use `#[expect(lint, reason = "…")]`, never `#[allow]`.**
   _Why:_ `expect` warns when the exception is no longer needed, so stale exceptions disappear.
@@ -126,7 +126,7 @@ The absolute ceilings and Performance targets these rules serve are in [ADR 0134
   _Why:_ an OTLP export is one more output that leaves the process, and a query string can hold a token.
 - **`#[instrument(skip_all, fields(…))]`**, so arguments are only logged when named.
   _Why:_ one `?config` in a log line can leak a proxy password, and secrets never reach logs (ADRs 0014, 0015).
-- **Logs go to stderr or a file, never stdout**, through the `tracing` subscriber.
+- **Logs go to stderr or a file, never stdout**, through the `tracing` subscriber; the one exception is `daemon run`, the foreground Daemon, which logs JSON lines to stdout because no protocol uses its stdout and container platforms collect stdout (ADR 0049).
 - **Levels:** `error` needs someone to act; `warn` is a degraded but handled state; `info` is a lifecycle step of a run, Session or Daemon; `debug` explains a decision; `trace` is per-message detail.
 - **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`). Secret canaries and redaction property tests prove the secret reaches no output ([`TESTING.md`](TESTING.md#secrets), ADR 0067).
 

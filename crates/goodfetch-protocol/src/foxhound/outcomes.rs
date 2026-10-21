@@ -12,7 +12,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::block::BlockCause;
-use crate::catalog::{Entries, Operation, OperationClass, ProtocolVersion, Stability, schema_of};
+use crate::catalog::{
+    Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Stability, schema_of,
+};
 use crate::run::{PointInTime, RunId};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -293,6 +295,7 @@ pub const RUN_OUTCOMES: Operation = Operation {
     name: "run.outcomes",
     description: "Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: \"now\"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.",
     class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<RunOutcomesParams>,
     result: schema_of::<CrawlRequestOutcomes>,
     events: &[],
@@ -307,6 +310,7 @@ pub const RUN_FAILED_REQUESTS: Operation = Operation {
     name: "run.failed_requests",
     description: "Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.",
     class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<RunFailedRequestsParams>,
     result: schema_of::<FailedRequests>,
     events: &[],

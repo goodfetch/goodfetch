@@ -632,6 +632,7 @@
       "deprecated": null,
       "description": "Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.",
       "events": [],
+      "kind": "round_trip",
       "name": "run.failed_requests",
       "params": {
         "$ref": "#/$defs/RunFailedRequestsParams"
@@ -667,6 +668,7 @@
       "deprecated": null,
       "description": "Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: \"now\"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.",
       "events": [],
+      "kind": "round_trip",
       "name": "run.outcomes",
       "params": {
         "$ref": "#/$defs/RunOutcomesParams"

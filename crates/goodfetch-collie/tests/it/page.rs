@@ -35,7 +35,7 @@ const SEED: u64 = 695;
 
 /// How long a call may take: the first page launches the browser, checking
 /// its build's digest, and the Run's end waits for the browser to exit.
-const BROWSER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+pub(crate) const BROWSER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Starts an Attached engine whose Browser cache is `cache`, and a Run whose
 /// `network.resolve` maps the Proving ground's hosts to its address.
@@ -45,8 +45,24 @@ fn started<'env>(
     proving_ground: &ProvingGround,
     run_id: &str,
 ) -> Attached<'env> {
+    started_with(env, cache, proving_ground, run_id, &Map::new(), |_| {})
+}
+
+/// Starts an Attached engine whose Browser cache is `cache`, its command
+/// changed by `change`, and a Run whose `network.resolve` maps the Proving
+/// ground's hosts to its address, beside `settings`, more of the Run's
+/// settings by area.
+pub(crate) fn started_with<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+) -> Attached<'env> {
     let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
+        change(command);
     });
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
@@ -56,17 +72,19 @@ fn started<'env>(
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
+    let mut settings = settings.clone();
+    settings.insert("network".to_owned(), json!({ "resolve": resolve }));
     let started = call(
         &mut engine,
         1,
         "run.start",
-        &json!({ "run_id": run_id, "settings": { "network": { "resolve": resolve } } }),
+        &json!({ "run_id": run_id, "settings": settings }),
     );
     assert!(started.get("result").is_some(), "{started}");
     engine
 }
 
-fn opened(answer: &Value) -> PageOpened {
+pub(crate) fn opened(answer: &Value) -> PageOpened {
     serde_json::from_value(answer["result"].clone())
         .unwrap_or_else(|error| panic!("{error}: {answer}"))
 }
@@ -174,7 +192,7 @@ fn a_launch_with_an_empty_browser_cache_fails_from_the_call_that_launches() {
 /// those whose profile is in the test's folder, which `ps` names by the
 /// folder name's last, ASCII, part.
 #[cfg(unix)]
-fn browser_command_lines(env: &TestEnv) -> Vec<String> {
+pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
     let name = env.folder().file_name().unwrap().to_string_lossy();
     let marker = name.rsplit(' ').next().unwrap().to_owned();
     let listed = Command::new("ps")
@@ -235,13 +253,15 @@ fn probe_reports(proving_ground: &ProvingGround) -> Vec<(String, String)> {
 }
 
 /// What the probe would see of `Runtime` enabled and of a script outside
-/// its isolated world. `navigator.webdriver`, which it also reports, is the
-/// launch's identity, #696's to settle.
+/// its isolated world. `navigator.webdriver`, which it also reports, is
+/// the same with a window or without (#696); hiding it is area 8's.
 const SIDE_EFFECTS: [&str; 2] = ["runtime_enable", "automation_bindings"];
 
 /// The browser runs over a pipe with no debugging port, `Runtime` is never
-/// enabled, and a page's own script sees neither `Runtime`'s side effect
-/// nor the guard's isolated world (ADRs 0017 and 0019).
+/// enabled (a headless browser's identity is read with `Runtime.evaluate`
+/// on a page of its own, which needs no `Runtime.enable`), and a page's own
+/// script sees neither `Runtime`'s side effect nor the guard's isolated
+/// world (ADRs 0017 and 0019).
 /// Covers: story:5-61
 #[cfg(unix)]
 #[test]
@@ -283,7 +303,7 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
                 .iter()
                 .any(|line| line.contains("--remote-debugging-pipe")),
             methods.contains("Page.navigate"),
-            methods.iter().any(|method| method.starts_with("Runtime.")),
+            methods.contains("Runtime.enable"),
             reports.contains(&("ran".to_owned(), "content".to_owned())),
             reports
                 .iter()

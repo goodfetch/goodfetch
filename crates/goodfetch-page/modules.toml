@@ -6,6 +6,11 @@ launch = []
 pages = ["driver"]
 trace = []
 
+# Which of `driver`'s own modules may import which.
+[submodules.driver]
+identity = []
+
 # Which of `launch`'s own modules may import which.
 [submodules.launch]
+arguments = []
 pipe = []

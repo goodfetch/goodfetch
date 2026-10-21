@@ -19,6 +19,7 @@ mod help;
 mod human_output;
 mod invalid_calls;
 mod journeys;
+mod launch;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod log;

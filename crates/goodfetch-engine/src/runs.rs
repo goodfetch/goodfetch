@@ -17,6 +17,15 @@
 //! abort fails as busy. `runs reindex` rebuilds the Run index from the run
 //! folders ([`reindex`]).
 //!
+//! A Checkpoint of a Run (ADRs 0002, 0102 and 0116) is written on
+//! `run.checkpoint`, every `checkpoint.interval` of its clock, and after the
+//! end of every stop: an abort, a pause, a migration. A resume takes the
+//! writer role of an interrupted Run from its run file or from a Checkpoint
+//! made its run file, at the run epoch past both (ADR 0003), refuses a Run
+//! bound to another machine (ADR 0056), and hands the Run to the driver of
+//! its kind again. Stops and Checkpoints are announced on the event stream
+//! (RT-14).
+//!
 //! A Run's driver, such as Foxhound's crawl, holds a [`Run`]: its run
 //! state's writer, its clock, its cancellation, its tasks and its page
 //! bodies. On a Daemon, each Run belongs to the Connection that started it,

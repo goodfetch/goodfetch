@@ -6,6 +6,8 @@
 //! this engine cannot read; installing one makes it a run file. Fuzz
 //! replay of the Checkpoint target's seeds and crashers (ADR 0067).
 
+mod model;
+
 use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;

@@ -835,3 +835,55 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
         )
     );
 }
+
+/// Secret canaries planted in a Run, in the Session source its settings
+/// name (a browser endpoint's token, a proxy's password, a Model API key),
+/// are in none of its Checkpoint's bytes nor its run folder's, in any
+/// encoding (ADR 0067). A Checkpoint has no encrypted field yet: Sessions
+/// and their run key are area 4's.
+/// Covers: story:3-30
+#[test]
+fn secret_canaries_planted_in_a_run_are_absent_from_its_checkpoint() {
+    let env = TestEnv::new();
+    let mut canaries = goodfetch_test_support::Canaries::new(env.seed());
+    let token = canaries
+        .plant(goodfetch_test_support::SecretKind::EndpointToken)
+        .value()
+        .to_owned();
+    let password = canaries
+        .plant(goodfetch_test_support::SecretKind::ProxyPassword)
+        .value()
+        .to_owned();
+    let key = canaries
+        .plant(goodfetch_test_support::SecretKind::ModelApiKey)
+        .value()
+        .to_owned();
+    let source =
+        format!("cdp_url:ws://user:{password}@127.0.0.1:9222/devtools/browser/{token}?key={key}");
+
+    let checkpoint = attached_on(&engine(), &env, |client| async move {
+        let mut talk = Talk::open(client).await;
+        talk.ok(
+            2,
+            "run.start",
+            json!({ "run_id": "secrets", "settings": { "session": { "source": source } } }),
+        )
+        .await;
+        let checkpoint = talk
+            .ok(3, "run.checkpoint", json!({ "run_id": "secrets" }))
+            .await;
+        talk.ok(4, "run.finish", json!({ "run_id": "secrets" }))
+            .await;
+        checkpoint
+    });
+
+    let location = PathBuf::from(checkpoint["location"].as_str().unwrap());
+    let folder = run_folder(&env, "secrets");
+    let leaks = canaries
+        .leaks(&[
+            goodfetch_test_support::Output::Path(&location),
+            goodfetch_test_support::Output::Path(&folder),
+        ])
+        .unwrap();
+    assert_eq!((location.exists(), leaks), (true, Vec::new()));
+}

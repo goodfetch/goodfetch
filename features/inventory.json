@@ -429,6 +429,28 @@
       ]
     },
     {
+      "id": "command:usage.list",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:usage.set",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:address_family_unavailable",
       "kind": "error",
       "area": 3,
@@ -655,6 +677,28 @@
       ]
     },
     {
+      "id": "error:limit_not_understood",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:limit_reached",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:name_lookup_failed",
       "kind": "error",
       "area": 3,
@@ -722,6 +766,17 @@
     },
     {
       "id": "error:page_crashed",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:pattern_unsupported",
       "kind": "error",
       "area": 5,
       "milestone": null,
@@ -1071,6 +1126,17 @@
       ]
     },
     {
+      "id": "format:usage-ledger",
+      "kind": "format",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:user-configuration",
       "kind": "format",
       "area": 3,
@@ -1386,6 +1452,28 @@
       "id": "operation:sample.echo",
       "kind": "operation",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:usage.list",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:usage.set",
+      "kind": "operation",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

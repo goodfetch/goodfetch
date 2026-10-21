@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -186,6 +186,20 @@ class AsyncCollieOperations:
         """
         return SampleEchoResult.model_construct(**_fields(await self._caller.call("sample.echo", params)))
 
+    async def usage_list(self, params: UsageListParams) -> UsageListResult:
+        """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return UsageListResult.model_construct(**_fields(await self._caller.call("usage.list", params)))
+
+    async def usage_set(self, params: UsageSetParams) -> LimitUsage:
+        """Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return LimitUsage.model_construct(**_fields(await self._caller.call("usage.set", params)))
+
 
 class CollieOperations:
     """Collie's operations, each a sync method."""
@@ -338,3 +352,17 @@ class CollieOperations:
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
         return SampleEchoResult.model_construct(**_fields(self._caller.call("sample.echo", params)))
+
+    def usage_list(self, params: UsageListParams) -> UsageListResult:
+        """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return UsageListResult.model_construct(**_fields(self._caller.call("usage.list", params)))
+
+    def usage_set(self, params: UsageSetParams) -> LimitUsage:
+        """Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return LimitUsage.model_construct(**_fields(self._caller.call("usage.set", params)))

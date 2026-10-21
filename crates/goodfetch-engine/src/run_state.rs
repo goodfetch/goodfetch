@@ -47,6 +47,14 @@ const SCHEMA: &[&str] = &[
         clean_up_digest TEXT
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
+    // What the Run used of each Slice of the Usage ledger, by run epoch (ADR
+    // 0041), which an engine reclaiming its Slices charges.
+    "CREATE TABLE IF NOT EXISTS usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT",
 ];
 
 /// The tables one contribution adds to every run file: `CREATE TABLE IF NOT

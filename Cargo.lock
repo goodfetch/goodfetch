@@ -1332,12 +1332,16 @@ dependencies = [
  "jiff",
  "libc",
  "mimalloc",
+ "proptest",
+ "regex",
+ "regex-syntax",
  "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

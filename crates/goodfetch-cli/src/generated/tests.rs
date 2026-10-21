@@ -132,6 +132,8 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("run.resume", Offer::Command),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),
+            ("usage.list", Offer::Command),
+            ("usage.set", Offer::Command),
         ]
     );
 }

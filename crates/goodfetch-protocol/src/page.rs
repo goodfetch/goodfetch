@@ -4,7 +4,8 @@
 //! `page.go_forward` navigate a page and answer the document's `Response`;
 //! `locator.click`, `locator.fill` and `locator.press` act on the one
 //! element a locator matches, through the guard (ADR 0019); and the Error
-//! codes a page's browser, its navigations and its locators fail with.
+//! codes a page's browser, its navigations, its locators and the URL
+//! patterns its calls pass fail with.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -399,6 +400,49 @@ pub const TARGET_NOT_UNIQUE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A construct of a URL pattern the engine's matcher cannot read (ADR 0081).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternConstruct {
+    /// A regular expression's look-ahead or look-behind, such as `(?=x)`.
+    LookAround,
+    /// A regular expression's back-reference, such as `\1`.
+    Backreference,
+    /// A glob's `{` inside another `{…}` group, which Playwright refuses
+    /// too.
+    NestedBraces,
+    /// A glob's `{` with no `}`, or `}` with no `{`, which Playwright
+    /// refuses too.
+    UnmatchedBrace,
+    /// Any other construct outside the `regex` crate's syntax, or a
+    /// regular expression too large to compile; the message names it.
+    Other,
+}
+
+/// What `pattern_unsupported` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PatternUnsupportedDetails {
+    /// The pattern as the call passed it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pattern: String,
+    /// The construct the engine cannot read.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub construct: PatternConstruct,
+    /// What to do instead.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// A URL pattern outside the syntax of the engine's matcher (ADR 0081).
+pub const PATTERN_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "pattern_unsupported",
+    description: "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `locator.click`.
 pub const LOCATOR_CLICK: Operation = Operation {
     name: "locator.click",
@@ -550,6 +594,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
         TARGET_NOT_UNIQUE,
+        PATTERN_UNSUPPORTED,
     ],
     plugin_kinds: &[],
     metrics: &[],

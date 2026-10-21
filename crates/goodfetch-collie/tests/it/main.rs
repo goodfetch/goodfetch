@@ -31,4 +31,5 @@ mod private_endpoint;
 mod run;
 mod service_manager;
 mod settings_flags;
+mod usage;
 mod writer_lock;

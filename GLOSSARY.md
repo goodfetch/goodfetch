@@ -220,6 +220,10 @@ _Avoid_: run registry, run database, history
 The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Connection or a Partitioned crawl and against which they are held.
 _Avoid_: billing, meter, spend log
 
+**Slice**:
+A part of a Limit one run takes from the Usage ledger in one transaction, the smaller of 1 % of the Limit and what is left over twice the live runs, against which it charges the Usage it measures; it gives back what is left when it ends, and the next engine to open the ledger reclaims the Slices of a run whose engine died, from what the run journaled.
+_Avoid_: lease (for a Slice), reservation, quota, chunk
+
 **Effect**:
 An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order; a program's own actions are Effects only when it declares them. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
 _Avoid_: side effect, mutation, write
@@ -321,6 +325,10 @@ _Avoid_: login, profile, context
 **Page**:
 One browser tab of a Session, which a program, an Agent or a crawl handler drives: it navigates, is read and receives gestures, and belongs to its Session for its whole life.
 _Avoid_: tab, target (for a page)
+
+**URL pattern**:
+A glob or a regular expression that a wait, a route or a kept response matches URLs against, in the engine, so that it matches the same URLs from every SDK; a predicate is no URL pattern, since it runs in the program.
+_Avoid_: URL filter, URL match
 
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).

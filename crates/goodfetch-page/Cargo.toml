@@ -15,11 +15,14 @@ goodfetch-cdp.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 jiff.workspace = true
+regex.workspace = true
+regex-syntax.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "sync", "time", "macros"] }
 tracing.workspace = true
+url.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # The child's descriptors 3 and 4, set between fork and exec (ADR 0017).
@@ -31,6 +34,7 @@ tokio = { workspace = true, features = ["net"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true
+proptest.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, features = ["io-util", "rt"] }
 

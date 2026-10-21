@@ -5,7 +5,9 @@ errors = []
 guard = ["driver"]
 launch = []
 pages = ["driver", "guard"]
+robots_txt = []
 trace = []
+url_pattern = []
 
 # Which of `driver`'s own modules may import which.
 [submodules.driver]

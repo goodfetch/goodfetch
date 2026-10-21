@@ -4,15 +4,17 @@
 //! queue, from which the subscription takes as many events as its Client's
 //! credits allow.
 //!
-//! A lossless event (an axis change, a "Needs you" item) is never dropped:
-//! while any subscription's queue is full, its producer's
-//! [`Events::publish`] waits, and lossless events are taken in the order
-//! they were published. A telemetry event (progress, logs) never waits: it
-//! replaces the unsent one of the same kind and scope in each queue, which
-//! the one sent counts as `dropped`. A subscription that names the position
-//! its Client last read resumes after it from the kept events, and one the
-//! engine no longer holds starts with `events.resync`, the axes of every Run
-//! the stream has reported.
+//! No producer ever waits for a subscriber. A lossless event (an axis
+//! change, a "Needs you" item) is never dropped without notice: each
+//! subscription takes them in the order they were published, and one whose
+//! queue is full falls behind instead, its queued lossless events dropped,
+//! and next takes `events.resync`, the axes of every Run the stream has
+//! reported, then the stream (ADRs 0024 and 0031). A telemetry event
+//! (progress, logs) replaces the unsent one of the same kind and scope in
+//! each queue, which the one sent counts as `dropped`. A subscription that
+//! names the position its Client last read resumes after it from the kept
+//! events, and one the engine no longer holds starts behind, with
+//! `events.resync`.
 //!
 //! Also the credits a Client grants a streaming call, which the protocol
 //! server adds and the call takes.
@@ -39,8 +41,8 @@ const MAX_CREDITS: usize = 1 << 20;
 /// How big the stream's buffers are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EventsOptions {
-    /// How many lossless events a subscription's queue holds before their
-    /// producers wait.
+    /// How many lossless events a subscription's queue holds before it
+    /// falls behind to an `events.resync`.
     pub queue: usize,
     /// How many of the last lossless events the engine keeps for a
     /// subscription that resumes.
@@ -111,7 +113,6 @@ impl Events {
             runs: BTreeMap::new(),
             subscriptions: BTreeMap::new(),
             next_subscription: 0,
-            parked: VecDeque::new(),
         };
         let token = owner.token().clone();
         owner.spawn(async move {
@@ -127,14 +128,12 @@ impl Events {
     /// Run ID) tells telemetry events of the same kind apart, which
     /// coalesce only within one scope.
     ///
-    /// A lossless event answers once every subscription's queue took it,
-    /// so a full queue makes its producer wait; a telemetry event answers
-    /// at once.
+    /// It answers once the stream has given the event its position, which
+    /// no subscriber's queue delays: a full queue falls behind instead.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future while a lossless event waits still publishes it
-    /// once the queues have room.
+    /// Dropping the future after the event was sent still publishes it.
     pub async fn publish(&self, event: &'static Event, scope: Option<&str>, data: &impl Serialize) {
         let data =
             serde_json::to_value(data).expect("invariant: an event's payload encodes as JSON");
@@ -274,6 +273,9 @@ impl Credits {
 /// One subscription's queue.
 struct Queue {
     lossless: VecDeque<Arc<EventEnvelope>>,
+    /// Whether it fell behind, or started behind: its next take starts with
+    /// `events.resync`, and it queues no lossless event until then.
+    behind: bool,
     telemetry: BTreeMap<(&'static str, Option<String>), EventEnvelope>,
     waiting: Option<(usize, oneshot::Sender<Vec<EventEnvelope>>)>,
     alive: oneshot::Receiver<()>,
@@ -288,7 +290,7 @@ impl Queue {
     }
 
     fn is_empty(&self) -> bool {
-        self.lossless.is_empty() && self.telemetry.is_empty()
+        !self.behind && self.lossless.is_empty() && self.telemetry.is_empty()
     }
 
     /// Takes at most `most` events, in the order of their positions.
@@ -336,17 +338,13 @@ struct Stream {
     runs: BTreeMap<RunId, RunAxes>,
     subscriptions: BTreeMap<u64, Queue>,
     next_subscription: u64,
-    parked: VecDeque<Publish>,
 }
 
 impl Stream {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         while let Some(command) = mailbox.recv().await {
             match command {
-                Command::Publish(publish) => match publish.event.class {
-                    EventClass::Lossless => self.parked.push_back(publish),
-                    EventClass::Telemetry => self.accept(publish),
-                },
+                Command::Publish(publish) => self.accept(publish),
                 Command::Subscribe {
                     after,
                     alive,
@@ -364,7 +362,7 @@ impl Stream {
                 } => {
                     if let Some(queue) = self.subscriptions.get_mut(&subscription) {
                         queue.waiting = Some((most, answer));
-                        Self::serve(queue);
+                        serve(queue, &mut self.last, &self.runs);
                     }
                 }
                 Command::Unsubscribe(subscription) => {
@@ -372,30 +370,6 @@ impl Stream {
                 }
             }
             self.subscriptions.retain(|_, queue| !queue.is_gone());
-            self.accept_parked();
-        }
-    }
-
-    /// The next position.
-    fn position(&mut self) -> Position {
-        self.last += 1;
-        Position(self.last)
-    }
-
-    /// Accepts the parked lossless events in order, while every queue has
-    /// room.
-    fn accept_parked(&mut self) {
-        while !self.parked.is_empty()
-            && self
-                .subscriptions
-                .values()
-                .all(|queue| queue.lossless.len() < self.options.queue)
-        {
-            let publish = self
-                .parked
-                .pop_front()
-                .expect("invariant: the loop checked it is not empty");
-            self.accept(publish);
         }
     }
 
@@ -408,7 +382,7 @@ impl Stream {
             accepted,
         } = publish;
         let envelope = EventEnvelope {
-            position: self.position(),
+            position: next_position(&mut self.last),
             event: event.name.to_owned(),
             data,
             dropped: 0,
@@ -425,9 +399,21 @@ impl Stream {
                         self.floor = gone.position.0;
                     }
                 }
-                for queue in self.subscriptions.values_mut() {
+                for (id, queue) in &mut self.subscriptions {
+                    if queue.behind {
+                        continue;
+                    }
+                    if queue.lossless.len() >= self.options.queue {
+                        tracing::debug!(
+                            subscription = id,
+                            "a subscription fell behind: its next take is a resync"
+                        );
+                        queue.lossless.clear();
+                        queue.behind = true;
+                        continue;
+                    }
                     queue.lossless.push_back(Arc::clone(&envelope));
-                    Self::serve(queue);
+                    serve(queue, &mut self.last, &self.runs);
                 }
             }
             EventClass::Telemetry => {
@@ -444,7 +430,7 @@ impl Stream {
                             ..envelope.clone()
                         },
                     );
-                    Self::serve(queue);
+                    serve(queue, &mut self.last, &self.runs);
                 }
             }
         }
@@ -456,6 +442,7 @@ impl Stream {
         self.next_subscription += 1;
         let mut queue = Queue {
             lossless: VecDeque::new(),
+            behind: false,
             telemetry: BTreeMap::new(),
             waiting: None,
             alive,
@@ -470,32 +457,41 @@ impl Stream {
                         .cloned(),
                 );
             }
-            Some(_) => {
-                let resync = Resync {
-                    runs: self.runs.values().cloned().collect(),
-                };
-                queue.lossless.push_back(Arc::new(EventEnvelope {
-                    position: self.position(),
-                    event: RESYNC.name.to_owned(),
-                    data: serde_json::to_value(resync)
-                        .expect("invariant: a resync encodes as JSON"),
-                    dropped: 0,
-                }));
-            }
+            Some(_) => queue.behind = true,
         }
         self.subscriptions.insert(id, queue);
         id
     }
+}
 
-    /// Answers the queue's waiting take, if any, once it has an event.
-    fn serve(queue: &mut Queue) {
-        if queue.is_empty() {
-            return;
+/// The position after `last`, which it becomes.
+fn next_position(last: &mut u64) -> Position {
+    *last += 1;
+    Position(*last)
+}
+
+/// Answers the queue's waiting take, if any, once it has an event; a queue
+/// behind first takes `events.resync`, at the next position, with the axes
+/// of every Run in `runs`.
+fn serve(queue: &mut Queue, last: &mut u64, runs: &BTreeMap<RunId, RunAxes>) {
+    if queue.is_empty() {
+        return;
+    }
+    if let Some((most, answer)) = queue.waiting.take() {
+        if queue.behind {
+            let resync = Resync {
+                runs: runs.values().cloned().collect(),
+            };
+            queue.lossless.push_back(Arc::new(EventEnvelope {
+                position: next_position(last),
+                event: RESYNC.name.to_owned(),
+                data: serde_json::to_value(resync).expect("invariant: a resync encodes as JSON"),
+                dropped: 0,
+            }));
+            queue.behind = false;
         }
-        if let Some((most, answer)) = queue.waiting.take() {
-            let taken = queue.take(most);
-            // A take whose reader is gone ends with its subscription.
-            let _ = answer.send(taken);
-        }
+        let taken = queue.take(most);
+        // A take whose reader is gone ends with its subscription.
+        let _ = answer.send(taken);
     }
 }

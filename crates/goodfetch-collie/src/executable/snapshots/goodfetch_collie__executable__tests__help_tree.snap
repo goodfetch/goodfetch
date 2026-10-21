@@ -263,14 +263,14 @@ Calls the catalog's `events` operations
 Usage: goodfetch-collie events [OPTIONS] <COMMAND>
 
 Commands:
-  subscribe  Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it
+  subscribe  Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
 $ goodfetch-collie events subscribe --help
-Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it
+Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it
 
 Usage: goodfetch-collie events subscribe [OPTIONS] --follow
 

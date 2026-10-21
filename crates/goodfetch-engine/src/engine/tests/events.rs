@@ -1,13 +1,12 @@
 //! The event stream and page bodies, through the engine's public interface
 //! over the in-memory network (spec #213's Seam 3): a subscriber that grants
-//! no credits slows the Runs whose axis changes it has not taken and loses
-//! none (ADR 0024), telemetry coalesces and counts what it dropped, a
+//! no credits falls behind to an `events.resync` and holds back no Run and
+//! no other subscriber (ADR 0024), telemetry coalesces and counts what it dropped, a
 //! subscription resumes after the position its Client last read or starts
 //! with `events.resync` (ADR 0031), and a page body is a file in its Run's
 //! folder that `page.body` sends one chunk per credit. Credits are granted,
 //! never timed (ADR 0064).
 
-use std::collections::BTreeSet;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{
@@ -173,20 +172,44 @@ fn positions(events: &[Value]) -> Vec<u64> {
         .collect()
 }
 
+/// The value at `pointer` in the `index`th of `events`, or `null`.
+fn field(events: &[Value], index: usize, pointer: &str) -> Value {
+    events
+        .get(index)
+        .and_then(|event| event.pointer(pointer))
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
 fn strictly_increasing(positions: &[u64]) -> bool {
     positions.windows(2).all(|pair| pair[0] < pair[1])
 }
 
-/// Covers: story:3-8, operation:events.subscribe, event:run.axes_changed
+/// Reads the next message, or `None` when none comes within a minute of the
+/// paused clock, which moves on only once the engine has nothing left to
+/// do: a message the engine holds back never comes.
+async fn next_unheld(client: &mut Client) -> Option<Value> {
+    tokio::time::timeout(Duration::from_secs(60), client.next())
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Covers: story:3-8, operation:events.subscribe, event:run.axes_changed, event:events.resync
 #[test]
-fn a_subscriber_that_grants_no_credits_slows_the_runs_it_has_not_taken_and_loses_no_axis_change() {
+fn a_subscriber_that_grants_no_credits_falls_behind_to_a_resync_and_holds_back_no_run_or_subscriber()
+ {
     const QUEUE: usize = 2;
     const RUNS: usize = 5;
     let env = TestEnv::new();
     let engine = engine(options(QUEUE, 64));
 
-    let (held, events) = attached_on(&engine, &env, |mut client| async move {
+    let (unheld, read, behind) = attached_on(&engine, &env, |mut client| async move {
+        // Subscription 1 grants nothing; subscription 2 reads everything.
         open(&mut client, 1, json!({})).await;
+        client
+            .send(&[call(2, "events.subscribe", json!({})), credit(2, 100)])
+            .await;
         let starts: Vec<Value> = (0..RUNS)
             .map(|index| {
                 call(
@@ -197,100 +220,57 @@ fn a_subscriber_that_grants_no_credits_slows_the_runs_it_has_not_taken_and_loses
             })
             .collect();
         client.send(&starts).await;
-        let (mut answered, mut events, mut held) = (0, Vec::new(), Vec::new());
-        let read = |message: Value, answered: &mut usize, events: &mut Vec<Value>| {
-            if let Some(batch) = batch(&message, 1) {
-                events.extend(batch);
+        let (mut answered, mut read) = (0, Vec::new());
+        while answered < RUNS || read.len() < RUNS {
+            let Some(message) = next_unheld(&mut client).await else {
+                return (false, read, Vec::new());
+            };
+            if let Some(batch) = batch(&message, 2) {
+                read.extend(batch);
             } else if message["result"]["lifecycle"] == "running" {
-                *answered += 1;
+                answered += 1;
             } else {
                 panic!("an unexpected message: {message}");
             }
-        };
-        while answered < QUEUE {
-            read(client.next().await.unwrap(), &mut answered, &mut events);
         }
-        for granted in 1..=RUNS - QUEUE {
-            // The paused clock moves on only once the engine has nothing
-            // left to do: then no start the queue holds back answers.
-            let early = tokio::time::timeout(Duration::from_secs(60), client.next())
-                .await
-                .ok()
-                .flatten();
-            held.push(early.is_none());
-            if let Some(message) = early {
-                read(message, &mut answered, &mut events);
-            }
-            client.send(&[credit(1, 1)]).await;
-            while answered < QUEUE + granted || events.len() < granted {
-                read(client.next().await.unwrap(), &mut answered, &mut events);
-            }
-        }
+        client.send(&[credit(1, 100)]).await;
+        let (mut behind, _) = read_events(&mut client, 1, 1).await;
         client
-            .send(&[credit(1, u32::try_from(QUEUE).unwrap())])
+            .send(&[call(30, "run.start", json!({ "run_id": "after" }))])
             .await;
-        while events.len() < RUNS {
-            read(client.next().await.unwrap(), &mut answered, &mut events);
-        }
-        (held, events)
+        let (after, _) = read_events(&mut client, 1, 1).await;
+        behind.extend(after);
+        (true, read, behind)
     });
 
-    let runs: BTreeSet<&str> = events
-        .iter()
-        .map(|event| event["data"]["run_id"].as_str().unwrap())
+    let last = positions(&read).last().copied().unwrap_or(0);
+    let runs: Vec<Value> = (0..RUNS)
+        .map(|index| json!({ "run_id": format!("run-{index}"), "lifecycle": "running" }))
         .collect();
     assert_eq!(
         (
-            held,
-            events.len(),
-            runs.len(),
-            strictly_increasing(&positions(&events)),
-            events
-                .iter()
-                .all(|event| event["event"] == "run.axes_changed"
-                    && event["data"]["lifecycle"] == "running"),
+            unheld,
+            read.len(),
+            strictly_increasing(&positions(&read)),
+            field(&behind, 0, "/event"),
+            field(&behind, 0, "/data/runs"),
+            field(&behind, 0, "/position").as_u64().unwrap_or(0) > last,
+            field(&behind, 1, "/event"),
+            field(&behind, 1, "/data/run_id"),
+            strictly_increasing(&positions(&behind)),
         ),
-        (vec![true; RUNS - QUEUE], RUNS, RUNS, true, true)
-    );
-}
-
-/// Covers: story:3-8, error:call_cancelled
-#[test]
-fn a_cancelled_subscription_no_longer_slows_the_runs_it_held() {
-    let env = TestEnv::new();
-    let engine = engine(options(1, 64));
-
-    let received = attached_on(&engine, &env, |mut client| async move {
-        open(&mut client, 1, json!({})).await;
-        client
-            .send(&[
-                call(10, "run.start", json!({ "run_id": "first" })),
-                call(11, "run.start", json!({ "run_id": "second" })),
-            ])
-            .await;
-        let first = client.next().await.unwrap();
-        let early = tokio::time::timeout(Duration::from_secs(60), client.next())
-            .await
-            .ok()
-            .flatten();
-        let held = early.is_none();
-        client.send(&[cancel(1)]).await;
-        let mut rest: Vec<Value> = early.into_iter().collect();
-        while rest.len() < 2 {
-            rest.push(client.next().await.unwrap());
-        }
-        rest.sort_by_key(|message| message["id"].as_i64());
-        (first["id"].clone(), held, rest)
-    });
-
-    assert_eq!(
         (
-            received.0,
-            received.1,
-            received.2[0]["error"]["data"]["code"].clone(),
-            received.2[1]["result"]["run_id"].clone(),
+            true,
+            RUNS,
+            true,
+            json!("events.resync"),
+            Value::Array(runs),
+            true,
+            json!("run.axes_changed"),
+            json!("after"),
+            true,
         ),
-        (json!(10), true, json!("call_cancelled"), json!("second"))
+        "{behind:#?}"
     );
 }
 
@@ -435,6 +415,110 @@ fn a_position_the_engine_no_longer_holds_starts_with_a_resync_then_the_stream() 
             json!("events.resync"),
             runs,
         )
+    );
+}
+
+/// Covers: story:3-9, event:events.resync
+#[test]
+fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_resync() {
+    let env = TestEnv::new();
+    let engine = engine(options(64, 64));
+    let read = |client: Client| async move {
+        let mut client = client;
+        start_runs(&mut client, 1, &["one", "two"]).await
+    };
+
+    let (before, first) = attached_on(&engine, &env, read);
+    // The same home and engine, in a new process: a Daemon restarted.
+    let (restarted, resumed) = attached_with(
+        &engine,
+        || Dependencies {
+            entropy: Entropy::seeded(env.seed().wrapping_add(1)),
+            ..dependencies(&env)
+        },
+        |mut client| async move {
+            let (restarted, _) = start_runs(&mut client, 1, &["one", "two"]).await;
+            let position = first[0]["position"].as_u64().unwrap();
+            client
+                .send(&[
+                    call(2, "events.subscribe", after(&before, position)),
+                    credit(2, 100),
+                ])
+                .await;
+            let (resumed, _) = read_events(&mut client, 2, 1).await;
+            (restarted, resumed)
+        },
+    );
+
+    assert_eq!(
+        (
+            before.is_string(),
+            before == restarted,
+            field(&resumed, 0, "/event"),
+            field(&resumed, 0, "/data/runs"),
+        ),
+        (
+            true,
+            false,
+            json!("events.resync"),
+            json!([
+                { "run_id": "one", "lifecycle": "running" },
+                { "run_id": "two", "lifecycle": "running" },
+            ]),
+        ),
+        "{resumed:#?}"
+    );
+}
+
+/// Covers: story:3-9, event:events.resync
+#[test]
+fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_resync() {
+    let env = TestEnv::new();
+    let engine = engine(options(64, 64));
+    let read = |client: Client| async move {
+        let mut client = client;
+        start_runs(&mut client, 1, &["one", "two"]).await
+    };
+
+    let (before, first) = attached_on(&engine, &env, read);
+    // The same home and engine, in a new process: a Daemon restarted.
+    let (restarted, resumed) = attached_with(
+        &engine,
+        || Dependencies {
+            entropy: Entropy::seeded(env.seed().wrapping_add(1)),
+            ..dependencies(&env)
+        },
+        |mut client| async move {
+            let (restarted, _) = start_runs(&mut client, 1, &["one", "two"]).await;
+            let position = first[0]["position"].as_u64().unwrap();
+            client
+                .send(&[
+                    call(2, "events.subscribe", after(&before, position)),
+                    credit(2, 100),
+                ])
+                .await;
+            let (resumed, _) = read_events(&mut client, 2, 1).await;
+            (restarted, resumed)
+        },
+    );
+
+    assert_eq!(
+        (
+            before.is_string(),
+            before == restarted,
+            field(&resumed, 0, "/event"),
+            field(&resumed, 0, "/data/runs"),
+        ),
+        (
+            true,
+            false,
+            json!("events.resync"),
+            json!([
+                { "run_id": "one", "lifecycle": "running" },
+                { "run_id": "two", "lifecycle": "running" },
+            ]),
+        ),
+        "{resumed:#?}"
     );
 }
 

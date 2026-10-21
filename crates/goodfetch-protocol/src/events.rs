@@ -145,7 +145,7 @@ pub const RESYNC: Event = Event {
 /// `events.subscribe`.
 pub const EVENTS_SUBSCRIBE: Operation = Operation {
     name: "events.subscribe",
-    description: "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.",
+    description: "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.",
     class: OperationClass::Read,
     kind: OperationKind::Sequence,
     reach: Reach::AllSurfaces,

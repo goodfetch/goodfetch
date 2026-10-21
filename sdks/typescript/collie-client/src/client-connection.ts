@@ -19,9 +19,11 @@ import {
   type GoodfetchError,
   type HelloParams,
   type HelloResult,
+  type KeyValueStoreSetParams,
   type Product,
   type RunStartParams,
 } from "./generated/index.ts";
+import type { JsonValue } from "./key-value-store.ts";
 import type { Logger } from "./logger.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
@@ -93,6 +95,20 @@ export class ClientConnection implements AsyncDisposable {
       abort: (runId) => this.#operations.runAbort({ run_id: runId }),
       reachable: () => !this.#ended,
       forget: (run) => this.#runs.delete(run),
+      keyValueStore: {
+        get: async (runId, key) => {
+          const { value } = await this.#operations.keyValueStoreGet({ run_id: runId, key });
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a stored value is JSON.
+          return value as JsonValue;
+        },
+        set: async (runId, key, value) => {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
+          const stored = value as KeyValueStoreSetParams["value"];
+          await this.#operations.keyValueStoreSet({ run_id: runId, key, value: stored });
+        },
+        delete: async (runId, key) =>
+          (await this.#operations.keyValueStoreDelete({ run_id: runId, key })).existed,
+      },
     };
     holdInRealm(this);
   }

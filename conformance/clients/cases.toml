@@ -16,7 +16,7 @@
 
 [suite]
 name = "clients"
-version = "2"
+version = "3"
 
 [[capability]]
 name = "lifecycle"
@@ -76,4 +76,22 @@ modes = ["attached"]
 id = "deprecated-command-warns"
 covers = ["story:11-204"]
 surfaces = ["cli"]
+modes = ["attached"]
+
+# A Run's Key-value store outside a handler, on Collie's executable (ADR
+# 0103; #791). The Python and Rust SDKs join these cases with the tickets
+# that build their Connections (area 11), which add their surfaces here.
+[[capability]]
+name = "key-value-store"
+
+[[capability.case]]
+id = "key-value-store-get-absent-answers-null"
+covers = ["story:6-28", "story:6-31"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "key-value-store-set-null-refused"
+covers = ["story:6-29"]
+surfaces = ["sdk-typescript"]
 modes = ["attached"]

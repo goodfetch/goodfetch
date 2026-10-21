@@ -12,3 +12,4 @@ mod crawl;
 mod daemon;
 mod journeys;
 mod service_manager;
+mod writer_lock;

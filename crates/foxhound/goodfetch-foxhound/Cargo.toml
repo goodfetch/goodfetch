@@ -32,6 +32,8 @@ gungraun.workspace = true
 insta.workspace = true
 # The run-state corpus writer (examples/compat-run-state.rs): its runtime,
 # in-memory Client, home and SQL dump.
+# The multi-process writer-lock test's named seed cases (tests/it/writer_lock.rs).
+rstest.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

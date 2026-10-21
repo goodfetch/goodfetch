@@ -264,7 +264,7 @@ fn a_daemon_that_fails_to_start_fails_the_start_with_its_message_on_stderr() {
 /// `daemon stop` kills it, leaving that file in the home, as a crashed
 /// Daemon does.
 #[cfg(unix)]
-const LEAVES_ITS_RUNTIME_FILE: &str = r#"#!/bin/sh
+pub(crate) const LEAVES_ITS_RUNTIME_FILE: &str = r#"#!/bin/sh
 case "$2" in
 launched)
   /bin/mkdir -p "$GOODFETCH_HOME/0.0"
@@ -326,7 +326,7 @@ fn stopping_a_daemon_that_leaves_its_runtime_file_fails() {
 
 /// A stand-in executable in the test's folder: a shell script on Unix, a
 /// batch file on Windows.
-fn stand_in(env: &TestEnv, name: &str, unix: &str, windows: &str) -> PathBuf {
+pub(crate) fn stand_in(env: &TestEnv, name: &str, unix: &str, windows: &str) -> PathBuf {
     if cfg!(windows) {
         let path = env.folder().join(format!("{name}.cmd"));
         std::fs::write(&path, windows).unwrap();

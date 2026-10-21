@@ -627,6 +627,22 @@ class PageBodyParams(BaseModel):
     """The Run whose folder holds it."""
 
 
+class RunAbortParams(BaseModel):
+    """What `run.abort` takes: the Run, and whether the abort was forwarded."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    forwarded: bool | None = None
+    """
+    Set by an engine that forwards the abort to the owner the Run index
+    names (ADR 0031): an engine that does not own the Run then answers
+    `run_not_owned` instead of taking its writer role.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunAxes(BaseModel):
     """
     A Run's three axes as they are now (ADR 0029): what

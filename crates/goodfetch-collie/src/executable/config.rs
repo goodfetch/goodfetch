@@ -28,7 +28,7 @@ use goodfetch_protocol::settings::{
 use serde_json::{Map, Value};
 
 use super::daemon::{Failure, Machine};
-use super::output;
+use goodfetch_cli::output;
 use goodfetch_engine::home::Home;
 
 /// What `config explain` was asked.

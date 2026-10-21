@@ -326,3 +326,20 @@ prefix = "closed"
 number = 11
 kind = "error"
 prefix = "engine_"
+
+# Area 11, the Client surfaces (spec #608): the commands generated from the
+# catalog (#1174).
+[[area]]
+number = 11
+kind = "command"
+prefix = "engine."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "run."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "sample."

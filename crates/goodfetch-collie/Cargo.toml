@@ -14,12 +14,14 @@ autobenches = false
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:dirs", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:tracing", "dep:tracing-subscriber", "tokio/io-util", "tokio/rt-multi-thread"]
+executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:tracing", "dep:tracing-subscriber", "tokio/io-util", "tokio/rt-multi-thread"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
 # Goodfetch home in the OS's data folder when `GOODFETCH_HOME` is unset.
 dirs = { workspace = true, optional = true }
+# The command line both executables carry (ADR 0090).
+goodfetch-cli = { workspace = true, optional = true }
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 jiff = { workspace = true, optional = true }

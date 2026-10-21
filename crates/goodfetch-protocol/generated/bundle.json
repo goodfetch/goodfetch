@@ -109,6 +109,46 @@
       ],
       "type": "object"
     },
+    "BlockCause": {
+      "description": "Why a site refused a page (ADR 0035), on the wire as written.",
+      "oneOf": [
+        {
+          "const": "challenge",
+          "description": "A page that checks the browser before it lets it through.",
+          "type": "string"
+        },
+        {
+          "const": "captcha",
+          "description": "A page that asks a person to prove they are human.",
+          "type": "string"
+        },
+        {
+          "const": "rate_limit",
+          "description": "The site refused because too many requests came too fast.",
+          "type": "string"
+        },
+        {
+          "const": "ip_block",
+          "description": "The site refused the address the request came from.",
+          "type": "string"
+        },
+        {
+          "const": "decoy",
+          "description": "A trap page a person would never reach, such as a labyrinth of\nhidden links; only Foxhound's Frontier produces it (ADR 0095).",
+          "type": "string"
+        },
+        {
+          "const": "payment_required",
+          "description": "The site asked to be paid for the page (ADR 0045).",
+          "type": "string"
+        },
+        {
+          "const": "consent_required",
+          "description": "A wall that asks for consent before it shows the page (ADR 0048).",
+          "type": "string"
+        }
+      ]
+    },
     "BrowserCacheEntry": {
       "additionalProperties": false,
       "description": "One Pinned artifact's entry in the Browser cache, `entry.json` beside its\nfiles: what it is, the digest its files have, and when it was installed\nand last used, which the clean-up reads (ADR 0098).",
@@ -5097,5 +5137,10 @@
     }
   },
   "protocol_version": "0.1",
+  "shared_types": {
+    "block_cause": {
+      "$ref": "#/$defs/BlockCause"
+    }
+  },
   "title": "Goodfetch protocol"
 }

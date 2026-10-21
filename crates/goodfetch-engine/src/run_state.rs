@@ -110,6 +110,7 @@ type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> Completion + 
 pub struct RunState {
     mailbox: mpsc::Sender<QueuedWrite>,
     path: PathBuf,
+    epoch: u64,
 }
 
 impl RunState {
@@ -146,12 +147,21 @@ impl RunState {
                 commit_group(&mut connection, &actor_path, epoch, group);
             })
             .map_err(|error| sqlite_error(&path, &error))?;
-        Ok(Self { mailbox, path })
+        Ok(Self {
+            mailbox,
+            path,
+            epoch,
+        })
     }
 
     /// The run file's path.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The run epoch it writes under, which each of its commits checks.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Runs `work` in the writer's next commit, grouped with every write

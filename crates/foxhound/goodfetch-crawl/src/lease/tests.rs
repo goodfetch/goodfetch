@@ -7,6 +7,8 @@
     reason = "tests read the test Clock (ADR 0059)"
 )]
 
+mod model;
+
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;

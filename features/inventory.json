@@ -243,7 +243,7 @@
     {
       "id": "error:lease_lost",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

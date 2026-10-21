@@ -80,6 +80,18 @@ pub enum RunOrigin {
     Form,
 }
 
+impl RunOrigin {
+    /// Its name as the wire and messages write it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Argument => "argument",
+            Self::Settings => "settings",
+            Self::Flag => "flag",
+            Self::Form => "form",
+        }
+    }
+}
+
 /// A setting that decided an outcome: its key, its value and the layer that
 /// set it (ADRs 0028 and 0079).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

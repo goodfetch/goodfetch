@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::catalog::{Product, ProtocolVersion};
+use goodfetch_protocol::catalog::{Authority, Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::{Compatibility, Format, OPERATOR_POLICY, USER_CONFIGURATION};
 use goodfetch_protocol::settings::{SettingsFile, SettingsLayer};
@@ -23,6 +23,7 @@ use sha2::{Digest as _, Sha256};
 use toml_edit::{DocumentMut, Item};
 
 use super::error::SettingsError;
+use super::keys;
 use super::resolve::Policy;
 use super::values::Values;
 use crate::home::Home;
@@ -62,6 +63,31 @@ impl SettingsFiles {
     /// User configuration's path.
     pub fn user_configuration(&self) -> &Path {
         &self.user_configuration
+    }
+
+    /// `error`, its `fix` naming these files where it names their layers: a
+    /// key only the machine's own layers hold (ADR 0098), set anywhere else,
+    /// is to be set in the user configuration or Operator policy file at
+    /// these paths.
+    #[must_use]
+    pub fn named_in(&self, error: SettingsError) -> SettingsError {
+        match error {
+            SettingsError::NotApplicable { key, layer, .. }
+                if keys::find(&key)
+                    .is_some_and(|found| matches!(found.setting.authority, Authority::Machine)) =>
+            {
+                SettingsError::NotApplicable {
+                    fix: format!(
+                        "set `{key}` in user configuration, `{}`, or an Operator policy, `{}`",
+                        self.user_configuration.display(),
+                        self.operator_policy.display()
+                    ),
+                    key,
+                    layer,
+                }
+            }
+            error => error,
+        }
     }
 
     /// Reads both, on an engine of `engine`; a missing file sets nothing.

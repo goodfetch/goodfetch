@@ -21,4 +21,5 @@ mod lazyfs;
 mod log;
 mod run;
 mod service_manager;
+mod settings_flags;
 mod writer_lock;

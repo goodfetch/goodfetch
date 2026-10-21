@@ -48,6 +48,12 @@ CREATE TABLE run (
 INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]');
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'manual');
+CREATE TABLE usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT;
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,

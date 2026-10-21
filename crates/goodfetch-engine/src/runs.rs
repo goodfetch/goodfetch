@@ -37,10 +37,11 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow, RunKind, RunOwner,
-    RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
+    Completeness, Lifecycle, PointInTime, Presence, ReachedLimit, RunAxes, RunId, RunIndexRow,
+    RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -55,6 +56,7 @@ use self::folder::{
     text, write_end,
 };
 use self::reader::Following;
+pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::admission::{Admission, Gates};
@@ -62,7 +64,8 @@ use crate::body;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
-use crate::home::{Home, RunStateLocation};
+use crate::home::{Home, RunStateLocation, major_name};
+use crate::ledger::{Charging, Ledger, Placement, Refusal};
 use crate::run_index;
 use crate::run_state::{RunState, RunStateError, RunStateOptions, RunStateTables};
 use crate::settings::{Resolved, Settings};
@@ -73,7 +76,7 @@ const RUN_FILE: &str = "run.sqlite";
 
 /// Who a Connection acts for: the OS user on a single-user install (ADR
 /// 0102), the only caller until accounts arrive (area 12).
-const CALLER: &str = "os_user";
+pub(crate) const CALLER: &str = "os_user";
 
 /// How many commands wait for the registry before their senders wait.
 const COMMANDS: usize = 256;
@@ -204,9 +207,31 @@ pub enum StartError {
         /// What failed.
         error: String,
     },
+    /// A Limit that covers the Run has nothing left in its period (ADR
+    /// 0041).
+    #[error("a Limit on {} {} has nothing left", .0.scope.kind, .0.usage_kind)]
+    LimitReached(Box<ReachedLimit>),
+    /// A Limit flagged *must understand* that this engine cannot evaluate
+    /// may cover the Run (ADR 0041).
+    #[error("a Limit on {} cannot be evaluated by this engine", .0.scope.kind)]
+    LimitNotUnderstood(Box<Limit>),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
+}
+
+/// Why a Run could not charge Usage.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ChargeError {
+    /// The Usage ledger refused it: a Limit has too little left, which asks
+    /// the Run to stop at its next safe point, or cannot be evaluated, or
+    /// the ledger could not be read or written.
+    #[error(transparent)]
+    Refused(#[from] Refusal),
+    /// What it charged could not be journaled in its run state.
+    #[error(transparent)]
+    State(#[from] RunStateError),
 }
 
 /// Why a Run could not be finished or aborted.
@@ -332,6 +357,7 @@ pub struct Runs {
     commands: mpsc::Sender<Command>,
     settings: Settings,
     connection: Option<ConnectionId>,
+    limits: Arc<Limits>,
 }
 
 /// A live Run, as its driver holds it.
@@ -345,6 +371,8 @@ pub struct Run {
     stop: Arc<watch::Sender<Option<StopReason>>>,
     owner: Arc<TaskOwner>,
     runs: Runs,
+    /// Its Slices of the Limits that hold it, until it ends.
+    charging: Arc<tokio::sync::Mutex<Option<Charging>>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -523,6 +551,56 @@ impl Run {
         point_in_time(&self.clock)
     }
 
+    /// Charges `amount` of `usage_kind` against every Limit that holds the
+    /// Run, before the Run uses it (ADR 0041): out of its Slices, taking
+    /// another Slice in one ledger transaction when they run out, then
+    /// journaled in its run state under its run epoch, from which an engine
+    /// reclaiming its Slices after a crash charges them. A Run with nothing
+    /// left of a Limit is asked to stop at its next safe point, `stopped`
+    /// for that Limit, and must not use what it was refused.
+    ///
+    /// # Errors
+    ///
+    /// `Refused` when the ledger refused the charge or could not be read or
+    /// written, `State` when the run state could not journal it: nothing
+    /// may be used then.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a Slice taken or the charge journaled,
+    /// never more charged than the Run used.
+    pub async fn charge(&self, usage_kind: &str, amount: u64) -> Result<(), ChargeError> {
+        let mut held = self.charging.lock().await;
+        let Some(mut charging) = held.take() else {
+            return Ok(());
+        };
+        let now = self.runs.limits.now();
+        let kind = usage_kind.to_owned();
+        let (charging, charged) = self
+            .owner
+            .blocking(move || {
+                let charged = charging.charge(&kind, amount, now);
+                (charging, charged)
+            })
+            .await;
+        *held = Some(charging);
+        match charged {
+            Ok(charged) if charged.used.is_empty() => Ok(()),
+            Ok(charged) => {
+                let epoch = self.state.epoch();
+                self.state
+                    .write(move |connection| slices::journal(connection, epoch, &charged.used))
+                    .await?;
+                Ok(())
+            }
+            Err(Refusal::Reached(reached)) => {
+                self.stop_at_safe_point(StopReason::Limit(ReachedLimit::clone(&reached)));
+                Err(Refusal::Reached(reached).into())
+            }
+            Err(refusal) => Err(refusal.into()),
+        }
+    }
+
     /// Records that the Run uses an entry of `product`'s, so that from now
     /// on it needs the larger of its Product and `product` (ADR 0098).
     ///
@@ -541,21 +619,33 @@ impl Run {
 impl Runs {
     /// Starts the registry as a task of `owner`, each Run's tasks under a
     /// child of it.
-    pub(crate) fn start_registry(setup: RunsSetup, owner: &TaskOwner) -> Self {
+    pub(crate) fn start_registry(mut setup: RunsSetup, owner: &TaskOwner) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let readers = Arc::new(owner.child());
+        let limits = Limits {
+            owner: Arc::clone(&readers),
+            ledger: Ledger::at(setup.home.usage_ledger(), setup.run_state.vfs.clone()),
+            clock: setup.clock,
+            product: setup.product,
+            instance: format!("{:016x}", setup.entropy.next_u64()),
+            daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
+                .then(|| major_name(&setup.version)),
+        };
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
             connection: None,
+            limits: Arc::new(limits),
         };
         let registry = Registry {
             setup,
             owner: owner.child(),
             ending_owner: owner.child(),
-            readers: Arc::new(owner.child()),
+            readers,
             live: BTreeMap::new(),
             ended: BTreeMap::new(),
             runs: runs.downgrade(),
+            limits: Arc::clone(&runs.limits),
         };
         owner.spawn(registry.run(mailbox));
         runs
@@ -568,6 +658,18 @@ impl Runs {
     /// The engine's settings, which a start resolves its Run's under.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// What this engine's Runs charge against: the user's Usage ledger and
+    /// the scopes they stand in.
+    pub(crate) fn limits(&self) -> &Limits {
+        &self.limits
+    }
+
+    /// The Daemon's Connection these Runs belong to; none on an Attached
+    /// engine, whose one Connection is its Client's.
+    pub(crate) fn connection(&self) -> Option<ConnectionId> {
+        self.connection
     }
 
     /// Begins a Run, or returns the one its Run ID names.
@@ -796,10 +898,13 @@ struct Registry {
     live: BTreeMap<RunId, Live>,
     ended: BTreeMap<RunId, RunReport>,
     runs: mpsc::WeakSender<Command>,
+    /// What its Runs charge against.
+    limits: Arc<Limits>,
 }
 
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+        self.reclaim().await;
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, connection, answer) => {
@@ -872,6 +977,22 @@ impl Registry {
             }
         }
         reports
+    }
+
+    /// Reclaims the Slices of every run whose engine is gone, as each engine
+    /// that opens the Usage ledger does (ADR 0041).
+    async fn reclaim(&self) {
+        let ledger = self.limits.ledger.clone();
+        let vfs = self.setup.run_state.vfs.clone();
+        let reclaimed = self
+            .owner
+            .blocking(move || {
+                ledger.reclaim(&|holder| slices::probe(holder, RUN_FILE, vfs.as_deref()))
+            })
+            .await;
+        if let Err(error) = reclaimed {
+            tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+        }
     }
 
     fn reader(&self, run_id: &RunId) -> RunReader {
@@ -1008,6 +1129,34 @@ impl Registry {
             })
     }
 
+    /// Whether a new Run placed at `placement` may start: every Limit that
+    /// holds it has something left, and none it cannot be placed outside of
+    /// is one this engine cannot evaluate (ADR 0041); answers where it
+    /// stands. A ledger that cannot be read refuses it.
+    async fn may_start(
+        &self,
+        run_id: &RunId,
+        connection: Option<ConnectionId>,
+    ) -> Result<Placement, StartError> {
+        let placement = self.limits.placement(connection);
+        let (ledger, now) = (self.limits.ledger.clone(), self.limits.now());
+        let checked = placement.clone();
+        let may_start = self
+            .owner
+            .blocking(move || Charging::may_start(&ledger, &checked, now))
+            .await;
+        match may_start {
+            Ok(()) => Ok(placement),
+            Err(Refusal::Reached(reached)) => Err(StartError::LimitReached(reached)),
+            Err(Refusal::NotUnderstood(limit)) => Err(StartError::LimitNotUnderstood(limit)),
+            Err(Refusal::Ledger(error)) => Err(StartError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.limits.ledger.path().to_owned(),
+                error: error.to_string(),
+            }),
+        }
+    }
+
     async fn begin(
         &mut self,
         run_id: RunId,
@@ -1021,7 +1170,9 @@ impl Registry {
             folder: folder.clone(),
             error,
         };
+        let placement = self.may_start(&run_id, connection).await?;
         let lock = self.lock(&run_id, &folder).await?;
+        let charging = self.limits.charging(&run_id, &folder, placement);
         let writer = Arc::new(self.owner.child());
         let state = RunState::open(
             folder.join(RUN_FILE),
@@ -1078,7 +1229,9 @@ impl Registry {
                         .expect("invariant: the registry runs while a handle sends to it"),
                     settings: self.setup.settings.clone(),
                     connection,
+                    limits: Arc::clone(&self.limits),
                 },
+                charging: Arc::new(tokio::sync::Mutex::new(Some(charging))),
             }),
             folder,
             kind: start.kind,
@@ -1358,7 +1511,14 @@ impl Closing {
         };
         let written = report.clone();
         let state = run.state.clone();
+        let charging = run.charging.lock().await.take();
         drop(run);
+        if let Some(mut charging) = charging {
+            let given = writer.blocking(move || charging.give_back()).await;
+            if let Err(error) = given {
+                tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
+            }
+        }
         if let Err(error) = state
             .write(move |connection| write_end(connection, &written))
             .await
@@ -1376,5 +1536,6 @@ mod folder;
 pub mod outcome;
 mod reader;
 mod reindex;
+mod slices;
 mod takeover;
 mod writer;

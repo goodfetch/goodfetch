@@ -16,6 +16,7 @@
 )]
 
 mod admission;
+mod limits;
 mod model;
 mod safe_point;
 

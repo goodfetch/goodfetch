@@ -17,6 +17,7 @@ mod refusals;
 mod run;
 mod settings;
 mod takeover;
+mod usage;
 
 use std::time::Duration;
 

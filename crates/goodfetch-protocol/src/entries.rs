@@ -76,7 +76,9 @@ mod tests {
                 "run.finish",
                 "run.abort",
                 "sample.echo",
-                "config.explain"
+                "config.explain",
+                "usage.list",
+                "usage.set"
             ]
         );
         assert_eq!(
@@ -92,6 +94,8 @@ mod tests {
                 "run.abort",
                 "sample.echo",
                 "config.explain",
+                "usage.list",
+                "usage.set",
                 "sample.crawl",
                 "crawl.start",
                 "crawl.serve",

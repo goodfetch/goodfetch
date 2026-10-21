@@ -11,9 +11,12 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::StoppedBy;
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
-    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_START, RUN_STATE_UNAVAILABLE, RunAbortParams,
+    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_START, RUN_STATE_UNAVAILABLE, ReachedLimit, RunAbortParams,
     RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails, RunKind, RunParams, RunReport,
     RunStartParams, RunStarted, StartedAs,
+};
+use goodfetch_protocol::usage::{
+    LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
 };
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
@@ -94,8 +97,39 @@ pub fn start_error(error: StartError) -> CallError {
                 path: Some(folder.display().to_string()),
             },
         ),
+        StartError::LimitReached(reached) => limit_reached(&reached),
+        StartError::LimitNotUnderstood(limit) => limit_not_understood(*limit),
         StartError::Stopped => stopped(),
     }
+}
+
+/// `limit_reached`, naming the Limit's scope, Usage kind and period.
+pub fn limit_reached(reached: &ReachedLimit) -> CallError {
+    let period = reached
+        .period
+        .as_ref()
+        .map(|period| format!(" this {} ({})", period.every.as_str(), period.time_zone))
+        .unwrap_or_default();
+    CallError::new(
+        &LIMIT_REACHED,
+        format!(
+            "The {} Limit on {} has nothing left{period}; wait for its next period, or ask a person to raise it.",
+            reached.scope.kind, reached.usage_kind
+        ),
+        reached,
+    )
+}
+
+/// `limit_not_understood`, naming the Limit.
+pub fn limit_not_understood(limit: Limit) -> CallError {
+    CallError::new(
+        &LIMIT_NOT_UNDERSTOOD,
+        format!(
+            "A newer engine set a {} Limit on {} that this engine cannot evaluate; upgrade it.",
+            limit.scope.kind, limit.usage_kind
+        ),
+        &LimitNotUnderstoodDetails { limit },
+    )
 }
 
 /// The failure a call answers with for a refused setting, on an engine

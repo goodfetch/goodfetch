@@ -54,6 +54,13 @@ CREATE TABLE run (
 INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]');
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
+CREATE TABLE usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT;
+INSERT INTO "usage" VALUES(1,1,2);
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,

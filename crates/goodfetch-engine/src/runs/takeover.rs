@@ -48,7 +48,7 @@ enum Taken {
     /// This engine holds it.
     Lock(File),
     /// The owner the Run index names stopped the Run.
-    Forwarded(RunReport),
+    Forwarded(Box<RunReport>),
     /// Another kept it through every retry.
     Busy,
 }
@@ -72,7 +72,7 @@ impl TakeOver {
         }
         let lock = match self.take_lock().await? {
             Taken::Lock(lock) => lock,
-            Taken::Forwarded(report) => return Ok(report),
+            Taken::Forwarded(report) => return Ok(*report),
             Taken::Busy => {
                 return Err(RunError::Busy {
                     run_id: self.run_id,
@@ -146,7 +146,7 @@ impl TakeOver {
             return Ok(Taken::Lock(lock));
         }
         if let Some(report) = self.forward().await {
-            return Ok(Taken::Forwarded(report));
+            return Ok(Taken::Forwarded(Box::new(report)));
         }
         for attempt in 1..=RETRIES {
             self.clock

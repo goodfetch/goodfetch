@@ -76,7 +76,6 @@ impl Placement {
         for stored in limits {
             match standing(stored, self.product) {
                 LimitStanding::Held if self.scopes.contains(&stored.scope) => holding.push(stored),
-                LimitStanding::Held | LimitStanding::Foxhound => {}
                 LimitStanding::NotUnderstood if stored.must_understand => {
                     let scope_known =
                         product_of_value(SharedType::LimitScope, &stored.scope.kind).is_some();
@@ -85,7 +84,7 @@ impl Placement {
                         return Err(stored);
                     }
                 }
-                LimitStanding::NotUnderstood => {}
+                LimitStanding::Held | LimitStanding::Foxhound | LimitStanding::NotUnderstood => {}
             }
         }
         Ok(holding)

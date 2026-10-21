@@ -17,11 +17,11 @@ use super::{Holder, Ledger, LedgerError, LimitId, Placement, SliceId, SliceSizin
 pub enum Refusal {
     /// A Limit covering it has nothing left in its period: `limit_reached`.
     #[error("a Limit on {} {} has nothing left", .0.scope.kind, .0.usage_kind)]
-    Reached(ReachedLimit),
+    Reached(Box<ReachedLimit>),
     /// A Limit flagged *must understand* that this engine cannot evaluate
     /// may cover it: `limit_not_understood`.
     #[error("a Limit on {} cannot be evaluated by this engine", .0.scope.kind)]
-    NotUnderstood(Limit),
+    NotUnderstood(Box<Limit>),
     /// The ledger could not be read or written.
     #[error(transparent)]
     Ledger(#[from] LedgerError),
@@ -84,7 +84,7 @@ impl Charging {
         let limits = ledger.limits()?;
         let holding = placement
             .holding(&limits)
-            .map_err(|stored| Refusal::NotUnderstood(stored.limit()))?;
+            .map_err(|stored| Refusal::NotUnderstood(Box::new(stored.limit())))?;
         for stored in holding {
             if ledger.left(stored, now)? == 0 {
                 return Err(reached(stored, now));
@@ -113,7 +113,7 @@ impl Charging {
         let holding: Vec<StoredLimit> = self
             .placement
             .holding(&limits)
-            .map_err(|stored| Refusal::NotUnderstood(stored.limit()))?
+            .map_err(|stored| Refusal::NotUnderstood(Box::new(stored.limit())))?
             .into_iter()
             .filter(|stored| stored.usage_kind == usage_kind && stored.currency.is_none())
             .cloned()
@@ -188,5 +188,5 @@ impl Charging {
 
 fn reached(stored: &StoredLimit, now: Timestamp) -> Refusal {
     let (_, bounds) = stored.period_key(now);
-    Refusal::Reached(stored.reached(bounds.map(|bounds| bounds.end)))
+    Refusal::Reached(Box::new(stored.reached(bounds.map(|bounds| bounds.end))))
 }

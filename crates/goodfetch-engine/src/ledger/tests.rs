@@ -136,13 +136,13 @@ fn a_charge_beyond_what_is_left_is_refused_naming_the_limit() {
 
     assert_eq!(
         refused,
-        Err(Refusal::Reached(ReachedLimit {
+        Err(Refusal::Reached(Box::new(ReachedLimit {
             scope: install(),
             usage_kind: "requests".to_owned(),
             currency: None,
             period: None,
             resets_at: None,
-        }))
+        })))
     );
 }
 
@@ -178,13 +178,13 @@ fn a_new_run_is_refused_once_a_period_limit_has_nothing_left_until_its_next_peri
     assert_eq!(
         (today, tomorrow),
         (
-            Err(Refusal::Reached(ReachedLimit {
+            Err(Refusal::Reached(Box::new(ReachedLimit {
                 scope: install(),
                 usage_kind: "requests".to_owned(),
                 currency: None,
                 period: Some(paris_day),
                 resets_at: Some(PointInTime::from_rfc3339("2026-03-10T23:00:00Z".to_owned())),
-            })),
+            }))),
             Ok(())
         )
     );
@@ -303,7 +303,7 @@ fn a_limit_flagged_must_understand_that_the_engine_cannot_evaluate_refuses_runs(
 
     let refused = Charging::may_start(&ledger, &placement(Product::Collie), now());
 
-    assert_eq!(refused, Err(Refusal::NotUnderstood(newer)));
+    assert_eq!(refused, Err(Refusal::NotUnderstood(Box::new(newer))));
 }
 
 #[rstest]

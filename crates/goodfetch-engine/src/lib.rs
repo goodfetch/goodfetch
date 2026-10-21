@@ -43,6 +43,7 @@ pub mod runs;
 pub mod settings;
 pub mod tasks;
 pub mod transport;
+mod usage;
 
 pub use composition::{
     CallContext, CallError, Composition, CompositionError, Contribution, Handler,

@@ -35,8 +35,6 @@ pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
 
-/// The ledger's file in Goodfetch home.
-
 /// How long a transaction waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -371,22 +369,34 @@ impl Ledger {
         let mut limits = stored_limits(&connection).map_err(|error| self.failed(&error))?;
         limits.sort_by(|left, right| left.scope.cmp(&right.scope).then(left.id.cmp(&right.id)));
         limits
-            .into_iter()
+            .iter()
             .map(|stored| {
-                let (key, found) = stored.period_key(now);
-                let (charged, held) =
-                    counted(&connection, stored.id, &key).map_err(|error| self.failed(&error))?;
-                Ok(LimitUsage {
-                    limit: stored.limit(),
-                    standing: standing(&stored, product),
-                    charged,
-                    held,
-                    left: stored.amount.saturating_sub(charged.saturating_add(held)),
-                    period_started_at: found.map(|found| point_in_time(found.start)),
-                    resets_at: found.map(|found| point_in_time(found.end)),
-                })
+                limit_usage(&connection, stored, product, now).map_err(|error| self.failed(&error))
             })
             .collect()
+    }
+
+    /// The Limit of row `id` as [`Ledger::usage`] gives it; none when no
+    /// row has it.
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be read.
+    pub fn usage_of(
+        &self,
+        id: LimitId,
+        product: Product,
+        now: Timestamp,
+    ) -> Result<Option<LimitUsage>, LedgerError> {
+        let connection = self.open()?;
+        let limits = stored_limits(&connection).map_err(|error| self.failed(&error))?;
+        limits
+            .iter()
+            .find(|stored| stored.id == id)
+            .map(|stored| {
+                limit_usage(&connection, stored, product, now).map_err(|error| self.failed(&error))
+            })
+            .transpose()
     }
 
     /// What is left of the Limit `stored` in the period that holds `now`.
@@ -453,10 +463,10 @@ impl Ledger {
         .map_err(|error: rusqlite::Error| self.failed(&error))?;
         match taken {
             Some(slice) => {
-                tracing::info!(target: "goodfetch_engine::ledger", transition = "take_slice", limit = stored.id, slice = slice.id, size = slice.size, run_id = %holder.run_id, epoch = holder.epoch, "a run took a Slice")
+                tracing::info!(target: "goodfetch_engine::ledger", transition = "take_slice", limit = stored.id, slice = slice.id, size = slice.size, run_id = %holder.run_id, epoch = holder.epoch, "a run took a Slice");
             }
             None => {
-                tracing::info!(target: "goodfetch_engine::ledger", transition = "refuse_slice", limit = stored.id, run_id = %holder.run_id, epoch = holder.epoch, "a Limit had nothing left for a run")
+                tracing::info!(target: "goodfetch_engine::ledger", transition = "refuse_slice", limit = stored.id, run_id = %holder.run_id, epoch = holder.epoch, "a Limit had nothing left for a run");
             }
         }
         Ok(taken)
@@ -580,6 +590,27 @@ fn held_slices(connection: &Connection) -> rusqlite::Result<BTreeMap<Holder, Vec
         held.entry(holder).or_default().push(slice);
     }
     Ok(held)
+}
+
+/// The Limit `stored` with what `product`'s engine makes of it and its
+/// Usage in the period that holds `now`.
+fn limit_usage(
+    connection: &Connection,
+    stored: &StoredLimit,
+    product: Product,
+    now: Timestamp,
+) -> rusqlite::Result<LimitUsage> {
+    let (key, found) = stored.period_key(now);
+    let (charged, held) = counted(connection, stored.id, &key)?;
+    Ok(LimitUsage {
+        limit: stored.limit(),
+        standing: standing(stored, product),
+        charged,
+        held,
+        left: stored.amount.saturating_sub(charged.saturating_add(held)),
+        period_started_at: found.map(|found| point_in_time(found.start)),
+        resets_at: found.map(|found| point_in_time(found.end)),
+    })
 }
 
 /// The Usage charged and held against the Limit `limit` in the period

@@ -410,6 +410,14 @@ _Avoid_: session recording, replay (for the recording), video
 A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
 _Avoid_: interaction, command (for a gesture)
 
+**Locator**:
+What a page action looks for on a page, such as a CSS selector, resolved again at each use and never a handle on an element; an action needs it to match exactly one element.
+_Avoid_: element handle, query, selector (for the value)
+
+**Guard**:
+The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
+_Avoid_: actionability check, auto-wait
+
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
 _Avoid_: contract, validator, assertion

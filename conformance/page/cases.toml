@@ -1,5 +1,5 @@
-# The page suite's case list (spec #577, ticket #695): a Collie program's
-# pages over the protocol, run by `goodfetch-conformance`'s engine harness
+# The page suite's case list (spec #577, tickets #695 and #700): a Collie program's
+# pages and their locator actions over the protocol, run by `goodfetch-conformance`'s engine harness
 # against an Attached engine of Collie's executable on the local Proving
 # ground (ADR 0094), each case on a Run of its own whose `network.resolve`
 # maps the Proving ground's host names to its address (ADR 0059). The
@@ -10,7 +10,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "sessions.default"
@@ -25,3 +25,37 @@ name = "navigation"
 [[capability.case]]
 id = "goto-answers-the-documents-response"
 covers = ["story:5-61", "operation:run.new_page", "operation:page.goto"]
+
+[[capability]]
+name = "locators.guard"
+
+[[capability.case]]
+id = "a-click-on-a-covered-target-lands-once-the-cover-leaves"
+covers = ["story:5-2", "operation:locator.click"]
+
+[[capability.case]]
+id = "an-ambiguous-target-that-becomes-unique-is-acted-on"
+covers = ["story:5-3", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-locator-survives-a-re-render-that-replaces-its-element"
+covers = ["story:5-18", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-target-still-ambiguous-raises-target-not-unique"
+covers = ["story:5-3", "operation:locator.click", "error:target_not_unique", "setting:timeout.action"]
+
+[[capability.case]]
+id = "a-target-never-actionable-raises-deadline-exceeded-naming-the-step"
+covers = ["story:5-2", "operation:locator.click", "error:deadline_exceeded", "setting:timeout.action"]
+
+[[capability]]
+name = "locators.input"
+
+[[capability.case]]
+id = "typed-text-reaches-a-controlled-field-as-trusted-input"
+covers = ["story:5-10", "operation:locator.fill", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-pressed-key-reaches-a-field-as-a-trusted-key"
+covers = ["story:5-10", "operation:locator.press"]

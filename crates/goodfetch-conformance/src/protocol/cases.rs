@@ -4,6 +4,9 @@
 //! cases are `delivery`'s.
 
 mod delivery;
+mod guard;
+
+use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::{
@@ -18,9 +21,11 @@ use goodfetch_protocol::result_document::CaseCheck;
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
+use self::guard::Step;
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
-use crate::proving_ground::TaskList;
+use crate::proving_ground::{ProvingGround, TaskList};
+use goodfetch_protocol::journey::TaskId;
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -40,18 +45,29 @@ pub(crate) enum Case {
     LateCommit,
     PagesShareTheDefaultSession,
     GotoAnswersTheResponse,
+    ClickWaitsOutACover,
+    TransientDuplicateIsWaitedOut,
+    LocatorSurvivesARerender,
+    TypedTextReachesAControlledField,
+    KeyReachesAField,
+    StillAmbiguous,
+    NeverActionable,
 }
 
-/// What a case reaches of the Proving ground: a page of its catalog family
-/// and the `resolve` mapping of its hosts to the Proving ground's address.
+/// What a case reaches of the Proving ground: a page of its catalog family,
+/// each task's start URL, the `resolve` mapping of its hosts to the Proving
+/// ground's address, and its oracle.
 pub(crate) struct Site {
     page_url: Option<String>,
+    start_urls: BTreeMap<String, (TaskId, String)>,
     resolve: Value,
+    oracle: ProvingGround,
 }
 
 impl Site {
-    /// The site of `task_list`, served at `address` (`host:port`).
-    pub(crate) fn of(task_list: &TaskList, address: &str) -> Self {
+    /// The site of `task_list`, served by `proving_ground`.
+    pub(crate) fn of(task_list: &TaskList, proving_ground: &ProvingGround) -> Self {
+        let address = proving_ground.address();
         let ip = address
             .rsplit_once(':')
             .map_or(address, |(ip, _)| ip)
@@ -68,9 +84,21 @@ impl Site {
                 resolve.insert(host.to_owned(), json!([ip]));
             }
         }
+        let start_urls = task_list
+            .tasks
+            .iter()
+            .map(|task| {
+                (
+                    task.id.to_string(),
+                    (task.id.clone(), task.start_url.clone()),
+                )
+            })
+            .collect();
         Self {
             page_url,
+            start_urls,
             resolve: Value::Object(resolve),
+            oracle: proving_ground.clone(),
         }
     }
 }
@@ -119,6 +147,21 @@ impl Case {
             "an-answer-after-the-lease-ended-is-a-late-commit-and-refused" => Self::LateCommit,
             "pages-open-in-the-runs-default-session" => Self::PagesShareTheDefaultSession,
             "goto-answers-the-documents-response" => Self::GotoAnswersTheResponse,
+            "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
+            "an-ambiguous-target-that-becomes-unique-is-acted-on" => {
+                Self::TransientDuplicateIsWaitedOut
+            }
+            "a-locator-survives-a-re-render-that-replaces-its-element" => {
+                Self::LocatorSurvivesARerender
+            }
+            "typed-text-reaches-a-controlled-field-as-trusted-input" => {
+                Self::TypedTextReachesAControlledField
+            }
+            "a-pressed-key-reaches-a-field-as-a-trusted-key" => Self::KeyReachesAField,
+            "a-target-still-ambiguous-raises-target-not-unique" => Self::StillAmbiguous,
+            "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
+                Self::NeverActionable
+            }
             _ => return None,
         })
     }
@@ -165,6 +208,48 @@ impl Case {
             Self::LateCommit => delivery::late_commit(connection, checks),
             Self::PagesShareTheDefaultSession => default_session(connection, site, checks),
             Self::GotoAnswersTheResponse => goto(connection, site, checks),
+            Self::ClickWaitsOutACover => guard::lands(
+                connection,
+                site,
+                "actionability/2",
+                "conformance-cover",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::TransientDuplicateIsWaitedOut => guard::lands(
+                connection,
+                site,
+                "actionability/27",
+                "conformance-transient-duplicate",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::LocatorSurvivesARerender => guard::lands(
+                connection,
+                site,
+                "actionability/6",
+                "conformance-rerender",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::TypedTextReachesAControlledField => guard::lands(
+                connection,
+                site,
+                "actionability/28",
+                "conformance-controlled-field",
+                &[Step::Fill("#name", "Goodfetch"), Step::Click("#save")],
+                checks,
+            ),
+            Self::KeyReachesAField => guard::lands(
+                connection,
+                site,
+                "actionability/15",
+                "conformance-key",
+                &[Step::Press("#field", "Enter")],
+                checks,
+            ),
+            Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
+            Self::NeverActionable => guard::never_actionable(connection, site, checks),
         }
     }
 }
@@ -322,16 +407,20 @@ fn fabricated_hello(
     refused
 }
 
-/// Starts the Run `run_id`, its `network.resolve` mapping the site's hosts.
+/// Starts the Run `run_id` with `settings`, its `network.resolve` mapping
+/// the site's hosts.
 fn start_run(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
+    settings: &Value,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
+    let mut settings = settings.clone();
+    settings["network"] = json!({ "resolve": site.resolve });
     let id = connection.request(
         RUN_START.name,
-        &json!({ "run_id": run_id, "settings": { "network": { "resolve": site.resolve } } }),
+        &json!({ "run_id": run_id, "settings": settings }),
     )?;
     let answer = connection.answer(id)?.message;
     checks.check("the Run starts", answer.get("result").is_some());
@@ -372,7 +461,7 @@ fn default_session(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-default-session";
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     let first = new_page(connection, run_id, checks)?;
     let second = new_page(connection, run_id, checks)?;
     if let (Some(first), Some(second)) = (first, second) {
@@ -395,7 +484,7 @@ fn goto(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result
     let Some(url) = site.page_url.clone() else {
         return Ok(());
     };
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         let id = connection.request(
             PAGE_GOTO.name,

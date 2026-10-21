@@ -10,6 +10,7 @@
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::page::{
     Acted, LOCATOR_CLICK, LOCATOR_FILL, LOCATOR_PRESS, PAGE_GOTO, TARGET_NOT_UNIQUE,
     TargetNotUniqueDetails,
@@ -50,14 +51,13 @@ fn on_task(
     action_timeout: u64,
     checks: &mut Checks,
 ) -> Result<Option<Value>, Gone> {
-    let Some((_, url)) = site.start_urls.get(task) else {
+    let Some(url) = site.start_url(task).map(str::to_owned) else {
         checks.check(
             format!("the Proving ground serves the task `{task}`"),
             false,
         );
         return Ok(None);
     };
-    let url = url.clone();
     start_run(
         connection,
         site,
@@ -106,13 +106,13 @@ fn act(connection: &mut Connection, page: &Value, step: Step) -> Result<Value, G
     reason = "the synchronous harness polls the oracle on its own thread, outside any async worker"
 )]
 fn outcome(site: &Site, task: &str, status: &str) -> Option<OracleOutcome> {
-    let (id, _) = site.start_urls.get(task)?;
+    let id = TaskId::try_from(task.to_owned()).ok()?;
     let started = Instant::now();
     loop {
         let outcome = site
-            .oracle
+            .proving_ground
             .judge::<Value>(&Submission {
-                task: id,
+                task: &id,
                 status,
                 records: &[],
             })

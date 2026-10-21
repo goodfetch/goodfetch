@@ -7,13 +7,14 @@ launch = []
 pages = ["driver", "guard"]
 trace = []
 
+# Which of `driver`'s own modules may import which.
+[submodules.driver]
+navigation = []
+world = []
+
 # Which of `launch`'s own modules may import which.
 [submodules.launch]
 pipe = []
-
-# Which of `driver`'s own modules may import which.
-[submodules.driver]
-world = []
 
 # Which of `guard`'s own modules may import which.
 [submodules.guard]

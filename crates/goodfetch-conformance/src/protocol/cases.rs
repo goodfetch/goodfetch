@@ -5,6 +5,7 @@
 
 mod delivery;
 mod guard;
+mod navigation;
 
 use std::collections::BTreeMap;
 
@@ -25,7 +26,6 @@ use self::guard::Step;
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
 use crate::proving_ground::{ProvingGround, TaskList};
-use goodfetch_protocol::journey::TaskId;
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -45,6 +45,11 @@ pub(crate) enum Case {
     LateCommit,
     PagesShareTheDefaultSession,
     GotoAnswersTheResponse,
+    ErrorStatusesAreResponses,
+    HistoryAnswersResponsesAcrossSites,
+    BackLoadsTheDocumentAgain,
+    UnresolvedNameFailsTheNavigation,
+    SupersededNavigationIsInterrupted,
     ClickWaitsOutACover,
     TransientDuplicateIsWaitedOut,
     LocatorSurvivesARerender,
@@ -56,12 +61,13 @@ pub(crate) enum Case {
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
 /// each task's start URL, the `resolve` mapping of its hosts to the Proving
-/// ground's address, and its oracle.
+/// ground's address, and the Proving ground itself, whose time step a case
+/// may set.
 pub(crate) struct Site {
     page_url: Option<String>,
-    start_urls: BTreeMap<String, (TaskId, String)>,
+    start_urls: BTreeMap<String, String>,
     resolve: Value,
-    oracle: ProvingGround,
+    proving_ground: ProvingGround,
 }
 
 impl Site {
@@ -84,22 +90,21 @@ impl Site {
                 resolve.insert(host.to_owned(), json!([ip]));
             }
         }
-        let start_urls = task_list
-            .tasks
-            .iter()
-            .map(|task| {
-                (
-                    task.id.to_string(),
-                    (task.id.clone(), task.start_url.clone()),
-                )
-            })
-            .collect();
         Self {
             page_url,
-            start_urls,
+            start_urls: task_list
+                .tasks
+                .iter()
+                .map(|task| (task.id.as_str().to_owned(), task.start_url.clone()))
+                .collect(),
             resolve: Value::Object(resolve),
-            oracle: proving_ground.clone(),
+            proving_ground: proving_ground.clone(),
         }
+    }
+
+    /// The start URL of the task `id`, such as `statuses/1`.
+    fn start_url(&self, id: &str) -> Option<&str> {
+        self.start_urls.get(id).map(String::as_str)
     }
 }
 
@@ -147,6 +152,17 @@ impl Case {
             "an-answer-after-the-lease-ended-is-a-late-commit-and-refused" => Self::LateCommit,
             "pages-open-in-the-runs-default-session" => Self::PagesShareTheDefaultSession,
             "goto-answers-the-documents-response" => Self::GotoAnswersTheResponse,
+            "an-error-status-is-the-documents-response" => Self::ErrorStatusesAreResponses,
+            "back-and-forward-across-sites-answer-the-documents-response" => {
+                Self::HistoryAnswersResponsesAcrossSites
+            }
+            "going-back-loads-the-document-again" => Self::BackLoadsTheDocumentAgain,
+            "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection" => {
+                Self::UnresolvedNameFailsTheNavigation
+            }
+            "a-navigation-superseded-before-it-committed-is-interrupted" => {
+                Self::SupersededNavigationIsInterrupted
+            }
             "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
             "an-ambiguous-target-that-becomes-unique-is-acted-on" => {
                 Self::TransientDuplicateIsWaitedOut
@@ -208,6 +224,19 @@ impl Case {
             Self::LateCommit => delivery::late_commit(connection, checks),
             Self::PagesShareTheDefaultSession => default_session(connection, site, checks),
             Self::GotoAnswersTheResponse => goto(connection, site, checks),
+            Self::ErrorStatusesAreResponses => navigation::error_statuses(connection, site, checks),
+            Self::HistoryAnswersResponsesAcrossSites => {
+                navigation::history_across_sites(connection, site, checks)
+            }
+            Self::BackLoadsTheDocumentAgain => {
+                navigation::back_loads_again(connection, site, checks)
+            }
+            Self::UnresolvedNameFailsTheNavigation => {
+                navigation::unresolved_name(connection, site, checks)
+            }
+            Self::SupersededNavigationIsInterrupted => {
+                navigation::superseded(connection, site, checks)
+            }
             Self::ClickWaitsOutACover => guard::lands(
                 connection,
                 site,

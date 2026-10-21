@@ -355,7 +355,7 @@ kind = "setting"
 prefix = "paid_fetch."
 
 # Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
-# and the Error codes of their browsers (#695).
+# and the Error codes of their browsers (#695, #698).
 [[area]]
 number = 5
 kind = "operation"
@@ -365,6 +365,17 @@ prefix = "run.new_page"
 number = 5
 kind = "operation"
 prefix = "page.goto"
+
+# The other navigations (#698): `page.reload`, `page.go_back`, `page.go_forward`.
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.reload"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.go_"
 
 [[area]]
 number = 5

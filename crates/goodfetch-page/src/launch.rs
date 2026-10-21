@@ -52,9 +52,16 @@ pub(crate) struct Launched {
     pub(crate) executable: PathBuf,
 }
 
+/// The host resolver rule that keeps every `.invalid` name from resolving
+/// without a DNS query (RFC 6761, section 6.4), after the `resolve`
+/// setting's rules, which come first.
+const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
+
 /// The flags of every launch (#696 owns the rest): the pipe, a profile of
-/// the Run's own, no first-run or default-browser prompt, and no background
-/// traffic to Google's services.
+/// the Run's own, no first-run or default-browser prompt, no background
+/// traffic to Google's services, and the back/forward cache off, so going
+/// back or forward always loads its document again (ADR 0121, with no
+/// setting); and the `resolve` setting's host names.
 fn arguments(profile: &Path, settings: Option<&Resolved>) -> Vec<String> {
     let mut arguments = vec![
         "--remote-debugging-pipe".to_owned(),
@@ -67,8 +74,9 @@ fn arguments(profile: &Path, settings: Option<&Resolved>) -> Vec<String> {
         "--disable-sync".to_owned(),
         "--password-store=basic".to_owned(),
         "--use-mock-keychain".to_owned(),
+        "--disable-back-forward-cache".to_owned(),
     ];
-    let rules: Vec<String> = settings
+    let mut rules: Vec<String> = settings
         .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
         .unwrap_or_default()
         .into_iter()
@@ -81,9 +89,8 @@ fn arguments(profile: &Path, settings: Option<&Resolved>) -> Vec<String> {
             })
         })
         .collect();
-    if !rules.is_empty() {
-        arguments.push(format!("--host-resolver-rules={}", rules.join(", ")));
-    }
+    rules.push(INVALID_NAMES.to_owned());
+    arguments.push(format!("--host-resolver-rules={}", rules.join(", ")));
     arguments.push("about:blank".to_owned());
     arguments
 }

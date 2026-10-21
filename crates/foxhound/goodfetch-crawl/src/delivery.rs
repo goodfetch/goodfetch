@@ -16,8 +16,14 @@
 //! with `$/cancel`, and an answer that still comes is a late commit,
 //! refused with `lease_lost`. An attempt whose Connection ended is
 //! `client_gone`, never the handler's own `handler_failed`, and is retried
-//! on a Connection still serving. Once every work item is done, it
-//! finishes the Run. When the Run is asked to stop at its next safe point,
+//! on a Connection still serving. Each admission also takes a Permit of its
+//! domain key from the Politeness the Run shares with the other runs of
+//! its user, given back once its attempt ended, with what the attempt met:
+//! a site that did not answer in time backs the domain off, and a handler
+//! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
+//! for every sharing run (ADR 0053). A domain the Politeness holds for want
+//! of room waits for the wake of a Permit given back. Once every work item
+//! is done, it finishes the Run. When the Run is asked to stop at its next safe point,
 //! such as once its `timeout.run` passed, it admits nothing new, lets each
 //! attempt in flight commit or be abandoned under its lease, and then stops
 //! the Run. When the Run stops at once, by an abort, the attempts in flight
@@ -26,7 +32,7 @@
 //! no Connection serves the crawl any more, the driver delivers nothing
 //! more and waits for the Run to stop or a Connection to join.
 
-use goodfetch_engine::admission::{Admission, Ended};
+use goodfetch_engine::admission::{Admission, Ended, Wakes};
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::run_state::RunStateError;
@@ -154,6 +160,7 @@ async fn deliver(
             return;
         }
     };
+    let mut wakes = admission.wakes();
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut stop: Option<StopReason> = None;
     loop {
@@ -172,18 +179,19 @@ async fn deliver(
             .await
         {
             tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be leased");
-            run.end(Ending::Failed).await;
+            end(run, &mut admission, Ending::Failed).await;
             return;
         }
         if attempts.is_empty() {
             if let Some(reason) = stop {
-                run.end(Ending::Stopped(reason)).await;
+                end(run, &mut admission, Ending::Stopped(reason)).await;
                 return;
             }
             if !servers.iter_mut().any(Serving::serves) {
                 tokio::select! {
                     biased;
                     () = run.cancellation().cancelled() => {
+                        admission.close().await;
                         release(run).await;
                         return;
                     }
@@ -201,12 +209,12 @@ async fn deliver(
                 Ok(Idle::Admit) => continue,
                 Ok(Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    run.end(Ending::Finished).await;
+                    end(run, &mut admission, Ending::Finished).await;
                     return;
                 }
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                    run.end(Ending::Failed).await;
+                    end(run, &mut admission, Ending::Failed).await;
                     return;
                 }
             }
@@ -222,6 +230,7 @@ async fn deliver(
             biased;
             () = run.cancellation().cancelled() => {
                 attempts.shutdown().await;
+                admission.close().await;
                 release(run).await;
                 return;
             }
@@ -237,7 +246,23 @@ async fn deliver(
                 }
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
+            key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
+    }
+}
+
+/// Ends the Run as `ending` says, once its admission gave back what it held.
+async fn end(run: &Run, admission: &mut Admission, ending: Ending) {
+    admission.close().await;
+    run.end(ending).await;
+}
+
+/// The next key of the Run that a Permit given back woke, `None` for every
+/// held key; never, when the Run shares no Politeness.
+async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
+    match wakes {
+        Some(wakes) => wakes.next().await,
+        None => std::future::pending().await,
     }
 }
 
@@ -275,18 +300,31 @@ async fn lease_to_servers(
     Ok(())
 }
 
-/// Whether a handler's failure says the site did not answer in time: a
-/// `deadline_exceeded` whose `limit` is the response's first byte or the
-/// navigation, which backs the domain off like a refused or timed-out
-/// connection (ADR 0086). A `Retry-After`, a 429 and a 503 join with the
-/// fetch tiers (area 5).
-fn site_timed_out(code: &str, details: &Map<String, Value>) -> bool {
-    code == DEADLINE_EXCEEDED.name
+/// What an attempt's answer says of its domain: a handler's failure that
+/// says the site did not answer in time (a `deadline_exceeded` whose
+/// `limit` is the response's first byte or the navigation) backs the domain
+/// off like a refused or timed-out connection (ADR 0086); one that says the
+/// site refused for too many requests (`blocked` for a `rate_limit`, a 429)
+/// halves its concurrency (ADR 0021). A `Retry-After` and a 503 join with
+/// the fetch tiers (area 5).
+fn domain_ending(answer: &Answer) -> Ended {
+    let Answer::Failed { code, details, .. } = answer else {
+        return Ended::Done;
+    };
+    if block_cause(code, details) == Some(BlockCause::RateLimit) {
+        return Ended::TooManyRequests(None);
+    }
+    let timed_out = code == DEADLINE_EXCEEDED.name
         && details
             .get("limit")
             .and_then(|limit| limit.get("key"))
             .and_then(Value::as_str)
-            .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key))
+            .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key));
+    if timed_out {
+        Ended::BackOff
+    } else {
+        Ended::Done
+    }
 }
 
 /// What a crawl with no attempt in flight does next.
@@ -332,13 +370,12 @@ async fn settled(
         server.gone = true;
     }
     let waiting = attempt.leased.waiting.clone();
-    let domain = match &attempt.answer {
-        Answer::Failed { code, details, .. } if site_timed_out(code, details) => Ended::BackOff,
-        _ => Ended::Done,
-    };
+    let domain = domain_ending(&attempt.answer);
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retried = settle(run, policy, attempt).await;
-    admission.ended(&waiting.key, run.clock().now(), domain);
+    admission
+        .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
+        .await;
     if retried {
         admission.enqueue(waiting);
     }
@@ -405,7 +442,7 @@ async fn admit(
     let mut ids = Vec::new();
     let mut drained = Vec::new();
     while ids.len() < room {
-        let Some(admitted) = admission.admit(now) else {
+        let Some(admitted) = admission.admit(now).await else {
             break;
         };
         if admitted.drained {

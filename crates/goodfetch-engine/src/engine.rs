@@ -24,6 +24,7 @@ use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::home::{Home, RunStateLocation};
+use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::{RunStateOptions, RunStateTables};
@@ -37,6 +38,7 @@ use crate::transport::{Connection, DaemonListener, Network, TransportError};
 pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
+    politeness_tables: Vec<PolitenessTables>,
     gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
@@ -57,6 +59,8 @@ pub struct Dependencies {
     pub run_state_location: RunStateLocation,
     /// How run files open.
     pub run_state: RunStateOptions,
+    /// How the per-user Politeness file opens.
+    pub politeness: PolitenessOptions,
 }
 
 impl Engine {
@@ -68,6 +72,7 @@ impl Engine {
                 handlers: composition.handlers()?,
             }),
             tables: composition.run_state_tables(),
+            politeness_tables: composition.politeness_tables(),
             gates: composition.admission_gates()?,
             events: EventsOptions::default(),
             console: composition.console(),
@@ -200,6 +205,8 @@ impl Engine {
                 run_state: dependencies.run_state,
                 tables: self.tables.clone(),
                 gates: self.gates.clone(),
+                politeness: dependencies.politeness,
+                politeness_tables: self.politeness_tables.clone(),
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),

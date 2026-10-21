@@ -383,6 +383,7 @@ pub fn main(start: &Start) -> ExitCode {
         blocking: BlockingPolicy::Threads,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     };
     run(
         parsed,

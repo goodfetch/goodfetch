@@ -224,6 +224,7 @@ pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
         blocking: BlockingPolicy::Inline,
         run_state_location: RunStateLocation::PerMajor,
         run_state,
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     }
 }
 

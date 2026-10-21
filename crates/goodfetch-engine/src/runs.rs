@@ -36,6 +36,7 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::page::BodyHandle;
+use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow, RunKind, RunOwner,
     RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
@@ -63,6 +64,7 @@ use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::home::{Home, RunStateLocation};
+use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
 use crate::run_state::{RunState, RunStateError, RunStateOptions, RunStateTables};
 use crate::settings::{Resolved, Settings};
@@ -92,6 +94,10 @@ pub(crate) struct RunsSetup {
     pub(crate) tables: Vec<RunStateTables>,
     /// The gate in admission the composition passes in, if any.
     pub(crate) gates: Option<Arc<dyn Gates>>,
+    /// How the per-user Politeness file opens.
+    pub(crate) politeness: PolitenessOptions,
+    /// The tables the composition adds to the Politeness file.
+    pub(crate) politeness_tables: Vec<PolitenessTables>,
     /// The engine's clock.
     pub(crate) clock: Clock,
     /// The engine's entropy, from which Run IDs draw.
@@ -342,6 +348,7 @@ pub struct Run {
     state: RunState,
     clock: Clock,
     gates: Option<Arc<dyn Gates>>,
+    politeness: Arc<SharedPoliteness>,
     stop: Arc<watch::Sender<Option<StopReason>>>,
     owner: Arc<TaskOwner>,
     runs: Runs,
@@ -433,17 +440,23 @@ impl Run {
     }
 
     /// Its admission under `settings`: the gate in admission the
-    /// composition passes in, opened from what its run file journaled, and
-    /// its rate cap; `None` when the composition passes in no gate.
+    /// composition passes in, opened from what its run file journaled, its
+    /// rate cap, and, when the gate names a rule for its keys, the
+    /// Politeness `politeness.sharing` says it shares: the per-user
+    /// Politeness file for `shared` and `per_daemon`, a file of its own in
+    /// memory for `run`. `None` when the composition passes in no gate.
     ///
     /// # Errors
     ///
-    /// When its run file cannot be read.
+    /// When its run file cannot be read, or the Politeness file opened.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub async fn admission(&self, settings: &Resolved) -> Result<Option<Admission>, RunStateError> {
+    pub async fn admission(
+        &self,
+        settings: &Resolved,
+    ) -> Result<Option<Admission>, AdmissionError> {
         let Some(gates) = self.gates.clone() else {
             return Ok(None);
         };
@@ -453,7 +466,23 @@ impl Run {
             .state
             .read(move |connection| gates.open(&opening, connection, wall, now))
             .await?;
-        Ok(Some(Admission::new(gate, settings)))
+        let admission = Admission::new(gate, settings);
+        if !admission.shares(settings) {
+            return Ok(Some(admission));
+        }
+        let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
+            Politeness::in_memory(self.politeness.tables.clone(), &self.owner).await?
+        } else {
+            self.politeness.file().await?
+        };
+        let holder = Holder {
+            run_id: self.id.to_string(),
+            epoch: self.state.epoch(),
+            run_folder: self.folder.clone(),
+        };
+        Ok(Some(
+            admission.sharing(politeness, holder, self.clock, settings),
+        ))
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -545,8 +574,18 @@ impl Runs {
             settings: setup.settings.clone(),
             connection: None,
         };
+        let mut setup = setup;
+        let politeness = Arc::new(SharedPoliteness {
+            file: Arc::new(tokio::sync::OnceCell::new()),
+            path: setup.home.politeness_file(),
+            options: setup.politeness.clone(),
+            tables: setup.politeness_tables.clone(),
+            engine: format!("{:016x}", setup.entropy.next_u64()),
+            owner: Arc::new(owner.child()),
+        });
         let registry = Registry {
             setup,
+            politeness,
             owner: owner.child(),
             ending_owner: owner.child(),
             readers: Arc::new(owner.child()),
@@ -786,6 +825,8 @@ struct Live {
 
 struct Registry {
     setup: RunsSetup,
+    /// The per-user Politeness file the engine's Runs share.
+    politeness: Arc<SharedPoliteness>,
     owner: TaskOwner,
     ending_owner: TaskOwner,
     /// Where readers of run state run their blocking reads.
@@ -1066,6 +1107,7 @@ impl Registry {
                 state,
                 clock: self.setup.clock,
                 gates: self.setup.gates.clone(),
+                politeness: Arc::clone(&self.politeness),
                 stop: Arc::new(watch::Sender::new(None)),
                 owner: Arc::new(self.owner.child()),
                 runs: Runs {
@@ -1375,3 +1417,58 @@ mod reader;
 mod reindex;
 mod takeover;
 mod writer;
+
+/// Why a Run's admission did not open.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum AdmissionError {
+    /// Its run file could not be read.
+    #[error(transparent)]
+    RunState(#[from] RunStateError),
+    /// The Politeness it shares could not be opened.
+    #[error(transparent)]
+    Politeness(#[from] PolitenessError),
+}
+
+/// The per-user Politeness file the engine's Runs share, opened the first
+/// time one shares it (ADR 0053), as one engine of the user.
+struct SharedPoliteness {
+    file: Arc<tokio::sync::OnceCell<Politeness>>,
+    path: PathBuf,
+    options: PolitenessOptions,
+    tables: Vec<PolitenessTables>,
+    engine: String,
+    owner: Arc<TaskOwner>,
+}
+
+impl SharedPoliteness {
+    /// The file, opened now if it is not yet.
+    async fn file(&self) -> Result<Politeness, PolitenessError> {
+        self.file
+            .get_or_try_init(|| {
+                Politeness::open(
+                    self.path.clone(),
+                    &self.options,
+                    self.tables.clone(),
+                    holder_gone,
+                    self.engine.clone(),
+                    &self.owner,
+                )
+            })
+            .await
+            .cloned()
+    }
+}
+
+/// Whether the Run in `folder` that took Permits under `epoch` is gone
+/// (ADRs 0041 and 0053): its writer lock free, or held while its run file
+/// holds a later epoch. It blocks.
+fn holder_gone(folder: &Path, epoch: u64) -> bool {
+    match test_writer(folder) {
+        Ok(Writer::None) => true,
+        Ok(Writer::Live) => {
+            crate::run_state::epoch_of(&folder.join(RUN_FILE)).is_some_and(|found| found > epoch)
+        }
+        Err(_) => false,
+    }
+}

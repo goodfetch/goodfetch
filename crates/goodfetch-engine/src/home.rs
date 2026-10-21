@@ -15,6 +15,9 @@ const RUNS: &str = "runs";
 /// The Run index's file in the per-major folder.
 const RUN_INDEX: &str = "run-index.sqlite";
 
+/// The per-user Politeness file, outside the per-major folders.
+const POLITENESS_FILE: &str = "politeness.sqlite";
+
 /// One user's Goodfetch data folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Home {
@@ -48,6 +51,12 @@ impl Home {
     /// The per-major Run index's file.
     pub fn run_index(&self, version: &ProductVersion) -> PathBuf {
         self.per_major(version).join(RUN_INDEX)
+    }
+
+    /// The per-user Politeness file, outside the per-major folders, which
+    /// every major and both Products share (ADRs 0053 and 0098).
+    pub fn politeness_file(&self) -> PathBuf {
+        self.root.join(POLITENESS_FILE)
     }
 }
 

@@ -495,6 +495,8 @@ pub enum SharedType {
     LimitScope,
     /// What a Notification reports.
     NotificationEvent,
+    /// Why a site refused a page (ADR 0035).
+    BlockCause,
 }
 
 impl SharedType {
@@ -504,6 +506,7 @@ impl SharedType {
             Self::UsageKind => "usage_kind",
             Self::LimitScope => "limit_scope",
             Self::NotificationEvent => "notification_event",
+            Self::BlockCause => "block_cause",
         }
     }
 }

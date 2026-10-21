@@ -19,9 +19,10 @@
 //   translation project does (ADR 0073).
 // - `daemon`: the test's own Daemon, started by `goodfetch-test-env
 //   --daemon` in its own home and run by the executable of `product`
-//   (Collie's unless the screen is Foxhound's, ADR 0094), with the Console
-//   `consoleServer` serves on its own port (by default the one the Daemon
-//   serves from its executable's Console build), and the Proving ground
+//   (Collie's unless the screen is Foxhound's, ADR 0094), or by `engine`
+//   for a skew run, with the Console `consoleServer` serves on its own port
+//   (by default the one the Daemon serves from its executable's Console
+//   build), and the Proving ground
 //   of `provingGroundSeed` when set. All of it stops at teardown, leaving no
 //   runtime file and no process.
 // - `signIn`: the ways a person signs in to the test's Console (the
@@ -58,6 +59,7 @@ import {
   type ConsoleServer,
   type ServedDaemon,
 } from "./served-daemon.ts";
+import { manifestWithEngine } from "./test-env.ts";
 import { signInTo, type SignIn } from "./sign-in.ts";
 import { refuseStorageState } from "./storage-state.ts";
 import { watchPageErrors, type PageErrorWatch } from "./page-errors.ts";
@@ -122,6 +124,8 @@ export interface ServedOptions {
   consoleServer: ConsoleServer | undefined;
   /** The test tool manifest's path: `GOODFETCH_TEST_TOOLS`, which `just test` sets. */
   toolManifest: string | undefined;
+  /** The executable that runs the test's Daemon in place of the manifest's of `product`, for a skew run (ADR 0066); the manifest's when unset. */
+  engine: string | undefined;
 }
 
 /** What a served test's worker shares between its tests. */
@@ -158,6 +162,7 @@ export const test: TestType<
   provingGroundSeed: [undefined, { option: true }],
   consoleServer: [executableConsole, { option: true }],
   toolManifest: [process.env["GOODFETCH_TEST_TOOLS"], { option: true }],
+  engine: [undefined, { option: true }],
   oidcProvider: [
     // oxlint-disable-next-line no-empty-pattern -- Playwright reads a fixture's dependencies from its first parameter's pattern; this one has none.
     async ({}, use) => {
@@ -168,7 +173,7 @@ export const test: TestType<
     { scope: "worker" },
   ],
   daemon: async (
-    { product, provingGroundSeed, consoleServer, toolManifest, oidcProvider },
+    { product, provingGroundSeed, consoleServer, toolManifest, engine, oidcProvider },
     use,
     testInfo,
   ) => {
@@ -177,7 +182,15 @@ export const test: TestType<
       const started = await startServedDaemon({
         processes,
         testName: testInfo.titlePath.join(" "),
-        toolManifest,
+        toolManifest:
+          engine === undefined
+            ? toolManifest
+            : manifestWithEngine(
+                toolManifest,
+                product,
+                engine,
+                testInfo.outputPath("test-tools.json"),
+              ),
         product,
         provingGroundSeed,
         consoleServer,

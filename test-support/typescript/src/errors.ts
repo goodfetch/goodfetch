@@ -27,6 +27,14 @@ export type TestSupportErrorCode =
   | "sign_in_failed"
   /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */
   | "storage_state_refused"
+  /** A Journey file cannot be read, is not TOML, or fails `journeys/journey.schema.json` (ADR 0063). */
+  | "journey_invalid"
+  /** The catalog's file of one Journey's ID holds another Journey (ADR 0063). */
+  | "other_journey"
+  /** A Journey helper was asked for a surface its Journey has no variant on (ADR 0063). */
+  | "unlisted_surface"
+  /** A Journey variant's run recorded a failure, or its document is not `proved` (ADR 0063). */
+  | "variant_not_proved"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */
@@ -45,6 +53,12 @@ export type TestSupportErrorCode =
   | "focus_not_visible"
   /** A keyboard walk's stop is entirely covered by other content (ADR 0073). */
   | "focus_obscured"
+  /** A `screen:` Feature has no route or no sign-in state in `console/screens.toml`, so its keyboard walk cannot open it (ADR 0073). */
+  | "screen_setup_missing"
+  /** `console/screens.toml` is no TOML, or an entry names no `screen:` Feature, repeats one, or has a field it does not define (ADR 0073). */
+  | "screen_setups_invalid"
+  /** A screen's route did not answer 2xx, so its keyboard walk would walk an error page (ADR 0073). */
+  | "screen_not_served"
   /** A browser command was asked for state its browser provider cannot set (ADR 0068). */
   | "provider_unsupported"
   /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */
@@ -108,7 +122,9 @@ export class TestSupportError extends Error {
 
   constructor(code: TestSupportErrorCode, message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = "TestSupportError";
+    // The code in the name puts it on every report line that shows the
+    // error, such as Playwright's, where only the message and stack travel.
+    this.name = `TestSupportError(${code})`;
     this.code = code;
   }
 }

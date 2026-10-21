@@ -1,0 +1,22 @@
+# The captured pages `block_detection`'s tests classify (TESTING.md, Fixtures
+# and data files): each file is the body the Proving ground served for one
+# page, recorded over plain HTTP; its status is in the test's table.
+# `interstitial`, `vendor-script`, `article` and `not-found` are pages of the
+# block-detection corpus (`5.access.test/corpus/<name>`, access/5);
+# `protection-challenge` is the tier-move site's challenge page
+# (`1.protection.test/articles`, protection/1).
+generator = "goodfetch-proving-ground serve"
+version = "0.0.0+b8c66b9c"
+seed = 158
+date = "2026-10-21"
+command = """
+cargo run -p goodfetch-proving-ground -- serve --seed 158 --copy local \
+  --address 127.0.0.1:0 --network-profile none
+# with the printed port as PORT, from this folder:
+for page in interstitial vendor-script article not-found; do
+  curl -s -o "$page.html" --resolve "5.access.test:$PORT:127.0.0.1" \
+    "http://5.access.test:$PORT/corpus/$page"
+done
+curl -s -o protection-challenge.html --resolve "1.protection.test:$PORT:127.0.0.1" \
+  "http://1.protection.test:$PORT/articles"
+"""

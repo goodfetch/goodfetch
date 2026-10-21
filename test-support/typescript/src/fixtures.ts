@@ -12,15 +12,20 @@
 // - `provingGround`: the Proving ground `goodfetch-test-env` started on
 //   `provingGroundSeed`, with its `resolve` mapping, certificate authority
 //   and network fixtures; it stops when the setup is torn down.
+// - `daemon`: the Daemon `goodfetch-test-env` started in the test's home
+//   when `withDaemon` is set, run by the executable of the test's
+//   `product`, with its socket and token; it stops, leaving no runtime
+//   file, when the setup is torn down.
 // - `clientCase`: the record of the Client conformance case the test's
 //   `client_case/<id>` tag names, whose checks and evidence the case-log
 //   reporter writes (ADR 0069).
 //
 // Options a test overrides with `test.override`: `product` (Collie's unless
-// the test needs Foxhound), `provingGroundSeed`, `toolManifest` and
-// `testEnvProgram`.
+// the test needs Foxhound), `provingGroundSeed`, `withDaemon`,
+// `toolManifest` and `testEnvProgram`.
 import { test as base, type TestAPI } from "vitest";
 import { clientCaseRecord, type ClientCaseRecord } from "./case-log.ts";
+import { daemonOf, type DaemonDescription } from "./daemon.ts";
 import { ProcessRecord } from "./process-record.ts";
 import { productEnv, type Product } from "./product-env.ts";
 import { provingGroundOf, type ProvingGroundDescription } from "./proving-ground.ts";
@@ -36,6 +41,8 @@ export interface TestSupportFixtures {
   testEnvProgram: Program | undefined;
   /** The seed of the test's Proving ground, which `provingGround` needs. */
   provingGroundSeed: number | undefined;
+  /** Whether the test's setup starts the Daemon of `product`'s executable in its home, which `daemon` needs. */
+  withDaemon: boolean;
   /** The test's process record. */
   processes: ProcessRecord;
   /** The test's setup, as `goodfetch-test-env` describes it. */
@@ -44,6 +51,8 @@ export interface TestSupportFixtures {
   env: Readonly<Record<string, string>>;
   /** The Proving ground started on `provingGroundSeed`; `proving_ground_unseeded` without one. */
   provingGround: ProvingGroundDescription;
+  /** The Daemon started in the test's home with `withDaemon`; `daemon_not_requested` without it. */
+  daemon: DaemonDescription;
   /** The record of the test's Client conformance case; `client_case_untagged` without a `client_case/` tag. */
   clientCase: ClientCaseRecord;
 }
@@ -54,19 +63,24 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   toolManifest: process.env["GOODFETCH_TEST_TOOLS"],
   testEnvProgram: undefined,
   provingGroundSeed: undefined,
+  withDaemon: false,
   // oxlint-disable-next-line no-empty-pattern -- Vitest reads a fixture's dependencies from its first parameter, which must be a destructuring pattern.
   processes: async ({}, use) => {
     const processes = new ProcessRecord();
     await use(processes);
     await processes.close();
   },
-  testEnv: async ({ task, processes, toolManifest, testEnvProgram, provingGroundSeed }, use) => {
+  testEnv: async (
+    { task, processes, toolManifest, testEnvProgram, provingGroundSeed, withDaemon, product },
+    use,
+  ) => {
     const started = await startTestEnv({
       processes,
       testName: task.fullName,
       toolManifest,
       program: testEnvProgram,
       provingGroundSeed,
+      daemon: withDaemon ? product : undefined,
     });
     await use(started.description);
     await started.close();
@@ -76,6 +90,9 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   },
   provingGround: async ({ testEnv }, use) => {
     await use(provingGroundOf(testEnv));
+  },
+  daemon: async ({ testEnv }, use) => {
+    await use(daemonOf(testEnv));
   },
   clientCase: async ({ task }, use) => {
     await use(clientCaseRecord(task));

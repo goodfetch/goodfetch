@@ -14,6 +14,7 @@ from goodfetch_test_support.canaries import (
     SecretKind,
     search_canaries,
 )
+from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import (
     ProcessesAlive,
     Product,
@@ -41,6 +42,8 @@ __all__ = [
     "Canary",
     "CanaryHit",
     "CanaryOutputUnreadable",
+    "Daemon",
+    "DaemonNotRequested",
     "Encoding",
     "NamedOutput",
     "Placement",

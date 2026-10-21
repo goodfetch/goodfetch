@@ -30,13 +30,19 @@ fn queues() -> DomainQueues {
     DomainQueues::new(DomainKeys::default(), BOUND)
 }
 
-/// Enqueues a request of `url` named `id` at `priority`.
+/// Enqueues a request of `url` named `id` at `priority`, its order the
+/// count of requests enqueued before it in the test.
 fn enqueue(gate: &mut dyn Gate, id: &str, url: &str, priority: i64) -> bool {
+    thread_local! {
+        static ORDER: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+    }
     let key = gate.key(url);
+    let order = ORDER.with(|order| order.replace(order.get() + 1));
     gate.enqueue(Waiting {
         id: id.to_owned(),
         key,
         priority,
+        order,
     })
 }
 

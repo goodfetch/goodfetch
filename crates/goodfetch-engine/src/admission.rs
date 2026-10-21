@@ -31,6 +31,9 @@ pub struct Waiting {
     pub key: String,
     /// Its priority among the requests of its key: higher goes first.
     pub priority: i64,
+    /// Its place among the requests of its key and priority, such as its
+    /// position in its Run: lower goes first.
+    pub order: i64,
 }
 
 /// A request a gate admitted.

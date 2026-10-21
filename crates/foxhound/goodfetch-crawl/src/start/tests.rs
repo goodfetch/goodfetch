@@ -15,6 +15,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+mod admission;
 mod model;
 
 use std::path::PathBuf;
@@ -192,7 +193,8 @@ pub(super) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
     }
 }
 
-/// A Foxhound engine composed of the engine's operations and the crawl's.
+/// A Foxhound engine composed of the engine's operations, the Frontier's
+/// per-domain queues and the crawl's.
 pub(super) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
@@ -201,6 +203,7 @@ pub(super) fn engine() -> Engine {
     };
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
+        .with(goodfetch_frontier::contribution())
         .with(super::contribution());
     Engine::new(identity, &composition).unwrap()
 }
@@ -372,7 +375,7 @@ pub(super) fn work_items(connection: &Connection) -> Vec<(String, String, i64, O
         .collect()
 }
 
-fn page_of(params: &Value) -> String {
+pub(super) fn page_of(params: &Value) -> String {
     params["crawl_request"]["url"].as_str().unwrap().to_owned()
 }
 

@@ -1,7 +1,7 @@
 //! A crawl's per-domain queues (ADRs 0004, 0021 and 0087), the gate in
 //! admission Foxhound fills: each domain key's waiting requests in a queue
-//! bounded at [`BOUND`], highest priority first and then in the order they
-//! came, served round-robin, one request per domain per turn, so a heavy
+//! bounded at [`BOUND`], highest priority first and then in their order in
+//! the crawl, served round-robin, one request per domain per turn, so a heavy
 //! domain never starves the others and a priority never crosses domains.
 //! A domain waiting out a `Retry-After` or a backoff is not ready: it keeps
 //! its place, holds no capacity, and the next ready domain goes. A domain
@@ -59,10 +59,12 @@ pub(crate) fn backoff(backoffs: u32) -> Duration {
 /// One domain's queue and state.
 #[derive(Debug, Default)]
 struct Domain {
-    waiting: BTreeMap<(Reverse<i64>, u64), String>,
+    waiting: BTreeSet<(Reverse<i64>, i64, String)>,
     in_flight: usize,
     ready_at: Option<Instant>,
     backoffs: u32,
+    /// Whether the run file holds a row of it.
+    journaled: bool,
 }
 
 impl Domain {
@@ -86,7 +88,6 @@ pub struct DomainQueues {
     turns: VecDeque<String>,
     idle: BTreeSet<String>,
     ids: BTreeSet<String>,
-    order: u64,
     changed: BTreeSet<String>,
 }
 
@@ -100,7 +101,6 @@ impl DomainQueues {
             turns: VecDeque::new(),
             idle: BTreeSet::new(),
             ids: BTreeSet::new(),
-            order: 0,
             changed: BTreeSet::new(),
         }
     }
@@ -125,8 +125,13 @@ impl DomainQueues {
             .collect();
         for key in drained {
             self.idle.remove(&key);
-            self.domains.remove(&key);
-            self.changed.insert(key);
+            if self
+                .domains
+                .remove(&key)
+                .is_some_and(|domain| domain.journaled)
+            {
+                self.changed.insert(key);
+            }
         }
     }
 }
@@ -141,7 +146,12 @@ impl Gate for DomainQueues {
     }
 
     fn enqueue(&mut self, request: Waiting) -> bool {
-        let Waiting { id, key, priority } = request;
+        let Waiting {
+            id,
+            key,
+            priority,
+            order,
+        } = request;
         if self.ids.contains(&id) {
             return false;
         }
@@ -155,8 +165,7 @@ impl Gate for DomainQueues {
         }
         domain
             .waiting
-            .insert((Reverse(priority), self.order), id.clone());
-        self.order += 1;
+            .insert((Reverse(priority), order, id.clone()));
         self.ids.insert(id);
         true
     }
@@ -178,7 +187,7 @@ impl Gate for DomainQueues {
         self.release_drained(now);
         let key = self.turns.remove(turn)?;
         let domain = self.domains.get_mut(&key)?;
-        let (_, id) = domain.waiting.pop_first()?;
+        let (_, _, id) = domain.waiting.pop_first()?;
         domain.in_flight += 1;
         let drained = domain.waiting.is_empty();
         if !drained {
@@ -194,6 +203,7 @@ impl Gate for DomainQueues {
         if domain.waiting.is_empty() && domain.in_flight == 0 {
             self.idle.insert(key.to_owned());
         }
+        let backed_off = domain.backoffs > 0;
         let wait_until = match ended {
             Ended::Done => {
                 domain.backoffs = 0;
@@ -214,7 +224,9 @@ impl Gate for DomainQueues {
         } else if domain.is_ready(now) {
             domain.ready_at = None;
         }
-        self.changed.insert(key.to_owned());
+        if wait_until.is_some() || backed_off || domain.journaled {
+            self.changed.insert(key.to_owned());
+        }
         self.release_drained(now);
     }
 
@@ -225,13 +237,13 @@ impl Gate for DomainQueues {
         let rows: Vec<JournalRow> = std::mem::take(&mut self.changed)
             .into_iter()
             .map(|key| {
-                let row = self.domains.get(&key).and_then(|domain| {
+                let row = self.domains.get_mut(&key).and_then(|domain| {
                     let ready_at = domain
                         .ready_at
                         .filter(|ready_at| *ready_at > now)
                         .map(|ready_at| milliseconds(wall + (ready_at - now)));
-                    (ready_at.is_some() || domain.backoffs > 0)
-                        .then_some((ready_at, domain.backoffs))
+                    domain.journaled = ready_at.is_some() || domain.backoffs > 0;
+                    domain.journaled.then_some((ready_at, domain.backoffs))
                 });
                 (key, row)
             })
@@ -304,6 +316,7 @@ impl Gates for DomainGates {
                 Domain {
                     ready_at: wait,
                     backoffs,
+                    journaled: true,
                     ..Domain::default()
                 },
             );

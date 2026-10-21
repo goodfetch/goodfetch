@@ -274,6 +274,57 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
     );
 }
 
+/// The delivery suite against Foxhound's executable, given by path, as an
+/// Attached engine and as a Daemon: a lease that ends unanswered is
+/// cancelled and its work item delivered again, an answer in time commits
+/// once, a late answer changes nothing, and a fabricated `hello` is refused
+/// on a Connection of its own.
+///
+/// Covers: story:3-3, story:3-40, story:3-41, story:3-132
+#[rstest::rstest]
+fn the_delivery_suite_is_proved_against_foxhounds_attached_engine_and_daemon(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = target(&env, Tool::Foxhound, mode);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::delivery(), &target, &proving_ground).unwrap();
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![
+                ("connection.hello", Outcome::Proved),
+                ("delivery.at_least_once", Outcome::Proved),
+                ("delivery.exactly_once", Outcome::Proved),
+            ],
+            vec![
+                (
+                    "a-fabricated-hello-is-refused-before-any-other-message-and-the-connection-closes",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-work-item-whose-lease-ends-unanswered-is-delivered-again",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-work-item-answered-in-time-commits-once",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "an-answer-after-the-lease-ended-is-a-late-commit-and-refused",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
 /// The protocol suite's `engine.info` case with Foxhound as its Product, as
 /// a suite whose contract needs Foxhound declares it.
 fn foxhound_suite() -> ProtocolSuite {

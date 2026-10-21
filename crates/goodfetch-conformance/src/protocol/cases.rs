@@ -1,9 +1,15 @@
 //! The exchanges the protocol suite's case IDs name, each judged against
 //! what `goodfetch-protocol` says the protocol is: its JSON-RPC failures,
-//! its Error codes and its operations' types.
+//! its Error codes and its operations' types. A crawl's delivery cases are
+//! `delivery`'s.
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
-use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL, HelloResult};
+mod delivery;
+
+use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
+use goodfetch_protocol::connection::{
+    CALL_CANCELLED, CANCEL, HELLO, HelloParams, HelloResult, PROTOCOL_VERSION_UNSUPPORTED,
+    ProductVersion, Surface,
+};
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo};
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -11,6 +17,7 @@ use goodfetch_protocol::result_document::CaseCheck;
 use serde_json::{Value, json};
 
 use super::connection::{Connection, Gone};
+use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -24,6 +31,10 @@ pub(crate) enum Case {
     InvalidParams,
     CancelInFlight,
     CancelAnswered,
+    FabricatedHello,
+    AtLeastOnce,
+    ExactlyOnce,
+    LateCommit,
 }
 
 /// The checks a case made so far.
@@ -49,15 +60,22 @@ impl Case {
             "params-the-operation-does-not-take-are-invalid-params" => Self::InvalidParams,
             "a-call-in-flight-cancelled-ends-with-call-cancelled" => Self::CancelInFlight,
             "cancelling-an-answered-call-leaves-the-connection-answering" => Self::CancelAnswered,
+            "a-fabricated-hello-is-refused-before-any-other-message-and-the-connection-closes" => {
+                Self::FabricatedHello
+            }
+            "a-work-item-whose-lease-ends-unanswered-is-delivered-again" => Self::AtLeastOnce,
+            "a-work-item-answered-in-time-commits-once" => Self::ExactlyOnce,
+            "an-answer-after-the-lease-ended-is-a-late-commit-and-refused" => Self::LateCommit,
             _ => return None,
         })
     }
 
-    /// Runs the case on the open Connection, whose `hello` the engine
-    /// answered with `hello`.
+    /// Runs the case on the open Connection to `target`, whose `hello` the
+    /// engine answered with `hello`.
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         hello: &HelloResult,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -87,6 +105,10 @@ impl Case {
             }
             Self::CancelInFlight => cancel_in_flight(connection, checks),
             Self::CancelAnswered => cancel_answered(connection, checks),
+            Self::FabricatedHello => fabricated_hello(connection, target, hello, checks),
+            Self::AtLeastOnce => delivery::at_least_once(connection, checks),
+            Self::ExactlyOnce => delivery::exactly_once(connection, checks),
+            Self::LateCommit => delivery::late_commit(connection, checks),
         }
     }
 }
@@ -192,4 +214,54 @@ fn cancel_answered(connection: &mut Connection, checks: &mut Checks) -> Result<(
             .all(|message| message.get("id") != Some(&json!(answered))),
     );
     Ok(())
+}
+
+/// On a Connection of its own, a `hello` naming a protocol major the engine
+/// cannot speak, followed at once by another call, is refused with
+/// `protocol_version_unsupported` before any other message, and the engine
+/// then closes the Connection (ADR 0066).
+fn fabricated_hello(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    hello: &HelloResult,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut other = connection
+        .another(target)
+        .map_err(|error| Gone::Failed(error.to_string()))?;
+    let params = HelloParams {
+        protocol_version: ProtocolVersion {
+            major: PROTOCOL_VERSION.major + 1,
+            minor: 0,
+        },
+        surface: Surface::Rust,
+        token: other.token().map(ToOwned::to_owned),
+        needs: Some(hello.product),
+        product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+            .expect("invariant: the workspace's version is a Product version"),
+    };
+    let refused = (|| {
+        let id = other.request(
+            HELLO,
+            &serde_json::to_value(params).expect("invariant: `hello` serializes"),
+        )?;
+        other.request(ENGINE_INFO.name, &json!({}))?;
+        let first = other.next_within(START_DEADLINE)?;
+        checks.check(
+            "the first message answers the `hello`",
+            first.get("method").is_none() && first["id"] == json!(id),
+        );
+        checks.check(
+            format!("it refuses it with `{}`", PROTOCOL_VERSION_UNSUPPORTED.name),
+            first["error"]["data"]["code"] == json!(PROTOCOL_VERSION_UNSUPPORTED.name),
+        );
+        checks.check(
+            "nothing else is answered and the engine closes the Connection",
+            other.next_within(DEADLINE) == Err(Gone::Closed),
+        );
+        Ok(())
+    })();
+    connection.keep(other.take_exchanged());
+    other.close();
+    refused
 }

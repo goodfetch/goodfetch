@@ -5,6 +5,10 @@
 //! priority within a domain only, the queues journaled in the run file and
 //! released once drained, and an Operator policy cap on the rate cap.
 #![expect(
+    clippy::disallowed_methods,
+    reason = "a test writes the Operator policy itself"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]

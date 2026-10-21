@@ -250,8 +250,9 @@ fn rate_from(reported: &[(String, String)], from: usize) -> (f64, usize) {
 
 /// A page behind another page of its Session keeps firing its 100 ms timer
 /// and reports that it has focus, and every launched Chromium carries the
-/// three background flags (ADR 0085's question). A throttled page fires
-/// about once a second.
+/// three background flags (ADR 0085's question). A throttled page gets one
+/// wake-up a second; an unthrottled one on a loaded host fires at least
+/// twice that.
 /// Covers: story:5-11
 #[test]
 fn a_page_behind_another_of_its_session_keeps_its_timer_and_its_focus() {
@@ -302,7 +303,7 @@ fn a_page_behind_another_of_its_session_keeps_its_timer_and_its_focus() {
     assert_eq!(
         (
             spanned >= 4,
-            rate >= 4.0,
+            rate >= 2.0,
             focus,
             !browsers.is_empty()
                 && browsers

@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, ticket #695): a Collie program's
+# The page suite's case list (spec #577, tickets #695 and #696): a Collie program's
 # pages over the protocol, run by `goodfetch-conformance`'s engine harness
 # against an Attached engine of Collie's executable on the local Proving
 # ground (ADR 0094), each case on a Run of its own whose `network.resolve`
@@ -10,7 +10,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "sessions.default"
@@ -25,3 +25,14 @@ name = "navigation"
 [[capability.case]]
 id = "goto-answers-the-documents-response"
 covers = ["story:5-61", "operation:run.new_page", "operation:page.goto"]
+
+[[capability]]
+name = "launch"
+
+[[capability.case]]
+id = "a-headless-page-shows-the-site-its-windows-identity"
+covers = ["story:5-56", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-page-behind-another-keeps-its-timer-and-its-focus"
+covers = ["story:5-11", "operation:run.new_page", "operation:page.goto"]

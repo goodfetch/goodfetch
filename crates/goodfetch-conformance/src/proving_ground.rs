@@ -118,6 +118,19 @@ impl ProvingGround {
         Self::answer(url, response)
     }
 
+    /// Its own observations (`GET /observations`): every request its page
+    /// hosts received and what their pages' scripts reported.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached, answers another status
+    /// than 200 or serves no JSON.
+    pub fn observations(&self) -> Result<serde_json::Value, ProvingGroundError> {
+        let url = format!("http://{}/observations", self.address);
+        let body = Self::answer(&url, self.agent.get(&url).call())?;
+        serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
+    }
+
     /// The oracle's answer for a submitted result.
     ///
     /// # Errors

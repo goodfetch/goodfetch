@@ -1,4 +1,4 @@
-//! The page suite (spec #577, ticket #695) against an Attached engine of
+//! The page suite (spec #577, tickets #695 and #696) against an Attached engine of
 //! Collie's executable, given by path, on the local Proving ground (ADR
 //! 0094): its browser from a Browser cache in the test's own folder, which
 //! its environment names (ADR 0059).
@@ -16,7 +16,7 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, Tool, browser_cach
 
 use crate::proving_ground::LocalCopy;
 
-/// Covers: story:5-61, operation:run.new_page, operation:page.goto
+/// Covers: story:5-61, story:5-56, story:5-11, operation:run.new_page, operation:page.goto
 #[test]
 fn the_page_suite_is_proved_against_collies_attached_engine() {
     let env = TestEnv::new();
@@ -55,9 +55,20 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
             vec![
                 ("sessions.default", Outcome::Proved),
                 ("navigation", Outcome::Proved),
+                ("launch", Outcome::Proved),
             ],
             Some(Product::Collie),
         ),
-        "{cases:?}"
+        "{cases:?} {:?}",
+        document
+            .capabilities()
+            .iter()
+            .flat_map(CapabilityResult::cases)
+            .flat_map(|case| case.facts().entries.iter().flat_map(|entry| entry
+                .checks
+                .iter()
+                .filter(|check| !check.passed)
+                .map(|check| check.name.clone())))
+            .collect::<Vec<_>>()
     );
 }

@@ -63,6 +63,7 @@ mod telemetry;
 mod test_tools;
 mod tlc;
 mod tree;
+mod watchlist;
 mod wording;
 mod workflow;
 
@@ -275,6 +276,10 @@ enum Command {
         #[command(subcommand)]
         command: tlc::Command,
     },
+    /// The watchlist job (story 61): opens one `watchlist` issue for each
+    /// vendor webappanalyzer or Scrapfly's Antibot-Detector lists that no
+    /// block-detection rule covers, reading their names only (ADR 0035).
+    Watchlist(watchlist::Arguments),
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
     Wording,
@@ -450,6 +455,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
         Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),
+        Command::Watchlist(arguments) => watchlist::run(&arguments, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

@@ -1,10 +1,12 @@
 //! A Run's operations, which every Product carries (ADRs 0029, 0036 and
 //! 0102): `run.start`, which begins a Run or returns the one its Run ID
 //! names, `run.finish`, which waits for its end, and `run.abort`, which stops
-//! it; the Run report's three axes; the Run ID and the Run's tags; the
-//! setting that places run files; the Error codes they answer with; and the
-//! rows of run state and of the Run index (ADR 0031), the two formats this
-//! module's rows describe (ADR 0066).
+//! it, taking the writer role of a Run whose engine died or forwarding the
+//! abort to the engine that owns it; the Run report's three axes; the Run
+//! ID and the Run's tags; the setting that places run files; the Error codes
+//! they answer with; the rows of run state and of the Run index (ADR 0031),
+//! the two formats this module's rows describe (ADR 0066); and what
+//! `runs reindex --json` prints.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -17,6 +19,7 @@ use crate::catalog::{
     OperationClass, Product, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 use crate::connection::StoppedBy;
+use crate::daemon::DaemonEndpoint;
 use crate::settings::{ProjectSettings, SettingLimit};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -405,6 +408,21 @@ pub struct RunParams {
     pub run_id: RunId,
 }
 
+/// What `run.abort` takes: the Run, and whether the abort was forwarded.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunAbortParams {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Set by an engine that forwards the abort to the owner the Run index
+    /// names (ADR 0031): an engine that does not own the Run then answers
+    /// `run_not_owned` instead of taking its writer role.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub forwarded: bool,
+}
+
 /// What a Run states about itself when it ends (ADR 0102): its three axes
 /// (ADR 0029) and when it ran.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -505,9 +523,9 @@ pub const RUN_FINISH: Operation = Operation {
 /// `run.abort`.
 pub const RUN_ABORT: Operation = Operation {
     name: "run.abort",
-    description: "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is.",
+    description: "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
     class: OperationClass::IdempotentWrite,
-    params: schema_of::<RunParams>,
+    params: schema_of::<RunAbortParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: false,
@@ -591,6 +609,28 @@ pub const RUN_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Run whose writer's lock stayed held while the engine retried it (ADRs
+/// 0031 and 0037).
+pub const RUN_BUSY: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_busy",
+    description: "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
+    group: ErrorGroup::Refused,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A forwarded action that reached an engine that does not own the Run
+/// (ADR 0031).
+pub const RUN_NOT_OWNED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_not_owned",
+    description: "The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Run whose state cannot be read or written (ADR 0102).
 pub const RUN_STATE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "run_state_unavailable",
@@ -601,7 +641,8 @@ pub const RUN_STATE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `run_not_found`, `run_in_use` and `run_state_unavailable` detail.
+/// What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned` and
+/// `run_state_unavailable` detail.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunDetails {
     /// The Run ID.
@@ -664,8 +705,33 @@ pub struct RunStateRow {
     pub weakened_by: String,
 }
 
-/// One row of the Run index (ADR 0031): a Run, where its state is, and its
-/// three axes.
+/// Whether the state a Run index row points at is there (ADRs 0031 and
+/// 0036).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Presence {
+    /// Its state is at its location.
+    Present,
+    /// `runs reindex` found no state at its location; the row is kept.
+    Missing,
+    /// The Run was discarded on purpose; `runs reindex` keeps its row
+    /// erased.
+    Erased,
+}
+
+impl Presence {
+    /// Its name in the Run index.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::Missing => "missing",
+            Self::Erased => "erased",
+        }
+    }
+}
+
+/// One row of the Run index (ADR 0031): a Run, where its state is, its three
+/// axes and, while it is live, the engine that owns it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunIndexRow {
     /// The Run's ID.
@@ -689,6 +755,30 @@ pub struct RunIndexRow {
     pub started_at: PointInTime,
     /// When it ended.
     pub ended_at: Option<PointInTime>,
+    /// While it is live, the endpoint of the engine that owns it, when that
+    /// engine has one: a Daemon's. An engine that cannot take the Run's
+    /// writer lock forwards live actions there.
+    pub owner: Option<DaemonEndpoint>,
+    /// Whether its state is at its location.
+    pub presence: Presence,
+}
+
+/// What `runs reindex --json` prints: the Run index it rebuilt, and how many
+/// of its rows are of each presence.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunsReindexOutput {
+    /// The Run index's path.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_index: String,
+    /// Rows of Runs whose state it found.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub present: u64,
+    /// Rows it kept whose state it did not find.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub missing: u64,
+    /// Rows of Runs discarded on purpose, kept erased.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub erased: u64,
 }
 
 /// Every entry this module defines.
@@ -702,6 +792,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_CONFLICT,
         RUN_NOT_FOUND,
         RUN_IN_USE,
+        RUN_BUSY,
+        RUN_NOT_OWNED,
         RUN_STATE_UNAVAILABLE,
     ],
     plugin_kinds: &[],

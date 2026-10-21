@@ -1220,6 +1220,7 @@ dependencies = [
  "gungraun",
  "insta",
  "mimalloc",
+ "rstest",
  "rusqlite",
  "serde_json",
  "tempfile",

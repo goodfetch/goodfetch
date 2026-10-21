@@ -181,6 +181,8 @@ Crawlee 4, unreleased, now keeps the same request manager across repeated `run()
 | `run_state_unavailable` | `UnavailableError` | no | The Run index lists the Run, but its state is `missing` or `damaged`; the details give the path |
 | `run_interrupted` | `UnavailableError` | no | A view's `report()` on a Run with no live writer that has not ended |
 
+> Note (agent decision, pending owner review; [#219](https://github.com/goodfetch/goodfetch/issues/219)): two codes join this table for the writer lock of ADR 0031. `run_busy` (`RefusedError`, retryable) answers an action that takes a Run's writer role, `run.abort` of a Run whose engine died, when the lock stayed held through every retry and the owner the Run index names did not take the action. `run_not_owned` (`RefusedError`, not retryable) answers a forwarded action that reached an engine that does not own the Run. A start of a Run another writer holds still answers as this table says.
+
 ## Considered Options
 
 - **Refusing a start whose ID names an open Run, with a separate `resume(id)`** (the default of Temporal's Conflict Policy, `FAIL`): rejected. Every crash-safe program would look the ID up and branch, the program of golden scenario 07 among them (T). **A conflict policy option** (`ifExists: "resume"`, Temporal's `USE_EXISTING`): rejected, a second way to resume (S2). **A start that always begins and a `resume` that always continues:** rejected, since the program would have to know which run it is.

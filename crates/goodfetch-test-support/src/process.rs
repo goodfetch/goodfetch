@@ -126,6 +126,23 @@ pub fn reported_address_within(
     child: &mut Child,
     deadline: Duration,
 ) -> Result<Reported, ReportedAddressError> {
+    let text = first_line_within(child, deadline)?;
+    let line: serde_json::Value =
+        serde_json::from_str(&text).map_err(|_| ReportedAddressError::NotJson(text.clone()))?;
+    let address = line["address"]
+        .as_str()
+        .ok_or(ReportedAddressError::NoAddress(text))?
+        .to_owned();
+    Ok(Reported { address, line })
+}
+
+/// Reads a child's first line of standard output, waiting at most
+/// `deadline`. The bytes after it stay unread, on the child's standard
+/// output, which must be piped.
+pub(crate) fn first_line_within(
+    child: &mut Child,
+    deadline: Duration,
+) -> Result<String, ReportedAddressError> {
     let stdout = child.stdout.take().ok_or(ReportedAddressError::NoStdout)?;
     let (sender, receiver) = mpsc::sync_channel(1);
     #[expect(
@@ -142,14 +159,7 @@ pub fn reported_address_within(
         .map_err(|_| ReportedAddressError::Deadline(deadline))?;
     child.stdout = Some(stdout);
     let line = line.map_err(ReportedAddressError::Read)?;
-    let text = line.ok_or(ReportedAddressError::Closed)?;
-    let line: serde_json::Value =
-        serde_json::from_str(&text).map_err(|_| ReportedAddressError::NotJson(text.clone()))?;
-    let address = line["address"]
-        .as_str()
-        .ok_or(ReportedAddressError::NoAddress(text))?
-        .to_owned();
-    Ok(Reported { address, line })
+    line.ok_or(ReportedAddressError::Closed)
 }
 
 /// One line, read a byte at a time so nothing after it is taken; `None` if

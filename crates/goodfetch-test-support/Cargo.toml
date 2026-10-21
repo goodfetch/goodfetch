@@ -52,11 +52,11 @@ libc.workspace = true
 [build-dependencies]
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 
-# Its integration tests start the Proving ground and Collie's executable
-# through the test tool manifest, so a change to either runs them (TESTING.md,
-# Commands).
+# Its integration tests start the Proving ground and both Products'
+# executables through the test tool manifest, so a change to any runs them
+# (TESTING.md, Commands).
 [package.metadata.goodfetch]
-runs = ["goodfetch-collie", "goodfetch-proving-ground"]
+runs = ["goodfetch-collie", "goodfetch-foxhound", "goodfetch-proving-ground"]
 
 [package.metadata.cargo-shear]
 ignored = ["bindgen"]

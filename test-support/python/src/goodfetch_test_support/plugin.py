@@ -7,7 +7,9 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
   the test's `product`;
 - `product`, Collie unless the test overrides it with Foxhound (ADR 0094);
 - `proving_ground`, the Proving ground started on `proving_ground_seed`,
-  which a test overrides with its seed (ADR 0063).
+  which a test overrides with its seed (ADR 0063);
+- `daemon`, the Daemon of the test's home, run by `product`'s executable,
+  which a test asks for by overriding `with_daemon` to return `True`.
 """
 
 import json
@@ -18,6 +20,7 @@ from typing import cast
 
 import pytest
 
+from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import Product, TestEnv
 from goodfetch_test_support.proving_ground import ProvingGround, ProvingGroundUnseeded
 
@@ -29,17 +32,33 @@ def proving_ground_seed() -> int | None:
 
 
 @pytest.fixture
+def with_daemon() -> bool:
+    """Whether the test's setup starts a Daemon: not unless the test overrides it."""
+    return False
+
+
+@pytest.fixture
 def test_env(
-    request: pytest.FixtureRequest, proving_ground_seed: int | None
+    request: pytest.FixtureRequest,
+    proving_ground_seed: int | None,
+    with_daemon: bool,
+    product: Product,
 ) -> Iterator[TestEnv]:
     """The test's setup from `goodfetch-test-env`, torn down after the test.
 
-    It starts a Proving ground when `proving_ground_seed` names a seed. The
-    teardown fails the test when a process it started is still alive.
+    It starts a Proving ground when `proving_ground_seed` names a seed, and
+    the Daemon of `product`'s executable in the test's home when
+    `with_daemon` is `True`. The teardown stops the Daemon and fails the
+    test when a process it started is still alive.
     """
     # pytest leaves `FixtureRequest.node` unannotated.
     item = cast("pytest.Item", request.node)  # pyright: ignore[reportUnknownMemberType]
-    env = TestEnv.open(item.nodeid, os.environ, proving_ground_seed=proving_ground_seed)
+    env = TestEnv.open(
+        item.nodeid,
+        os.environ,
+        proving_ground_seed=proving_ground_seed,
+        daemon=product if with_daemon else None,
+    )
     yield env
     env.close()
 
@@ -77,6 +96,22 @@ def proving_ground(test_env: TestEnv) -> ProvingGround:
         )
         raise ProvingGroundUnseeded(message)
     return test_env.proving_ground
+
+
+@pytest.fixture
+def daemon(test_env: TestEnv) -> Daemon:
+    """The Daemon of the test's home, stopped at teardown.
+
+    Raises:
+        DaemonNotRequested: The test does not override `with_daemon` to `True`.
+    """
+    if test_env.daemon is None:
+        message = (
+            "the test takes `daemon` but asks for none: override the "
+            "`with_daemon` fixture to return `True`"
+        )
+        raise DaemonNotRequested(message)
+    return test_env.daemon
 
 
 LISTING_OPTION = "--marker-listing"

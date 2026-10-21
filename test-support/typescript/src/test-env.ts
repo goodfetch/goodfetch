@@ -1,6 +1,7 @@
 // One test's setup from `goodfetch-test-env` (ADR 0062): TypeScript reuses
 // the Rust setup and rewrites none of it. The executable, found through the
-// test tool manifest, prints one JSON description, which is validated
+// test tool manifest, starts the Proving ground and the Daemon a test asks
+// for, prints one JSON description, which is validated
 // against the committed schema, and tears the setup down when its stdin
 // closes.
 import { readFileSync } from "node:fs";
@@ -9,6 +10,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { ValidateFunction } from "ajv/dist/2020.js";
 import { TestSupportError } from "./errors.ts";
 import type { ProcessRecord, RecordedProcess } from "./process-record.ts";
+import type { DaemonDescription } from "./daemon.ts";
+import type { Product } from "./product-env.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
 import { ajv, committedSchema } from "./schemas.ts";
 
@@ -44,6 +47,8 @@ export interface TestEnvDescription {
   readonly tools: Tools;
   /** The Proving ground started on the seed the test asked for, if any. */
   readonly proving_ground?: ProvingGroundDescription | undefined;
+  /** The Daemon started in the test's home, if the test asked for one. */
+  readonly daemon?: DaemonDescription | undefined;
 }
 
 /** A program and its arguments. */
@@ -64,6 +69,8 @@ export interface TestEnvStart {
   readonly program?: Program | undefined;
   /** The seed of a Proving ground to start beside the setup, when given. */
   readonly provingGroundSeed?: number | undefined;
+  /** The Product whose Daemon to start in the test's home, when given. */
+  readonly daemon?: Product | undefined;
 }
 
 /** A started setup. */
@@ -106,9 +113,10 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
     start.provingGroundSeed === undefined
       ? []
       : ["--proving-ground", String(start.provingGroundSeed)];
+  const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
   const started = start.processes.spawn(
     program.command,
-    [...program.args, "--test-name", start.testName, ...provingGround],
+    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon],
     {
       env,
     },

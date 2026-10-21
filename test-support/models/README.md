@@ -2,7 +2,7 @@
 
 The TLA+ models of the model checks (ADR 0060; TESTING.md, Model checking).
 
-- `tools.toml` pins the pair of TLA+ tools, each a URL with its SHA-256; `just tlc-fetch` keeps them in `target/tla-tools/`. Its 1.8.0 prerelease pin breaks at each upstream build, and its comments give the steps to move it.
+- `tools.toml` pins the pair of TLA+ tools, each an asset of this repository's `tla-tools-…` release with its SHA-256, since upstream replaces the 1.8.0 prerelease at each build; `just tlc-fetch` keeps them in `target/tla-tools/`, and the file's comments give the steps to move the pair.
 - `trace-probe/` is not a model (it has no `model.toml`): it is the etcd-style trace-validation probe that checks a new pair of tools, run by the commands in `tools.toml`.
 - Each folder holding a `model.toml` is one model: `spec` names its TLA+ module, and `traces` the files and folders of the modules it describes, a change to which selects it. `small.cfg` holds the Pre-merge and Release suites' constants, `large.cfg` the nightly job's.
 - `sample/` is the TLC job's self-test: `just tlc sample` passes, and its `broken.cfg` variant must fail on its invariant (`just tlc-self-test`).

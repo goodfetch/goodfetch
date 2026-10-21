@@ -1,7 +1,7 @@
 //! Pinned downloads: files fetched before the outbound-traffic deny, each
-//! named by a URL with its SHA-256 in a committed pins file, and used only
-//! while the kept copy has that SHA-256 (ADR 0060's TLA+ tools and LazyFS
-//! sources).
+//! named by its source, a URL or a GitHub release's asset, with its SHA-256
+//! in a committed pins file, and used only while the kept copy has that
+//! SHA-256 (ADR 0060's TLA+ tools and LazyFS sources).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -15,16 +15,68 @@ use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 
 use crate::check::Finding;
+use crate::github::Api;
 
 /// One pinned download.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "PinEntry")]
 pub(crate) struct Pin {
     /// The kept file's name.
     pub(crate) name: String,
-    pub(crate) url: String,
+    pub(crate) source: Source,
     /// Lowercase hexadecimal.
     pub(crate) sha256: String,
+}
+
+/// Where a pinned file is downloaded from.
+pub(crate) enum Source {
+    /// A URL anyone may read.
+    Url(String),
+    /// An asset of a GitHub release, read through GitHub's API with the
+    /// job's token, so a private repository's release serves it too.
+    Release(ReleaseAsset),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReleaseAsset {
+    /// The repository, as `owner/name`.
+    pub(crate) repository: String,
+    pub(crate) tag: String,
+    /// The asset's name in the release.
+    pub(crate) asset: String,
+}
+
+/// A pin as its file writes it: exactly one of `url` and `release`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinEntry {
+    name: String,
+    url: Option<String>,
+    release: Option<ReleaseAsset>,
+    sha256: String,
+}
+
+impl TryFrom<PinEntry> for Pin {
+    type Error = String;
+
+    fn try_from(entry: PinEntry) -> Result<Self, Self::Error> {
+        let source = match (entry.url, entry.release) {
+            (Some(url), None) => Source::Url(url),
+            (None, Some(release)) => Source::Release(release),
+            _ => {
+                return Err(format!(
+                    "{} needs exactly one of `url` and `release`",
+                    entry.name
+                ));
+            }
+        };
+        Ok(Self {
+            name: entry.name,
+            source,
+            sha256: entry.sha256,
+        })
+    }
 }
 
 /// Reads the pins file at `relative` (from the repository root), whose
@@ -89,14 +141,68 @@ fn download(url: &str, maximum: u64) -> Result<Vec<u8>> {
         .with_context(|| format!("reading {url}"))
 }
 
+/// A release as GitHub's API lists it, with only what a download needs.
+#[derive(Deserialize)]
+struct Release {
+    assets: Vec<Asset>,
+}
+
+#[derive(Deserialize)]
+struct Asset {
+    id: u64,
+    name: String,
+}
+
+/// The pin's bytes, or `None` when its release or the asset does not exist,
+/// or the token cannot see them.
+fn download_source(source: &Source, api: Api<'_>, maximum: u64) -> Result<Option<Vec<u8>>> {
+    match source {
+        Source::Url(url) => download(url, maximum).map(Some),
+        Source::Release(release) => {
+            let listing: Option<Release> = api.find(&format!(
+                "/repos/{}/releases/tags/{}",
+                release.repository, release.tag
+            ))?;
+            let Some(asset) = listing.and_then(|listing| {
+                listing
+                    .assets
+                    .into_iter()
+                    .find(|asset| asset.name == release.asset)
+            }) else {
+                return Ok(None);
+            };
+            api.download(
+                &format!("/repos/{}/releases/assets/{}", release.repository, asset.id),
+                maximum,
+            )
+            .map(Some)
+        }
+    }
+}
+
+impl Source {
+    /// Where the pin comes from, for a finding.
+    fn describe(&self) -> String {
+        match self {
+            Self::Url(url) => url.clone(),
+            Self::Release(release) => format!(
+                "{} of {}'s release {}",
+                release.asset, release.repository, release.tag
+            ),
+        }
+    }
+}
+
 /// Downloads into `folder` each pin whose kept file lacks its SHA-256, each
-/// at most `maximum` bytes. A download with another SHA-256 is a finding,
-/// and leaves no kept file of that pin; `pins_file` names where to move it.
+/// at most `maximum` bytes, a release's asset through `api`. A download with
+/// another SHA-256, or a release without the pinned asset, is a finding and
+/// leaves no kept file of that pin; `pins_file` names where to move it.
 pub(crate) fn fetch(
     folder: &Path,
     pins: &[Pin],
     pins_file: &str,
     maximum: u64,
+    api: Api<'_>,
 ) -> Result<Vec<Finding>> {
     std::fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
     let mut findings = Vec::new();
@@ -105,23 +211,36 @@ pub(crate) fn fetch(
         if kept_as_pinned(&path, &pin.sha256)? {
             continue;
         }
-        let bytes = download(&pin.url, maximum)?;
-        let actual = sha256(&bytes);
-        if actual != pin.sha256 {
-            if path.exists() {
-                std::fs::remove_file(&path)
-                    .with_context(|| format!("removing {}", path.display()))?;
+        let bytes = match download_source(&pin.source, api, maximum)? {
+            Some(bytes) if sha256(&bytes) == pin.sha256 => bytes,
+            downloaded => {
+                if path.exists() {
+                    std::fs::remove_file(&path)
+                        .with_context(|| format!("removing {}", path.display()))?;
+                }
+                findings.push(match downloaded {
+                    None => Finding::new(
+                        "missing-asset",
+                        pin.name.clone(),
+                        format!(
+                            "{} does not exist, or GITHUB_TOKEN cannot read it; correct the pin in {pins_file} or set the token",
+                            pin.source.describe()
+                        ),
+                    ),
+                    Some(bytes) => Finding::new(
+                        "digest-mismatch",
+                        pin.name.clone(),
+                        format!(
+                            "{} served SHA-256 {}, not the pinned {}; move the pin in {pins_file} only after checking the new release",
+                            pin.source.describe(),
+                            sha256(&bytes),
+                            pin.sha256
+                        ),
+                    ),
+                });
+                continue;
             }
-            findings.push(Finding::new(
-                "digest-mismatch",
-                pin.name.clone(),
-                format!(
-                    "{} served SHA-256 {actual}, not the pinned {}; move the pin in {pins_file} only after checking the new release",
-                    pin.url, pin.sha256
-                ),
-            ));
-            continue;
-        }
+        };
         // Written beside its final name and renamed, so an interrupted
         // download never leaves a file under the kept name.
         let partial = folder.join(format!("{}.partial", pin.name));

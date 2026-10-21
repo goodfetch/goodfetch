@@ -789,9 +789,12 @@ screenshots-update:
 # Keeps each tool of test-support/models/tools.toml in target/tla-tools/,
 # downloading only a file that lacks its pinned SHA-256; a download whose
 # SHA-256 differs fails (ADR 0060).
+# The tools are a release asset of this repository, read with GITHUB_TOKEN
+# or the GitHub CLI's token while the repository is private.
 # Downloads the pinned pair of TLA+ tools, before the outbound-traffic deny.
 tlc-fetch:
-    cargo run --quiet -p xtask -- tlc fetch
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet -p xtask -- tlc fetch
 
 # Each model of test-support/models/ runs with its small.cfg; `--config
 # large` takes the nightly job's constants, and `--config <variant>` a

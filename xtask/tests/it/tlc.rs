@@ -116,6 +116,79 @@ fn fetch_replaces_a_kept_file_whose_digest_differs_from_its_pin() {
     );
 }
 
+/// The release of the repository that keeps a copy of the tools, as GitHub's
+/// API lists it: asset 7 is `tla2tools.jar`.
+const RELEASE: &str = "/repos/goodfetch/goodfetch/releases/tags/tla-tools-1";
+const RELEASE_LISTING: &str =
+    r#"{"tag_name":"tla-tools-1","assets":[{"id":7,"name":"tla2tools.jar"}]}"#;
+const ASSET: &str = "/repos/goodfetch/goodfetch/releases/assets/7";
+
+/// A workspace whose tools file pins `tla2tools.jar` as `asset` of the
+/// repository's `tla-tools-1` release, at its stand-in's SHA-256.
+fn pinned_to_release(asset: &str) -> Workspace {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        TOOLS_FILE,
+        format!(
+            "[[tool]]\nname = \"tla2tools.jar\"\n\
+             release = {{ repository = \"goodfetch/goodfetch\", tag = \"tla-tools-1\", asset = \"{asset}\" }}\n\
+             sha256 = \"{TLA2TOOLS_SHA256}\"\n"
+        )
+        .as_bytes(),
+    );
+    workspace
+}
+
+#[test]
+fn fetch_downloads_a_release_asset_through_the_api_with_the_token() {
+    let github = GitHub::serving(&[(RELEASE, RELEASE_LISTING), (ASSET, TLA2TOOLS)]);
+    let workspace = pinned_to_release("tla2tools.jar");
+
+    let outcome = workspace.xtask_with_env(
+        &["tlc", "fetch", "--api-url", github.url()],
+        &[("GITHUB_TOKEN", "a-read-token".as_ref())],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let asset = github
+        .requests()
+        .into_iter()
+        .find(|request| request.path == ASSET)
+        .map(|request| (request.authorization, request.accept));
+    assert_eq!(
+        (workspace.read("target/tla-tools/tla2tools.jar"), asset),
+        (
+            Some(TLA2TOOLS.as_bytes().to_vec()),
+            Some((
+                Some("Bearer a-read-token".to_owned()),
+                Some("application/octet-stream".to_owned())
+            ))
+        )
+    );
+}
+
+#[rstest]
+#[case::a_release_without_the_asset(&[(RELEASE, RELEASE_LISTING), (ASSET, TLA2TOOLS)], "tla2tools-renamed.jar")]
+#[case::no_such_release(&[], "tla2tools.jar")]
+fn fetch_fails_on_a_release_asset_it_cannot_find(
+    #[case] routes: &[(&str, &str)],
+    #[case] asset: &str,
+) {
+    let github = GitHub::serving(routes);
+    let workspace = pinned_to_release(asset);
+
+    let outcome = workspace.xtask(&["tlc", "fetch", "--api-url", github.url()]);
+
+    assert_eq!(
+        (
+            outcome.code,
+            outcome.findings(),
+            workspace.read("target/tla-tools/tla2tools.jar")
+        ),
+        (1, vec![finding("missing-asset", "tla2tools.jar")], None)
+    );
+}
+
 /// `xtask affected`'s `jobs` and `models` for one change of the `affected`
 /// fixture, whose `fencing` model traces the engine's `lease.rs` and the
 /// frontier's `claim/` folder, and whose `sample` model traces nothing.

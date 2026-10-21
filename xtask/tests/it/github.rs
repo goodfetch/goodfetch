@@ -18,6 +18,10 @@ pub(crate) struct Request {
     pub(crate) method: String,
     pub(crate) path: String,
     pub(crate) body: String,
+    /// The `Authorization` header, when the request carried one.
+    pub(crate) authorization: Option<String>,
+    /// The `Accept` header, when the request carried one.
+    pub(crate) accept: Option<String>,
 }
 
 pub(crate) struct GitHub {
@@ -84,16 +88,23 @@ fn answer(
     let mut request_line = String::new();
     reader.read_line(&mut request_line).unwrap();
     let mut length = 0;
+    let mut authorization = None;
+    let mut accept = None;
     loop {
         let mut header = String::new();
         reader.read_line(&mut header).unwrap();
         if header == "\r\n" || header.is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.eq_ignore_ascii_case("content-length")
-        {
-            length = value.trim().parse().unwrap();
+        if let Some((name, value)) = header.split_once(':') {
+            let value = value.trim();
+            if name.eq_ignore_ascii_case("content-length") {
+                length = value.parse().unwrap();
+            } else if name.eq_ignore_ascii_case("authorization") {
+                authorization = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("accept") {
+                accept = Some(value.to_owned());
+            }
         }
     }
     let mut body = vec![0; length];
@@ -112,6 +123,8 @@ fn answer(
         method,
         path,
         body: String::from_utf8(body).unwrap(),
+        authorization,
+        accept,
     });
     write!(
         stream,

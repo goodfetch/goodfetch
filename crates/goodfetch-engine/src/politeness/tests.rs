@@ -256,6 +256,50 @@ fn a_woken_waiter_its_own_cap_still_refuses_passes_the_wake_to_the_next() {
     );
 }
 
+/// The run that gave a Permit back cannot take it again ahead of the
+/// waiter it woke: the waiter's turn comes first.
+///
+/// Covers: story:3-80
+#[test]
+fn the_room_a_permit_given_back_frees_is_kept_for_the_waiter_it_woke() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let (again, waiter) = run(async |owner| {
+        let first = engine(&env, "first", owner).await;
+        let second = engine(&env, "second", owner).await;
+        let mut wakes = second.wakes();
+        let holding = holder(&env, "holding");
+        let held = granted(
+            first
+                .take("shop.test", &holding, cap(1), now)
+                .await
+                .unwrap(),
+        );
+        second
+            .take("shop.test", &holder(&env, "waiting"), cap(1), now)
+            .await
+            .unwrap();
+        first
+            .give_back(held, cap(1), Ending::Done, now)
+            .await
+            .unwrap();
+        next_wake(&mut wakes).await;
+
+        let again = first
+            .take("shop.test", &holding, cap(1), now)
+            .await
+            .unwrap();
+        let waiter = second
+            .take("shop.test", &holder(&env, "waiting"), cap(1), now)
+            .await
+            .unwrap();
+        (again, matches!(waiter, Taken::Granted(_)))
+    });
+
+    assert_eq!((again, waiter), (Taken::Wait(None), true));
+}
+
 /// Covers: story:3-80
 #[test]
 fn the_waiters_of_an_engine_that_ended_lose_their_turn_to_the_next() {

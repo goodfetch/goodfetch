@@ -10,9 +10,10 @@
 //!
 //! An engine refused for want of room registers its wake endpoint (from
 //! `transport`) as a waiter of the key; the engine that gives a Permit of
-//! that key back wakes the waiter whose turn it is, and a waiter woken but
-//! still refused, by a stricter cap of its own, passes the wake to the next,
-//! so waiters take turns and nothing polls. A wait for a deadline (a delay,
+//! that key back wakes the waiter whose turn it is, whose room is kept for
+//! it a moment ([`WAKE_GRACE`]) so a run that did not wait cannot take it
+//! first; a waiter woken but still refused, by a stricter cap of its own,
+//! passes the wake to the next, so waiters take turns and nothing polls. A wait for a deadline (a delay,
 //! a `Retry-After`, a backoff) is a timer the caller sets.
 //!
 //! A Permit records its Run, run epoch and folder: an engine refused for
@@ -46,6 +47,10 @@ const MAILBOX: usize = 256;
 /// as woken for every key.
 const WAKES: usize = 256;
 
+/// How long the room a give back freed is kept for the waiter it woke:
+/// another run counts it as in flight meanwhile.
+const WAKE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The wake endpoint's name in its folder.
 const WAKE_SOCKET: &str = "wake.sock";
 
@@ -68,6 +73,7 @@ const SCHEMA: &[&str] = &[
         endpoint TEXT NOT NULL,
         turn INTEGER NOT NULL,
         woken INTEGER NOT NULL,
+        woken_at INTEGER NOT NULL,
         PRIMARY KEY (key, run_id)
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT",
@@ -251,6 +257,7 @@ struct Turn {
     endpoint: String,
     wake: Wake,
     generation: i64,
+    now: SystemTime,
 }
 
 /// The engine's handle on a Politeness file: a handle to the file's actor,
@@ -543,12 +550,13 @@ impl Politeness {
                     let gone = turn.endpoint.clone();
                     let key = turn.wake.key.clone();
                     let generation = turn.generation;
+                    let now = turn.now;
                     let next = self
                         .run(move |connection, context| {
                             connection
                                 .execute("DELETE FROM waiters WHERE endpoint = ?1", [&gone])
                                 .map_err(|error| sqlite_error(&context.path, &error))?;
-                            next_turn(connection, &key, generation)
+                            next_turn(connection, &key, generation, now)
                                 .map_err(|error| sqlite_error(&context.path, &error))
                         })
                         .await;
@@ -707,11 +715,12 @@ fn generation(connection: &Connection, key: &str) -> rusqlite::Result<i64> {
 }
 
 /// The first waiter of `key` in turn not yet woken for `generation`,
-/// marked woken for it.
+/// marked woken for it at `now`.
 fn next_turn(
     connection: &Connection,
     key: &str,
     generation: i64,
+    now: SystemTime,
 ) -> rusqlite::Result<Option<Turn>> {
     let next: Option<(String, String)> = connection
         .query_row(
@@ -724,8 +733,8 @@ fn next_turn(
         return Ok(None);
     };
     connection.execute(
-        "UPDATE waiters SET woken = ?3 WHERE key = ?1 AND run_id = ?2",
-        (key, &run_id, generation),
+        "UPDATE waiters SET woken = ?3, woken_at = ?4 WHERE key = ?1 AND run_id = ?2",
+        (key, &run_id, generation, milliseconds(now)),
     )?;
     Ok(Some(Turn {
         endpoint,
@@ -734,7 +743,31 @@ fn next_turn(
             key: key.to_owned(),
         },
         generation,
+        now,
     }))
+}
+
+/// How many requests `run_id` counts as in flight under `key` at `now`:
+/// the Permits held, and the room kept for another run's waiter woken
+/// within [`WAKE_GRACE`] for the latest give back.
+fn taken_room(
+    connection: &Connection,
+    key: &str,
+    run_id: &str,
+    now: SystemTime,
+) -> rusqlite::Result<u64> {
+    let kept: i64 = connection.query_row(
+        "SELECT count(*) FROM waiters
+         WHERE key = ?1 AND run_id != ?2 AND woken > 0 AND woken = ?3 AND woken_at > ?4",
+        (
+            key,
+            run_id,
+            generation(connection, key)?,
+            milliseconds(now).saturating_sub(i64::try_from(WAKE_GRACE.as_millis()).unwrap_or(0)),
+        ),
+        |row| row.get(0),
+    )?;
+    Ok(in_flight(connection, key)? + u64::try_from(kept).unwrap_or_default())
 }
 
 /// Deletes the Permits of every other engine's Run that is gone, and
@@ -773,22 +806,13 @@ fn take_in(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(failed)?;
+    let taken = |transaction: &Connection| taken_room(transaction, key, &holder.run_id, now);
     let mut verdict = rule
-        .admit(
-            &transaction,
-            key,
-            in_flight(&transaction, key).map_err(failed)?,
-            now,
-        )
+        .admit(&transaction, key, taken(&transaction).map_err(failed)?, now)
         .map_err(failed)?;
     if verdict == Verdict::Busy && reclaim(&transaction, context, key).map_err(failed)? > 0 {
         verdict = rule
-            .admit(
-                &transaction,
-                key,
-                in_flight(&transaction, key).map_err(failed)?,
-                now,
-            )
+            .admit(&transaction, key, taken(&transaction).map_err(failed)?, now)
             .map_err(failed)?;
     }
     let mut turn = None;
@@ -824,7 +848,8 @@ fn take_in(
         Verdict::Until(until) => Taken::Wait(Some(until)),
         Verdict::Busy => {
             if let Some(endpoint) = &context.endpoint {
-                turn = wait_in_turn(&transaction, key, &holder.run_id, endpoint).map_err(failed)?;
+                turn = wait_in_turn(&transaction, key, &holder.run_id, endpoint, now)
+                    .map_err(failed)?;
             }
             Taken::Wait(None)
         }
@@ -841,6 +866,7 @@ fn wait_in_turn(
     key: &str,
     run_id: &str,
     endpoint: &str,
+    now: SystemTime,
 ) -> rusqlite::Result<Option<Turn>> {
     let generation = generation(connection, key)?;
     let woken: Option<i64> = connection
@@ -855,7 +881,7 @@ fn wait_in_turn(
         None => {
             connection.execute(
                 &format!(
-                    "INSERT INTO waiters (key, run_id, endpoint, turn, woken) VALUES (?1, ?2, ?3, {back}, ?4)"
+                    "INSERT INTO waiters (key, run_id, endpoint, turn, woken, woken_at) VALUES (?1, ?2, ?3, {back}, ?4, 0)"
                 ),
                 (key, run_id, endpoint, generation),
             )?;
@@ -864,11 +890,11 @@ fn wait_in_turn(
         Some(woken) if woken == generation && generation > 0 => {
             connection.execute(
                 &format!(
-                    "UPDATE waiters SET turn = {back}, endpoint = ?3 WHERE key = ?1 AND run_id = ?2"
+                    "UPDATE waiters SET turn = {back}, endpoint = ?3, woken_at = 0 WHERE key = ?1 AND run_id = ?2"
                 ),
                 (key, run_id, endpoint),
             )?;
-            next_turn(connection, key, generation)
+            next_turn(connection, key, generation, now)
         }
         Some(_) => Ok(None),
     }
@@ -902,7 +928,7 @@ fn give_back_in(
             |row| row.get(0),
         )
         .map_err(failed)?;
-    let turn = next_turn(&transaction, &permit.key, generation).map_err(failed)?;
+    let turn = next_turn(&transaction, &permit.key, generation, now).map_err(failed)?;
     transaction.commit().map_err(failed)?;
     Ok((ready_at, turn))
 }

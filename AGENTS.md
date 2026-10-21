@@ -19,7 +19,7 @@ this status remains pre-release, ask the owner before a breaking change.
 
 ## Merging
 
-CI runs locally (owner decision of 2026-10-19, ADR 0135): GitHub Actions is turned off for the repository. Merge a pull request with `just merge <number>` only: it runs `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, in a clean checkout of the pull request's exact head (one locked gate worktree whose build caches persist), and merges only when it passes. In a stack of pull requests, merge the bottom one first.
+CI runs locally (owner decisions of 2026-10-19 and 2026-10-21, ADR 0135): GitHub Actions is on for the Release suite only, which `just release-ci` dispatches, and every other workflow is disabled. Merge a pull request with `just merge <number>` only: it runs `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, in a clean checkout of the pull request's exact head (one locked gate worktree whose build caches persist), and merges only when it passes. In a stack of pull requests, merge the bottom one first.
 
 ## Authorship
 

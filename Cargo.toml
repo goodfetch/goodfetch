@@ -116,6 +116,9 @@ serde_json = { version = "1.0.154", default-features = false, features = ["std"]
 serde_json_canonicalizer = { version = "0.3.2", default-features = false }
 sha1 = { version = "0.10.6", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
+# The Proving ground's stop test shrinks the buffers of the socket `serve`
+# writes its first line to, so the line's end waits until the test reads it.
+socket2 = { version = "0.6.5", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
 tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }

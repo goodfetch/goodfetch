@@ -58,7 +58,7 @@ use clap::Parser as _;
 use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
 use crate::network::{Loss, Network, Profile};
 use crate::network_fixture::NetworkFixtures;
-use crate::server::Server;
+use crate::server::{Server, StopSignal};
 use crate::site::Site;
 use crate::task::TaskList;
 
@@ -100,8 +100,10 @@ fn run(serve: &Serve) -> Result<()> {
     ))
 }
 
-/// Shapes and calibrates the network, binds the server behind it, serves
-/// until stopped, then undoes the shaping.
+/// Listens for the stop signals, shapes and calibrates the network, binds
+/// the server behind it, serves until stopped, then undoes the shaping. A
+/// stop signal that arrives while it starts is acted on once it has
+/// reported its address, so the shaping is undone then too.
 async fn shape_and_serve(
     seed: u64,
     address: SocketAddr,
@@ -109,6 +111,7 @@ async fn shape_and_serve(
     loss: Loss,
     shaper: Shaper,
 ) -> Result<()> {
+    let stop_signal = StopSignal::listen()?;
     let profile = match network_profile.round_trip() {
         Some((name, round_trip)) => Some(Profile::new(name, round_trip, loss)),
         None if loss.is_some() => bail!("a loss needs a shaped network profile, such as `rtt-0`"),
@@ -133,14 +136,19 @@ async fn shape_and_serve(
             )
         }
     };
-    let outcome = serve(server, &network, seed).await;
+    let outcome = serve(server, &network, seed, stop_signal).await;
     let stopped = network.stop().await;
     outcome.and(stopped)
 }
 
 /// Binds the network fixtures beside the server, prints the output line,
-/// and serves until stopped.
-async fn serve(server: Server, network: &Network, seed: u64) -> Result<()> {
+/// and serves until `stop_signal` is received.
+async fn serve(
+    server: Server,
+    network: &Network,
+    seed: u64,
+    stop_signal: StopSignal,
+) -> Result<()> {
     let upstream = server.address();
     let reached = network.proxy_address().unwrap_or(upstream);
     let fixtures = NetworkFixtures::bind(reached.ip(), seed, server.observations()).await?;
@@ -154,8 +162,9 @@ async fn serve(server: Server, network: &Network, seed: u64) -> Result<()> {
     );
     output::line(&line)?;
     tokio::select! {
-        outcome = server.run() => outcome,
-        () = network.forward(upstream) => Ok(()),
-        () = fixtures.run() => Ok(()),
+        () = server.run(stop_signal) => {}
+        () = network.forward(upstream) => {}
+        () = fixtures.run() => {}
     }
+    Ok(())
 }

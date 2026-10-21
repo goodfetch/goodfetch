@@ -12,6 +12,7 @@ pub mod admission;
 mod attached;
 mod body;
 pub mod browser_cache;
+pub mod checkpoint;
 pub mod children;
 pub mod client;
 pub mod clock;

@@ -1,0 +1,78 @@
+// The keyboard walk of every Console screen (ADR 0073): one named served
+// case per `screen:` Feature of the inventory, so a new screen gets its
+// keyboard walk and its axe pass with no test written for it. Each case
+// opens its screen on its own Daemon, run by the executable of the screen's
+// Product (Collie's for a screen both Products carry, Foxhound's for
+// Foxhound's screens, ADR 0094), at the route and in the sign-in state area
+// 12 gives it in `console/screens.toml`, runs `keyboardWalk` and
+// `focusChecks`, and ends with the axe fixture's pass.
+//
+// A screen without a route or a sign-in state fails its case by name with
+// `screen_setup_missing`; it is never skipped. The cases declare no Feature:
+// they check how a screen is built, not the outcome its Feature names.
+import { TestSupportError } from "./errors.ts";
+import { readScreens, type Screen } from "./features.ts";
+import { focusChecks, keyboardWalk } from "./focus.ts";
+import { test } from "./playwright.ts";
+import { readScreenSetups, SCREEN_SETUPS_FILE, type ScreenSetup } from "./screen-setups.ts";
+
+export {
+  parseScreenSetups,
+  readScreenSetups,
+  SCREEN_SETUPS_FILE,
+  type ScreenSetup,
+  type SignInState,
+} from "./screen-setups.ts";
+
+/**
+ * Declares one served case per `screen:` Feature of the inventory of the
+ * workspace at `root`, named by the Feature, with the screen's setup from
+ * that workspace's `console/screens.toml`.
+ */
+export function testEachScreen(root: string): void {
+  const setups = readScreenSetups(root);
+  for (const screen of readScreens(root)) {
+    test.describe(() => {
+      test.use({ product: screen.product });
+      caseOf(screen, setups.get(screen.feature));
+    });
+  }
+}
+
+function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
+  const route = setup?.route;
+  const signInState = setup?.signIn;
+  if (route === undefined || signInState === undefined) {
+    const missing = [
+      ...(route === undefined ? ["no route"] : []),
+      ...(signInState === undefined ? ["no sign-in state"] : []),
+    ];
+    test(screen.feature, () => {
+      throw new TestSupportError(
+        "screen_setup_missing",
+        `${screen.feature} has ${missing.join(" and ")} in ${SCREEN_SETUPS_FILE}, where area 12 gives each screen both`,
+      );
+    });
+    return;
+  }
+  test(screen.feature, async ({ page, daemon, signIn }, testInfo) => {
+    if (signInState === "signed-in") {
+      await signIn.withLink(page);
+    }
+    const response = await page.goto(new URL(route, daemon.url).href);
+    if (response === null || !response.ok()) {
+      const answer = response === null ? "nothing" : `HTTP ${response.status()}`;
+      throw new TestSupportError(
+        "screen_not_served",
+        `${screen.feature}'s route ${route} answered ${answer} on ${daemon.product}'s executable, ${signInState}`,
+      );
+    }
+    const stops = await test.step("keyboardWalk", () => keyboardWalk(page));
+    await testInfo.attach("keyboard-walk", {
+      body: JSON.stringify(stops, null, 2),
+      contentType: "application/json",
+    });
+    await test.step("focusChecks", () => focusChecks(page));
+    // The axe fixture's pass ends the case, once it has passed.
+  });
+}

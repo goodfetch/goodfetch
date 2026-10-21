@@ -89,7 +89,7 @@ status = "active"
 [[story]]
 id = 11
 title = "As a developer, I want a driven page never throttled as a background tab when another page of its Session is in front, so that timers and animations on my page keep running (ADR 0085's background-tab question)."
-milestone = "M3 Browser automation"
+milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"

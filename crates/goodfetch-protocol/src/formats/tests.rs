@@ -122,6 +122,7 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("run-index", Rule::SharedStore),
             ("run-state", Rule::Default),
             ("installed-executables", Rule::FrozenMajor),
+            ("politeness-file", Rule::FrozenMajor),
             ("operator-policy", Rule::SharedStore),
             ("user-configuration", Rule::SharedStore)
         ]

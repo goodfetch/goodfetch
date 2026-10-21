@@ -1,5 +1,6 @@
 ---
 source: crates/goodfetch-engine/src/engine/tests.rs
+assertion_line: 271
 expression: "pretty(&received[0])"
 ---
 {
@@ -12,7 +13,7 @@ expression: "pretty(&received[0])"
       "fix": "Upgrade the engine to a version that speaks protocol 0.2, or use a Client of the engine's own version.",
       "retryable": false
     },
-    "message": "This Client speaks protocol 0.2, and this engine speaks 0.1: it accepts 0.0 to 0.1."
+    "message": "This Client speaks protocol 0.2, and this engine speaks 0.1: it accepts 0.1."
   },
   "id": 0,
   "jsonrpc": "2.0"

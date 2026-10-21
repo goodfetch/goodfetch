@@ -1,0 +1,353 @@
+//! Limits across runs through the engine's public interface over the
+//! in-memory network (spec #213's Seam 3): `usage.set` and `usage.list`; a
+//! Run that charges Usage against its Slices and stops at its next safe
+//! point once a Limit has nothing left, `stopped` and `incomplete` for that
+//! Limit; a new Run refused with `limit_reached` or `limit_not_understood`;
+//! a value only Foxhound carries refused by a Collie engine; and the Slices
+//! of a dead engine's Run reclaimed by the next engine that opens the Usage
+//! ledger, from what the Run journaled. A test's own operation, `test.charge`,
+//! starts a Run that charges `requests` one at a time, as a crawl does
+//! before each request.
+
+use std::collections::BTreeMap;
+
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+};
+use goodfetch_protocol::run::{LimitScope, RunId, RunKind, Tags};
+use goodfetch_protocol::usage::{Limit, LimitSetter};
+use goodfetch_test_support::TestEnv;
+use jiff::Timestamp;
+use rstest::rstest;
+use serde_json::{Value, json};
+use tokio::io::AsyncBufReadExt as _;
+use tokio::io::BufReader;
+
+use super::run::call;
+use super::{Client, attached_on, dependencies, engine_with, hello};
+use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::ledger::Ledger;
+use crate::runs::{ChargeError, EndedBy, Start, Started};
+use crate::transport::{self, Network};
+
+/// Starts a Run of its own and charges `amount` requests, one at a time,
+/// until one is refused.
+const CHARGE: Operation = Operation {
+    name: "test.charge",
+    description: "Starts a Run that charges requests one at a time.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+fn charging() -> Contribution {
+    Contribution::new("test-usage").with_handler(Handler::new(
+        &CHARGE,
+        |params: Value, context: CallContext| async move {
+            let started = context
+                .runs()
+                .start(Start {
+                    run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+                    tags: Tags::default(),
+                    kind: RunKind::Collie,
+                    needs: Product::Collie,
+                    inputs: BTreeMap::new(),
+                    ended_by: EndedBy::Finish,
+                    initialize: None,
+                    policy_version: None,
+                    weakened_by: Vec::new(),
+                    binding: None,
+                    clean_up_digest: None,
+                    checkpoint_interval: None,
+                    timeout: None,
+                    settings: None,
+                })
+                .await
+                .map_err(crate::run::start_error)?;
+            let Started::New(run) = started else {
+                panic!("the Run began before");
+            };
+            let mut charged = 0;
+            let mut refused = false;
+            for _ in 0..params["amount"].as_u64().unwrap() {
+                match run.charge("requests", 1).await {
+                    Ok(()) => charged += 1,
+                    Err(ChargeError::Refused(_)) => {
+                        refused = true;
+                        break;
+                    }
+                    Err(error) => panic!("the charge failed: {error}"),
+                }
+            }
+            Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
+        },
+    ))
+}
+
+fn monthly_install_limit(amount: u64) -> Value {
+    json!({
+        "scope": "install",
+        "usage_kind": "requests",
+        "period": { "every": "month", "time_zone": "UTC" },
+        "amount": amount,
+    })
+}
+
+/// The install's monthly Limit on requests, as the engine names it.
+fn install_month() -> Value {
+    json!({
+        "scope": { "kind": "install", "id": "" },
+        "usage_kind": "requests",
+        "period": { "every": "month", "time_zone": "UTC" },
+        "resets_at": "2026-02-01T00:00:00Z",
+    })
+}
+
+/// Runs a Collie engine with `test.charge` in `env` while the Client makes
+/// `calls`, after its `hello`, and answers each reply.
+fn replies(env: &TestEnv, product: Product, calls: &[(&str, Value)]) -> Vec<Value> {
+    let engine = engine_with(product, Some(charging()));
+    let calls: Vec<(String, Value)> = calls
+        .iter()
+        .map(|(method, params)| ((*method).to_owned(), params.clone()))
+        .collect();
+    let needs = product.as_str();
+    attached_on(&engine, env, |mut client: Client| async move {
+        client.send(&[hello(needs, "0.1")]).await;
+        client.next().await;
+        let mut replies = Vec::new();
+        for (id, (method, params)) in (1..).zip(calls) {
+            replies.push(call(&mut client, id, &method, params).await);
+        }
+        replies
+    })
+}
+
+/// Covers: story:3-71
+#[test]
+fn a_run_that_cannot_take_another_slice_stops_at_its_next_safe_point_naming_the_limit() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[
+            ("usage.set", monthly_install_limit(2)),
+            ("test.charge", json!({ "run_id": "capped", "amount": 3 })),
+            ("run.finish", json!({ "run_id": "capped" })),
+        ],
+    );
+
+    let report = &replies[2]["result"];
+    let mut stop_reason = install_month();
+    stop_reason["kind"] = json!("limit");
+    assert_eq!(
+        (
+            &replies[1]["result"],
+            &report["lifecycle"],
+            &report["completeness"],
+            &report["stop_reason"],
+        ),
+        (
+            &json!({ "charged": 2, "refused": true }),
+            &json!("stopped"),
+            &json!("incomplete"),
+            &stop_reason,
+        )
+    );
+}
+
+/// Covers: story:3-71, error:limit_reached
+#[test]
+fn a_new_run_is_refused_with_limit_reached_naming_the_scope_and_period() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[
+            ("usage.set", monthly_install_limit(2)),
+            ("test.charge", json!({ "run_id": "first", "amount": 2 })),
+            ("run.finish", json!({ "run_id": "first" })),
+            ("run.start", json!({ "run_id": "second" })),
+        ],
+    );
+
+    let data = &replies[3]["error"]["data"];
+    let named: serde_json::Map<String, Value> = install_month()
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|key| (key.clone(), data[key].clone()))
+        .collect();
+    assert_eq!(
+        (&data["code"], Value::Object(named)),
+        (&json!("limit_reached"), install_month())
+    );
+}
+
+/// Covers: story:3-79, operation:usage.list, operation:usage.set
+#[test]
+fn usage_lists_the_usage_against_each_limit_by_scope() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[
+            ("usage.set", monthly_install_limit(1_000)),
+            (
+                "usage.set",
+                json!({ "scope": "person", "usage_kind": "requests", "amount": 50 }),
+            ),
+            ("test.charge", json!({ "run_id": "counted", "amount": 3 })),
+            ("run.finish", json!({ "run_id": "counted" })),
+            ("usage.list", json!({})),
+        ],
+    );
+
+    assert_eq!(
+        replies[4]["result"],
+        json!({ "limits": [
+            {
+                "limit": {
+                    "scope": { "kind": "install", "id": "" },
+                    "usage_kind": "requests",
+                    "period": { "every": "month", "time_zone": "UTC" },
+                    "amount": 1_000,
+                    "must_understand": true,
+                    "set_by": "client",
+                },
+                "standing": "held",
+                "charged": 3,
+                "held": 0,
+                "left": 997,
+                "period_started_at": "2026-01-01T00:00:00Z",
+                "resets_at": "2026-02-01T00:00:00Z",
+            },
+            {
+                "limit": {
+                    "scope": { "kind": "person", "id": "os_user" },
+                    "usage_kind": "requests",
+                    "amount": 50,
+                    "must_understand": true,
+                    "set_by": "client",
+                },
+                "standing": "held",
+                "charged": 3,
+                "held": 0,
+                "left": 47,
+            },
+        ]})
+    );
+}
+
+/// Covers: story:3-67, error:not_in_product
+#[rstest]
+#[case::a_collie_engine_refuses_it(Product::Collie, json!("not_in_product"))]
+#[case::a_foxhound_engine_holds_it(Product::Foxhound, Value::Null)]
+fn paid_fetch_is_a_usage_kind_only_foxhound_carries(#[case] product: Product, #[case] code: Value) {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        product,
+        &[(
+            "usage.set",
+            json!({ "scope": "install", "usage_kind": "paid_fetch", "currency": "USD", "amount": 5_000_000 }),
+        )],
+    );
+
+    assert_eq!(replies[0]["error"]["data"]["code"], code);
+}
+
+/// Covers: story:3-74, error:limit_not_understood
+#[test]
+fn a_limit_a_newer_engine_wrote_refuses_runs_with_limit_not_understood() {
+    let env = TestEnv::new();
+    Ledger::at(env.home().join("usage-ledger.sqlite"), None)
+        .add_limit(
+            &Limit {
+                scope: LimitScope {
+                    kind: "galaxy".to_owned(),
+                    id: "milky-way".to_owned(),
+                },
+                usage_kind: "requests".to_owned(),
+                currency: None,
+                period: None,
+                amount: 10,
+                must_understand: true,
+                set_by: LimitSetter::Person,
+            },
+            Timestamp::UNIX_EPOCH,
+        )
+        .unwrap();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[("run.start", json!({ "run_id": "refused" }))],
+    );
+
+    assert_eq!(
+        replies[0]["error"]["data"]["code"],
+        json!("limit_not_understood")
+    );
+}
+
+/// Runs a Collie engine in `env` that makes `calls`, then dies with its
+/// Runs live: its runtime is dropped, as a killed process's would be.
+fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {
+    let runtime = goodfetch_test_support::runtime();
+    runtime.block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let engine = engine_with(Product::Collie, Some(charging()));
+        let serving = engine.run_attached(Network::InMemory(network), dependencies(env));
+        let talk = async {
+            let (reader, writer) = dialer.connect().await.unwrap().split();
+            let mut client = Client {
+                lines: BufReader::new(reader).lines(),
+                writer,
+            };
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            for (id, (method, params)) in (1..).zip(calls) {
+                let reply = call(&mut client, id, method, params.clone()).await;
+                assert!(reply.get("result").is_some(), "{reply}");
+            }
+        };
+        tokio::select! {
+            served = serving => panic!("the engine ended: {served:?}"),
+            () = talk => {}
+        }
+    });
+    drop(runtime);
+}
+
+/// Covers: story:3-72
+#[test]
+fn the_next_engine_to_open_the_ledger_charges_a_dead_engines_slices_what_its_run_journaled() {
+    let env = TestEnv::new();
+    killed_after(
+        &env,
+        &[
+            ("usage.set", monthly_install_limit(1_000)),
+            ("test.charge", json!({ "run_id": "orphan", "amount": 4 })),
+        ],
+    );
+
+    let replies = replies(&env, Product::Collie, &[("usage.list", json!({}))]);
+
+    let install = &replies[0]["result"]["limits"][0];
+    assert_eq!(
+        (&install["charged"], &install["held"], &install["left"]),
+        (&json!(4), &json!(0), &json!(996))
+    );
+}

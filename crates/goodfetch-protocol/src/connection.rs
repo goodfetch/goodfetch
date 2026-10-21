@@ -78,6 +78,7 @@ impl Surface {
 pub struct ProductVersion {
     text: String,
     major: u64,
+    minor: u64,
 }
 
 /// Text that is no Product version.
@@ -114,15 +115,27 @@ impl ProductVersion {
             }
         }
         let major = numbers[0].parse().map_err(|_| malformed())?;
+        let minor = numbers[1].parse().map_err(|_| malformed())?;
         Ok(Self {
             text: text.to_owned(),
             major,
+            minor,
         })
     }
 
     /// Its product major.
     pub fn major(&self) -> u64 {
         self.major
+    }
+
+    /// Its major and minor, as the formats' rules compare them (ADRs 0030
+    /// and 0098); a number past `u16::MAX` reads as `u16::MAX`.
+    pub fn major_minor(&self) -> ProtocolVersion {
+        let number = |number: u64| u16::try_from(number).unwrap_or(u16::MAX);
+        ProtocolVersion {
+            major: number(self.major),
+            minor: number(self.minor),
+        }
     }
 
     /// The version as written.

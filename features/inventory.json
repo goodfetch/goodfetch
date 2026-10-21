@@ -396,6 +396,39 @@
       ]
     },
     {
+      "id": "command:upgrade-files",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:usage.list",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:usage.set",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:address_family_unavailable",
       "kind": "error",
       "area": 3,
@@ -622,6 +655,28 @@
       ]
     },
     {
+      "id": "error:limit_not_understood",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:limit_reached",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:name_lookup_failed",
       "kind": "error",
       "area": 3,
@@ -689,6 +744,17 @@
     },
     {
       "id": "error:page_crashed",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:pattern_unsupported",
       "kind": "error",
       "area": 5,
       "milestone": null,
@@ -863,6 +929,17 @@
       ]
     },
     {
+      "id": "error:upgrade_source_unsupported",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:browser_cache.download_progress",
       "kind": "event",
       "area": 3,
@@ -1017,6 +1094,17 @@
     },
     {
       "id": "format:run-state",
+      "kind": "format",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:usage-ledger",
       "kind": "format",
       "area": 3,
       "milestone": null,
@@ -1309,6 +1397,28 @@
       "id": "operation:sample.echo",
       "kind": "operation",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:usage.list",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:usage.set",
+      "kind": "operation",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3519,6 +3629,17 @@
       "id": "setting:tls.trusted_cas",
       "kind": "setting",
       "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:version.age_notice",
+      "kind": "setting",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

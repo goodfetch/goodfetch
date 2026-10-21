@@ -4,7 +4,7 @@
 //! back through its own reader, so the set covers every key the schema
 //! holds and is a file the engine reads.
 
-use goodfetch_engine::settings::rewrite;
+use goodfetch_engine::settings::{LOWEST_MINOR_KEY, rewrite};
 use goodfetch_protocol::catalog::{Setting, ValueKind};
 use goodfetch_protocol::entries::MODULES;
 use serde_json::{Value, json};
@@ -28,10 +28,10 @@ pub(crate) fn sample(kind: &ValueKind) -> Value {
 /// Which keys a table of the file holds.
 pub(crate) type Holds = fn(&Setting) -> bool;
 
-/// The text of a file of version `0.1` with each key `holds` accepts set in
-/// each of `tables`.
+/// The text of a file of version `0.1`, which every minor of its major can
+/// use (ADR 0098), with each key `holds` accepts set in each of `tables`.
 pub(crate) fn every_key(tables: &[(&str, Holds)]) -> String {
-    let mut text = "version = \"0.1\"\n".to_owned();
+    let mut text = format!("version = \"0.1\"\n{LOWEST_MINOR_KEY} = 0\n");
     for (table, holds) in tables {
         for setting in MODULES
             .iter()

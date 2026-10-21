@@ -23,7 +23,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
     let mut formats = emitted.bundle["formats"].as_array().unwrap().clone();
     let settings_files: Vec<serde_json::Value> = formats
-        .drain(5..)
+        .drain(6..)
         .map(|format| {
             json!({
                 "name": format["name"],
@@ -45,7 +45,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "storage": "toml",
                 "rule": "shared_store",
                 "hello_from": [],
-                "tables": ["cap", "lock", "settings", "version"],
+                "tables": ["cap", "lock", "lowest_minor", "settings", "version"],
             }),
             json!({
                 "name": "user-configuration",
@@ -53,7 +53,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "storage": "toml",
                 "rule": "shared_store",
                 "hello_from": [],
-                "tables": ["settings", "version"],
+                "tables": ["lowest_minor", "settings", "version"],
             }),
         ]
     );
@@ -99,6 +99,14 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "rule": "frozen_major",
                 "hello_from": [],
                 "schema": { "$ref": "#/$defs/InstalledExecutables" },
+            },
+            {
+                "name": "usage-ledger",
+                "version": "0.1",
+                "storage": "sqlite",
+                "rule": "frozen_major",
+                "hello_from": [],
+                "schema": { "$ref": "#/$defs/Limit" },
             },
         ])
     );
@@ -250,6 +258,7 @@ fn the_bundle_holds_each_commands_json_output() {
             "daemon.stop": { "$ref": "#/$defs/DaemonStopOutput" },
             "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
             "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
+            "upgrade-files": { "$ref": "#/$defs/UpgradeFilesOutput" },
         })
     );
 }

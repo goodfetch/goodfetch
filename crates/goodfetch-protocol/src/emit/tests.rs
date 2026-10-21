@@ -108,6 +108,14 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "hello_from": [],
                 "schema": { "$ref": "#/$defs/Limit" },
             },
+            {
+                "name": "politeness-file",
+                "version": "0.1",
+                "storage": "sqlite",
+                "rule": "frozen_major",
+                "hello_from": [],
+                "schema": { "$ref": "#/$defs/PermitRow" },
+            },
         ])
     );
 }

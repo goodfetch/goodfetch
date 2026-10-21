@@ -3102,6 +3102,27 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": "shared",
+      "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+      "name": "politeness.sharing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "shared",
+          "per_daemon",
+          "run"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 250,
       "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
       "name": "resolver.attempt_delay",

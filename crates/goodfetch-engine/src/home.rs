@@ -18,6 +18,9 @@ const RUN_INDEX: &str = "run-index.sqlite";
 /// The Usage ledger's file, outside the per-major folders (ADR 0041).
 const USAGE_LEDGER: &str = "usage-ledger.sqlite";
 
+/// The per-user Politeness file, outside the per-major folders.
+const POLITENESS_FILE: &str = "politeness.sqlite";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,6 +79,12 @@ impl Home {
     /// every engine of every major and of both Products opens (ADR 0041).
     pub fn usage_ledger(&self) -> PathBuf {
         self.root.join(USAGE_LEDGER)
+    }
+
+    /// The per-user Politeness file, outside the per-major folders, which
+    /// every major and both Products share (ADRs 0053 and 0098).
+    pub fn politeness_file(&self) -> PathBuf {
+        self.root.join(POLITENESS_FILE)
     }
 }
 

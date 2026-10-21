@@ -314,6 +314,10 @@ _Avoid_: rate limiting, throttling
 The optional store through which engines on several machines share Politeness.
 _Avoid_: rate limiter, Redis
 
+**Permit**:
+One request in flight under a Politeness key, such as a domain key, that an engine takes from the per-user Politeness file before the request starts and gives back once it ended, recording the run and run epoch that hold it, so the count in flight is every sharing run's together.
+_Avoid_: token, slot, lease (a Lease is a work item's)
+
 **Completeness**:
 A run's statement of whether its results cover everything in scope: complete, incomplete (ended early) or unverified (finished, but the engine cannot vouch that nothing was missed).
 _Avoid_: success, done, finished (for coverage)

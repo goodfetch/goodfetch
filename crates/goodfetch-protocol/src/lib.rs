@@ -30,6 +30,7 @@ pub mod foxhound_names;
 pub mod journey;
 pub mod jsonrpc;
 pub mod page;
+pub mod politeness;
 pub mod refusals;
 pub mod releases;
 pub mod result_document;

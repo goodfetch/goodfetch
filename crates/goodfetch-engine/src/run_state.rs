@@ -288,6 +288,20 @@ pub(crate) fn next_epoch(
     Ok(u64::try_from(epoch).unwrap_or_default())
 }
 
+/// The run epoch the run file at `path` holds, read without its writer;
+/// `None` when it cannot be read. It blocks: run it under a blocking policy.
+pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let epoch: i64 = connection
+        .query_row("SELECT epoch FROM run", [], |row| row.get(0))
+        .ok()?;
+    u64::try_from(epoch).ok()
+}
+
 fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),

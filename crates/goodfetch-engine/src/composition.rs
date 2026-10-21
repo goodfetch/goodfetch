@@ -32,6 +32,7 @@ use crate::admission::Gates;
 use crate::client::Client;
 use crate::console::ConsoleBuild;
 use crate::events::{Credits, Events};
+use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
 use crate::runs::{Driver, Runs};
@@ -321,6 +322,7 @@ pub struct Contribution {
     name: &'static str,
     handlers: Vec<Handler>,
     run_state_tables: Vec<RunStateTables>,
+    politeness_tables: Vec<PolitenessTables>,
     drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
 }
@@ -332,6 +334,7 @@ impl Contribution {
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
+            politeness_tables: Vec::new(),
             drivers: Vec::new(),
             admission_gates: None,
         }
@@ -356,6 +359,15 @@ impl Contribution {
     #[must_use]
     pub fn with_run_state_tables(mut self, tables: RunStateTables) -> Self {
         self.run_state_tables.push(tables);
+        self
+    }
+
+    /// The same, adding `tables` to the per-user Politeness file, where a
+    /// rule of its gate in admission keeps its keys' shared state (ADR
+    /// 0053).
+    #[must_use]
+    pub fn with_politeness_tables(mut self, tables: PolitenessTables) -> Self {
+        self.politeness_tables.push(tables);
         self
     }
 
@@ -445,6 +457,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.run_state_tables.iter().copied())
+            .collect()
+    }
+
+    /// The tables every contribution adds to the Politeness file, in order.
+    pub(crate) fn politeness_tables(&self) -> Vec<PolitenessTables> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.politeness_tables.iter().copied())
             .collect()
     }
 

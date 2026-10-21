@@ -195,7 +195,7 @@ pub fn run_protocol_suite(
     proving_ground: &ProvingGround,
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
-    let reached = Site::of(&task_list, proving_ground.address());
+    let reached = Site::of(&task_list, proving_ground);
     let mut connection = Connection::new(target::Started::start(target)?);
     let hello = match hello(&mut connection, suite.product) {
         Ok(hello) => hello,

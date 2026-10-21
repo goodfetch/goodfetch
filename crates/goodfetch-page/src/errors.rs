@@ -3,14 +3,16 @@
 //! is where each variant becomes the Error code of the call that met it.
 //! A lost browser or page is `page_crashed`, with how the browser ended
 //! when it is the browser that was lost; any other failure is the call's
-//! generic code: `navigation_failed` for a navigation, as ADR 0085 names
-//! it, and `browser_launch_failed` for opening a page.
+//! generic code: `navigation_failed` for a navigation and for reading the
+//! history it goes through, as ADR 0085 names it, and
+//! `browser_launch_failed` for opening a page.
 
 use goodfetch_cdp::{Failure, Refusal};
 use goodfetch_engine::CallError;
 use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
-    NavigationFailedDetails, PAGE_CRASHED, PageCrashedDetails,
+    NAVIGATION_INTERRUPTED, NavigationFailedDetails, NavigationInterruptedDetails, PAGE_CRASHED,
+    PageCrashedDetails,
 };
 
 /// The call a failure met.
@@ -27,6 +29,9 @@ pub(crate) enum Call {
         /// Its URL.
         url: String,
     },
+    /// Reading the page's history, before a reload or a step back or
+    /// forward, whose URL the history names.
+    History,
 }
 
 /// The Error code `failure` raises from `call`; `exit` says how the browser
@@ -56,6 +61,16 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
                 error: None,
             },
         ),
+        Call::History => CallError::new(
+            &NAVIGATION_FAILED,
+            format!(
+                "the page's history, which the navigation goes through, did not read: {failure}"
+            ),
+            &NavigationFailedDetails {
+                url: String::new(),
+                error: None,
+            },
+        ),
         Call::OpenPage { executable } => CallError::new(
             &BROWSER_LAUNCH_FAILED,
             format!("the browser did not open the page: {failure}"),
@@ -73,6 +88,18 @@ pub(crate) fn renderer_crashed() -> CallError {
         &PAGE_CRASHED,
         "the page's renderer crashed",
         &PageCrashedDetails { browser_exit: None },
+    )
+}
+
+/// `navigation_interrupted` for the navigation to `url`, which another
+/// superseded before it committed.
+pub(crate) fn interrupted(url: &str) -> CallError {
+    CallError::new(
+        &NAVIGATION_INTERRUPTED,
+        format!("the navigation to {url} was superseded by another before it committed"),
+        &NavigationInterruptedDetails {
+            url: url.to_owned(),
+        },
     )
 }
 

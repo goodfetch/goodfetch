@@ -14,27 +14,30 @@ use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::{
-    GotoParams, Navigated, NewPageParams, PAGE_GOTO, PageId, PageOpened, RUN_NEW_PAGE, SessionId,
+    GotoParams, Navigated, NewPageParams, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD,
+    PageId, PageOpened, PageParams, RUN_NEW_PAGE, SessionId,
 };
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use crate::driver::{LocalBrowser, PageDriver, SessionDriver};
+use crate::driver::{Destination, LocalBrowser, PageDriver, SessionDriver};
 
 /// A navigation's deadline when the Run's settings name none: 30 s.
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What the page crate adds to the engine (ADR 0087): the handlers of
-/// `run.new_page` and `page.goto`, whose browsers come from `pins`, the
-/// builds the Product version pins.
+/// `run.new_page` and of the navigations `page.goto`, `page.reload`,
+/// `page.go_back` and `page.go_forward`, whose browsers come from `pins`,
+/// the builds the Product version pins.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
     let pages = Pages {
         state: Arc::new(Mutex::new(State::default())),
         pins,
     };
-    let opening = pages.clone();
+    let (opening, going, reloading, going_back) =
+        (pages.clone(), pages.clone(), pages.clone(), pages.clone());
     Contribution::new("page")
         .with_handler(Handler::new(
             &RUN_NEW_PAGE,
@@ -46,8 +49,33 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
         .with_handler(Handler::new(
             &PAGE_GOTO,
             move |params: GotoParams, _context: CallContext| {
+                let pages = going.clone();
+                async move {
+                    pages
+                        .navigate(&params.page_id, Destination::Url(&params.url))
+                        .await
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_RELOAD,
+            move |params: PageParams, _context: CallContext| {
+                let pages = reloading.clone();
+                async move { pages.navigate(&params.page_id, Destination::Reload).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_GO_BACK,
+            move |params: PageParams, _context: CallContext| {
+                let pages = going_back.clone();
+                async move { pages.navigate(&params.page_id, Destination::Back).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_GO_FORWARD,
+            move |params: PageParams, _context: CallContext| {
                 let pages = pages.clone();
-                async move { pages.goto(params).await }
+                async move { pages.navigate(&params.page_id, Destination::Forward).await }
             },
         ))
 }
@@ -148,25 +176,27 @@ impl Pages {
         opened
     }
 
-    async fn goto(&self, params: GotoParams) -> Result<Navigated, CallError> {
+    /// Navigates the page `page_id` to `destination`.
+    async fn navigate(
+        &self,
+        page_id: &PageId,
+        destination: Destination<'_>,
+    ) -> Result<Navigated, CallError> {
         let page = self
             .state
             .lock()
             .await
             .pages
-            .get(&params.page_id)
+            .get(page_id)
             .cloned()
             .ok_or_else(|| {
                 CallError::new(
                     &CLOSED,
-                    format!(
-                        "the page `{}` is closed, or its Run ended",
-                        params.page_id.0
-                    ),
-                    &json!({ "page_id": params.page_id }),
+                    format!("the page `{}` is closed, or its Run ended", page_id.0),
+                    &json!({ "page_id": page_id }),
                 )
             })?;
-        let response = page.driver.goto(&params.url).await?;
+        let response = page.driver.navigate(destination).await?;
         Ok(Navigated { response })
     }
 }

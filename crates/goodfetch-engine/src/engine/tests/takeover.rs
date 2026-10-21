@@ -66,6 +66,7 @@ fn grow() -> Contribution {
                     policy_version: None,
                     weakened_by: Vec::new(),
                     timeout: None,
+                    settings: None,
                 })
                 .await
                 .unwrap();

@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::target::{DEADLINE, EngineTarget, Next, START_DEADLINE, StartError, Started};
+use super::target::{
+    BROWSER_DEADLINE, DEADLINE, EngineTarget, Next, START_DEADLINE, StartError, Started,
+};
 
 /// Why the Connection gave no more answers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,6 +97,12 @@ impl Connection {
     /// which may take longer.
     pub(crate) fn first_answer(&mut self, id: i64) -> Result<Answer, Gone> {
         self.answer_within(id, START_DEADLINE)
+    }
+
+    /// The response to a call that launches or closes a browser, which may
+    /// take longer.
+    pub(crate) fn browser_answer(&mut self, id: i64) -> Result<Answer, Gone> {
+        self.answer_within(id, BROWSER_DEADLINE)
     }
 
     fn answer_within(&mut self, id: i64, deadline: Duration) -> Result<Answer, Gone> {

@@ -176,6 +176,27 @@ class PageBodyRead(BaseModel):
     """The body's size in bytes."""
 
 
+class PageId(RootModel[str]):
+    root: str
+    """A page of a Run, named by the engine when it opens it."""
+
+
+class PageResponse(BaseModel):
+    """The response to a request of a page, such as a navigation's document."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    headers: dict[str, str]
+    """Its headers, their names lower-cased, as the browser received them."""
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its HTTP status."""
+    status_text: str
+    """Its status text."""
+    url: str
+    """Its final URL."""
+
+
 class PointInTime(RootModel[AwareDatetime]):
     root: AwareDatetime
     """A point in time in UTC, as RFC 3339."""
@@ -328,6 +349,11 @@ class SampleStorePutResult(BaseModel):
     )
     replaced: bool
     """Whether a value was already kept under the key."""
+
+
+class SessionId(RootModel[str]):
+    root: str
+    """A Session of a Run, named by the engine when it opens it."""
 
 
 class SettingsLayer(StrEnum):
@@ -655,6 +681,18 @@ class ExplainedSetting(BaseModel):
     """
 
 
+class GotoParams(BaseModel):
+    """What `page.goto` takes: the page, and the URL it goes to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: str
+    """The URL."""
+
+
 class HelloParams(BaseModel):
     """What a `hello` says."""
 
@@ -696,6 +734,30 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class Navigated(BaseModel):
+    """
+    What `page.goto` answers: the document's response, or none for a
+    navigation within the same document or to a URL no server answers, such
+    as `about:blank`. A 404 or a 500 is a response, a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    response: PageResponse | None = None
+    """The document's response."""
+
+
+class NewPageParams(BaseModel):
+    """What `run.new_page` takes: the Run whose default Session opens the page."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run."""
+
+
 class PageBodyParams(BaseModel):
     """What `page.body` takes: the body to read."""
 
@@ -706,6 +768,21 @@ class PageBodyParams(BaseModel):
     """Its ID."""
     run_id: RunId
     """The Run whose folder holds it."""
+
+
+class PageOpened(BaseModel):
+    """
+    What `run.new_page` answers: the page, and the Session it belongs to,
+    which `page.session()` returns.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+    session_id: SessionId
+    """Its Session: the Run's default Session."""
 
 
 class RunAbortParams(BaseModel):

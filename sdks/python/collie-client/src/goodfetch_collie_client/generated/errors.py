@@ -90,6 +90,14 @@ class BodyNotFoundError(ProgramError):
         super().__init__(message, code="body_not_found", group="program", retryable=False)
 
 
+class BrowserLaunchFailedError(UnavailableError):
+    """The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_launch_failed", group="unavailable", retryable=False)
+
+
 class BrowserNotInstalledError(UnavailableError):
     """The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path."""
 
@@ -170,6 +178,14 @@ class NameNotResolvedError(UnavailableError):
         super().__init__(message, code="name_not_resolved", group="unavailable", retryable=False)
 
 
+class NavigationFailedError(PageError):
+    """The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="navigation_failed", group="page", retryable=True)
+
+
 class NotADaemonError(ProgramError):
     """The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`."""
 
@@ -184,6 +200,14 @@ class NotInProductError(UnavailableError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="not_in_product", group="unavailable", retryable=False)
+
+
+class PageCrashedError(UnavailableError):
+    """The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="page_crashed", group="unavailable", retryable=True)
 
 
 class ProtocolVersionUnsupportedError(UnavailableError):
@@ -295,6 +319,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
     "body_not_found": BodyNotFoundError,
+    "browser_launch_failed": BrowserLaunchFailedError,
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
     "closed": ClosedError,
@@ -305,8 +330,10 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,
+    "navigation_failed": NavigationFailedError,
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
+    "page_crashed": PageCrashedError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,

@@ -98,6 +98,7 @@ fn test_streams() -> Contribution {
                         policy_version: None,
                         weakened_by: Vec::new(),
                         timeout: None,
+                        settings: None,
                     })
                     .await
                     .unwrap();

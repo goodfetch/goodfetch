@@ -47,8 +47,10 @@ pub struct PinnedArtifact {
     pub platform: Option<BuildPlatform>,
     /// Where it downloads from, an `https` URL with no query.
     pub url: String,
-    /// The digest of the ZIP archive the URL serves.
-    pub archive_digest: Digest,
+    /// The digest of the ZIP archive the URL serves, or `None` while it is
+    /// not yet known: the build is then never downloaded, only taken from a
+    /// cache that holds it, such as a prepared `GOODFETCH_BROWSERS_PATH`.
+    pub archive_digest: Option<Digest>,
     /// The digest of the files the archive holds, which every launch checks.
     pub digest: Digest,
 }

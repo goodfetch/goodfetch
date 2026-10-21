@@ -1899,6 +1899,27 @@
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
     },
+    "GotoParams": {
+      "additionalProperties": false,
+      "description": "What `page.goto` takes: the page, and the URL it goes to.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "url"
+      ],
+      "type": "object"
+    },
     "HandlerSkip": {
       "additionalProperties": false,
       "description": "A handler's skip of its request: `ctx.skip(message)` (ADR 0093).",
@@ -2474,6 +2495,39 @@
         }
       ]
     },
+    "Navigated": {
+      "description": "What `page.goto` answers: the document's response, or none for a\nnavigation within the same document or to a URL no server answers, such\nas `about:blank`. A 404 or a 500 is a response, a value.",
+      "properties": {
+        "response": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageResponse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The document's response."
+        }
+      },
+      "type": "object"
+    },
+    "NewPageParams": {
+      "additionalProperties": false,
+      "description": "What `run.new_page` takes: the Run whose default Session opens the page.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "NotCleaned": {
       "description": "Why the clean-up did not run.",
       "oneOf": [
@@ -2704,6 +2758,68 @@
       },
       "required": [
         "size"
+      ],
+      "type": "object"
+    },
+    "PageId": {
+      "description": "A page of a Run, named by the engine when it opens it.",
+      "type": "string"
+    },
+    "PageOpened": {
+      "description": "What `run.new_page` answers: the page, and the Session it belongs to,\nwhich `page.session()` returns.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "Its Session: the Run's default Session."
+        }
+      },
+      "required": [
+        "page_id",
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "PageResponse": {
+      "description": "The response to a request of a page, such as a navigation's document.",
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers, their names lower-cased, as the browser received them.",
+          "type": "object"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status_text": {
+          "arrived_in": "0.1",
+          "description": "Its status text.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its final URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "status",
+        "status_text",
+        "headers"
       ],
       "type": "object"
     },
@@ -3948,6 +4064,10 @@
           "type": "string"
         }
       ]
+    },
+    "SessionId": {
+      "description": "A Session of a Run, named by the engine when it opens it.",
+      "type": "string"
     },
     "SettingLimit": {
       "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",

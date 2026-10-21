@@ -11,7 +11,8 @@
 //! packages. It also commits
 //! the JSON Schemas of `goodfetch-test-support`'s file types, which
 //! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
-//! format's among the engine scripts (ADR 0069).
+//! format's among the engine scripts (ADR 0069), and `goodfetch-cdp`'s CDP
+//! bindings, from the pinned Chromium's protocol file (spec #577).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -26,6 +27,7 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+mod cdp;
 mod deny;
 mod digest;
 mod emitter;
@@ -262,6 +264,7 @@ impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
         [
             PROTOCOL_GENERATED,
+            cdp::FOLDER,
             test_support::FOLDER,
             helpers::TYPESCRIPT_FOLDER,
             helpers::PYTHON_FOLDER,
@@ -359,6 +362,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         test_support::CANARY_RULE.to_owned(),
         test_support::canary_rule(cargo, root)?,
     );
+    files.extend(cdp::generate(root)?);
 
     let mut externals = Vec::new();
     for package in &PACKAGES {

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, PageBodyParams, PageBodyRead, RunAbortParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
+from .models import ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, RunAbortParams, RunParams, RunReport, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded
 
 
 class AsyncCaller(Protocol):
@@ -71,6 +71,13 @@ class AsyncCollieOperations:
         """
         return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
 
+    async def page_goto(self, params: GotoParams) -> Navigated:
+        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.goto", params)))
+
     async def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
@@ -84,6 +91,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(await self._caller.call("run.finish", params)))
+
+    async def run_new_page(self, params: NewPageParams) -> PageOpened:
+        """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(await self._caller.call("run.new_page", params)))
 
     async def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
@@ -140,6 +154,13 @@ class CollieOperations:
         """
         return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
 
+    def page_goto(self, params: GotoParams) -> Navigated:
+        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.goto", params)))
+
     def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
@@ -153,6 +174,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(self._caller.call("run.finish", params)))
+
+    def run_new_page(self, params: NewPageParams) -> PageOpened:
+        """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(self._caller.call("run.new_page", params)))
 
     def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.

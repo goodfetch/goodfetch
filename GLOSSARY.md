@@ -104,6 +104,10 @@ _Avoid_: external browser, attached browser
 A page of a Session that a program hands, for a time, to another automation library such as Playwright or Puppeteer, through a CDP endpoint that shows only that page's Session; the reverse of a Borrowed browser.
 _Avoid_: shared page, exposed page, remote page
 
+**CDP**:
+The Chrome DevTools Protocol, through which the engine drives a Chromium-family browser over the pipe it started it with, and through which a program's CDP session or a Lent page's library reaches a page.
+_Avoid_: DevTools protocol, debugger protocol
+
 **Plugin**:
 A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts a Product inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module
@@ -313,6 +317,10 @@ _Avoid_: success, done, finished (for coverage)
 **Session**:
 A reusable browsing identity of a run: its cookies, login state, Access mode, Identity profile and proxy, shared across the pages fetched under it.
 _Avoid_: login, profile, context
+
+**Page**:
+One browser tab of a Session, which a program, an Agent or a crawl handler drives: it navigates, is read and receives gestures, and belongs to its Session for its whole life.
+_Avoid_: tab, target (for a page)
 
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).

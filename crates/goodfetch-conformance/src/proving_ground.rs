@@ -73,6 +73,12 @@ impl ProvingGround {
         }
     }
 
+    /// The address it answers on (`host:port`), to which a target maps the
+    /// host names of its pages (the `resolve` setting, ADR 0059).
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+
     /// Whether it is the online copy, whose results report and never block
     /// a release; the local copy is not.
     pub fn is_online(&self) -> bool {

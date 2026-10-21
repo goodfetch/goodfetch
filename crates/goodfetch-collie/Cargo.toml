@@ -14,7 +14,7 @@ autobenches = false
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:tracing", "dep:tracing-subscriber", "tokio/io-util", "tokio/rt-multi-thread"]
+executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:tempfile", "dep:tracing", "dep:tracing-subscriber", "tokio/io-util", "tokio/rt-multi-thread"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
@@ -23,11 +23,13 @@ dirs = { workspace = true, optional = true }
 # The command line both executables carry (ADR 0090).
 goodfetch-cli = { workspace = true, optional = true }
 goodfetch-engine.workspace = true
+goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
 jiff = { workspace = true, optional = true }
 mimalloc = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+# The pinned builds' digests, `src/pins.json`.
+serde_json.workspace = true
 # The Browser cache's write check before a Daemon's copy goes in it.
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"] }
@@ -43,6 +45,10 @@ gungraun.workspace = true
 # A stored body's ID, the SHA-256 of its bytes, for `page body --follow`.
 sha2.workspace = true
 insta.workspace = true
+# The clean-up's time in the page tests, and the pins' lever
+# (examples/pin-chrome-for-testing.rs), which downloads and unpacks the
+# pinned archives.
+jiff.workspace = true
 # `config explain --json` is validated against its schema in the bundle (TESTING.md, CLI).
 jsonschema.workspace = true
 rstest.workspace = true
@@ -52,10 +58,12 @@ serde_json.workspace = true
 tempfile.workspace = true
 # `block_detection`'s check of its rules' sources against its `third-party.toml`.
 toml.workspace = true
-# The Console's headers test, an HTTP Client of the Daemon's Console (tests/it/console.rs).
+# The Console's headers test, an HTTP Client of the Daemon's Console
+# (tests/it/console.rs), and the pins' lever's download.
 ureq.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
+zip = { workspace = true, features = ["deflate-flate2"] }
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

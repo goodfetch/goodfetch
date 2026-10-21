@@ -2412,6 +2412,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
       },

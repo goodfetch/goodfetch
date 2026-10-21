@@ -145,6 +145,11 @@
           "timeout": {
             "additionalProperties": false,
             "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "first_byte": {
                 "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
@@ -485,6 +490,11 @@
           "timeout": {
             "additionalProperties": false,
             "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "first_byte": {
                 "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
@@ -892,6 +902,11 @@
           "timeout": {
             "additionalProperties": false,
             "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "first_byte": {
                 "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,

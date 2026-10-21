@@ -54,6 +54,7 @@ signing = true
 
 [settings.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000
@@ -136,6 +137,7 @@ signing = true
 
 [lock.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000
@@ -182,6 +184,7 @@ echo_repeats = 4
 
 [cap.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000

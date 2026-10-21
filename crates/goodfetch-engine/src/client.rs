@@ -1,13 +1,18 @@
 //! The Client at the other end of a Connection, as the engine's handlers
 //! see it: the handler requests the engine sends it, such as a crawl's
 //! `crawl_request.handle`, and their replies (ADRs 0024 and 0069). The
-//! protocol server carries each request on the Connection and routes the
-//! reply back; a Connection's end fails every request still waiting with
+//! protocol server carries each request on the Connection under an id of
+//! the engine's own and routes the reply back; a sender that stops waiting
+//! early, such as an attempt whose lease ended, cancels the request with
+//! `$/cancel` and may still read the answer that comes (ADR 0093). A
+//! Connection's end fails every request still waiting with
 //! [`ClientRequestError::Gone`], which a run tells apart from a failed
 //! handler.
 
+use std::marker::PhantomData;
+
 use goodfetch_protocol::catalog::HandlerRequest;
-use goodfetch_protocol::jsonrpc::ErrorObject;
+use goodfetch_protocol::jsonrpc::{ErrorObject, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -17,14 +22,21 @@ use tokio::sync::{mpsc, oneshot};
 /// senders wait.
 pub(crate) const OUTGOING_REQUESTS: usize = 64;
 
-/// A request on its way to the Client.
-pub(crate) struct Outgoing {
-    /// Its method.
-    pub(crate) method: &'static str,
-    /// Its params.
-    pub(crate) params: Value,
-    /// Where its reply goes.
-    pub(crate) reply: oneshot::Sender<Result<Value, ErrorObject>>,
+/// What the engine's handlers give the Connection to send.
+pub(crate) enum Outgoing {
+    /// A handler request on its way to the Client.
+    Request {
+        /// Its method.
+        method: &'static str,
+        /// Its params.
+        params: Value,
+        /// Where the id it is sent under goes.
+        sent: oneshot::Sender<RequestId>,
+        /// Where its reply goes.
+        reply: oneshot::Sender<Result<Value, ErrorObject>>,
+    },
+    /// `$/cancel` of the request sent under this id, unless it is answered.
+    Cancel(RequestId),
 }
 
 /// The Client of one Connection, to which the engine sends handler
@@ -38,7 +50,8 @@ pub struct Client {
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ClientRequestError {
-    /// The Connection ended before the reply: the Client is gone.
+    /// The Connection ended before the reply, or the answer was read
+    /// already: the Client is gone.
     #[error("the Client's Connection ended before it answered")]
     Gone,
     /// The handler answered with a failure.
@@ -58,6 +71,16 @@ pub enum ClientRequestError {
     Malformed(String),
 }
 
+/// A handler request on the Connection, whose answer `R` is still to come.
+#[derive(Debug)]
+pub struct Sent<R> {
+    id: RequestId,
+    /// Where its reply comes, until it is read.
+    replied: Option<oneshot::Receiver<Result<Value, ErrorObject>>>,
+    requests: mpsc::Sender<Outgoing>,
+    answer: PhantomData<fn() -> R>,
+}
+
 impl Client {
     /// A Client whose requests go to `requests`, and the end the protocol
     /// server reads them from.
@@ -66,35 +89,63 @@ impl Client {
         (Self { requests }, outgoing)
     }
 
-    /// Sends the handler request `request` with `params`, and answers the
-    /// handler's reply read as `R`.
+    /// Sends the handler request `request` with `params`, and answers once
+    /// it is on its way, its answer to be read as `R`.
     ///
     /// # Errors
     ///
-    /// `Gone` when the Connection ends first, `Failed` when the handler
-    /// answered a failure, `Malformed` when its answer is not an `R`.
+    /// `Gone` when the Connection ends first.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the request was sent leaves the handler
-    /// running; its late reply is discarded.
-    pub async fn request<R: DeserializeOwned>(
+    /// Dropping the future may still send the request; its reply is then
+    /// discarded.
+    pub async fn send<R: DeserializeOwned>(
         &self,
         request: &'static HandlerRequest,
         params: &impl Serialize,
-    ) -> Result<R, ClientRequestError> {
+    ) -> Result<Sent<R>, ClientRequestError> {
         let params = serde_json::to_value(params)
             .expect("invariant: a handler request's params encode as JSON");
+        let (sent, assigned) = oneshot::channel();
         let (reply, replied) = oneshot::channel();
         self.requests
-            .send(Outgoing {
+            .send(Outgoing::Request {
                 method: request.name,
                 params,
+                sent,
                 reply,
             })
             .await
             .map_err(|_| ClientRequestError::Gone)?;
-        match replied.await.map_err(|_| ClientRequestError::Gone)? {
+        let id = assigned.await.map_err(|_| ClientRequestError::Gone)?;
+        Ok(Sent {
+            id,
+            replied: Some(replied),
+            requests: self.requests.clone(),
+            answer: PhantomData,
+        })
+    }
+}
+
+impl<R: DeserializeOwned> Sent<R> {
+    /// The handler's answer, read as `R`.
+    ///
+    /// # Errors
+    ///
+    /// `Gone` when the Connection ends first, or once the answer was read,
+    /// `Failed` when the handler answered a failure, `Malformed` when its
+    /// answer is not an `R`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting: the answer stays for the
+    /// next call.
+    pub async fn answer(&mut self) -> Result<R, ClientRequestError> {
+        let replied = self.replied.as_mut().ok_or(ClientRequestError::Gone)?;
+        let answer = replied.await;
+        self.replied = None;
+        match answer.map_err(|_| ClientRequestError::Gone)? {
             Ok(result) => serde_json::from_value(result)
                 .map_err(|error| ClientRequestError::Malformed(error.to_string())),
             Err(error) => Err(ClientRequestError::Failed {
@@ -104,5 +155,16 @@ impl Client {
                 details: error.data.details,
             }),
         }
+    }
+
+    /// Sends the Client `$/cancel` for the request, unless it is answered
+    /// already; the answer the Client still gives is read through
+    /// [`Sent::answer`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the `$/cancel` unsent.
+    pub async fn cancel(&self) {
+        let _ = self.requests.send(Outgoing::Cancel(self.id.clone())).await;
     }
 }

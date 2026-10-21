@@ -8,8 +8,9 @@
 //!
 //! The engine also sends the Client handler requests, such as a crawl's
 //! `crawl_request.handle`, each under an id of its own, and routes each
-//! reply back to its sender; the Connection's end fails those still
-//! waiting. A `$/credit` adds credits to the streaming call it names.
+//! reply back to its sender; a sender's cancel of one still unanswered
+//! goes to the Client as `$/cancel`, and the reply that still comes is
+//! routed the same way. The Connection's end fails those still waiting. A `$/credit` adds credits to the streaming call it names.
 //!
 //! A Daemon's Connection must open with a `hello` carrying the Daemon's
 //! token: anything else is closed without an answer, so a stranger learns
@@ -34,7 +35,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
-use super::{failure_line, handshake, line, not_in_product, record, success_line};
+use super::{
+    failure_line, handshake, line, not_in_product, notification_line, record, success_line,
+};
 use crate::client::{Client, Outgoing};
 use crate::composition::{
     CallContext, CallError, CallStream, ConnectionContext, DaemonSide, Handler,
@@ -250,24 +253,36 @@ impl Session<'_> {
         }
     }
 
-    /// Sends a handler request under the next id of the engine's own.
+    /// Sends a handler request under the next id of the engine's own, or
+    /// `$/cancel` of one still waiting for its reply.
     async fn send_request(&mut self, request: Outgoing) -> Flow {
-        let id = RequestId::Number(self.next_request);
-        self.next_request += 1;
-        let message = Request {
-            jsonrpc: Version,
-            id: id.clone(),
-            method: request.method.to_owned(),
-            params: Some(request.params),
+        let line = match request {
+            Outgoing::Request {
+                method,
+                params,
+                sent,
+                reply,
+            } => {
+                let id = RequestId::Number(self.next_request);
+                self.next_request += 1;
+                let message = Request {
+                    jsonrpc: Version,
+                    id: id.clone(),
+                    method: method.to_owned(),
+                    params: Some(params),
+                };
+                let _ = sent.send(id.clone());
+                self.pending.insert(id, Pending { method, reply });
+                line(&message)
+            }
+            Outgoing::Cancel(id) => {
+                if !self.pending.contains_key(&id) {
+                    return Flow::Continue;
+                }
+                notification_line(CANCEL, &CancelParams { id })
+            }
         };
-        self.pending.insert(
-            id,
-            Pending {
-                method: request.method,
-                reply: request.reply,
-            },
-        );
-        if self.send(line(&message)).await {
+        if self.send(line).await {
             Flow::Continue
         } else {
             Flow::Close

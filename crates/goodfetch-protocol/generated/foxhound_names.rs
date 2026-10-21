@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &[];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["handler_failed", "handler_lost", "sample_crawl_refused"];
+pub const ERROR_CODES: &[&str] = &["handler_failed", "handler_lost", "lease_lost", "sample_crawl_refused"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];

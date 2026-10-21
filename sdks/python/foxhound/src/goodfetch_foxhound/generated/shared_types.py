@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-from goodfetch_collie_client.generated.shared_types import BlockCause as CollieBlockCause, UsageKind as CollieUsageKind
+from goodfetch_collie_client.generated.shared_types import BlockCause as CollieBlockCause, LimitScope as CollieLimitScope, UsageKind as CollieUsageKind
 
 BlockCause: TypeAlias = CollieBlockCause | Literal["decoy"]
 """A `block_cause`, a type both Products share (ADR 0095).
@@ -18,11 +18,21 @@ kept as received (ADR 0079).
 - `decoy`: A trap page a person would never reach; only Foxhound's Frontier produces it.
 """
 
-UsageKind: TypeAlias = CollieUsageKind | Literal["sample_crawled_pages"]
+LimitScope: TypeAlias = CollieLimitScope | Literal["partitioned_crawl"]
+"""A `limit_scope`, a type both Products share (ADR 0095).
+
+Collie's values and Foxhound's own below; a value this package does not know is
+kept as received (ADR 0079).
+
+- `partitioned_crawl`: Every Partition of a Partitioned crawl (ADR 0054).
+"""
+
+UsageKind: TypeAlias = CollieUsageKind | Literal["paid_fetch", "sample_crawled_pages"]
 """A `usage_kind`, a type both Products share (ADR 0095).
 
 Collie's values and Foxhound's own below; a value this package does not know is
 kept as received (ADR 0079).
 
+- `paid_fetch`: Paid fetches and their amounts, by currency (ADR 0045); its Limits carry must understand.
 - `sample_crawled_pages`: Pages the sample crawl visited.
 """

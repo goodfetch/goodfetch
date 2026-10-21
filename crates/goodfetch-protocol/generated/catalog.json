@@ -212,6 +212,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_not_understood",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_reached",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
       "exit_code": null,
       "group": "unavailable",
@@ -437,6 +457,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "setting_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "upgrade_source_unsupported",
       "product": "collie",
       "retryable": false
     }
@@ -1158,6 +1188,44 @@
         "$ref": "#/$defs/SampleEchoResult"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
+      "events": [],
+      "kind": "query",
+      "name": "usage.list",
+      "params": {
+        "$ref": "#/$defs/UsageListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.set",
+      "params": {
+        "$ref": "#/$defs/UsageSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
+      },
+      "stability": "experimental"
     }
   ],
   "plugin_kinds": [
@@ -1801,6 +1869,23 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+      "name": "version.age_notice",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "operator_policy",
       "clearable": false,
       "default": [],
@@ -1894,10 +1979,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Every run a Client connection starts, while it lasts.",
+      "name": "connection",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A wall that asks for consent before it shows the page (ADR 0048).",
       "name": "consent_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Daemon runs.",
+      "name": "daemon",
+      "product": "collie",
+      "type": "limit_scope"
     },
     {
       "arrived_in": "0.1",
@@ -1908,10 +2007,38 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Every run of the user on the machine, whichever engine runs it.",
+      "name": "install",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site refused the address the request came from.",
       "name": "ip_block",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Paid fetches and their amounts, by currency (ADR 0045); its Limits carry must understand.",
+      "name": "paid_fetch",
+      "product": "foxhound",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
+      "name": "paid_solves",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every Partition of a Partitioned crawl (ADR 0054).",
+      "name": "partitioned_crawl",
+      "product": "foxhound",
+      "type": "limit_scope"
     },
     {
       "arrived_in": "0.1",
@@ -1922,10 +2049,31 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Every run a person starts.",
+      "name": "person",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Bytes a run sent and received through a proxy, per proxy kind.",
+      "name": "proxy_bytes",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site refused because too many requests came too fast.",
       "name": "rate_limit",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+      "name": "requests",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",
@@ -1940,6 +2088,13 @@
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Connection holding a named token starts.",
+      "name": "token",
+      "product": "collie",
+      "type": "limit_scope"
     }
   ]
 }

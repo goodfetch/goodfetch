@@ -5,9 +5,11 @@
 //! holds to the registry.
 //!
 //! - Each rule fabricates a newer minor, an older major (from major 1 on)
-//!   and a newer major; the shared stores' rule fabricates a newer minor
-//!   twice, once marked with a lowest minor the reader meets and once with a
-//!   newer one (ADR 0098).
+//!   and a newer major; during `0.y` previews, where each `0.y` minor counts
+//!   as a major (ADR 0030), the next and the previous preview instead,
+//!   except in the Usage ledger family. The shared stores' rule also marks
+//!   the store with a lowest minor an engine meets and with a newer one
+//!   (ADR 0098).
 //! - A protocol's cases are fabricated `hello`s, from each who opens it:
 //!   - a Client's carry the rule's versions to the smallest Product's
 //!     engine, and the Product check of every pair of Products, which comes
@@ -66,8 +68,26 @@ struct Fabricated {
     name: &'static str,
     found: ProtocolVersion,
     lowest_minor: Option<u16>,
+    engine: Option<ProtocolVersion>,
     compatibility: Compatibility,
 }
+
+impl Fabricated {
+    fn of_format(name: &'static str, found: ProtocolVersion, compatibility: Compatibility) -> Self {
+        Self {
+            name,
+            found,
+            lowest_minor: None,
+            engine: None,
+            compatibility,
+        }
+    }
+}
+
+/// The Product version, major and minor, of the engine that opens a shared
+/// store in its cases: a minor of a released major, since during `0.y`
+/// previews a line's only minor is 0 (ADR 0030).
+const STORE_ENGINE: ProtocolVersion = ProtocolVersion { major: 1, minor: 1 };
 
 /// Every case file of the bundle's registry, by its path from the root.
 pub(crate) fn files(bundle: &[u8]) -> Result<BTreeMap<String, Vec<u8>>> {
@@ -92,7 +112,11 @@ fn version(major: u16, minor: u16) -> ProtocolVersion {
     ProtocolVersion { major, minor }
 }
 
-/// The versions each rule's table fabricates around `current`.
+/// The versions each rule's table fabricates around `current`. During
+/// `0.y` previews each `0.y` minor counts as a major (ADR 0030) for every
+/// rule but the Usage ledger family's, so a preview reader's neighbours are
+/// other majors. A shared store's cases also hold an engine to the lowest
+/// minor the store records (ADR 0098).
 fn table(rule: Rule, current: ProtocolVersion) -> Result<Vec<Fabricated>> {
     let next = |number: u16| {
         number
@@ -100,48 +124,66 @@ fn table(rule: Rule, current: ProtocolVersion) -> Result<Vec<Fabricated>> {
             .context("the version has no number after it")
     };
     let newer_minor = version(current.major, next(current.minor)?);
-    let mut table = match rule {
-        Rule::Default => vec![Fabricated {
-            name: "newer-minor",
-            found: newer_minor,
-            lowest_minor: None,
-            compatibility: Compatibility::NewerMinor,
-        }],
-        Rule::FrozenMajor | Rule::LowerMinor => vec![Fabricated {
-            name: "newer-minor",
-            found: newer_minor,
-            lowest_minor: None,
-            compatibility: Compatibility::Compatible,
-        }],
-        Rule::SharedStore => vec![
-            Fabricated {
-                name: "newer-minor-lowest-minor-met",
-                found: newer_minor,
-                lowest_minor: Some(current.minor),
-                compatibility: Compatibility::Compatible,
-            },
-            Fabricated {
-                name: "newer-minor-lowest-minor-newer",
-                found: newer_minor,
-                lowest_minor: Some(newer_minor.minor),
-                compatibility: Compatibility::NewerMinor,
-            },
-        ],
-    };
-    if let Some(older) = current.major.checked_sub(1) {
-        table.push(Fabricated {
-            name: "older-major",
-            found: version(older, 0),
-            lowest_minor: None,
-            compatibility: Compatibility::OlderMajor,
-        });
+    let preview = current.major == 0 && rule != Rule::FrozenMajor;
+    let mut table = Vec::new();
+    if preview {
+        table.push(Fabricated::of_format(
+            "newer-preview",
+            newer_minor,
+            Compatibility::NewerMajor,
+        ));
+        if let Some(older) = current.minor.checked_sub(1) {
+            table.push(Fabricated::of_format(
+                "older-preview",
+                version(0, older),
+                Compatibility::OlderMajor,
+            ));
+        }
+    } else {
+        let newer_minor_reads = match rule {
+            Rule::Default => Compatibility::NewerMinor,
+            Rule::FrozenMajor | Rule::LowerMinor | Rule::SharedStore => Compatibility::Compatible,
+        };
+        table.push(Fabricated::of_format(
+            "newer-minor",
+            newer_minor,
+            newer_minor_reads,
+        ));
+        if let Some(older) = current.major.checked_sub(1) {
+            table.push(Fabricated::of_format(
+                "older-major",
+                version(older, 0),
+                Compatibility::OlderMajor,
+            ));
+        }
     }
-    table.push(Fabricated {
-        name: "newer-major",
-        found: version(next(current.major)?, 0),
-        lowest_minor: None,
-        compatibility: Compatibility::NewerMajor,
-    });
+    if rule == Rule::SharedStore {
+        for (name, lowest_minor, compatibility) in [
+            (
+                "lowest-minor-met",
+                STORE_ENGINE.minor,
+                Compatibility::Compatible,
+            ),
+            (
+                "lowest-minor-newer",
+                next(STORE_ENGINE.minor)?,
+                Compatibility::NewerMinor,
+            ),
+        ] {
+            table.push(Fabricated {
+                name,
+                found: current,
+                lowest_minor: Some(lowest_minor),
+                engine: Some(STORE_ENGINE),
+                compatibility,
+            });
+        }
+    }
+    table.push(Fabricated::of_format(
+        "newer-major",
+        version(next(current.major)?, 0),
+        Compatibility::NewerMajor,
+    ));
     Ok(table)
 }
 
@@ -176,6 +218,7 @@ fn cases(
                     reader: format.version,
                     found: fabricated.found,
                     lowest_minor: fabricated.lowest_minor,
+                    engine: fabricated.engine,
                     compatibility: fabricated.compatibility,
                     hello: None,
                 };
@@ -242,6 +285,7 @@ impl Protocol<'_> {
             reader: self.format.version,
             found: hello.found,
             lowest_minor: None,
+            engine: None,
             compatibility: hello.compatibility,
             hello: Some(FabricatedHello {
                 from: hello.from,
@@ -341,9 +385,11 @@ impl Protocol<'_> {
             session_needs,
             reply,
         };
+        // During `0.y` previews a line has no older minor (ADR 0030).
         let older_minor = current
             .minor
             .checked_sub(1)
+            .filter(|_| current.major > 0)
             .map(|minor| version(current.major, minor));
         if let Some(older_minor) = older_minor {
             cases.push((

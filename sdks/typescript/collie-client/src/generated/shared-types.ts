@@ -13,8 +13,22 @@
 export type BlockCause = "captcha" | "challenge" | "consent_required" | "ip_block" | "payment_required" | "rate_limit" | (string & {});
 
 /**
+ * A `limit_scope`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
+ *
+ * - `connection`: Every run a Client connection starts, while it lasts.
+ * - `daemon`: Every run a Daemon runs.
+ * - `install`: Every run of the user on the machine, whichever engine runs it.
+ * - `person`: Every run a person starts.
+ * - `token`: Every run a Connection holding a named token starts.
+ */
+export type LimitScope = "connection" | "daemon" | "install" | "person" | "token" | (string & {});
+
+/**
  * A `usage_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
+ * - `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
+ * - `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
+ * - `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.
  * - `sample_echoes`: Texts the sample operation repeated.
  */
-export type UsageKind = "sample_echoes" | (string & {});
+export type UsageKind = "paid_solves" | "proxy_bytes" | "requests" | "sample_echoes" | (string & {});

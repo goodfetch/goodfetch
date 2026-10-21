@@ -1,0 +1,6 @@
+---
+source: crates/goodfetch-engine/src/settings/tests/versions.rs
+assertion_line: 173
+expression: "format!(\"{}: {error}\",\nerror.code()).replace(&home.root().display().to_string(), \"[home]\")"
+---
+format_version_unsupported: Goodfetch home holds an Operator policy only for the older major 2, at `[home]/2/operator-policy.toml`; run `upgrade-files` to give the major 3 its copy, then try again

@@ -1,0 +1,12 @@
+# The majors `upgrade-files` upgrades from (ADR 0066): at least the previous
+# major, and during the `0.y` previews, where each `0.y` minor counts as a
+# major (ADR 0030), the previous `0.y`. A source not listed is refused with
+# the release to upgrade through first; a newer major, with a message to
+# upgrade. Each listed source is tested from every frozen set of the
+# Compatibility corpus. Nothing is released yet, so none is listed and only
+# the refusals run.
+#
+# Each source is a `[[source]]` with its `major`, such as "1" or "0.4".
+#
+# [[source]]
+# major = "0.1"

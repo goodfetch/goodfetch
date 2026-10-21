@@ -24,7 +24,9 @@ hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
-jiff.workspace = true
+# Period Limits count in an explicit IANA time zone (ADR 0041), read from the
+# system database, or a bundled one where the OS has none.
+jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
 rusqlite.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 serde.workspace = true

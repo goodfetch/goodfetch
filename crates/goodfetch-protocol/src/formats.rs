@@ -17,6 +17,7 @@ use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
 use crate::run::{RunIndexRow, RunStateRow};
+use crate::usage::Limit;
 
 /// How a format's files are stored in its corpus sets (ADR 0066).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,9 +58,9 @@ pub enum Rule {
     FrozenMajor,
     /// The shared stores' (ADR 0098): the Run index, the Schedule store,
     /// the Saved identity store, user configuration and the Operator policy,
-    /// which engines of several minors open at once, record the lowest minor
-    /// of their major that can use them, and a reader opens a newer minor
-    /// unless that lowest minor is newer than its own.
+    /// which engines of several minors open at once, open in every minor
+    /// of their format's major and record the lowest minor of their Product
+    /// major that can use them, which an engine's own minor must meet.
     SharedStore,
     /// A handshake whose two sides settle on the lower of their minors, a
     /// Browser host's with its engine (ADR 0096): only another major is
@@ -79,38 +80,71 @@ impl Rule {
     }
 
     /// What a reader at `reader` makes of a file, or a peer's `hello`, at
-    /// `found`. A shared store read without its lowest minor counts as
-    /// needing its own minor.
+    /// `found`. For a shared store it is its format's part alone, before
+    /// the lowest minor it records ([`Rule::compatibility_of_store`]).
+    ///
+    /// During `0.y` previews each `0.y` minor counts as a major (ADR 0030),
+    /// as Cargo reads `0.y` versions, except in the Usage ledger family,
+    /// whose major never changes.
     pub fn compatibility(self, reader: ProtocolVersion, found: ProtocolVersion) -> Compatibility {
-        self.compatibility_of_store(reader, found, found.minor)
+        let (reader_line, reader_minor) = self.line(reader);
+        let (found_line, found_minor) = self.line(found);
+        match found_line.cmp(&reader_line) {
+            Ordering::Less => Compatibility::OlderMajor,
+            Ordering::Greater => Compatibility::NewerMajor,
+            Ordering::Equal => match self {
+                Self::Default if found_minor > reader_minor => Compatibility::NewerMinor,
+                Self::Default | Self::FrozenMajor | Self::SharedStore | Self::LowerMinor => {
+                    Compatibility::Compatible
+                }
+            },
+        }
     }
 
-    /// What a reader at `reader` makes of a store at `found` that records
-    /// `lowest_minor`, the lowest minor of its major that can use it (ADR
-    /// 0098). Only [`Rule::SharedStore`] reads it.
+    /// What an engine whose Product version is `engine` (its major and
+    /// minor) makes of a shared store (ADR 0098) of its format at `found`,
+    /// read at `reader`, which records `lowest_minor`, the lowest minor of
+    /// the engine's Product major that can use it: the format's part, then
+    /// the engine's own minor against that lowest one. A `0.y` engine's line
+    /// has the minor 0 alone, since its minor counts as a major.
     pub fn compatibility_of_store(
         self,
         reader: ProtocolVersion,
         found: ProtocolVersion,
+        engine: ProtocolVersion,
         lowest_minor: u16,
     ) -> Compatibility {
-        match found.major.cmp(&reader.major) {
-            Ordering::Less => Compatibility::OlderMajor,
-            Ordering::Greater => Compatibility::NewerMajor,
-            Ordering::Equal => {
-                let needs = match self {
-                    Self::Default => found.minor,
-                    Self::SharedStore => lowest_minor,
-                    Self::FrozenMajor | Self::LowerMinor => return Compatibility::Compatible,
-                };
-                if needs > reader.minor {
-                    Compatibility::NewerMinor
-                } else {
-                    Compatibility::Compatible
-                }
+        match self.compatibility(reader, found) {
+            Compatibility::Compatible if lowest_minor > line_minor(engine) => {
+                Compatibility::NewerMinor
             }
+            other => other,
         }
     }
+
+    /// A version's line, the major its rule compares, and its minor in it.
+    fn line(self, version: ProtocolVersion) -> ((u16, u16), u16) {
+        match self {
+            Self::FrozenMajor => ((version.major, 0), version.minor),
+            Self::Default | Self::SharedStore | Self::LowerMinor => preview_line(version),
+        }
+    }
+}
+
+/// A version's line under ADR 0030's `0.y` rule, and its minor in it: a
+/// `0.y` version is a line of its own, whose only minor is 0.
+fn preview_line(version: ProtocolVersion) -> ((u16, u16), u16) {
+    if version.major == 0 {
+        ((0, version.minor), 0)
+    } else {
+        ((version.major, 0), version.minor)
+    }
+}
+
+/// A Product version's (its major and minor) minor in its line: its minor,
+/// or 0 during `0.y` previews, whose minor counts as a major (ADR 0030).
+pub fn line_minor(version: ProtocolVersion) -> u16 {
+    preview_line(version).1
 }
 
 /// A compatibility function's verdict on one pair of versions.
@@ -252,6 +286,20 @@ pub const INSTALLED_EXECUTABLES: Format = Format {
     schema: schema_of::<InstalledExecutables>,
 };
 
+/// The per-user Usage ledger in Goodfetch home (ADRs 0041 and 0098), outside
+/// the per-major folders: the Limits across runs, the Slices runs take
+/// against them and the Usage charged. Engines of every major and of both
+/// Products open it, so its major never changes and newer minors only add
+/// rows, tables and columns; its schema is one Limit's.
+pub const USAGE_LEDGER: Format = Format {
+    name: "usage-ledger",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<Limit>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -259,6 +307,7 @@ pub const FORMATS: &[&Format] = &[
     &RUN_INDEX,
     &RUN_STATE,
     &INSTALLED_EXECUTABLES,
+    &USAGE_LEDGER,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
 ];
@@ -279,6 +328,16 @@ fn settings_file_schema(generator: &mut SchemaGenerator, tables: &[Table]) -> Sc
         json!({
             "allOf": [generator.subschema_for::<ProtocolVersion>()],
             "description": "The version of this format the file was written in.",
+            "arrived_in": "0.1",
+        }),
+    );
+    properties.insert(
+        "lowest_minor".to_owned(),
+        json!({
+            "type": "integer",
+            "minimum": 0,
+            "maximum": u16::MAX,
+            "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
             "arrived_in": "0.1",
         }),
     );

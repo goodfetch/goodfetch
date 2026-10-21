@@ -11,7 +11,7 @@ const text = (buffer) =>
     .replaceAll("/", "_")
     .replaceAll("=", "");
 
-async function challenge() {
+async function newChallenge() {
   const response = await fetch("/passkey/challenge", { method: "POST" });
   return response.json();
 }
@@ -29,7 +29,7 @@ async function send(path, credential) {
 }
 
 document.getElementById("register").addEventListener("click", async () => {
-  const { challenge: value, person } = await challenge();
+  const { challenge: value, person } = await newChallenge();
   const credential = await navigator.credentials.create({
     publicKey: {
       challenge: bytes(value),
@@ -45,7 +45,7 @@ document.getElementById("register").addEventListener("click", async () => {
 });
 
 document.getElementById("step-up").addEventListener("click", async () => {
-  const { challenge: value } = await challenge();
+  const { challenge: value } = await newChallenge();
   const credential = await navigator.credentials.get({
     publicKey: { challenge: bytes(value), userVerification: "preferred" },
   });

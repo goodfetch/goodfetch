@@ -526,8 +526,7 @@ pub struct Run {
     folder: PathBuf,
     state: RunState,
     clock: Clock,
-    gates: Option<Arc<dyn Gates>>,
-    politeness: Arc<SharedPoliteness>,
+    admitting: Arc<Admitting>,
     stop: Arc<watch::Sender<Option<StopReason>>>,
     owner: Arc<TaskOwner>,
     runs: Runs,
@@ -647,7 +646,7 @@ impl Run {
         &self,
         settings: &Resolved,
     ) -> Result<Option<Admission>, AdmissionError> {
-        let Some(gates) = self.gates.clone() else {
+        let Some(gates) = self.admitting.gates.clone() else {
             return Ok(None);
         };
         let opening = settings.clone();
@@ -661,9 +660,9 @@ impl Run {
             return Ok(Some(admission));
         }
         let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
-            Politeness::in_memory(self.politeness.tables.clone(), &self.owner).await?
+            Politeness::in_memory(self.admitting.politeness.tables.clone(), &self.owner).await?
         } else {
-            self.politeness.file().await?
+            self.admitting.politeness.file().await?
         };
         let holder = Holder {
             run_id: self.id.to_string(),
@@ -767,17 +766,21 @@ impl Runs {
             drivers: Arc::new(setup.drivers.clone()),
         };
         let mut setup = setup;
-        let politeness = Arc::new(SharedPoliteness {
+        let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
             path: setup.home.politeness_file(),
             options: setup.politeness.clone(),
             tables: setup.politeness_tables.clone(),
             engine: format!("{:016x}", setup.entropy.next_u64()),
             owner: Arc::new(owner.child()),
+        };
+        let admitting = Arc::new(Admitting {
+            gates: setup.gates.clone(),
+            politeness,
         });
         let registry = Registry {
             setup,
-            politeness,
+            admitting,
             owner: owner.child(),
             ending_owner: owner.child(),
             readers: Arc::new(owner.child()),
@@ -1154,8 +1157,8 @@ struct Live {
 
 struct Registry {
     setup: RunsSetup,
-    /// The per-user Politeness file the engine's Runs share.
-    politeness: Arc<SharedPoliteness>,
+    /// The gate in admission and the Politeness the engine's Runs share.
+    admitting: Arc<Admitting>,
     owner: TaskOwner,
     ending_owner: TaskOwner,
     /// Where readers of run state run their blocking reads.
@@ -1561,8 +1564,7 @@ impl Registry {
             folder: folder.to_owned(),
             state,
             clock: self.setup.clock,
-            gates: self.setup.gates.clone(),
-            politeness: Arc::clone(&self.politeness),
+            admitting: Arc::clone(&self.admitting),
             stop: Arc::new(watch::Sender::new(None)),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
@@ -2304,6 +2306,14 @@ pub enum AdmissionError {
     /// The Politeness it shares could not be opened.
     #[error(transparent)]
     Politeness(#[from] PolitenessError),
+}
+
+/// What a Run's admission opens from: the gate in admission the
+/// composition passes in, if any, and the Politeness the engine's Runs
+/// share.
+struct Admitting {
+    gates: Option<Arc<dyn Gates>>,
+    politeness: SharedPoliteness,
 }
 
 /// The per-user Politeness file the engine's Runs share, opened the first

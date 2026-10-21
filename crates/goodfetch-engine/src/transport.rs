@@ -8,8 +8,9 @@
 //! Client of the Daemon connects to the endpoint its runtime file names. A
 //! Daemon a service manager started at the first connection takes the
 //! listening socket it was handed instead (launchd's, systemd's).
-//! This is the only module that opens stdin, stdout and the protocol's
-//! sockets; the other listeners join here with the tickets that add them.
+//! This is the only module that opens stdin, stdout, the protocol's sockets
+//! and the Console's listener; the other listeners join here with the
+//! tickets that add them.
 //! The engine's own outbound connections, which the Simulation never
 //! carries, open in `http_client`.
 
@@ -400,5 +401,94 @@ impl InMemoryDialer {
             .await
             .map_err(|_| TransportError::EngineGone)?;
         Ok(Connection::new(client_reader, client_writer))
+    }
+}
+
+/// The Console's listener (ADR 0031): TCP at `console.address`, on which
+/// the Daemon serves the Console's HTTP.
+pub struct ConsoleListener(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpListener,
+);
+
+/// One connection a browser opened to the Console.
+pub struct ConsoleStream(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpStream,
+);
+
+/// Listens for the Console at `address`; port 0 takes a free port, which
+/// [`ConsoleListener::local_address`] answers.
+///
+/// # Errors
+///
+/// When the OS refuses the address, such as a port another program holds
+/// (`AddrInUse`).
+///
+/// # Cancel safety
+///
+/// Dropping the future before it resolves leaves no listener.
+pub async fn listen_console(address: std::net::SocketAddr) -> io::Result<ConsoleListener> {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    Ok(ConsoleListener(listener))
+}
+
+impl ConsoleListener {
+    /// The address it listens at, its port the one the OS chose for port 0.
+    ///
+    /// # Errors
+    ///
+    /// When the OS cannot say.
+    pub fn local_address(&self) -> io::Result<std::net::SocketAddr> {
+        self.0.local_addr()
+    }
+
+    /// The next connection.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no connection.
+    pub(crate) async fn accept(&self) -> io::Result<ConsoleStream> {
+        let (stream, _) = self.0.accept().await?;
+        stream.set_nodelay(true)?;
+        Ok(ConsoleStream(stream))
+    }
+}
+
+impl AsyncRead for ConsoleStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(context, buffer)
+    }
+}
+
+impl AsyncWrite for ConsoleStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(context, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(context)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(context)
     }
 }

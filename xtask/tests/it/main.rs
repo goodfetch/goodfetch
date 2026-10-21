@@ -22,6 +22,7 @@ mod clients;
 mod codegen;
 mod commit_messages;
 mod compat;
+mod console;
 mod containment;
 mod dco;
 mod dependency_direction;

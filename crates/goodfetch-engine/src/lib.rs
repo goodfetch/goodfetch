@@ -14,6 +14,7 @@ pub mod client;
 pub mod clock;
 mod composition;
 mod config;
+pub mod console;
 pub mod daemon;
 pub mod dns;
 mod engine;

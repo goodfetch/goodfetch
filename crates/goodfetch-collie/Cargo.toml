@@ -46,6 +46,8 @@ rstest.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+# The Console's headers test, an HTTP Client of the Daemon's Console (tests/it/console.rs).
+ureq.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
 

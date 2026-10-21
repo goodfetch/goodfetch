@@ -13,6 +13,7 @@ pub mod browser_cache;
 pub mod case_log;
 pub mod catalog;
 pub mod connection;
+pub mod console;
 pub mod daemon;
 pub mod dns;
 pub mod emit;

@@ -29,6 +29,9 @@ case "$all" in
 esac
 
 rm -f target/skipped.txt
+# Collie's executable embeds its Console build (ADR 0057), which the steps
+# beside, in their containers, find in the workspace they mount.
+just console-build
 names=()
 pids=()
 # Starts a step beside the host's, its lines marked with its name.

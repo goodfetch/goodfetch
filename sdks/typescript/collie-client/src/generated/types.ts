@@ -26,6 +26,21 @@ export type Completeness = "complete" | "incomplete" | "unverified";
  */
 export type RunOrigin = "argument" | "settings" | "flag" | "form";
 /**
+ * Where a Daemon's Console is, as its runtime file and `daemon status`
+ * report it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConsoleState".
+ */
+export type ConsoleState =
+  | {
+      serving: string;
+    }
+  | {
+      failed: ConsoleFailure1;
+    }
+  | "absent";
+/**
  * Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
  * Linux, loopback TCP on Windows.
  *
@@ -277,6 +292,45 @@ export interface ProjectSettings {
   };
 }
 /**
+ * Why a Daemon's Console did not start: an Error code, its message and
+ * what to do instead.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConsoleFailure".
+ */
+export interface ConsoleFailure {
+  /**
+   * The Error code, such as `console_port_in_use`.
+   */
+  code: string;
+  /**
+   * What to do instead.
+   */
+  fix: string;
+  /**
+   * What happened.
+   */
+  message: string;
+}
+/**
+ * Why a Daemon's Console did not start: an Error code, its message and
+ * what to do instead.
+ */
+export interface ConsoleFailure1 {
+  /**
+   * The Error code, such as `console_port_in_use`.
+   */
+  code: string;
+  /**
+   * What to do instead.
+   */
+  fix: string;
+  /**
+   * What happened.
+   */
+  message: string;
+}
+/**
  * What `$/credit` grants: more events, or chunks, for a streaming call.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -310,6 +364,17 @@ export interface DaemonStatus {
    * How many Clients are connected, the caller and Consoles included.
    */
   clients: number;
+  /**
+   * Where its Console is served, or why it is not.
+   */
+  console:
+    | {
+        serving: string;
+      }
+    | {
+        failed: ConsoleFailure1;
+      }
+    | "absent";
   /**
    * Where it listens.
    */

@@ -221,6 +221,17 @@
       ]
     },
     {
+      "id": "error:console_port_in_use",
+      "kind": "error",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:engine_exited",
       "kind": "error",
       "area": 11,
@@ -2635,6 +2646,17 @@
       ]
     },
     {
+      "id": "setting:console.address",
+      "kind": "setting",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.handler.concurrency",
       "kind": "setting",
       "area": 3,
@@ -4344,6 +4366,28 @@
       "kind": "story",
       "area": 11,
       "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-128",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-3",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",

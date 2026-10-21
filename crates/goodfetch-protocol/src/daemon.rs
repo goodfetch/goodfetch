@@ -20,6 +20,7 @@ use crate::catalog::{
     ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 use crate::connection::ProductVersion;
+use crate::console::ConsoleState;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -41,6 +42,10 @@ pub struct DaemonRuntimeFile {
     /// Its process ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pid: u32,
+    /// Where its Console is served, with the port it bound when
+    /// `console.address` asks for port 0.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console: ConsoleState,
 }
 
 /// Where a Daemon listens (ADR 0024): a `0600` Unix socket on macOS and
@@ -131,6 +136,9 @@ pub struct DaemonStatus {
     /// Its `daemon.idle_timeout`, in milliseconds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub idle_timeout: u64,
+    /// Where its Console is served, or why it is not.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console: ConsoleState,
 }
 
 /// What `daemon.stop` answers, before the Daemon stops.

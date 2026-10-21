@@ -9,11 +9,13 @@
 
 use std::sync::Arc;
 
+use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::DaemonEndpoint;
 
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
-use crate::daemon::{self, DaemonEnd, DaemonOptions};
+use crate::console::{self, ConsoleBuild};
+use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToDaemon;
@@ -32,6 +34,7 @@ pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
     events: EventsOptions,
+    console: Option<&'static ConsoleBuild>,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -61,6 +64,7 @@ impl Engine {
             }),
             tables: composition.run_state_tables(),
             events: EventsOptions::default(),
+            console: composition.console(),
         })
     }
 
@@ -74,6 +78,12 @@ impl Engine {
     /// What it runs as.
     pub fn identity(&self) -> &Identity {
         &self.dispatch.identity
+    }
+
+    /// Whether its composition carries a Console build, which its Daemon
+    /// serves; an SDK crate's linked engine carries none (ADR 0031).
+    pub fn serves_console(&self) -> bool {
+        self.console.is_some()
     }
 
     /// Serves `connection` until it ends, its tasks those of `owner`, its
@@ -112,17 +122,31 @@ impl Engine {
         &self,
         listener: DaemonListener,
         dependencies: Dependencies,
-        options: DaemonOptions,
+        mut options: DaemonOptions,
     ) -> DaemonEnd {
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
         let (runs, events) = self.start_runs(dependencies, &owner, Some(options.endpoint.clone()));
+        let console = match (
+            self.console,
+            std::mem::replace(&mut options.console, DaemonConsole::Absent),
+        ) {
+            (Some(build), DaemonConsole::Listening { listener, url }) => {
+                owner.spawn(console::serve(build, listener, owner.child()));
+                ConsoleState::Serving(url)
+            }
+            (_, DaemonConsole::Failed(failure)) => ConsoleState::Failed(failure),
+            (None, DaemonConsole::Listening { .. }) | (_, DaemonConsole::Absent) => {
+                ConsoleState::Absent
+            }
+        };
         let ended = daemon::serve(
             daemon::Serving {
                 dispatch: Arc::clone(&self.dispatch),
                 runs: runs.clone(),
                 events,
                 clock,
+                console,
             },
             listener,
             options,

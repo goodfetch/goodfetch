@@ -10,6 +10,7 @@
 mod attached;
 mod browsers;
 mod config;
+mod console;
 mod daemon;
 mod events;
 mod invalid_calls;

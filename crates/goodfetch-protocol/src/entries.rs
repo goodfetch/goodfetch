@@ -4,13 +4,14 @@
 
 use crate::catalog::{Entries, Operation, Product};
 use crate::{
-    browser_cache, connection, daemon, dns, engine, events, executables, foxhound, page, run,
-    sample, settings,
+    browser_cache, connection, console, daemon, dns, engine, events, executables, foxhound, page,
+    run, sample, settings,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 14] = [
+pub const MODULES: [&Entries; 15] = [
     &connection::ENTRIES,
+    &console::ENTRIES,
     &daemon::ENTRIES,
     &browser_cache::ENTRIES,
     &dns::ENTRIES,

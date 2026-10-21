@@ -17,7 +17,7 @@ use tokio::sync::watch;
 
 use super::run::{call, index_row};
 use super::{Client, dependencies, engine};
-use crate::daemon::{DaemonEnd, DaemonOptions, Holds, Succession};
+use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
 use crate::engine::Engine;
 use crate::transport::{self, InMemoryDialer, Network};
 
@@ -65,6 +65,7 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
             pick,
             handovers: Arc::clone(handovers),
         }),
+        console: DaemonConsole::Absent,
     }
 }
 

@@ -21,6 +21,12 @@ export type TestSupportErrorCode =
   | "proving_ground_unseeded"
   /** A test took `daemon` without setting `withDaemon`. */
   | "daemon_not_requested"
+  /** A served test took `daemon` with no `consoleServer`, while the executables serve no Console (ADR 0068). */
+  | "console_not_served"
+  /** `signIn` did not reach a signed-in state: the Console refused the link, or the OIDC provider the person (ADR 0068). */
+  | "sign_in_failed"
+  /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */
+  | "storage_state_refused"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */

@@ -4,9 +4,12 @@
 // and API requests from here, the one place that creates them.
 //
 // - `context` and `request`: Playwright's own, refused when the test turns
-//   on `bypassCSP`, so every test runs under the production CSP. Test files
-//   cannot make their own: oxlint refuses `newContext`, `browser.newPage`,
-//   `launchPersistentContext`, `launch`, `connect` and `connectOverCDP`.
+//   on `bypassCSP`, so every test runs under the production CSP, or gives a
+//   `storageState`, so no test starts with a cookie the Console did not
+//   set. Test files cannot make their own: oxlint refuses `newContext`,
+//   `browser.newPage`, `launchPersistentContext`, `launch`, `connect` and
+//   `connectOverCDP`, and `addCookies`, `setStorageState` and
+//   `document.cookie`.
 // - `failOnErrors`, on in every test: fails it when a page logged a
 //   `console` error, threw, broke the CSP or had a same-origin request fail.
 // - `coversKnownFeatures`, on in every test: fails it when a `covers`
@@ -14,6 +17,16 @@
 // - `translationEmulation`, an option off by default: adds the
 //   translation-emulation script to every page, as the Release suite's
 //   translation project does (ADR 0073).
+// - `daemon`: the test's own Daemon, started by `goodfetch-test-env
+//   --daemon` in its own home and run by the executable of `product`
+//   (Collie's unless the screen is Foxhound's, ADR 0094), with the Console
+//   `consoleServer` serves beside it on its own port, and the Proving ground
+//   of `provingGroundSeed` when set. All of it stops at teardown, leaving no
+//   runtime file and no process.
+// - `signIn`: the ways a person signs in to the test's Console (the
+//   executable's single-user link, single sign-on through the worker's
+//   local OIDC provider), with Playwright's virtual authenticator installed
+//   on the context for passkeys and step-up. No fixture writes a cookie.
 // - `axe`, on in every test: once the test has passed, audits each of its
 //   open pages for WCAG 2.2 AA and best practices (ADR 0073), with the
 //   repository's exception file, before `failOnErrors` judges the pages, so
@@ -34,7 +47,14 @@ import {
 import { auditAccessibility } from "./accessibility.ts";
 import { readAxeExceptions } from "./axe-exceptions.ts";
 import { refuseBypassCSP } from "./bypass-csp.ts";
+import { refuseStorageState } from "./storage-state.ts";
 import { refuseUnknownCovers } from "./features.ts";
+import { startOidcProvider, type OidcClient } from "./oidc-provider.ts";
+import { ProcessRecord } from "./process-record.ts";
+import type { Product } from "./product-env.ts";
+import { startServedDaemon, type ConsoleServer, type ServedDaemon } from "./served-daemon.ts";
+export { signInTo, type SignIn } from "./sign-in.ts";
+import { signInTo, type SignIn } from "./sign-in.ts";
 import { watchPageErrors, type PageErrorWatch } from "./page-errors.ts";
 import { emulateTranslation } from "./translation.ts";
 
@@ -51,6 +71,7 @@ export {
   type AxeException,
 } from "./axe-exceptions.ts";
 export { refuseBypassCSP, type CspOptions } from "./bypass-csp.ts";
+export { refuseStorageState, type StorageStateOptions } from "./storage-state.ts";
 export { noRunningAnimations } from "./reduced-motion.ts";
 export { reflow } from "./reflow.ts";
 export { emulateTranslation } from "./translation.ts";
@@ -61,6 +82,22 @@ export {
   type PageErrorWatch,
 } from "./page-errors.ts";
 export { focusChecks, keyboardWalk, type FocusStop } from "./focus.ts";
+export {
+  OIDC_PERSON,
+  startOidcProvider,
+  type OidcClient,
+  type OidcPerson,
+  type StartedOidcProvider,
+} from "./oidc-provider.ts";
+export {
+  startServedDaemon,
+  type ConsoleServer,
+  type ConsoleStart,
+  type ServedConsole,
+  type ServedDaemon,
+  type ServedDaemonStart,
+  type StartedServedDaemon,
+} from "./served-daemon.ts";
 
 /** The options of test support's Playwright `test`, which a project or `test.use` sets. */
 export interface ServedOptions {
@@ -70,6 +107,20 @@ export interface ServedOptions {
    * project does. Off by default.
    */
   translationEmulation: boolean;
+  /** The Product whose executable runs the test's Daemon and serves its Console build: Collie's unless the screen is Foxhound's (ADR 0094). */
+  product: Product;
+  /** The seed of the Proving ground `daemon` starts beside the Daemon; none when unset. */
+  provingGroundSeed: number | undefined;
+  /** What serves the Console beside the test's Daemon, until the executables serve it (area 12). */
+  consoleServer: ConsoleServer | undefined;
+  /** The test tool manifest's path: `GOODFETCH_TEST_TOOLS`, which `just test` sets. */
+  toolManifest: string | undefined;
+}
+
+/** What a served test's worker shares between its tests. */
+export interface ServedWorkerFixtures {
+  /** The worker's OIDC provider, which each test's Console signs people in through. */
+  oidcProvider: OidcClient;
 }
 
 /** What a served test takes from test support's Playwright `test`, beside Playwright's own. */
@@ -84,23 +135,70 @@ export interface ServedFixtures extends ServedOptions {
   coversKnownFeatures: void;
   /** axe's audit of each open page, at the end of a test that passed; the test fails on a violation. */
   axe: void;
+  /** The test's own Daemon and the Console it serves. */
+  daemon: ServedDaemon;
+  /** Signs a person in to the test's Console, with the virtual authenticator installed. */
+  signIn: SignIn;
 }
 
 /** Playwright's `test` with test support's fixtures. */
 export const test: TestType<
   PlaywrightTestArgs & PlaywrightTestOptions & ServedFixtures,
-  PlaywrightWorkerArgs & PlaywrightWorkerOptions
-> = base.extend<ServedFixtures>({
+  PlaywrightWorkerArgs & PlaywrightWorkerOptions & ServedWorkerFixtures
+> = base.extend<ServedFixtures, ServedWorkerFixtures>({
   translationEmulation: [false, { option: true }],
-  context: async ({ context, bypassCSP, contextOptions, translationEmulation }, use) => {
+  product: ["collie", { option: true }],
+  provingGroundSeed: [undefined, { option: true }],
+  consoleServer: [undefined, { option: true }],
+  toolManifest: [process.env["GOODFETCH_TEST_TOOLS"], { option: true }],
+  oidcProvider: [
+    // oxlint-disable-next-line no-empty-pattern -- Playwright reads a fixture's dependencies from its first parameter's pattern; this one has none.
+    async ({}, use) => {
+      const provider = await startOidcProvider();
+      await use(provider.client);
+      await provider.close();
+    },
+    { scope: "worker" },
+  ],
+  daemon: async (
+    { product, provingGroundSeed, consoleServer, toolManifest, oidcProvider },
+    use,
+    testInfo,
+  ) => {
+    const processes = new ProcessRecord();
+    try {
+      const started = await startServedDaemon({
+        processes,
+        testName: testInfo.titlePath.join(" "),
+        toolManifest,
+        product,
+        provingGroundSeed,
+        consoleServer,
+        oidc: oidcProvider,
+      });
+      await use(started.daemon);
+      await started.close();
+    } finally {
+      await processes.close();
+    }
+  },
+  signIn: async ({ context, daemon, oidcProvider }, use) => {
+    await use(await signInTo(context, daemon, oidcProvider));
+  },
+  context: async (
+    { context, bypassCSP, contextOptions, storageState, translationEmulation },
+    use,
+  ) => {
     refuseBypassCSP({ bypassCSP, contextOptions });
+    refuseStorageState({ storageState, contextOptions });
     if (translationEmulation) {
       await emulateTranslation(context);
     }
     await use(context);
   },
-  request: async ({ request, bypassCSP, contextOptions }, use) => {
+  request: async ({ request, bypassCSP, contextOptions, storageState }, use) => {
     refuseBypassCSP({ bypassCSP, contextOptions });
+    refuseStorageState({ storageState, contextOptions });
     await use(request);
   },
   failOnErrors: [

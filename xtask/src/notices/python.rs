@@ -116,7 +116,7 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
             name: package.name.clone(),
             version: package.version.clone(),
             license: license.clone(),
-            source,
+            source: Some(source),
             usage: Usage::Unmodified,
         });
     }

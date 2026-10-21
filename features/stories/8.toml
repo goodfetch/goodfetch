@@ -18,7 +18,7 @@ status = "active"
 
 [[story]]
 id = 2
-title = "As a developer, I want to open a Session in `stealth` with one setting, `browser.access_mode: \"stealth\"` **(shape)**, so that the whole catalog turns on at once and I switch items off rather than on (ADR 0035; ST-01)."
+title = "As a developer, I want to open a Session in `stealth` with one setting, `browser.access_mode: \"stealth\"`, so that the whole catalog turns on at once and I switch items off rather than on (ADR 0035; ST-01)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -33,7 +33,7 @@ status = "active"
 
 [[story]]
 id = 4
-title = "As a developer, I want each catalog item (`stealth.fingerprint_method`, `stealth.generated_identity`, `browser.headless`, `stealth.human_input`) switchable off under `stealth` **(shape)**, so that I keep what a site needs and drop what it does not."
+title = "As a developer, I want each catalog item (`stealth.fingerprint_method`, `stealth.generated_identity`, `browser.headless`, `stealth.human_input`) switchable off under `stealth`, so that I keep what a site needs and drop what it does not."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -97,7 +97,7 @@ status = "active"
 
 [[story]]
 id = 12
-title = "As a developer, I want the four Fingerprint methods, `none`, `js_injection`, `basic` and `engine` (ADR 0038's snake_case makes ADR 0035's `js-injection` `js_injection` on the wire; the word is this spec's **(shape)**), each with its stated warning, so that I know what each one leaves visible."
+title = "As a developer, I want the four Fingerprint methods, `none`, `js_injection`, `basic` and `engine` (ADR 0038's snake_case makes ADR 0035's `js-injection` `js_injection` on the wire; the word is this spec's), each with its stated warning, so that I know what each one leaves visible."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -304,7 +304,7 @@ status = "active"
 
 [[story]]
 id = 38
-title = "As a developer, I want to narrow the population with `stealth.identity.os`, `stealth.identity.device` and `stealth.identity.brand` **(shape)** (Chrome, Edge and Android Chrome on Chromium), so that a task needing a mobile or an Edge identity gets one."
+title = "As a developer, I want to narrow the population with `stealth.identity.os`, `stealth.identity.device` and `stealth.identity.brand` (Chrome, Edge and Android Chrome on Chromium), so that a task needing a mobile or an Edge identity gets one."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -399,7 +399,7 @@ status = "active"
 
 [[story]]
 id = 50
-title = "As a user, I want an online lookup of Google's release data only when I opt in with `version_check.online_lookup` **(shape)** in configuration, a configured destination (ADR 0035) that needs no entry on ADR 0043's endpoint list, recorded in the Audit log, so that nothing leaves the machine unless configured (ADR 0043)."
+title = "As a user, I want an online lookup of Google's release data only when I opt in with `version_check.online_lookup` in configuration, a configured destination (ADR 0035) that needs no entry on ADR 0043's endpoint list, recorded in the Audit log, so that nothing leaves the machine unless configured (ADR 0043)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -407,7 +407,7 @@ status = "active"
 
 [[story]]
 id = 51
-title = "As a user, I want `browser versions` **(shape)** on the CLI and its catalog operation to list each build in the Browser cache and each installed Chrome with its grade, so that I can check before a run."
+title = "As a user, I want `browser versions` on the CLI and its catalog operation to list each build in the Browser cache and each installed Chrome with its grade, so that I can check before a run."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -431,7 +431,7 @@ status = "active"
 
 [[story]]
 id = 54
-title = "As a developer, I want reusing a Saved identity under another Access mode or a proxy inconsistent with its binding refused with `saved_identity_mismatch` **(shape)**, naming what it was saved with, so that I never open a Session that contradicts its own cookies."
+title = "As a developer, I want reusing a Saved identity under another Access mode or a proxy inconsistent with its binding refused with `saved_identity_mismatch`, naming what it was saved with, so that I never open a Session that contradicts its own cookies."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -439,7 +439,7 @@ status = "active"
 
 [[story]]
 id = 55
-title = "As a developer, I want an optional warm-up, `session.warm_up.urls` **(shape)**, browsed when the Session opens and before any work, so that a new identity has history."
+title = "As a developer, I want an optional warm-up, `session.warm_up.urls`, browsed when the Session opens and before any work, so that a new identity has history."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -447,7 +447,7 @@ status = "active"
 
 [[story]]
 id = 56
-title = "As a user, I want a Saved identity unused for `saved_identity.max_unused_age` (30 days by default, `null` for never) **(shape)** deleted, recorded in the Audit log, so that stale identities do not pile up (Steel's saved profiles do the same)."
+title = "As a user, I want a Saved identity unused for `saved_identity.max_unused_age` (30 days by default, `null` for never) deleted, recorded in the Audit log, so that stale identities do not pile up (Steel's saved profiles do the same)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -543,7 +543,7 @@ status = "active"
 
 [[story]]
 id = 68
-title = "As a developer, I want the ladder first to wait up to `timeout.challenge_wait` (15 s by default) **(shape)** for an invisible challenge to clear in the genuine browser, so that the commonest challenge passes with no solver and no spend."
+title = "As a developer, I want the ladder first to wait up to `timeout.challenge_wait` (15 s by default) for an invisible challenge to clear in the genuine browser, so that the commonest challenge passes with no solver and no spend."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -551,21 +551,21 @@ status = "active"
 
 [[story]]
 id = 69
-title = "As a developer, I want the Challenge solver to run only when `challenge.solve` is on (off by default) **(shape: ADR 0035's `solve_challenges` under its area)**, in `standard` and `stealth` Sessions, so that solving is always opted into and does not itself require `stealth`."
+title = "As a developer, I want the Challenge solver to run only when `challenge.solve` is on (off by default), in `standard` and `stealth` Sessions, so that solving is always opted into and does not itself require `stealth`."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
 
 [[story]]
 id = 70
-title = "As a developer, I want the deterministic solvers tried first in the order `challenge.solver` names them **(shape)**: scripted interactive steps (checkbox, slider, press-and-hold), then the token services and sensor-data services I configured, so that cheap, reproducible steps run before costly ones."
+title = "As a developer, I want the deterministic solvers tried first in the order `challenge.solver` names them: scripted interactive steps (checkbox, slider, press-and-hold), then the token services and sensor-data services I configured, so that cheap, reproducible steps run before costly ones."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
 
 [[story]]
 id = 71
-title = "As a developer, I want vision-model solving tried only when `challenge.ai` **(shape)** is on as well, with the call made by the engine with the run's Model provider, Limits and Model allowance, so that no solver ever holds model credentials and a spent allowance skips the step (ADRs 0012, 0107)."
+title = "As a developer, I want vision-model solving tried only when `challenge.ai` is on as well, with the call made by the engine with the run's Model provider, Limits and Model allowance, so that no solver ever holds model credentials and a spent allowance skips the step (ADRs 0012, 0107)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -573,7 +573,7 @@ status = "active"
 
 [[story]]
 id = 72
-title = "As a developer, I want a Human pause next, when a person can answer (a human channel is configured and `session.recovery.human_pause` is on), shown in \"Needs you\" with the step `challenge` **(shape: the value)**, so that a person finishes what no solver could (ADRs 0006, 0092, 0102)."
+title = "As a developer, I want a Human pause next, when a person can answer (a human channel is configured and `session.recovery.human_pause` is on), shown in \"Needs you\" with the step `challenge`, so that a person finishes what no solver could (ADRs 0006, 0092, 0102)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -587,7 +587,7 @@ status = "active"
 
 [[story]]
 id = 74
-title = "As a developer, I want a ladder that ends without passing to raise `challenge_unsolved`, a `PageError` carrying the Block cause, the URL, the status and `steps`, each step tried with why it ended **(shape: `steps`)**, so that I catch a Challenge in one place and see what was tried (ADRs 0035, 0038, 0079; pitfall S02)."
+title = "As a developer, I want a ladder that ends without passing to raise `challenge_unsolved`, a `PageError` carrying the Block cause, the URL, the status and `steps`, each step tried with why it ended, so that I catch a Challenge in one place and see what was tried (ADRs 0035, 0038, 0079; pitfall S02)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -610,7 +610,7 @@ status = "active"
 
 [[story]]
 id = 77
-title = "As a developer, I want the whole ladder bounded by `timeout.challenge` (3 minutes by default) **(shape)**, its time counting against neither `timeout.navigation` nor `timeout.handler` as a Politeness permit's wait does (ADR 0093), and a Human pause counting toward none, so that a slow token service never makes a `goto()` or a crawl handler time out early while the ladder still ends (ADR 0080)."
+title = "As a developer, I want the whole ladder bounded by `timeout.challenge` (3 minutes by default), its time counting against neither `timeout.navigation` nor `timeout.handler` as a Politeness permit's wait does (ADR 0093), and a Human pause counting toward none, so that a slow token service never makes a `goto()` or a crawl handler time out early while the ladder still ends (ADR 0080)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -634,7 +634,7 @@ status = "active"
 
 [[story]]
 id = 80
-title = "As a user, I want built-in adapters for the token services CapSolver, 2Captcha and CapMonster and the sensor-data service Hyper Solutions, each reached with my own account through `challenge.services.<name>.api_key`, a Secret reference **(shape)**, so that I bring the account and Goodfetch brings the wiring (ST-06, ST-07)."
+title = "As a user, I want built-in adapters for the token services CapSolver, 2Captcha and CapMonster and the sensor-data service Hyper Solutions, each reached with my own account through `challenge.services.<name>.api_key`, a Secret reference, so that I bring the account and Goodfetch brings the wiring (ST-06, ST-07)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -649,7 +649,7 @@ status = "active"
 
 [[story]]
 id = 82
-title = "As a user, I want each paid solve journaled in the Effect journal, counted in Usage as `paid_solves`, reserved against my money Limits before the call at the price set in configuration (`challenge.services.<name>.price`) **(shape)**, and refused when the price is missing under a money Limit, and a run that can spend on paid solves with no money Limit marked uncapped, so that solving never spends past my cap unseen (ADRs 0010, 0033, 0041, 0101)."
+title = "As a user, I want each paid solve journaled in the Effect journal, counted in Usage as `paid_solves`, reserved against my money Limits before the call at the price set in configuration (`challenge.services.<name>.price`), and refused when the price is missing under a money Limit, and a run that can spend on paid solves with no money Limit marked uncapped, so that solving never spends past my cap unseen (ADRs 0010, 0033, 0041, 0101)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -688,7 +688,7 @@ status = "active"
 
 [[story]]
 id = 87
-title = "As a user, I want a solver that needs a vision model to ask through the catalog operation `challenge.ask_model` **(shape)**, which counts against the run and needs no extra permission, so that model spend and credentials stay the engine's (ADR 0035)."
+title = "As a user, I want a solver that needs a vision model to ask through the catalog operation `challenge.ask_model`, which counts against the run and needs no extra permission, so that model spend and credentials stay the engine's (ADR 0035)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -696,7 +696,7 @@ status = "active"
 
 [[story]]
 id = 88
-title = "As a user, I want proxy pools by kind (`datacenter`, `isp`, `residential`, `mobile`) or my own list, chosen with `proxy.provider` and `proxy.kind` **(shape)**, so that each Session gets a proxy of the kind I need (ADRs 0021, 0088; ST-09)."
+title = "As a user, I want proxy pools by kind (`datacenter`, `isp`, `residential`, `mobile`) or my own list, chosen with `proxy.provider` and `proxy.kind`, so that each Session gets a proxy of the kind I need (ADRs 0021, 0088; ST-09)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -710,7 +710,7 @@ status = "active"
 
 [[story]]
 id = 90
-title = "As a user, I want each Session bound to one proxy and one sticky exit for its life, with `proxy.country` and `proxy.sticky_lifetime` **(shape)**, and a Run report warning when a Session outlives the exit's lifetime, so that the IP under my cookies never changes silently (pitfall S05)."
+title = "As a user, I want each Session bound to one proxy and one sticky exit for its life, with `proxy.country` and `proxy.sticky_lifetime`, and a Run report warning when a Session outlives the exit's lifetime, so that the IP under my cookies never changes silently (pitfall S05)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -795,7 +795,7 @@ status = "active"
 
 [[story]]
 id = 101
-title = "As a developer, I want a Lent page's Identity profile overrides (device emulation, permissions, and the CDP Emulation values `basic` sets) re-applied by its Fingerprint method after a library's attach to it ends, before any other use of the page **(shape: the re-apply step)**, so that a CDP detach never leaves the page showing the machine's own values (ADR 0089)."
+title = "As a developer, I want a Lent page's Identity profile overrides (device emulation, permissions, and the CDP Emulation values `basic` sets) re-applied by its Fingerprint method after a library's attach to it ends, before any other use of the page, so that a CDP detach never leaves the page showing the machine's own values (ADR 0089)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -803,7 +803,7 @@ status = "active"
 
 [[story]]
 id = 102
-title = "As a developer, I want `identified` refused at import and on a Profile directory used in place, with `setting_not_applicable` naming `browser.access_mode` and the source **(shape: the code)**, so that a person's login is never passed off as a declared agent's (ADRs 0056, 0021)."
+title = "As a developer, I want `identified` refused at import and on a Profile directory used in place, with `setting_not_applicable` naming `browser.access_mode` and the source, so that a person's login is never passed off as a declared agent's (ADRs 0056, 0021)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "reach"
@@ -827,7 +827,7 @@ status = "active"
 
 [[story]]
 id = 105
-title = "As a maintainer, I want one Challenge-solver driver to own what every Challenge solver shares (the create-task and poll loop, the deadline and cancellation, the price reservation against money Limits, the Effect journal entry, `paid_solves` Usage, token injection, the `needs_human` re-check, the rule that only the Page check declares a pass, and the check of which challenge kinds a service supports), and each service to fill only `create_task`, `poll` and `map_failure` **(shape)**, so that no service re-implements a spend rule (ADR 0129)."
+title = "As a maintainer, I want one Challenge-solver driver to own what every Challenge solver shares (the create-task and poll loop, the deadline and cancellation, the price reservation against money Limits, the Effect journal entry, `paid_solves` Usage, token injection, the `needs_human` re-check, the rule that only the Page check declares a pass, and the check of which challenge kinds a service supports), and each service to fill only `create_task`, `poll` and `map_failure`, so that no service re-implements a spend rule (ADR 0129)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "actor"
@@ -835,7 +835,7 @@ status = "active"
 
 [[story]]
 id = 106
-title = "As a maintainer, I want one Proxy-provider driver to own the sticky lifetime, the `proxy.country` and `proxy.kind` validation, `proxy_exit_may_change` and Usage, and each provider to fill only its username and lifetime formatting **(shape)**, so that providers differ only where their formats do (ADR 0129)."
+title = "As a maintainer, I want one Proxy-provider driver to own the sticky lifetime, the `proxy.country` and `proxy.kind` validation, `proxy_exit_may_change` and Usage, and each provider to fill only its username and lifetime formatting, so that providers differ only where their formats do (ADR 0129)."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
@@ -843,7 +843,7 @@ status = "active"
 
 [[story]]
 id = 107
-title = "As a maintainer, I want `fingerprint_method` to be a driver whose shared steps (the Provenance mark, the warning, the Audit record) live in it once, each method filling only its primitives **(shape)**, so that no method forgets to say what it leaves visible (ADR 0129)."
+title = "As a maintainer, I want `fingerprint_method` to be a driver whose shared steps (the Provenance mark, the warning, the Audit record) live in it once, each method filling only its primitives, so that no method forgets to say what it leaves visible (ADR 0129)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "actor"
@@ -867,7 +867,7 @@ status = "active"
 
 [[story]]
 id = 110
-title = "As a maintainer, I want the Challenge ladder's state table (per Challenge) written out with its states, events, allowed transitions and the code of each refused pair, every pair a named test case **(shape)**, so that an invalid transition is refused and never a warning (ADR 0128)."
+title = "As a maintainer, I want the Challenge ladder's state table (per Challenge) written out with its states, events, allowed transitions and the code of each refused pair, every pair a named test case, so that an invalid transition is refused and never a warning (ADR 0128)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "actor"
@@ -891,7 +891,7 @@ status = "active"
 
 [[story]]
 id = 201
-title = "As a crawl developer, I want a `stealth` Session that cannot move to the browser (`fetch.tier` forced to `http` or `discovered_api`, or a Run without browser capability) to send through wreq the TLS ClientHello, HTTP/2 settings, header order and client hints captured from the Goodfetch Chromium, so that HTTP and the browser claim the same version **(shape: which Sessions)** (ADRs 0020, 0035; ST-03, ST-04; pitfall S06)."
+title = "As a crawl developer, I want a `stealth` Session that cannot move to the browser (`fetch.tier` forced to `http` or `discovered_api`, or a Run without browser capability) to send through wreq the TLS ClientHello, HTTP/2 settings, header order and client hints captured from the Goodfetch Chromium, so that HTTP and the browser claim the same version (ADRs 0020, 0035; ST-03, ST-04; pitfall S06)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -906,7 +906,7 @@ status = "active"
 
 [[story]]
 id = 203
-title = "As a crawl developer, I want a `stealth` Session that may move to the browser, by escalation or a sample comparison, to fetch through browser-fetch from its first request **(shape)**, so that it shows the Goodfetch Chromium's own identity before and after any move and no `stealth` Session changes its TLS identity midway (ADR 0020)."
+title = "As a crawl developer, I want a `stealth` Session that may move to the browser, by escalation or a sample comparison, to fetch through browser-fetch from its first request, so that it shows the Goodfetch Chromium's own identity before and after any move and no `stealth` Session changes its TLS identity midway (ADR 0020)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -921,7 +921,7 @@ status = "active"
 
 [[story]]
 id = 205
-title = "As a crawl developer, I want `stealth.http_fingerprint` **(shape)**, on by default under `stealth`, switchable off, with the HTTP request then sent by reqwest and Provenance recording the identity change, so that I can trade consistency for a plainer client knowingly (ADR 0023)."
+title = "As a crawl developer, I want `stealth.http_fingerprint`, on by default under `stealth`, switchable off, with the HTTP request then sent by reqwest and Provenance recording the identity change, so that I can trade consistency for a plainer client knowingly (ADR 0023)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -937,7 +937,7 @@ status = "active"
 
 [[story]]
 id = 207
-title = "As area 8, I want each Goodfetch Chromium's HTTP profiles captured in its Chromium pull request by launching it, per platform, against the Proving ground's TLS-fingerprint relay, and committed beside the digest manifest as outputs, so that every Goodfetch Chromium digest ships its own HTTP profiles and no HTTP profile is written by hand **(shape)**."
+title = "As area 8, I want each Goodfetch Chromium's HTTP profiles captured in its Chromium pull request by launching it, per platform, against the Proving ground's TLS-fingerprint relay, and committed beside the digest manifest as outputs, so that every Goodfetch Chromium digest ships its own HTTP profiles and no HTTP profile is written by hand."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "actor"
@@ -975,7 +975,7 @@ status = "active"
 
 [[story]]
 id = 212
-title = "As a crawl developer, I want a Session pool's Session that meets a Challenge the browser cannot pass retired, and its replacement opened in `stealth`, only when `escalation.allow_stealth` **(shape)** is on (off by default), so that nothing escalates into `stealth` unless I switched that on (ADR 0021; ADR 0035's step 3)."
+title = "As a crawl developer, I want a Session pool's Session that meets a Challenge the browser cannot pass retired, and its replacement opened in `stealth`, only when `escalation.allow_stealth` is on (off by default), so that nothing escalates into `stealth` unless I switched that on (ADR 0021; ADR 0035's step 3)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
@@ -1023,7 +1023,7 @@ status = "active"
 
 [[story]]
 id = 218
-title = "As a crawl developer, I want a 401, 403 or 429 without a challenge page to retire the Session with its proxy and open its replacement one kind up `escalation.proxy_kinds` **(shape)**, so that the IP never changes under the same cookies (ADR 0021; ST-09)."
+title = "As a crawl developer, I want a 401, 403 or 429 without a challenge page to retire the Session with its proxy and open its replacement one kind up `escalation.proxy_kinds`, so that the IP never changes under the same cookies (ADR 0021; ST-09)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -1037,7 +1037,7 @@ status = "active"
 
 [[story]]
 id = 220
-title = "As a user paying per gigabyte, I want a periodic trial on the cheaper tier every `escalation.trial_interval` (10 minutes by default) **(shape)** to bring a domain back down when it succeeds, so that a crawl does not stay on the costliest tier for good (ADR 0021; pain 13)."
+title = "As a user paying per gigabyte, I want a periodic trial on the cheaper tier every `escalation.trial_interval` (10 minutes by default) to bring a domain back down when it succeeds, so that a crawl does not stay on the costliest tier for good (ADR 0021; pain 13)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -1084,21 +1084,21 @@ status = "active"
 
 [[story]]
 id = 226
-title = "As a crawl developer, I want the browser tier's link discovery to leave out links a person cannot see and invisible `nofollow` links, each answered \"not added\" with the reason `trap_link` **(shape)**, so that a crawl never enters a labyrinth (ADR 0035; pitfall S03)."
+title = "As a crawl developer, I want the browser tier's link discovery to leave out links a person cannot see and invisible `nofollow` links, each answered \"not added\" with the reason `trap_link`, so that a crawl never enters a labyrinth (ADR 0035; pitfall S03)."
 milestone = "M1 Core"
 journey = true
 status = "active"
 
 [[story]]
 id = 227
-title = "As a crawl developer, I want a page reached through such a link, or marked `noindex` and failing its Page check, to end `blocked` with the cause `decoy`, never escalate, and have none of its links followed **(shape)**, so that one trap never fans out (ADR 0035)."
+title = "As a crawl developer, I want a page reached through such a link, or marked `noindex` and failing its Page check, to end `blocked` with the cause `decoy`, never escalate, and have none of its links followed, so that one trap never fans out (ADR 0035)."
 milestone = "M1 Core"
 journey = true
 status = "active"
 
 [[story]]
 id = 228
-title = "As a crawl developer, I want an HTTP-tier crawl, which cannot see layout, to add such links with a `trap_link_suspected` mark in Provenance **(shape)** rather than skip them, so that the HTTP tier flags what it cannot judge (ADR 0035)."
+title = "As a crawl developer, I want an HTTP-tier crawl, which cannot see layout, to add such links with a `trap_link_suspected` mark in Provenance rather than skip them, so that the HTTP tier flags what it cannot judge (ADR 0035)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -1114,7 +1114,7 @@ status = "active"
 
 [[story]]
 id = 230
-title = "As a crawl developer, I want `crawl.trap_links.avoid` **(shape)**, on by default, switchable off per run or Label, the switch recorded in the Audit log and listed in the Run report's `weakened`, so that I can crawl a site whose hidden links are real while the results say so (ADR 0023)."
+title = "As a crawl developer, I want `crawl.trap_links.avoid`, on by default, switchable off per run or Label, the switch recorded in the Audit log and listed in the Run report's `weakened`, so that I can crawl a site whose hidden links are real while the results say so (ADR 0023)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -1193,7 +1193,7 @@ status = "active"
 
 [[story]]
 id = 240
-title = "As a maintainer, I want escalation's per-domain state table written out with its states, events, allowed transitions and the code of each refused pair, every pair a named test case **(shape)**, so that an invalid transition is refused and never a warning (ADR 0128)."
+title = "As a maintainer, I want escalation's per-domain state table written out with its states, events, allowed transitions and the code of each refused pair, every pair a named test case, so that an invalid transition is refused and never a warning (ADR 0128)."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"

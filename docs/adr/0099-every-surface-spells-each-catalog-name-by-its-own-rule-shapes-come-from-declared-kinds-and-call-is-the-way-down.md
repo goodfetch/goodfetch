@@ -103,6 +103,8 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   | Duration (ADR 0080) | `number` of milliseconds | `timedelta` | `Duration` |
   | Point in time ([ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md)) | `Date` | time-zone-aware `datetime` in UTC | `SystemTime` |
 
+  > Note (agent decision, pending owner review), 2026-10-21, [#1174](https://github.com/goodfetch/goodfetch/issues/1174): each catalog `Operation` declares its `kind` (`OperationKind`), which the catalog file writes as `kind`. The CLI tracer needed three: `round_trip`, `opener` (its result carries the new value's ID, `<namespace>_id`, which the CLI prints) and `sequence` (an operation that answers through notifications while in flight, `events.subscribe` and `page.body`, which is no CLI command until `--follow`). [#1180](https://github.com/goodfetch/goodfetch/issues/1180) adds the other kinds of the table above and the SDK-only and person-only markers.
+
 - **One form for reads in TypeScript.** A read on a handle is a method whether it may change (`page.url()`) or is fixed at creation (`request.url()`, `run.id()`): one form in the language (S1), Playwright's (S3), which ADR 0085 keeps for the page API. A property would have suited a fixed fact better for T, since a method used as a value can pass unseen in a template string, but T ranks below both.
 - **Plain data** (results, error fields, event data that is not a page-API class):
   - TypeScript: `readonly` properties;

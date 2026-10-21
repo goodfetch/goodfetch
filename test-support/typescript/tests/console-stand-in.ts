@@ -12,7 +12,9 @@
 //   provider, with the authorization code flow and PKCE;
 // - `/session`: 204 for a signed-in request, 401 otherwise;
 // - `/passkey/*`: passkey registration and step-up for a signed-in person,
-//   which checks each ceremony's challenge, type and origin.
+//   which checks each ceremony's challenge, type and origin;
+// - each fixture screen of its `screens` option at its route, for
+//   `testEachScreen`'s tests, with its page's scripts and style sheets.
 import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -24,7 +26,7 @@ import type {
   ConsoleStart,
   ServedConsole,
 } from "@goodfetch/test-support/playwright";
-import { PRODUCTION_CSP } from "./csp-pages.ts";
+import { fixtureFile, PRODUCTION_CSP } from "./csp-pages.ts";
 import { hello } from "./daemon-hello.ts";
 
 const SESSION_COOKIE = "goodfetch_session";
@@ -38,6 +40,21 @@ const PRODUCT_NAMES = { collie: "Collie", foxhound: "Foxhound" } as const satisf
 export interface StandInOptions {
   /** Gives a sign-in link that has already expired. */
   readonly expiredLinks?: boolean;
+  /** Fixture screens, by the route they are served at. */
+  readonly screens?: Readonly<Record<string, StandInScreen>>;
+}
+
+/**
+ * A fixture screen: one of the fixture pages of `fixtures/csp-pages/`,
+ * served only beside the Daemon of `product`, as its `hello` answers, and
+ * only to a request in the sign-in state it names: 404 and 401 or 403
+ * otherwise. The page's own files are served from the Console's root.
+ */
+export interface StandInScreen {
+  /** The fixture page's file name, without `.html`. */
+  readonly page: string;
+  readonly product: Product;
+  readonly signedIn: boolean;
 }
 
 /** One person's session, by the cookie's value. */
@@ -64,7 +81,7 @@ async function serveStandIn(start: ConsoleStart, options: StandInOptions): Promi
   let origin = "";
   const server = createServer((request, response) => {
     response.setHeader("Content-Security-Policy", PRODUCTION_CSP);
-    const context = { start, origin, links, sessions, signOns, request, response };
+    const context = { start, options, origin, links, sessions, signOns, request, response };
     answer(context).catch((error: unknown) => {
       response.writeHead(500, { "Content-Type": "text/plain" }).end(String(error));
     });
@@ -97,6 +114,7 @@ async function serveStandIn(start: ConsoleStart, options: StandInOptions): Promi
 
 interface Exchange {
   readonly start: ConsoleStart;
+  readonly options: StandInOptions;
   readonly origin: string;
   readonly links: Set<string>;
   readonly sessions: Map<string, Session>;
@@ -154,7 +172,39 @@ async function answer(exchange: Exchange): Promise<void> {
     const ceremony = await ceremonyOf(exchange, session, "webauthn.get");
     json(response, { done: ceremony !== undefined && ceremony.id === session.passkey });
   } else {
-    response.writeHead(404).end();
+    await screen(exchange, url.pathname, session);
+  }
+}
+
+/** A fixture screen at `path`, or one of its page's files; 404 for anything else. */
+async function screen(
+  exchange: Exchange,
+  path: string,
+  session: Session | undefined,
+): Promise<void> {
+  const { response, start } = exchange;
+  const fixture = exchange.options.screens?.[path];
+  if (fixture === undefined) {
+    const file = await fixtureFile(path);
+    if (file === undefined || file.type.startsWith("text/html")) {
+      response.writeHead(404).end();
+    } else {
+      response.writeHead(200, { "Content-Type": file.type }).end(file.body);
+    }
+    return;
+  }
+  const answered = await hello(start.daemon, start.daemon.token, fixture.product);
+  if (stringOf(field(field(answered, "result"), "product")) !== fixture.product) {
+    page(response, "Not found", `<p>This screen is ${fixture.product}'s.</p>`, 404);
+  } else if (fixture.signedIn && session === undefined) {
+    page(response, "Signed out", "<p>Sign in to see this screen.</p>", 401);
+  } else if (!fixture.signedIn && session !== undefined) {
+    page(response, "Signed in", "<p>This screen is for people signed out.</p>", 403);
+  } else {
+    const file = await fixtureFile(`/${fixture.page}.html`);
+    response
+      .writeHead(file === undefined ? 404 : 200, { "Content-Type": "text/html; charset=utf-8" })
+      .end(file?.body);
   }
 }
 
@@ -267,9 +317,9 @@ function signedIn(exchange: Exchange, person: string): void {
     .end();
 }
 
-function page(response: ServerResponse, title: string, body: string): void {
+function page(response: ServerResponse, title: string, body: string, status = 200): void {
   response
-    .writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+    .writeHead(status, { "Content-Type": "text/html; charset=utf-8" })
     .end(document(title, body));
 }
 

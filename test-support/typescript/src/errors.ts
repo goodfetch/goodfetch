@@ -53,6 +53,12 @@ export type TestSupportErrorCode =
   | "focus_not_visible"
   /** A keyboard walk's stop is entirely covered by other content (ADR 0073). */
   | "focus_obscured"
+  /** A `screen:` Feature has no route or no sign-in state in `console/screens.toml`, so its keyboard walk cannot open it (ADR 0073). */
+  | "screen_setup_missing"
+  /** `console/screens.toml` is no TOML, or an entry names no `screen:` Feature, repeats one, or has a field it does not define (ADR 0073). */
+  | "screen_setups_invalid"
+  /** A screen's route did not answer 2xx, so its keyboard walk would walk an error page (ADR 0073). */
+  | "screen_not_served"
   /** A browser command was asked for state its browser provider cannot set (ADR 0068). */
   | "provider_unsupported"
   /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */
@@ -61,8 +67,12 @@ export type TestSupportErrorCode =
   | "page_errors"
   /** `features/inventory.json` cannot be read, or fails its committed schema (ADR 0072). */
   | "inventory_invalid"
-  /** The Client conformance case list is no TOML, or a capability has no name or a case no ID (ADR 0069). */
+  /** A suite's case list cannot be read, is no TOML, or lacks its suite's name and version, a capability's name, or a case's ID or `covers` (ADRs 0033 and 0069). */
   | "case_list_invalid"
+  /** A Console conformance test's `capability` annotation and title name no case the suite's case list declares (ADR 0068). */
+  | "conformance_case_unknown"
+  /** Two tests of one Console conformance target report different targets, platforms, runtimes or Proving grounds (ADR 0068). */
+  | "conformance_target_mismatch"
   /** A case log entry fails the bundle's `case_log_entry` schema, such as by setting an outcome (ADR 0069). */
   | "case_log_entry_invalid"
   /** A test carries a `client_case/` tag naming no case of the reporter's case list (ADR 0069). */
@@ -116,7 +126,9 @@ export class TestSupportError extends Error {
 
   constructor(code: TestSupportErrorCode, message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = "TestSupportError";
+    // The code in the name puts it on every report line that shows the
+    // error, such as Playwright's, where only the message and stack travel.
+    this.name = `TestSupportError(${code})`;
     this.code = code;
   }
 }

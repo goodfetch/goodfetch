@@ -6,7 +6,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// A package ecosystem, or a set of declared inputs (ADRs 0018, 0043 and 0047).
+/// A package ecosystem, or a set of declared inputs (ADRs 0018, 0035, 0043
+/// and 0047).
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Ecosystem {
@@ -20,6 +21,9 @@ pub(crate) enum Ecosystem {
     Chromium,
     /// The Clean-up rules' inputs (ADR 0047).
     CleanUpRules,
+    /// The sources Collie's block-detection rules are seeded from (ADR
+    /// 0035).
+    BlockDetectionRules,
 }
 
 impl fmt::Display for Ecosystem {
@@ -31,6 +35,7 @@ impl fmt::Display for Ecosystem {
             Self::ConsoleAssets => "console-assets",
             Self::Chromium => "chromium",
             Self::CleanUpRules => "clean-up-rules",
+            Self::BlockDetectionRules => "block-detection-rules",
         })
     }
 }
@@ -57,7 +62,8 @@ pub(crate) struct Entry {
     pub(crate) version: String,
     /// The license expression its authors state, if they state one.
     pub(crate) license: Option<String>,
-    /// Where its source is: its registry page, repository or folder.
-    pub(crate) source: String,
+    /// Where its source is: its registry page, repository or folder, if
+    /// its declaration states it.
+    pub(crate) source: Option<String>,
     pub(crate) usage: Usage,
 }

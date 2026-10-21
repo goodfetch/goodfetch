@@ -1836,6 +1836,7 @@
       "deprecated": null,
       "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
       "events": [],
+      "kind": "round_trip",
       "name": "config.explain",
       "params": {
         "$ref": "#/$defs/ConfigExplainParams"
@@ -1853,6 +1854,7 @@
       "deprecated": null,
       "description": "Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.",
       "events": [],
+      "kind": "round_trip",
       "name": "crawl.serve",
       "params": {
         "$ref": "#/$defs/RunParams"
@@ -1870,6 +1872,7 @@
       "deprecated": null,
       "description": "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
       "events": [],
+      "kind": "opener",
       "name": "crawl.start",
       "params": {
         "$ref": "#/$defs/CrawlStartParams"
@@ -1887,6 +1890,7 @@
       "deprecated": null,
       "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
       "events": [],
+      "kind": "round_trip",
       "name": "daemon.status",
       "params": {
         "$ref": "#/$defs/DaemonParams"
@@ -1904,6 +1908,7 @@
       "deprecated": null,
       "description": "Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed.",
       "events": [],
+      "kind": "round_trip",
       "name": "daemon.stop",
       "params": {
         "$ref": "#/$defs/DaemonParams"
@@ -1921,6 +1926,7 @@
       "deprecated": null,
       "description": "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
       "events": [],
+      "kind": "round_trip",
       "name": "engine.info",
       "params": {
         "$ref": "#/$defs/EngineInfoParams"
@@ -1941,6 +1947,7 @@
         "events.resync",
         "run.axes_changed"
       ],
+      "kind": "sequence",
       "name": "events.subscribe",
       "params": {
         "$ref": "#/$defs/EventsSubscribeParams"
@@ -1958,6 +1965,7 @@
       "deprecated": null,
       "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
       "events": [],
+      "kind": "sequence",
       "name": "page.body",
       "params": {
         "$ref": "#/$defs/PageBodyParams"
@@ -1975,6 +1983,7 @@
       "deprecated": null,
       "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
       "events": [],
+      "kind": "round_trip",
       "name": "run.abort",
       "params": {
         "$ref": "#/$defs/RunAbortParams"
@@ -1992,6 +2001,7 @@
       "deprecated": null,
       "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
       "events": [],
+      "kind": "round_trip",
       "name": "run.finish",
       "params": {
         "$ref": "#/$defs/RunParams"
@@ -2009,6 +2019,7 @@
       "deprecated": null,
       "description": "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
       "events": [],
+      "kind": "opener",
       "name": "run.start",
       "params": {
         "$ref": "#/$defs/RunStartParams"
@@ -2028,6 +2039,7 @@
       "events": [
         "sample.crawled"
       ],
+      "kind": "round_trip",
       "name": "sample.crawl",
       "params": {
         "$ref": "#/$defs/SampleCrawlParams"
@@ -2050,6 +2062,7 @@
       "events": [
         "sample.echoed"
       ],
+      "kind": "round_trip",
       "name": "sample.echo",
       "params": {
         "$ref": "#/$defs/SampleEchoParams"

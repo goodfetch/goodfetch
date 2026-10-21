@@ -155,6 +155,22 @@ expression: "workspace.read_text(\"target/notices.json\")"
       "license": "GPL-3.0-only",
       "source": "https://github.com/uBlockOrigin/uAssets/tree/5e6f7a8/filters",
       "use": "download-only"
+    },
+    {
+      "ecosystem": "block-detection-rules",
+      "name": "identYwaf",
+      "version": "3e535b7",
+      "license": "MIT",
+      "source": "https://github.com/stamparm/identYwaf/blob/3e535b7/data.json",
+      "use": "modified"
+    },
+    {
+      "ecosystem": "block-detection-rules",
+      "name": "wafw00f",
+      "version": "69fbe39",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/EnableSecurity/wafw00f/tree/69fbe39/wafw00f/plugins",
+      "use": "modified"
     }
   ]
 }

@@ -33,7 +33,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{EGRESS_OFFLINE, NETWORK_RESOLVE};
 
-use super::output;
+use goodfetch_cli::output;
 
 /// The variable that roots Goodfetch home (ADR 0059).
 const HOME_VARIABLE: &str = "GOODFETCH_HOME";

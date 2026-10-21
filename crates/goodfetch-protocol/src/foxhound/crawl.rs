@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
-    ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    OperationKind, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
 use crate::settings::ProjectSettings;
@@ -167,6 +167,7 @@ pub const CRAWL_START: Operation = Operation {
     name: "crawl.start",
     description: "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
     class: OperationClass::IdempotentWrite,
+    kind: OperationKind::Opener,
     params: schema_of::<CrawlStartParams>,
     result: schema_of::<RunStarted>,
     events: &[],
@@ -181,6 +182,7 @@ pub const CRAWL_SERVE: Operation = Operation {
     name: "crawl.serve",
     description: "Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.",
     class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<RunParams>,
     result: schema_of::<RunReport>,
     events: &[],

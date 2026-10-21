@@ -120,16 +120,26 @@ async function answer(
     request.socket.destroy();
     return;
   }
-  const type = CONTENT_TYPES[extname(path)];
-  const name = path.slice(1);
-  if (type === undefined || name.includes("/")) {
+  const file = await fixtureFile(path);
+  if (file === undefined) {
     response.writeHead(404).end();
     return;
   }
+  response.writeHead(200, { "Content-Type": file.type }).end(file.body);
+}
+
+/** The fixture page or page file at `path` (`/clean.html`, `/clean.js`), with its content type; `undefined` when there is none. */
+export async function fixtureFile(
+  path: string,
+): Promise<{ readonly type: string; readonly body: Buffer } | undefined> {
+  const type = CONTENT_TYPES[extname(path)];
+  const name = path.slice(1);
+  if (type === undefined || name.includes("/")) {
+    return undefined;
+  }
   try {
-    const body = await readFile(join(FOLDER, name));
-    response.writeHead(200, { "Content-Type": type }).end(body);
+    return { type, body: await readFile(join(FOLDER, name)) };
   } catch {
-    response.writeHead(404).end();
+    return undefined;
   }
 }

@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
-    OperationClass, Product, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    OperationClass, OperationKind, Product, ProtocolVersion, Setting, Stability, ValueKind,
+    schema_of,
 };
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
@@ -496,6 +497,7 @@ pub const RUN_START: Operation = Operation {
     name: "run.start",
     description: "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
     class: OperationClass::IdempotentWrite,
+    kind: OperationKind::Opener,
     params: schema_of::<RunStartParams>,
     result: schema_of::<RunStarted>,
     events: &[],
@@ -510,6 +512,7 @@ pub const RUN_FINISH: Operation = Operation {
     name: "run.finish",
     description: "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
     class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<RunParams>,
     result: schema_of::<RunReport>,
     events: &[],
@@ -524,6 +527,7 @@ pub const RUN_ABORT: Operation = Operation {
     name: "run.abort",
     description: "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
     class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
     params: schema_of::<RunAbortParams>,
     result: schema_of::<RunReport>,
     events: &[],

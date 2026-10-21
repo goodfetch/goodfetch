@@ -100,7 +100,7 @@ pub(super) fn entries(cargo: &OsStr, root: &Path) -> Result<Vec<Entry>> {
         })
         .map(|package| Entry {
             ecosystem: Ecosystem::Cargo,
-            source: source(&package, root),
+            source: Some(source(&package, root)),
             name: package.name,
             version: package.version,
             license: package.license,

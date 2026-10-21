@@ -168,6 +168,15 @@ export class ClosedError extends ProgramError {
 }
 
 /**
+ * The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.
+ */
+export class ConsolePortInUseError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "console_port_in_use", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
  */
 export class EngineExitedError extends UnavailableError {
@@ -365,6 +374,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   closed: ClosedError,
+  console_port_in_use: ConsolePortInUseError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,

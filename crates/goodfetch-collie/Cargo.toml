@@ -40,6 +40,8 @@ tracing-subscriber = { workspace = true, optional = true, features = ["env-filte
 goodfetch-collie = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# A stored body's ID, the SHA-256 of its bytes, for `page body --follow`.
+sha2.workspace = true
 insta.workspace = true
 # `config explain --json` is validated against its schema in the bundle (TESTING.md, CLI).
 jsonschema.workspace = true
@@ -50,6 +52,8 @@ serde_json.workspace = true
 tempfile.workspace = true
 # `block_detection`'s check of its rules' sources against its `third-party.toml`.
 toml.workspace = true
+# The Console's headers test, an HTTP Client of the Daemon's Console (tests/it/console.rs).
+ureq.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
 

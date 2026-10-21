@@ -106,7 +106,7 @@ fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
         .join("usual")
         .join("run.sqlite");
     assert_eq!(
-        (file.exists(), env.home().join("0.0").exists()),
+        (file.exists(), env.home().join("0.0").join("runs").exists()),
         (true, false)
     );
 }

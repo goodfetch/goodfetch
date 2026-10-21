@@ -4,6 +4,15 @@ import { ProgramError, RefusedError, UnavailableError } from "@goodfetch/collie-
 import type { ErrorClass, ErrorFields } from "@goodfetch/collie-client/generated";
 
 /**
+ * The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`.
+ */
+export class ClientGoneError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "client_gone", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.
  */
 export class HandlerFailedError extends ProgramError {
@@ -41,6 +50,7 @@ export class SampleCrawlRefusedError extends RefusedError {
 
 /** The error class of each of Foxhound's Error codes. */
 export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
+  client_gone: ClientGoneError,
   handler_failed: HandlerFailedError,
   handler_lost: HandlerLostError,
   lease_lost: LeaseLostError,

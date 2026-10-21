@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage, Instrument, Metric,
-    Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Setting,
-    SharedType, SharedTypeValue, Stability, schema_of,
+    Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Reach,
+    Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
 
@@ -83,6 +83,7 @@ pub const ENTRIES: Entries = Entries {
         description: "Visits sample pages, each repeating a text.",
         class: OperationClass::Effect,
         kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
         params: schema_of::<SampleCrawlParams>,
         result: schema_of::<SampleCrawlResult>,
         events: &[&SAMPLE_CRAWLED],

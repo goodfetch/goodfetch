@@ -20,6 +20,7 @@ mod clients;
 mod codegen;
 mod commit_messages;
 mod compat;
+mod console;
 mod containment;
 mod dco;
 mod dependency_direction;
@@ -129,6 +130,11 @@ enum Command {
     Compat {
         #[command(subcommand)]
         command: compat::Command,
+    },
+    /// The Console's build, which each executable embeds (ADR 0057).
+    Console {
+        #[command(subcommand)]
+        command: console::Command,
     },
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
@@ -420,6 +426,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             &commit_messages::check(root, &base, &head, &since)?,
         )),
         Command::Compat { command } => compat::run(command, environment),
+        Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
         Command::DependencyDirection => {

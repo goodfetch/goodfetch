@@ -6,21 +6,30 @@
 //! Several engines write it, each through its own short-lived connection;
 //! WAL and a busy timeout let them take turns. Its calls block: callers run
 //! them under their owner's blocking policy.
+//!
+//! Engines of several minors of the major open it at once, so it records
+//! the lowest minor that can use it (ADR 0098), which each call reads and
+//! checks in its own transaction: an engine that finds it raised past
+//! itself stops using the index with the version refusal.
 
 use std::path::Path;
 use std::time::Duration;
 
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::RUN_INDEX;
 use goodfetch_protocol::run::{Completeness, PointInTime, Presence, RunId, RunIndexRow, Verdict};
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _, Row};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension as _, Row, Transaction, TransactionBehavior,
+};
 
-use crate::run_state::{RunStateError, check_format};
+use crate::lowest_minor::{self, Opener};
+use crate::run_state::RunStateError;
 
 /// How long a write waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
+    lowest_minor::FORMAT_TABLE,
     "CREATE TABLE IF NOT EXISTS runs (
         run_id TEXT NOT NULL PRIMARY KEY,
         location TEXT NOT NULL,
@@ -46,7 +55,12 @@ fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     }
 }
 
-fn open(path: &Path) -> Result<Connection, RunStateError> {
+/// The Run index as the engine of Product version `engine` opens it.
+fn opener(engine: &ProductVersion) -> Opener {
+    Opener::new(&RUN_INDEX, engine.major_minor())
+}
+
+fn open(path: &Path, opener: &Opener) -> Result<Connection, RunStateError> {
     if let Some(folder) = path.parent() {
         #[expect(
             clippy::disallowed_methods,
@@ -75,21 +89,52 @@ fn open(path: &Path) -> Result<Connection, RunStateError> {
             .execute(statement, [])
             .map_err(|error| failed(path, &error))?;
     }
+    let created = opener.created();
     connection
         .execute(
-            "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-            (RUN_INDEX.name, RUN_INDEX.version.to_string()),
+            "INSERT INTO format (name, version, lowest_minor) VALUES (?1, ?2, ?3) ON CONFLICT (name) DO NOTHING",
+            (
+                RUN_INDEX.name,
+                created.version.to_string(),
+                i64::from(created.lowest_minor),
+            ),
         )
         .map_err(|error| failed(path, &error))?;
-    let found: String = connection
-        .query_row(
-            "SELECT version FROM format WHERE name = ?1",
-            [RUN_INDEX.name],
-            |row| row.get(0),
-        )
-        .map_err(|error| failed(path, &error))?;
-    check_format(&RUN_INDEX, &found)?;
     Ok(connection)
+}
+
+/// Runs `work` in one transaction of the index at `path`, after checking
+/// its marker in that transaction (ADR 0098); a write records this engine's
+/// format version in the marker.
+fn in_transaction<T>(
+    path: &Path,
+    opener: &Opener,
+    writes: bool,
+    work: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
+) -> Result<T, RunStateError> {
+    let mut connection = open(path, opener)?;
+    let behavior = if writes {
+        TransactionBehavior::Immediate
+    } else {
+        TransactionBehavior::Deferred
+    };
+    let transaction = connection
+        .transaction_with_behavior(behavior)
+        .map_err(|error| failed(path, &error))?;
+    let found = lowest_minor::read_sqlite(&transaction, RUN_INDEX.name)
+        .map_err(|error| failed(path, &error))?
+        .unwrap_or_else(|| opener.created());
+    opener.check(&found).map_err(RunStateError::refused)?;
+    let answer = work(&transaction).map_err(|error| failed(path, &error))?;
+    if writes {
+        let marked = opener.written(found, None);
+        if marked != found {
+            lowest_minor::write_sqlite(&transaction, RUN_INDEX.name, &marked)
+                .map_err(|error| failed(path, &error))?;
+        }
+    }
+    transaction.commit().map_err(|error| failed(path, &error))?;
+    Ok(answer)
 }
 
 fn text<T: serde::Serialize>(value: &T) -> String {
@@ -171,47 +216,73 @@ fn row_of(row: &Row<'_>) -> rusqlite::Result<RunIndexRow> {
 }
 
 /// Writes `row` into the Run index at `path`, replacing the Run's earlier
-/// row.
+/// row, on an engine of Product version `engine`.
 ///
 /// # Errors
 ///
-/// `Sqlite` when the index cannot be opened or written.
-pub(crate) fn write(path: &Path, row: &RunIndexRow) -> Result<(), RunStateError> {
-    let connection = open(path)?;
-    insert(&connection, row).map_err(|error| failed(path, &error))
+/// `Sqlite` when the index cannot be opened or written, `Format` when its
+/// marker refuses this engine.
+pub(crate) fn write(
+    path: &Path,
+    engine: &ProductVersion,
+    row: &RunIndexRow,
+) -> Result<(), RunStateError> {
+    write_as(path, &opener(engine), row)
+}
+
+fn write_as(path: &Path, opener: &Opener, row: &RunIndexRow) -> Result<(), RunStateError> {
+    in_transaction(path, opener, true, |transaction| insert(transaction, row))
 }
 
 /// The row of `run_id` in the Run index at `path`, if it lists the Run.
 ///
 /// # Errors
 ///
-/// `Sqlite` when the index cannot be opened or read.
-pub(crate) fn read(path: &Path, run_id: &RunId) -> Result<Option<RunIndexRow>, RunStateError> {
-    let connection = open(path)?;
-    connection
-        .query_row(
-            &format!("SELECT {COLUMNS} FROM runs WHERE run_id = ?1"),
-            [run_id.as_str()],
-            row_of,
-        )
-        .optional()
-        .map_err(|error| failed(path, &error))
+/// As [`write`], when the index cannot be opened or read.
+pub(crate) fn read(
+    path: &Path,
+    engine: &ProductVersion,
+    run_id: &RunId,
+) -> Result<Option<RunIndexRow>, RunStateError> {
+    in_transaction(path, &opener(engine), false, |transaction| {
+        transaction
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM runs WHERE run_id = ?1"),
+                [run_id.as_str()],
+                row_of,
+            )
+            .optional()
+    })
 }
 
 /// Every row of the Run index at `path`, in Run ID order.
 ///
 /// # Errors
 ///
-/// `Sqlite` when the index cannot be opened or read.
-pub(crate) fn rows(path: &Path) -> Result<Vec<RunIndexRow>, RunStateError> {
-    let connection = open(path)?;
-    let mut statement = connection
-        .prepare(&format!("SELECT {COLUMNS} FROM runs ORDER BY run_id"))
-        .map_err(|error| failed(path, &error))?;
-    statement
-        .query_map([], row_of)
-        .and_then(Iterator::collect)
-        .map_err(|error| failed(path, &error))
+/// As [`read`].
+pub(crate) fn rows(
+    path: &Path,
+    engine: &ProductVersion,
+) -> Result<Vec<RunIndexRow>, RunStateError> {
+    rows_as(path, &opener(engine))
+}
+
+fn rows_as(path: &Path, opener: &Opener) -> Result<Vec<RunIndexRow>, RunStateError> {
+    in_transaction(path, opener, false, |transaction| {
+        let mut statement =
+            transaction.prepare(&format!("SELECT {COLUMNS} FROM runs ORDER BY run_id"))?;
+        statement.query_map([], row_of).and_then(Iterator::collect)
+    })
+}
+
+/// Whether the engine of Product version `engine` may use the Run index at
+/// `path`, as a Run's start asks before it writes its row.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn check(path: &Path, engine: &ProductVersion) -> Result<(), RunStateError> {
+    in_transaction(path, &opener(engine), false, |_| Ok(()))
 }
 
 /// Replaces every row of the Run index at `path` with `rows`, in one
@@ -219,20 +290,19 @@ pub(crate) fn rows(path: &Path) -> Result<Vec<RunIndexRow>, RunStateError> {
 ///
 /// # Errors
 ///
-/// `Sqlite` when the index cannot be opened or written; it is then left as
-/// it was.
-pub(crate) fn replace(path: &Path, rows: &[RunIndexRow]) -> Result<(), RunStateError> {
-    let mut connection = open(path)?;
-    let transaction = connection
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(|error| failed(path, &error))?;
-    transaction
-        .execute("DELETE FROM runs", [])
-        .map_err(|error| failed(path, &error))?;
-    for row in rows {
-        insert(&transaction, row).map_err(|error| failed(path, &error))?;
-    }
-    transaction.commit().map_err(|error| failed(path, &error))
+/// As [`write`]; the index is then left as it was.
+pub(crate) fn replace(
+    path: &Path,
+    engine: &ProductVersion,
+    rows: &[RunIndexRow],
+) -> Result<(), RunStateError> {
+    in_transaction(path, &opener(engine), true, |transaction| {
+        transaction.execute("DELETE FROM runs", [])?;
+        for row in rows {
+            insert(transaction, row)?;
+        }
+        Ok(())
+    })
 }
 
 /// A row whose presence is `presence`, and that names no owner unless its
@@ -244,3 +314,6 @@ pub(crate) fn kept_as(row: RunIndexRow, presence: Presence) -> RunIndexRow {
         ..row
     }
 }
+
+#[cfg(test)]
+mod tests;

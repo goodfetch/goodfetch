@@ -203,7 +203,7 @@ fn reading_a_checkpoint_gives_its_run_its_product_lifecycle_and_binding() {
 /// newer minor or major is refused, and the file is left as it was.
 /// Covers: story:3-38
 #[rstest::rstest]
-#[case::a_newer_minor("0.2", Compatibility::NewerMinor)]
+#[case::a_newer_preview("0.2", Compatibility::NewerMajor)]
 #[case::a_newer_major("1.0", Compatibility::NewerMajor)]
 fn a_checkpoint_of_a_version_this_engine_cannot_read_is_refused(
     #[case] version: &str,
@@ -232,6 +232,7 @@ fn a_checkpoint_of_a_version_this_engine_cannot_read_is_refused(
                 format: "run-state",
                 found: version.to_owned(),
                 compatibility,
+                install: None,
             }),
             before
         )

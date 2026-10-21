@@ -33,6 +33,7 @@ pub mod http_client;
 mod info;
 pub mod installed;
 pub mod lease;
+pub mod lowest_minor;
 pub mod pinned_download;
 mod product;
 pub mod rpc;

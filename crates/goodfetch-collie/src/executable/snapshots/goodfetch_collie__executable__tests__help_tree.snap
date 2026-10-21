@@ -313,6 +313,7 @@ Arguments:
 Options:
       --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
       --json                 Prints the result as JSON
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                 Print help
 
 $ goodfetch-collie run pause --help
@@ -324,8 +325,9 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --json  Prints the result as JSON
-  -h, --help  Print help
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
 
 $ goodfetch-collie run migrate --help
 Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
@@ -338,6 +340,7 @@ Arguments:
 Options:
       --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
       --json                 Prints the result as JSON
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                 Print help
 
 $ goodfetch-collie run resume --help
@@ -351,8 +354,10 @@ Arguments:
 Options:
       --checkpoint <CHECKPOINT>  A Checkpoint to resume from, a path on the engine's machine, which becomes the Run's state in this engine's run folder; by default the Run resumes from its run file on this machine
       --project <PROJECT>        The project configuration the Client found, layer 3 (ADR 0083)
-      --settings <SETTINGS>      The Run's settings from the resume on, nested by key: the run layer (ADRs 0083 and 0102)
+      --set <KEY=VALUE>          Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->        Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --json                     Prints the result as JSON
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                     Print help
 
 $ goodfetch-collie sample --help

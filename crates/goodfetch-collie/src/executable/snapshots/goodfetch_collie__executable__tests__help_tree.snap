@@ -14,6 +14,7 @@ Commands:
   runs      Works on the runs of this executable's major, of both Products
   engine    Calls the catalog's `engine` operations
   run       Calls the catalog's `run` operations
+  page      Calls the catalog's `page` operations
   sample    Calls the catalog's `sample` operations
 
 Options:
@@ -227,11 +228,24 @@ Calls the catalog's `run` operations
 Usage: goodfetch-collie run <COMMAND>
 
 Commands:
-  start   Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
-  finish  Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
-  abort   Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+  new-page  Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+  start     Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+  finish    Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
+  abort     Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
 
 Options:
+  -h, --help  Print help
+
+$ goodfetch-collie run new-page --help
+Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+
+Usage: goodfetch-collie run new-page [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run
+
+Options:
+      --json  Prints the result as JSON
   -h, --help  Print help
 
 $ goodfetch-collie run start --help
@@ -269,6 +283,30 @@ Arguments:
 
 Options:
       --forwarded  Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
+      --json       Prints the result as JSON
+  -h, --help       Print help
+
+$ goodfetch-collie page --help
+Calls the catalog's `page` operations
+
+Usage: goodfetch-collie page <COMMAND>
+
+Commands:
+  goto  Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`
+
+Options:
+  -h, --help  Print help
+
+$ goodfetch-collie page goto --help
+Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`
+
+Usage: goodfetch-collie page goto [OPTIONS] --url <URL> <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --url <URL>  The URL
       --json       Prints the result as JSON
   -h, --help       Print help
 

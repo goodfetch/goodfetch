@@ -630,15 +630,15 @@ export interface Navigated {
   /**
    * The document's response.
    */
-  response?: Response | null;
+  response?: PageResponse | null;
 }
 /**
  * The response to a request of a page, such as a navigation's document.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Response".
+ * via the `definition` "PageResponse".
  */
-export interface Response {
+export interface PageResponse {
   /**
    * Its headers, their names lower-cased, as the browser received them.
    */

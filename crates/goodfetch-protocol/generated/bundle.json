@@ -2091,7 +2091,7 @@
           "description": "A message that expects no reply."
         },
         {
-          "$ref": "#/$defs/Response2",
+          "$ref": "#/$defs/Response",
           "description": "A success."
         },
         {
@@ -2132,7 +2132,7 @@
         "response": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Response"
+              "$ref": "#/$defs/PageResponse"
             },
             {
               "type": "null"
@@ -2314,6 +2314,44 @@
       "required": [
         "page_id",
         "session_id"
+      ],
+      "type": "object"
+    },
+    "PageResponse": {
+      "description": "The response to a request of a page, such as a navigation's document.",
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers, their names lower-cased, as the browser received them.",
+          "type": "object"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status_text": {
+          "arrived_in": "0.1",
+          "description": "Its status text.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its final URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "status",
+        "status_text",
+        "headers"
       ],
       "type": "object"
     },
@@ -2653,44 +2691,6 @@
       "description": "A request's id, which its reply carries back."
     },
     "Response": {
-      "description": "The response to a request of a page, such as a navigation's document.",
-      "properties": {
-        "headers": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "arrived_in": "0.1",
-          "description": "Its headers, their names lower-cased, as the browser received them.",
-          "type": "object"
-        },
-        "status": {
-          "arrived_in": "0.1",
-          "description": "Its HTTP status.",
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "status_text": {
-          "arrived_in": "0.1",
-          "description": "Its status text.",
-          "type": "string"
-        },
-        "url": {
-          "arrived_in": "0.1",
-          "description": "Its final URL.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "url",
-        "status",
-        "status_text",
-        "headers"
-      ],
-      "type": "object"
-    },
-    "Response2": {
       "additionalProperties": false,
       "description": "The reply to a call that succeeded.",
       "properties": {

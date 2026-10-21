@@ -137,6 +137,22 @@ class PageId(RootModel[str]):
     """A page of a Run, named by the engine when it opens it."""
 
 
+class PageResponse(BaseModel):
+    """The response to a request of a page, such as a navigation's document."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    headers: dict[str, str]
+    """Its headers, their names lower-cased, as the browser received them."""
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its HTTP status."""
+    status_text: str
+    """Its status text."""
+    url: str
+    """Its final URL."""
+
+
 class PointInTime(RootModel[AwareDatetime]):
     root: AwareDatetime
     """A point in time in UTC, as RFC 3339."""
@@ -192,22 +208,6 @@ class ProtocolVersion(RootModel[str]):
 class RequestId(RootModel[int | str]):
     root: int | str
     """A request's id, which its reply carries back."""
-
-
-class Response(BaseModel):
-    """The response to a request of a page, such as a navigation's document."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    headers: dict[str, str]
-    """Its headers, their names lower-cased, as the browser received them."""
-    status: Annotated[int, Field(ge=0, le=65535)]
-    """Its HTTP status."""
-    status_text: str
-    """Its status text."""
-    url: str
-    """Its final URL."""
 
 
 class RunId(RootModel[str]):
@@ -663,7 +663,7 @@ class Navigated(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    response: Response | None = None
+    response: PageResponse | None = None
     """The document's response."""
 
 

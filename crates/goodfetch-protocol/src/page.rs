@@ -171,7 +171,7 @@ pub struct GotoParams {
 
 /// The response to a request of a page, such as a navigation's document.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct Response {
+pub struct PageResponse {
     /// Its final URL.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
@@ -193,7 +193,7 @@ pub struct Response {
 pub struct Navigated {
     /// The document's response.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub response: Option<Response>,
+    pub response: Option<PageResponse>,
 }
 
 /// What `navigation_failed` details.

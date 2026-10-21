@@ -16,7 +16,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::Run;
-use goodfetch_protocol::page::{BrowserExit, Response};
+use goodfetch_protocol::page::{BrowserExit, PageResponse};
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use tokio::sync::{OnceCell, watch};
 
@@ -273,7 +273,7 @@ impl PageDriver {
     /// # Cancel safety
     ///
     /// Dropping the future leaves the navigation to go on in the browser.
-    pub(crate) async fn goto(&self, url: &str) -> Result<Option<Response>, CallError> {
+    pub(crate) async fn goto(&self, url: &str) -> Result<Option<PageResponse>, CallError> {
         let call = Call::Navigation {
             url: url.to_owned(),
         };
@@ -332,7 +332,7 @@ impl PageDriver {
 }
 
 /// A CDP response as the protocol's, its header names lower-cased.
-fn response_of(response: &network::Response) -> Response {
+fn response_of(response: &network::Response) -> PageResponse {
     let headers: BTreeMap<String, String> = response
         .headers
         .iter()
@@ -343,7 +343,7 @@ fn response_of(response: &network::Response) -> Response {
             (name.to_ascii_lowercase(), value)
         })
         .collect();
-    Response {
+    PageResponse {
         url: response.url.clone(),
         status: u16::try_from(response.status).unwrap_or_default(),
         status_text: response.status_text.clone(),

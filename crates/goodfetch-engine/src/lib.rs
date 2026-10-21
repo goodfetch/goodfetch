@@ -9,6 +9,7 @@
 //! in run state.
 
 pub mod admission;
+pub mod age_notice;
 mod attached;
 mod body;
 pub mod browser_cache;

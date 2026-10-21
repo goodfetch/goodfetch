@@ -19,30 +19,12 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// `upgrade-files` refused its source (ADR 0066).
 pub const UPGRADE_SOURCE_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "upgrade_source_unsupported",
-    description: "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, which `fix` says to upgrade through first, or a newer major than the executable's, which `fix` says to upgrade to. No file is changed.",
+    description: "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
-
-/// What `upgrade_source_unsupported` details.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct UpgradeSourceUnsupportedDetails {
-    /// The major it was asked to upgrade from, such as `1` or `0.4`.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub source: String,
-    /// The executable's own major.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub current: String,
-    /// The release to upgrade through first, when one is known.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub through: Option<String>,
-    /// What to do.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub fix: String,
-}
 
 /// What `upgrade-files --json` prints: the major it upgraded from and to,
 /// and the files of the new major's copy, by their path in Goodfetch home.

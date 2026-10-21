@@ -2752,7 +2752,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, which `fix` says to upgrade through first, or a newer major than the executable's, which `fix` says to upgrade to. No file is changed.",
+      "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,

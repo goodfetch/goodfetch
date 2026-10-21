@@ -1,6 +1,6 @@
-//! The page suite (spec #577, ticket #695) against an Attached engine of
-//! Collie's executable, given by path, on the local Proving ground (ADR
-//! 0094): its browser from a Browser cache in the test's own folder, which
+//! The page suite (spec #577, ticket #695; spec #580, ticket #783) against
+//! an Attached engine of Collie's executable, given by path, on the local
+//! Proving ground (ADR 0094): its browser from a Browser cache in the test's own folder, which
 //! its environment names (ADR 0059).
 #![expect(
     clippy::doc_markdown,
@@ -16,7 +16,7 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, Tool, browser_cach
 
 use crate::proving_ground::LocalCopy;
 
-/// Covers: story:5-61, operation:run.new_page, operation:page.goto
+/// Covers: story:5-61, story:6-1, story:6-8, story:6-12, operation:run.new_page, operation:page.goto, operation:page.formats
 #[test]
 fn the_page_suite_is_proved_against_collies_attached_engine() {
     let env = TestEnv::new();
@@ -55,6 +55,7 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
             vec![
                 ("sessions.default", Outcome::Proved),
                 ("navigation", Outcome::Proved),
+                ("formats", Outcome::Proved),
             ],
             Some(Product::Collie),
         ),

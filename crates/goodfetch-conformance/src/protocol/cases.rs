@@ -1,9 +1,10 @@
 //! The exchanges the protocol and page suites' case IDs name, each judged
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
-//! cases are `delivery`'s.
+//! cases are `delivery`'s, and a page's formats cases `formats`'s.
 
 mod delivery;
+mod formats;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::{
@@ -14,13 +15,13 @@ use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo};
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{Navigated, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
-use goodfetch_protocol::result_document::CaseCheck;
+use goodfetch_protocol::result_document::{CaseCheck, OracleAnswer};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
-use crate::proving_ground::TaskList;
+use crate::proving_ground::{ProvingGround, TaskList};
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -40,18 +41,25 @@ pub(crate) enum Case {
     LateCommit,
     PagesShareTheDefaultSession,
     GotoAnswersTheResponse,
+    MarkdownMatchesTheOracle,
+    FormatNotNamedIsLeftOut,
+    NoMainContentIsNone,
 }
 
-/// What a case reaches of the Proving ground: a page of its catalog family
-/// and the `resolve` mapping of its hosts to the Proving ground's address.
+/// What a case reaches of the Proving ground: a page of its catalog family,
+/// the start page of its Markdown pages, the `resolve` mapping of its hosts
+/// to its address, and the Proving ground itself, for its oracle.
 pub(crate) struct Site {
     page_url: Option<String>,
+    markdown_index: Option<String>,
     resolve: Value,
+    proving_ground: ProvingGround,
 }
 
 impl Site {
-    /// The site of `task_list`, served at `address` (`host:port`).
-    pub(crate) fn of(task_list: &TaskList, address: &str) -> Self {
+    /// The site of `task_list`, served by `proving_ground`.
+    pub(crate) fn of(task_list: &TaskList, proving_ground: &ProvingGround) -> Self {
+        let address = proving_ground.address();
         let ip = address
             .rsplit_once(':')
             .map_or(address, |(ip, _)| ip)
@@ -68,9 +76,16 @@ impl Site {
                 resolve.insert(host.to_owned(), json!([ip]));
             }
         }
+        let markdown_index = task_list
+            .tasks
+            .iter()
+            .find(|task| task.id.as_str() == "extraction/7")
+            .map(|task| task.start_url.clone());
         Self {
             page_url,
+            markdown_index,
             resolve: Value::Object(resolve),
+            proving_ground: proving_ground.clone(),
         }
     }
 }
@@ -88,13 +103,16 @@ fn host_of(url: &str) -> Option<&str> {
     )
 }
 
-/// The checks a case made so far.
+/// The checks a case made so far, and the oracle's answers it was given.
 #[derive(Default)]
-pub(crate) struct Checks(pub(crate) Vec<CaseCheck>);
+pub(crate) struct Checks {
+    pub(crate) checks: Vec<CaseCheck>,
+    pub(crate) oracle_answers: Vec<OracleAnswer>,
+}
 
 impl Checks {
     fn check(&mut self, name: impl Into<String>, passed: bool) {
-        self.0.push(CaseCheck {
+        self.checks.push(CaseCheck {
             name: name.into(),
             passed,
         });
@@ -119,6 +137,11 @@ impl Case {
             "an-answer-after-the-lease-ended-is-a-late-commit-and-refused" => Self::LateCommit,
             "pages-open-in-the-runs-default-session" => Self::PagesShareTheDefaultSession,
             "goto-answers-the-documents-response" => Self::GotoAnswersTheResponse,
+            "markdown-matches-the-oracle-on-the-markdown-pages" => Self::MarkdownMatchesTheOracle,
+            "a-format-the-request-does-not-name-is-left-out" => Self::FormatNotNamedIsLeftOut,
+            "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
+                Self::NoMainContentIsNone
+            }
             _ => return None,
         })
     }
@@ -165,6 +188,13 @@ impl Case {
             Self::LateCommit => delivery::late_commit(connection, checks),
             Self::PagesShareTheDefaultSession => default_session(connection, site, checks),
             Self::GotoAnswersTheResponse => goto(connection, site, checks),
+            Self::MarkdownMatchesTheOracle => {
+                formats::markdown_matches_the_oracle(connection, site, checks)
+            }
+            Self::FormatNotNamedIsLeftOut => {
+                formats::a_format_not_named_is_left_out(connection, site, checks)
+            }
+            Self::NoMainContentIsNone => formats::no_main_content_is_none(connection, site, checks),
         }
     }
 }

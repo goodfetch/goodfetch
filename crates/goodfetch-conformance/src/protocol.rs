@@ -195,7 +195,7 @@ pub fn run_protocol_suite(
     proving_ground: &ProvingGround,
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
-    let reached = Site::of(&task_list, proving_ground.address());
+    let reached = Site::of(&task_list, proving_ground);
     let mut connection = Connection::new(target::Started::start(target)?);
     let hello = match hello(&mut connection, suite.product) {
         Ok(hello) => hello,
@@ -218,7 +218,7 @@ pub fn run_protocol_suite(
             let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
             let mut checks = Checks::default();
             if let Err(why) = case.run(&mut connection, target, &hello, &reached, &mut checks) {
-                checks.0.push(CaseCheck {
+                checks.checks.push(CaseCheck {
                     name: format!("the target answers the case's calls ({why})"),
                     passed: false,
                 });
@@ -234,9 +234,10 @@ pub fn run_protocol_suite(
                 mode: Some(target.mode.as_str().to_owned()),
                 platform: platform(),
                 runtime: RUNTIME.to_owned(),
-                checks: checks.0,
+                checks: checks.checks,
                 evidence: Evidence {
                     messages,
+                    oracle_answers: checks.oracle_answers,
                     ..Evidence::default()
                 },
             });

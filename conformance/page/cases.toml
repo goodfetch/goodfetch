@@ -1,16 +1,17 @@
-# The page suite's case list (spec #577, ticket #695): a Collie program's
-# pages over the protocol, run by `goodfetch-conformance`'s engine harness
-# against an Attached engine of Collie's executable on the local Proving
-# ground (ADR 0094), each case on a Run of its own whose `network.resolve`
-# maps the Proving ground's host names to its address (ADR 0059). The
-# engine finds its browser in the Browser cache its environment names. Bump
-# the version whenever a case changes.
+# The page suite's case list (spec #577, ticket #695; spec #580, ticket #783):
+# a Collie program's pages and their formats over the protocol, run by
+# `goodfetch-conformance`'s engine harness against an Attached engine of
+# Collie's executable on the local Proving ground (ADR 0094), each case on a
+# Run of its own whose `network.resolve` maps the Proving ground's host
+# names to its address (ADR 0059). The engine finds its browser in the
+# Browser cache its environment names. Bump the version whenever a case
+# changes.
 
 product = "collie"
 
 [suite]
 name = "page"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "sessions.default"
@@ -25,3 +26,18 @@ name = "navigation"
 [[capability.case]]
 id = "goto-answers-the-documents-response"
 covers = ["story:5-61", "operation:run.new_page", "operation:page.goto"]
+
+[[capability]]
+name = "formats"
+
+[[capability.case]]
+id = "markdown-matches-the-oracle-on-the-markdown-pages"
+covers = ["story:6-1", "story:6-12", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-format-the-request-does-not-name-is-left-out"
+covers = ["story:6-8", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-page-with-no-main-content-answers-empty-markdown-and-none"
+covers = ["story:6-12", "operation:page.formats"]

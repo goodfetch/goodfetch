@@ -12,6 +12,7 @@ mod attached;
 mod crawl;
 mod daemon;
 mod journeys;
+mod limits;
 mod outcomes;
 mod service_manager;
 mod workers;

@@ -70,6 +70,13 @@ export type Product = "collie" | "foxhound";
  */
 export type Lifecycle = "running" | "stopped" | "finished" | "failed";
 /**
+ * A page of a Run, named by the engine when it opens it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageId".
+ */
+export type PageId = string;
+/**
  * A point in time in UTC, as RFC 3339.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -138,6 +145,13 @@ export type Tag = string;
  * @maxItems 16
  */
 export type Tags = Tag[];
+/**
+ * A Session of a Run, named by the engine when it opens it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionId".
+ */
+export type SessionId = string;
 /**
  * Whether a start began its Run or found it.
  *
@@ -539,6 +553,22 @@ export interface ExplainedSetting {
   weakens: boolean;
 }
 /**
+ * What `page.goto` takes: the page, and the URL it goes to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GotoParams".
+ */
+export interface GotoParams {
+  /**
+   * The page.
+   */
+  page: string;
+  /**
+   * The URL.
+   */
+  url: string;
+}
+/**
  * What a `hello` says.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -589,6 +619,58 @@ export interface HelloResult {
   protocol_version: string;
 }
 /**
+ * What `page.goto` answers: the document's response, or none for a
+ * navigation within the same document or to a URL no server answers, such
+ * as `about:blank`. A 404 or a 500 is a response, a value.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Navigated".
+ */
+export interface Navigated {
+  /**
+   * The document's response.
+   */
+  response?: Response | null;
+}
+/**
+ * The response to a request of a page, such as a navigation's document.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Response".
+ */
+export interface Response {
+  /**
+   * Its headers, their names lower-cased, as the browser received them.
+   */
+  headers: {
+    [k: string]: string;
+  };
+  /**
+   * Its HTTP status.
+   */
+  status: number;
+  /**
+   * Its status text.
+   */
+  status_text: string;
+  /**
+   * Its final URL.
+   */
+  url: string;
+}
+/**
+ * What `run.new_page` takes: the Run whose default Session opens the page.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NewPageParams".
+ */
+export interface NewPageParams {
+  /**
+   * The Run.
+   */
+  run_id: string;
+}
+/**
  * What `page.body` takes: the body to read.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -615,6 +697,23 @@ export interface PageBodyRead {
    * The body's size in bytes.
    */
   size: number;
+}
+/**
+ * What `run.new_page` answers: the page, and the Session it belongs to,
+ * which `page.session()` returns.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageOpened".
+ */
+export interface PageOpened {
+  /**
+   * The page.
+   */
+  page: string;
+  /**
+   * Its Session: the Run's default Session.
+   */
+  session: string;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream

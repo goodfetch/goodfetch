@@ -91,7 +91,7 @@
             "description": "A message that expects no reply."
           },
           {
-            "$ref": "#/$defs/Response",
+            "$ref": "#/$defs/Response2",
             "description": "A success."
           },
           {
@@ -164,7 +164,7 @@
         ],
         "description": "A request's id, which its reply carries back."
       },
-      "Response": {
+      "Response2": {
         "additionalProperties": false,
         "description": "The reply to a call that succeeded.",
         "properties": {

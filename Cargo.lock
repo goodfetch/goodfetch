@@ -1130,6 +1130,7 @@ dependencies = [
  "dirs",
  "goodfetch-collie",
  "goodfetch-engine",
+ "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "gungraun",
@@ -1145,6 +1146,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "ureq",
+ "zip",
 ]
 
 [[package]]
@@ -1243,6 +1246,22 @@ name = "goodfetch-frontier"
 version = "0.0.0"
 dependencies = [
  "gungraun",
+]
+
+[[package]]
+name = "goodfetch-page"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-cdp",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "jiff",
+ "libc",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -541,6 +541,27 @@
       ],
       "type": "object"
     },
+    "GotoParams": {
+      "additionalProperties": false,
+      "description": "What `page.goto` takes: the page, and the URL it goes to.",
+      "properties": {
+        "page": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page",
+        "url"
+      ],
+      "type": "object"
+    },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
       "oneOf": [
@@ -565,6 +586,39 @@
           "type": "string"
         }
       ]
+    },
+    "Navigated": {
+      "description": "What `page.goto` answers: the document's response, or none for a\nnavigation within the same document or to a URL no server answers, such\nas `about:blank`. A 404 or a 500 is a response, a value.",
+      "properties": {
+        "response": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Response"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The document's response."
+        }
+      },
+      "type": "object"
+    },
+    "NewPageParams": {
+      "additionalProperties": false,
+      "description": "What `run.new_page` takes: the Run whose default Session opens the page.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
     },
     "PageBodyParams": {
       "additionalProperties": false,
@@ -601,6 +655,30 @@
       },
       "required": [
         "size"
+      ],
+      "type": "object"
+    },
+    "PageId": {
+      "description": "A page of a Run, named by the engine when it opens it.",
+      "type": "string"
+    },
+    "PageOpened": {
+      "description": "What `run.new_page` answers: the page, and the Session it belongs to,\nwhich `page.session()` returns.",
+      "properties": {
+        "page": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "session": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "Its Session: the Run's default Session."
+        }
+      },
+      "required": [
+        "page",
+        "session"
       ],
       "type": "object"
     },
@@ -678,6 +756,44 @@
       "required": [
         "dataset",
         "data"
+      ],
+      "type": "object"
+    },
+    "Response": {
+      "description": "The response to a request of a page, such as a navigation's document.",
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers, their names lower-cased, as the browser received them.",
+          "type": "object"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status_text": {
+          "arrived_in": "0.1",
+          "description": "Its status text.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its final URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "status",
+        "status_text",
+        "headers"
       ],
       "type": "object"
     },
@@ -1113,6 +1229,10 @@
       "minItems": 1,
       "type": "array"
     },
+    "SessionId": {
+      "description": "A Session of a Run, named by the engine when it opens it.",
+      "type": "string"
+    },
     "SettingLimit": {
       "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
       "properties": {
@@ -1363,6 +1483,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_launch_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.",
       "exit_code": null,
       "group": "unavailable",
@@ -1473,6 +1603,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "navigation_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.",
       "exit_code": null,
       "group": "program",
@@ -1490,6 +1630,16 @@
       "name": "not_in_product",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "page_crashed",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -1893,6 +2043,23 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`.",
+      "events": [],
+      "name": "page.goto",
+      "params": {
+        "$ref": "#/$defs/GotoParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
@@ -1922,6 +2089,23 @@
       "product": "collie",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.",
+      "events": [],
+      "name": "run.new_page",
+      "params": {
+        "$ref": "#/$defs/NewPageParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/PageOpened"
       },
       "stability": "experimental"
     },

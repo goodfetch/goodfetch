@@ -3,12 +3,27 @@
 //! fetches and whose entries the clean-up keeps. Foxhound's version pins the
 //! same, since it launches what Collie launches.
 //!
-//! The list is empty until the launch of area 5 pins Chrome for Testing's
-//! builds, with the digests of their archives and of their files.
+//! Chrome for Testing's build is the one Playwright's pinned release runs.
+//! Its digests are `pins.json`, which `examples/pin-chrome-for-testing.rs`
+//! writes: a platform with no archive digest yet is never downloaded, only
+//! launched from a cache that holds it, and a platform the file does not
+//! list has no pinned build.
 
-use goodfetch_engine::browser_cache::PinnedArtifact;
+use goodfetch_engine::browser_cache::{BuildPlatform, CHROME_FOR_TESTING, PinnedArtifact};
+use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
+use serde_json::Value;
+
+/// The digests of the pinned builds.
+const PINS: &str = include_str!("pins.json");
+
+/// Chrome for Testing's archives, by build and platform.
+const STORAGE: &str = "https://storage.googleapis.com/chrome-for-testing-public";
 
 /// Every artifact this version pins.
+///
+/// # Panics
+///
+/// When `pins.json` is not what its writer writes, which a test catches.
 ///
 /// # Examples
 ///
@@ -17,5 +32,43 @@ use goodfetch_engine::browser_cache::PinnedArtifact;
 /// assert!(pins.iter().all(|pin| pin.url.starts_with("https://")));
 /// ```
 pub fn pinned_artifacts() -> Vec<PinnedArtifact> {
-    Vec::new()
+    let pins: Value = serde_json::from_str(PINS).expect("invariant: pins.json is JSON");
+    let chrome = &pins["chrome_for_testing"];
+    let build = chrome["build"]
+        .as_str()
+        .expect("invariant: pins.json names its Chrome for Testing build");
+    chrome["platforms"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(platform, digests)| {
+            let digest = |key: &str| {
+                digests[key]
+                    .as_str()
+                    .map(|text| text.parse().expect("invariant: pins.json's digests read"))
+            };
+            PinnedArtifact {
+                id: ArtifactId {
+                    kind: ArtifactKind::Browser,
+                    name: CHROME_FOR_TESTING.to_owned(),
+                    build: build.to_owned(),
+                },
+                platform: Some(build_platform(platform)),
+                url: format!("{STORAGE}/{build}/{platform}/chrome-{platform}.zip"),
+                archive_digest: digest("archive_digest"),
+                digest: digest("digest").expect("invariant: each pinned platform has its digest"),
+            }
+        })
+        .collect()
+}
+
+/// A Chrome for Testing platform's name as the Browser cache's.
+fn build_platform(platform: &str) -> BuildPlatform {
+    match platform {
+        "linux64" => BuildPlatform::LinuxX64,
+        "mac-arm64" => BuildPlatform::MacArm64,
+        "mac-x64" => BuildPlatform::MacX64,
+        "win64" => BuildPlatform::WindowsX64,
+        other => panic!("invariant: pins.json names no platform `{other}`"),
+    }
 }

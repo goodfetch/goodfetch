@@ -41,6 +41,11 @@ pub(crate) const DEADLINE: Duration = Duration::from_secs(10);
 /// build can take longer than any later answer.
 pub(crate) const START_DEADLINE: Duration = Duration::from_secs(30);
 
+/// How long the harness waits for a call that launches or closes a browser:
+/// a launch checks the build's digest and starts the process, and a Run's
+/// end waits for its browser to exit.
+pub(crate) const BROWSER_DEADLINE: Duration = Duration::from_secs(60);
+
 /// A target that speaks the protocol: an executable taken by path, started
 /// in a mode with exactly this environment.
 #[derive(Clone, Debug, PartialEq, Eq)]

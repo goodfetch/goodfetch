@@ -1,0 +1,345 @@
+//! A Collie program's pages over stdio (spec #577, ticket #695), through
+//! `goodfetch-protocol`'s types: `run.new_page` opens a page in the Run's
+//! default Session, launching Chromium over a pipe from the Browser cache,
+//! and `page.goto` answers a Proving ground page's `Response`. Each test has
+//! its own Goodfetch home, a cleared environment, its own Proving ground and
+//! a Browser cache in its own folder (ADRs 0059 and 0094).
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
+)]
+
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
+use goodfetch_protocol::page::{Navigated, PageOpened};
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache,
+    runtime,
+};
+use serde_json::{Map, Value, json};
+
+use crate::attached::{Attached, hello};
+use crate::run::call;
+
+/// The Proving ground's own seed for these tests.
+const SEED: u64 = 695;
+
+/// How long a call may take: the first page launches the browser, checking
+/// its build's digest, and the Run's end waits for the browser to exit.
+const BROWSER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Starts an Attached engine whose Browser cache is `cache`, and a Run whose
+/// `network.resolve` maps the Proving ground's hosts to its address.
+fn started<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+) -> Attached<'env> {
+    let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+        command.env(BROWSERS_PATH_VARIABLE, cache);
+    });
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    let resolve: Map<String, Value> = proving_ground
+        .description()
+        .resolve
+        .iter()
+        .map(|(host, address)| (host.clone(), json!([address])))
+        .collect();
+    let started = call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({ "run_id": run_id, "settings": { "network": { "resolve": resolve } } }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    engine
+}
+
+fn opened(answer: &Value) -> PageOpened {
+    serde_json::from_value(answer["result"].clone())
+        .unwrap_or_else(|error| panic!("{error}: {answer}"))
+}
+
+/// Covers: story:5-61, operation:run.new_page, operation:page.goto
+#[test]
+fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_response() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "pages");
+    let url = proving_ground.url("catalog.test", "/catalog/1");
+
+    let first = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "pages" }),
+    ));
+    let went = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page": first.page, "url": url }),
+    );
+    let second = opened(&call(
+        &mut engine,
+        4,
+        "run.new_page",
+        &json!({ "run_id": "pages" }),
+    ));
+    let finished = call(&mut engine, 5, "run.finish", &json!({ "run_id": "pages" }));
+    let (rest, exited) = engine.finish();
+
+    let response = serde_json::from_value::<Navigated>(went["result"].clone())
+        .unwrap_or_else(|error| panic!("{error}: {went}"))
+        .response
+        .unwrap();
+    assert_eq!(
+        (
+            response.status,
+            response.url,
+            response
+                .headers
+                .get("content-type")
+                .is_some_and(|value| value.starts_with("text/html")),
+            second.session == first.session,
+            second.page == first.page,
+            &finished["result"]["lifecycle"],
+            (rest, exited),
+        ),
+        (
+            200,
+            url,
+            true,
+            true,
+            false,
+            &json!("finished"),
+            (vec![], true)
+        )
+    );
+}
+
+/// Covers: error:browser_not_installed
+#[cfg(unix)]
+#[test]
+fn a_launch_with_an_empty_browser_cache_fails_from_the_call_that_launches() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = env.folder().join("empty-browsers");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "no-browser");
+
+    let opened = call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "no-browser" }),
+    );
+    let _ = call(
+        &mut engine,
+        3,
+        "run.finish",
+        &json!({ "run_id": "no-browser" }),
+    );
+    let _ = engine.finish();
+    std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(
+        (
+            &opened["error"]["data"]["code"],
+            &opened["error"]["data"]["missing"]["artifact"]["build"],
+        ),
+        (
+            &json!("browser_not_installed"),
+            &json!(CHROME_FOR_TESTING_BUILD)
+        )
+    );
+}
+
+/// The command lines of every browser process the test's engine started:
+/// those whose profile is in the test's folder, which `ps` names by the
+/// folder name's last, ASCII, part.
+#[cfg(unix)]
+fn browser_command_lines(env: &TestEnv) -> Vec<String> {
+    let name = env.folder().file_name().unwrap().to_string_lossy();
+    let marker = name.rsplit(' ').next().unwrap().to_owned();
+    let listed = Command::new("ps")
+        .args(["-axww", "-o", "args="])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter(|line| line.contains(&marker) && line.contains("--user-data-dir="))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The CDP methods the Run's trace recorded.
+fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
+    let file: PathBuf = env
+        .home()
+        .join("0.0")
+        .join("runs")
+        .join(run_id)
+        .join("trace")
+        .join("cdp-commands.jsonl");
+    std::fs::read_to_string(&file)
+        .unwrap_or_else(|error| panic!("{}: {error}", file.display()))
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["method"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// The checks the Proving ground's CDP probe page reported, once it
+/// reported that it ran (within 10 s).
+fn probe_reports(proving_ground: &ProvingGround) -> Vec<(String, String)> {
+    let ran = ("ran".to_owned(), "content".to_owned());
+    let mut reports = Vec::new();
+    for _ in 0..100 {
+        reports = proving_ground.observations().unwrap()["reports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|report| {
+                (
+                    report["check"].as_str().unwrap().to_owned(),
+                    report["observed"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect();
+        if reports.contains(&ran) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    reports
+}
+
+/// What the probe would see of `Runtime` enabled and of a script outside
+/// its isolated world. `navigator.webdriver`, which it also reports, is the
+/// launch's identity, #696's to settle.
+const SIDE_EFFECTS: [&str; 2] = ["runtime_enable", "automation_bindings"];
+
+/// The browser runs over a pipe with no debugging port, `Runtime` is never
+/// enabled, and a page's own script sees neither `Runtime`'s side effect
+/// nor the guard's isolated world (ADRs 0017 and 0019).
+/// Covers: story:5-61
+#[cfg(unix)]
+#[test]
+fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "probe");
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "probe" }),
+    ));
+    let went = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page": page.page, "url": proving_ground.url("access.test", "/cdp-probe") }),
+    );
+    let browsers = browser_command_lines(&env);
+    // The probe reports that it ran, then each side effect it saw, right
+    // after; closing the browser gives those reports the time to arrive.
+    let _ = probe_reports(&proving_ground);
+    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "probe" }));
+    let _ = engine.finish();
+    let methods = traced_methods(&env, "probe");
+    let reports = probe_reports(&proving_ground);
+
+    assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
+    assert!(!browsers.is_empty(), "no browser process names the cache");
+    assert_eq!(
+        (
+            browsers
+                .iter()
+                .all(|line| !line.contains("--remote-debugging-port")),
+            browsers
+                .iter()
+                .any(|line| line.contains("--remote-debugging-pipe")),
+            methods.contains("Page.navigate"),
+            methods.iter().any(|method| method.starts_with("Runtime.")),
+            reports.contains(&("ran".to_owned(), "content".to_owned())),
+            reports
+                .iter()
+                .filter(|(check, observed)| {
+                    check == "cdp" && SIDE_EFFECTS.contains(&observed.as_str())
+                })
+                .map(|(_, observed)| observed.clone())
+                .collect::<Vec<_>>(),
+        ),
+        (true, true, true, false, true, Vec::<String>::new()),
+        "{browsers:?}"
+    );
+}
+
+/// A launched browser holds a shared lock on its build until it exits, so
+/// the Browser cache's clean-up refuses to delete it meanwhile (ADR 0098).
+/// Covers: story:5-61
+#[test]
+fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "held");
+    let clean_up = || {
+        let request = CleanUp {
+            kept: BTreeSet::new(),
+            now: jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1),
+            max_unused_age: std::time::Duration::ZERO,
+            dry_run: false,
+        };
+        runtime()
+            .block_on(
+                BrowserCache::new(&CacheLocation::new(env.home(), Some(cache.clone())))
+                    .clean_up(&request),
+            )
+            .unwrap()
+            .deleted
+            .into_iter()
+            .map(|artifact| artifact.build)
+            .collect::<Vec<_>>()
+    };
+
+    let _ = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "held" }),
+    ));
+    let while_running = clean_up();
+    let _ = call(&mut engine, 3, "run.finish", &json!({ "run_id": "held" }));
+    let _ = engine.finish();
+    let after_exit = clean_up();
+
+    assert_eq!(
+        (while_running, after_exit),
+        (
+            Vec::<String>::new(),
+            vec![CHROME_FOR_TESTING_BUILD.to_owned()]
+        )
+    );
+}

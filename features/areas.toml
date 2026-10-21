@@ -84,10 +84,21 @@ prefix = "protocol"
 
 # Area 3's Runs (spec #213, #215): the run operations, a crawl's start, their
 # Error codes, run state's location and the run-state and Run index formats.
+# `run.new_page` is area 5's.
 [[area]]
 number = 3
 kind = "operation"
-prefix = "run."
+prefix = "run.start"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.finish"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.abort"
 
 [[area]]
 number = 3
@@ -253,6 +264,33 @@ prefix = "session."
 number = 5
 kind = "setting"
 prefix = "paid_fetch."
+
+# Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
+# and the Error codes of their browsers (#695).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "run.new_page"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.goto"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "navigation_"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_crashed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_launch_failed"
 
 [[area]]
 number = 6

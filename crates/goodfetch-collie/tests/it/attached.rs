@@ -9,9 +9,10 @@
 
 use std::io::Write as _;
 use std::process::{ChildStdin, Command, Stdio};
+use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{Process, StrictStdout, TestEnv, record_command};
+use goodfetch_test_support::{MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command};
 use serde_json::{Value, json};
 
 /// A running Attached engine of Collie's executable, started in a test's
@@ -31,6 +32,16 @@ impl<'env> Attached<'env> {
     /// Starts it after `configure` changed its command, such as its
     /// environment.
     pub(crate) fn start_with(env: &'env TestEnv, configure: impl FnOnce(&mut Command)) -> Self {
+        Self::start_waiting(env, MESSAGE_DEADLINE, configure)
+    }
+
+    /// Starts it as [`Attached::start_with`] does, each message awaited for
+    /// up to `deadline`, as a call that launches a browser needs.
+    pub(crate) fn start_waiting(
+        env: &'env TestEnv,
+        deadline: Duration,
+        configure: impl FnOnce(&mut Command),
+    ) -> Self {
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
         command
             .arg("attached-engine")
@@ -39,7 +50,7 @@ impl<'env> Attached<'env> {
         configure(&mut command);
         let process = env.spawn(&mut command).unwrap();
         let stdin = process.child().stdin.take();
-        let stdout = StrictStdout::of(&process).unwrap();
+        let stdout = StrictStdout::of(&process).unwrap().within(deadline);
         Self {
             env,
             process,

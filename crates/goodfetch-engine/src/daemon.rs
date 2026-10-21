@@ -67,6 +67,22 @@ pub struct DaemonOptions {
     /// Its Console: the listener it serves its engine's Console build on,
     /// or why it has none.
     pub console: DaemonConsole,
+    /// How it drains when its starter asks, as `daemon run` does on
+    /// `SIGTERM` (ADR 0049); none for a Daemon on the machine.
+    pub drain: Option<Drain>,
+}
+
+/// How a foreground Daemon drains (ADR 0049): once `asked` is cancelled it
+/// takes no Run, stops each live Run at its next safe point with a
+/// Checkpoint, resumable by its Run ID, and ends once every one stopped or
+/// `grace` passed on its `Clock`, whichever comes first; a Run that reached
+/// no safe point by then stays resumable from its run file.
+#[derive(Clone, Debug)]
+pub struct Drain {
+    /// Cancelled when the Daemon must drain.
+    pub asked: CancellationToken,
+    /// `daemon.drain_grace`.
+    pub grace: Duration,
 }
 
 /// A Daemon's Console, as its starter set it up (ADR 0031).
@@ -109,6 +125,8 @@ pub enum DaemonEnd {
     HandedOver(Box<dyn Send>),
     /// Its listener failed.
     ListenerFailed,
+    /// It drained, as its starter asked.
+    Drained,
 }
 
 impl std::fmt::Debug for DaemonEnd {
@@ -118,6 +136,7 @@ impl std::fmt::Debug for DaemonEnd {
             Self::Stopped => "Stopped",
             Self::HandedOver(_) => "HandedOver",
             Self::ListenerFailed => "ListenerFailed",
+            Self::Drained => "Drained",
         })
     }
 }
@@ -347,9 +366,17 @@ fn count(live: usize) -> u32 {
 pub(crate) async fn serve(
     serving: Serving,
     mut listener: DaemonListener,
-    options: DaemonOptions,
+    mut options: DaemonOptions,
     owner: &TaskOwner,
 ) -> DaemonEnd {
+    let drain = options.drain.take();
+    let asked = async {
+        match &drain {
+            Some(drain) => drain.asked.cancelled().await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(asked);
     let (endings, mut ending) = mpsc::channel(1);
     let shared = Arc::new(Shared::new(&serving, options, owner.child(), endings));
     let connections_owner = owner.child();
@@ -374,6 +401,12 @@ pub(crate) async fn serve(
                 }
             }
             () = &mut idle => return finish(DaemonEnd::Idle, &connections_owner, &shared).await,
+            () = &mut asked => {
+                let grace = drain.as_ref().map_or(Duration::ZERO, |drain| drain.grace);
+                drain_runs(&serving, grace).await;
+                drop(listener);
+                return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
+            }
             accepted = listener.accept(), if accepting => match accepted {
                 Ok(connection) => {
                     let id = next;
@@ -437,6 +470,21 @@ pub(crate) async fn serve(
         }
     };
     finish(end, &connections_owner, &shared).await
+}
+
+/// Drains the Daemon's Runs, waiting at most `grace` for them to stop.
+async fn drain_runs(serving: &Serving, grace: Duration) {
+    tracing::info!(
+        live_runs = serving.runs.live_count().await,
+        "the Daemon drains: it takes no run and checkpoints each live run"
+    );
+    tokio::select! {
+        () = serving.runs.drain() => tracing::info!("the Daemon drained every run"),
+        () = serving.clock.sleep(grace) => tracing::warn!(
+            live_runs = serving.runs.live_count().await,
+            "the drain grace passed: each run not yet at a safe point stays resumable from its run file"
+        ),
+    }
 }
 
 /// Closes every Connection, then answers `end`.

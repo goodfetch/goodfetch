@@ -157,6 +157,9 @@ export type StopReason =
     }
   | {
       kind: "timeout";
+    }
+  | {
+      kind: "drain";
     };
 /**
  * An opaque text a Run is tagged with (ADR 0036).
@@ -1174,6 +1177,9 @@ export interface RunStopping {
       }
     | {
         kind: "timeout";
+      }
+    | {
+        kind: "drain";
       };
   /**
    * The Run's ID.

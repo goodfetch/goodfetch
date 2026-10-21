@@ -29,6 +29,7 @@ use goodfetch_protocol::run::{
 };
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
+use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
@@ -152,8 +153,18 @@ pub fn start_error(error: StartError) -> CallError {
                 path: Some(folder.display().to_string()),
             },
         ),
+        StartError::Draining { run_id } => draining(run_id),
         StartError::Stopped => stopped(),
     }
+}
+
+/// A run a draining Daemon refuses to start or resume (ADR 0049).
+fn draining(run_id: Option<RunId>) -> CallError {
+    CallError::new(
+        &DAEMON_DRAINING,
+        "The Daemon is draining on `SIGTERM` and takes no run; start or resume it on the Daemon that replaces this one.",
+        &DaemonDrainingDetails { run_id },
+    )
 }
 
 /// The failure a call answers with for a refused setting, on an engine
@@ -313,6 +324,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
                 path: Some(folder.display().to_string()),
             },
         ),
+        RunError::Draining(run_id) => draining(Some(run_id)),
         RunError::Stopped => stopped(),
     }
 }

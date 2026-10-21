@@ -159,6 +159,42 @@ impl Network {
             Self::Os => listen_os(socket).await,
         }
     }
+
+    /// A foreground Daemon's listener (ADR 0049): TCP at `address`, whose
+    /// port 0 takes a free one; in memory, every Connection the dialer
+    /// opens. Answers the endpoint it listens at, with the port it bound.
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses the address, such as a port another program
+    /// holds.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the listener it was opening.
+    pub async fn listen_at(
+        self,
+        address: std::net::SocketAddr,
+    ) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+        match self {
+            Self::InMemory(network) => Ok((
+                DaemonListener(Listening::InMemory(network)),
+                DaemonEndpoint::Tcp(address),
+            )),
+            Self::Os => {
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "the transport module is the one place that opens sockets (ADR 0060)"
+                )]
+                let listener = tokio::net::TcpListener::bind(address).await?;
+                let bound = listener.local_addr()?;
+                Ok((
+                    DaemonListener(Listening::Tcp(listener)),
+                    DaemonEndpoint::Tcp(bound),
+                ))
+            }
+        }
+    }
 }
 
 impl Network {
@@ -272,7 +308,6 @@ enum Listening {
         reason = "the transport module is the one place that opens sockets (ADR 0060)"
     )]
     Unix(tokio::net::UnixListener),
-    #[cfg(not(unix))]
     #[expect(
         clippy::disallowed_types,
         reason = "the transport module is the one place that opens sockets (ADR 0060)"
@@ -304,7 +339,6 @@ impl DaemonListener {
                 let (reader, writer) = stream.into_split();
                 Ok(Connection::new(reader, writer))
             }
-            #[cfg(not(unix))]
             Listening::Tcp(listener) => {
                 let (stream, _) = listener.accept().await.map_err(TransportError::Accept)?;
                 stream.set_nodelay(true).map_err(TransportError::Accept)?;

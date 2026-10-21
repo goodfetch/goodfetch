@@ -201,6 +201,7 @@ pub(in crate::executable) fn launched(
                 keeps_socket: activated,
             }),
             console,
+            drain: None,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,
@@ -332,7 +333,7 @@ fn finish(
             }
         }
         DaemonEnd::ListenerFailed => ExitCode::FAILURE,
-        DaemonEnd::Idle | DaemonEnd::Stopped => ExitCode::SUCCESS,
+        DaemonEnd::Idle | DaemonEnd::Stopped | DaemonEnd::Drained => ExitCode::SUCCESS,
     }
 }
 

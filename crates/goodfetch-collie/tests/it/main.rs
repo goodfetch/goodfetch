@@ -9,6 +9,8 @@
 
 mod attached;
 mod browsers;
+#[cfg(target_os = "macos")]
+mod checkpoint;
 mod client_conformance;
 mod commands;
 mod config;

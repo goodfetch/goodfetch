@@ -545,6 +545,62 @@
       ],
       "type": "object"
     },
+    "Checkpoint": {
+      "description": "A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a\nconsistent, self-contained copy of a Run's state, complete at its\nlocation before it is reported, from which the Run resumes on this\nmachine or another one.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "journal_position": {
+          "arrived_in": "0.1",
+          "description": "The position of the run's journal it holds: how many commits of the\nrun file it contains. A resume from it redoes the work after.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where it is: the file's path on the engine's machine.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer that took it (ADR 0003), which a\ndestination compares and sets: one older than it holds is refused.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "time": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was taken."
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "size",
+        "digest",
+        "run_epoch",
+        "journal_position",
+        "time"
+      ],
+      "type": "object"
+    },
     "Chunk": {
       "additionalProperties": false,
       "description": "What `$/chunk` carries: the next bytes of the body a call reads.",
@@ -3287,6 +3343,26 @@
       ],
       "type": "object"
     },
+    "RunAborting": {
+      "description": "What `run.aborting` carries.",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/StoppedBy",
+          "arrived_in": "0.1",
+          "description": "Who aborts it."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "by"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -3328,6 +3404,51 @@
       "required": [
         "run_id",
         "lifecycle"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointParams": {
+      "additionalProperties": false,
+      "description": "What `run.checkpoint` takes.",
+      "properties": {
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointing": {
+      "description": "What `run.checkpointing` carries.",
+      "properties": {
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch the Checkpoint is taken under.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "run_epoch"
       ],
       "type": "object"
     },
@@ -3464,6 +3585,20 @@
         }
       ]
     },
+    "RunMigrating": {
+      "description": "What `run.migrating` carries.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunOrigin": {
       "description": "Where a run-layer value came from (ADR 0083).",
       "oneOf": [
@@ -3587,6 +3722,18 @@
     "RunReport": {
       "description": "What a Run states about itself when it ends (ADR 0102): its three axes\n(ADR 0029) and when it ran.",
       "properties": {
+        "checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Checkpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The last Checkpoint written of it in this engine, when one was (ADR\n0102)."
+        },
         "completeness": {
           "$ref": "#/$defs/Completeness",
           "arrived_in": "0.1",
@@ -3653,6 +3800,47 @@
         "completeness",
         "started_at",
         "ended_at"
+      ],
+      "type": "object"
+    },
+    "RunResumeParams": {
+      "additionalProperties": false,
+      "description": "What `run.resume` takes.",
+      "properties": {
+        "checkpoint": {
+          "arrived_in": "0.1",
+          "description": "A Checkpoint to resume from, a path on the engine's machine, which\nbecomes the Run's state in this engine's run folder; by default the\nRun resumes from its run file on this machine.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings from the resume on, nested by key: the run layer\n(ADRs 0083 and 0102).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "run_id"
       ],
       "type": "object"
     },
@@ -3730,9 +3918,23 @@
     "RunStateRow": {
       "description": "One row of a Run's run state about itself: its `run` table (ADR 0002).",
       "properties": {
+        "binding": {
+          "description": "What the Run is bound to (ADR 0056), as JSON, or none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "caller": {
           "description": "Who started it (ADR 0102).",
           "type": "string"
+        },
+        "clean_up_digest": {
+          "description": "The digest of the Clean-up rules the Run holds to, which a resume\nkeeps (ADR 0047), or none.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "completeness": {
           "anyOf": [
@@ -3765,6 +3967,12 @@
         "inputs": {
           "description": "Its start's inputs, as canonical JSON, which a later start compares.",
           "type": "string"
+        },
+        "journal_position": {
+          "description": "How many commits the run file holds: the position of its journal,\nwhich a Checkpoint reports (ADR 0002).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "kind": {
           "$ref": "#/$defs/RunKind",
@@ -3829,7 +4037,28 @@
         "inputs",
         "lifecycle",
         "started_at",
-        "weakened_by"
+        "weakened_by",
+        "journal_position"
+      ],
+      "type": "object"
+    },
+    "RunStopping": {
+      "description": "What `run.stopping` carries.",
+      "properties": {
+        "cause": {
+          "$ref": "#/$defs/StopReason",
+          "arrived_in": "0.1",
+          "description": "Why it stops."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "cause"
       ],
       "type": "object"
     },
@@ -4276,6 +4505,11 @@
           "const": "existing",
           "description": "Its Run ID named a Run started before with the same inputs, which is\nreturned as it is.",
           "type": "string"
+        },
+        {
+          "const": "resumed",
+          "description": "It was interrupted and goes on from its committed state, its run\nfile or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and\n0102).",
+          "type": "string"
         }
       ]
     },
@@ -4385,6 +4619,32 @@
           "required": [
             "kind",
             "by"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was paused: checkpointed and stopped, to be resumed by its Run ID\n(RT-11).",
+          "properties": {
+            "kind": {
+              "const": "pause",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was migrated: checkpointed and stopped, to be resumed from its\nCheckpoint on another machine (ADR 0002).",
+          "properties": {
+            "kind": {
+              "const": "migrate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         },
@@ -4814,6 +5074,25 @@
                 },
                 "type": "object"
               },
+              "checkpoint": {
+                "additionalProperties": false,
+                "properties": {
+                  "interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  }
+                },
+                "type": "object"
+              },
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
@@ -4960,6 +5239,25 @@
                       }
                     ],
                     "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
+              "checkpoint": {
+                "additionalProperties": false,
+                "properties": {
+                  "interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
                   }
                 },
                 "type": "object"
@@ -5348,6 +5646,25 @@
                       }
                     ],
                     "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
+              "checkpoint": {
+                "additionalProperties": false,
+                "properties": {
+                  "interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
                   }
                 },
                 "type": "object"
@@ -5761,6 +6078,25 @@
                       }
                     ],
                     "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
+              "checkpoint": {
+                "additionalProperties": false,
+                "properties": {
+                  "interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
                   }
                 },
                 "type": "object"

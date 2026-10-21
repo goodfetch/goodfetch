@@ -297,6 +297,17 @@
       ]
     },
     {
+      "id": "command:run.checkpoint",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:run.finish",
       "kind": "command",
       "area": 11,
@@ -308,7 +319,40 @@
       ]
     },
     {
+      "id": "command:run.migrate",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:run.new-page",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:run.pause",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:run.resume",
       "kind": "command",
       "area": 11,
       "milestone": null,
@@ -506,6 +550,28 @@
     },
     {
       "id": "error:executable_blocked_by_smart_app_control",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:file_write_failed",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:format_version_unsupported",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -732,6 +798,17 @@
       ]
     },
     {
+      "id": "error:session_bound_to_machine",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:setting_invalid",
       "kind": "error",
       "area": 3,
@@ -798,7 +875,51 @@
       ]
     },
     {
+      "id": "event:run.aborting",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:run.axes_changed",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:run.checkpointing",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:run.migrating",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:run.stopping",
       "kind": "event",
       "area": 3,
       "milestone": null,
@@ -995,7 +1116,7 @@
     {
       "id": "operation:page.go_back",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1006,7 +1127,7 @@
     {
       "id": "operation:page.go_forward",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1028,7 +1149,7 @@
     {
       "id": "operation:page.reload",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1040,6 +1161,17 @@
       "id": "operation:run.abort",
       "kind": "operation",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.checkpoint",
+      "kind": "operation",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1069,6 +1201,17 @@
       ]
     },
     {
+      "id": "operation:run.migrate",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.new_page",
       "kind": "operation",
       "area": 5,
@@ -1086,6 +1229,28 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.pause",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.resume",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -3004,6 +3169,17 @@
     },
     {
       "id": "setting:browser_cache.max_unused_age",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:checkpoint.interval",
       "kind": "setting",
       "area": 3,
       "milestone": null,

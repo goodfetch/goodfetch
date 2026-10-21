@@ -5,5 +5,6 @@ The TLA+ models of the model checks (ADR 0060; TESTING.md, Model checking).
 - `tools.toml` pins the pair of TLA+ tools, each a URL with its SHA-256; `just tlc-fetch` keeps them in `target/tla-tools/`.
 - Each folder holding a `model.toml` is one model: `spec` names its TLA+ module, and `traces` the files and folders of the modules it describes, a change to which selects it. `small.cfg` holds the Pre-merge and Release suites' constants, `large.cfg` the nightly job's.
 - `sample/` is the TLC job's self-test: `just tlc sample` passes, and its `broken.cfg` variant must fail on its invariant (`just tlc-self-test`).
+- `run-fencing/` is the run fencing model (ADR 0003): work-item leases, the run epoch each start and resume takes, Checkpoints, and the compare-and-set on the run epoch of the Fenced and Keyed destinations. Its actions are the transitions `goodfetch::lease` traces (`take_epoch`, `grant`, `renew`, `expire`, `release`, `commit`, `refuse_commit`), and its `zombie.cfg` variant must fail, showing the model reaches a zombie copy.
 
 Run `just tlc <model>`, or `just tlc --all`; TLC needs Java 11 or later.

@@ -52,6 +52,25 @@
             },
             "type": "object"
           },
+          "checkpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "interval": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              }
+            },
+            "type": "object"
+          },
           "consent": {
             "additionalProperties": false,
             "properties": {

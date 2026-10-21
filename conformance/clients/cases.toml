@@ -79,19 +79,21 @@ surfaces = ["cli"]
 modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
-# 0103; #791). The Python and Rust SDKs join these cases with the tickets
-# that build their Connections (area 11), which add their surfaces here.
+# 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
+# and Rust it fails with `value_invalid`. The Python and Rust SDKs have no
+# Connection yet, so `xtask clients check` only notes their surfaces until
+# area 11 builds them (M2).
 [[capability]]
 name = "key-value-store"
 
 [[capability.case]]
 id = "key-value-store-get-absent-answers-null"
 covers = ["story:6-28", "story:6-31"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-set-null-refused"
 covers = ["story:6-29"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]

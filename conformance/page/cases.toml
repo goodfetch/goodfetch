@@ -1,16 +1,16 @@
-# The page suite's case list (spec #577, tickets #695 and #696): a Collie program's
-# pages over the protocol, run by `goodfetch-conformance`'s engine harness
-# against an Attached engine of Collie's executable on the local Proving
-# ground (ADR 0094), each case on a Run of its own whose `network.resolve`
-# maps the Proving ground's host names to its address (ADR 0059). The
-# engine finds its browser in the Browser cache its environment names. Bump
-# the version whenever a case changes.
+# The page suite's case list (spec #577, tickets #695, #696 and #698): a
+# Collie program's pages over the protocol, run by `goodfetch-conformance`'s
+# engine harness against an Attached engine of Collie's executable on the
+# local Proving ground (ADR 0094), each case on a Run of its own whose
+# `network.resolve` maps the Proving ground's host names to its address
+# (ADR 0059). The engine finds its browser in the Browser cache its
+# environment names. Bump the version whenever a case changes.
 
 product = "collie"
 
 [suite]
 name = "page"
-version = "2"
+version = "3"
 
 [[capability]]
 name = "sessions.default"
@@ -25,6 +25,32 @@ name = "navigation"
 [[capability.case]]
 id = "goto-answers-the-documents-response"
 covers = ["story:5-61", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "an-error-status-is-the-documents-response"
+covers = ["story:5-23", "operation:page.goto", "operation:page.reload"]
+
+[[capability.case]]
+id = "back-and-forward-across-sites-answer-the-documents-response"
+covers = ["story:5-23", "operation:page.goto", "operation:page.go_back", "operation:page.go_forward"]
+
+[[capability]]
+name = "navigation.back_forward_cache"
+
+[[capability.case]]
+id = "going-back-loads-the-document-again"
+covers = ["story:5-24", "operation:page.go_back"]
+
+[[capability]]
+name = "navigation.failures"
+
+[[capability.case]]
+id = "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection"
+covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
+
+[[capability.case]]
+id = "a-navigation-superseded-before-it-committed-is-interrupted"
+covers = ["operation:page.goto", "error:navigation_interrupted"]
 
 [[capability]]
 name = "launch"

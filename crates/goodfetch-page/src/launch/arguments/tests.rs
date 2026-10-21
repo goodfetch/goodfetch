@@ -84,7 +84,7 @@ fn resolve_reaches_chromium_as_host_resolver_rules_each_host_on_its_first_addres
     assert!(
         has(
             &built,
-            "--host-resolver-rules=MAP catalog.test 127.0.0.1, MAP ipv6.test [::1]"
+            "--host-resolver-rules=MAP catalog.test 127.0.0.1, MAP ipv6.test [::1], MAP *.invalid ~NOTFOUND"
         ),
         "{:?}",
         built.arguments
@@ -92,12 +92,27 @@ fn resolve_reaches_chromium_as_host_resolver_rules_each_host_on_its_first_addres
 }
 
 #[test]
-fn no_resolve_mapping_passes_no_host_resolver_rules() {
-    assert!(
-        !arguments(&launch(true, None))
-            .arguments
-            .iter()
-            .any(|argument| argument.starts_with("--host-resolver-rules"))
+fn with_no_resolve_mapping_only_invalid_names_are_refused_without_a_query() {
+    assert!(has(
+        &arguments(&launch(true, None)),
+        "--host-resolver-rules=MAP *.invalid ~NOTFOUND"
+    ));
+}
+
+#[test]
+fn every_launch_turns_the_back_forward_cache_off() {
+    assert_eq!(
+        (
+            has(
+                &arguments(&launch(true, None)),
+                "--disable-back-forward-cache"
+            ),
+            has(
+                &arguments(&launch(false, None)),
+                "--disable-back-forward-cache"
+            ),
+        ),
+        (true, true)
     );
 }
 

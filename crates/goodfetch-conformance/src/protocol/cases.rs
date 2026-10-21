@@ -5,6 +5,7 @@
 
 mod delivery;
 mod launch;
+mod navigation;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::{
@@ -18,6 +19,8 @@ use goodfetch_protocol::page::{Navigated, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::result_document::CaseCheck;
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
+
+use std::collections::BTreeMap;
 
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
@@ -41,15 +44,23 @@ pub(crate) enum Case {
     LateCommit,
     PagesShareTheDefaultSession,
     GotoAnswersTheResponse,
+    ErrorStatusesAreResponses,
+    HistoryAnswersResponsesAcrossSites,
+    BackLoadsTheDocumentAgain,
+    UnresolvedNameFailsTheNavigation,
+    SupersededNavigationIsInterrupted,
     HeadlessIdentity,
     BackgroundTimer,
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
-/// the origin of its access family, the port it serves on, the `resolve`
-/// mapping of its hosts to its address, and its own observations.
+/// each task's start URL, the origin of its access family, the port it
+/// serves on, the `resolve` mapping of its hosts to its address, and the
+/// Proving ground itself, whose time step a case may set and whose own
+/// observations a case may read.
 pub(crate) struct Site {
     page_url: Option<String>,
+    start_urls: BTreeMap<String, String>,
     access_origin: Option<String>,
     port: String,
     resolve: Value,
@@ -95,11 +106,21 @@ impl Site {
         resolve.insert(launch::IDENTITY_HOST.to_owned(), json!([ip]));
         Self {
             page_url,
+            start_urls: task_list
+                .tasks
+                .iter()
+                .map(|task| (task.id.as_str().to_owned(), task.start_url.clone()))
+                .collect(),
             access_origin,
             port,
             resolve: Value::Object(resolve),
             proving_ground: proving_ground.clone(),
         }
+    }
+
+    /// The start URL of the task `id`, such as `statuses/1`.
+    fn start_url(&self, id: &str) -> Option<&str> {
+        self.start_urls.get(id).map(String::as_str)
     }
 }
 
@@ -147,6 +168,17 @@ impl Case {
             "an-answer-after-the-lease-ended-is-a-late-commit-and-refused" => Self::LateCommit,
             "pages-open-in-the-runs-default-session" => Self::PagesShareTheDefaultSession,
             "goto-answers-the-documents-response" => Self::GotoAnswersTheResponse,
+            "an-error-status-is-the-documents-response" => Self::ErrorStatusesAreResponses,
+            "back-and-forward-across-sites-answer-the-documents-response" => {
+                Self::HistoryAnswersResponsesAcrossSites
+            }
+            "going-back-loads-the-document-again" => Self::BackLoadsTheDocumentAgain,
+            "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection" => {
+                Self::UnresolvedNameFailsTheNavigation
+            }
+            "a-navigation-superseded-before-it-committed-is-interrupted" => {
+                Self::SupersededNavigationIsInterrupted
+            }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             _ => return None,
@@ -195,6 +227,19 @@ impl Case {
             Self::LateCommit => delivery::late_commit(connection, checks),
             Self::PagesShareTheDefaultSession => default_session(connection, site, checks),
             Self::GotoAnswersTheResponse => goto(connection, site, checks),
+            Self::ErrorStatusesAreResponses => navigation::error_statuses(connection, site, checks),
+            Self::HistoryAnswersResponsesAcrossSites => {
+                navigation::history_across_sites(connection, site, checks)
+            }
+            Self::BackLoadsTheDocumentAgain => {
+                navigation::back_loads_again(connection, site, checks)
+            }
+            Self::UnresolvedNameFailsTheNavigation => {
+                navigation::unresolved_name(connection, site, checks)
+            }
+            Self::SupersededNavigationIsInterrupted => {
+                navigation::superseded(connection, site, checks)
+            }
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
         }

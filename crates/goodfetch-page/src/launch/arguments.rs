@@ -4,8 +4,11 @@
 //! profile of the Run's own; headless only when `browser.headless` says so,
 //! the site seeing one identity either way (the driver's user agent, ADR
 //! 0092); every page keeps its timers behind another tab or window (ADR
-//! 0085's question); `network.resolve` reaches Chromium as host resolver
-//! rules (ADR 0059); and a small `/dev/shm`, such as the 64 MB Kubernetes
+//! 0085's question); the back/forward cache is off, so going back or
+//! forward always loads its document again (ADR 0121, with no setting);
+//! `network.resolve` reaches Chromium as host resolver rules (ADR 0059),
+//! and every `.invalid` name fails without a DNS query; and a small
+//! `/dev/shm`, such as the 64 MB Kubernetes
 //! and Docker give, moves Chromium's shared memory to `/tmp` with a warning
 //! (ADR 0049).
 
@@ -25,6 +28,11 @@ const BACKGROUND_PAGES: [&str; 3] = [
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
 ];
+
+/// The host resolver rule that keeps every `.invalid` name from resolving
+/// without a DNS query (RFC 6761, section 6.4), after the `resolve`
+/// setting's rules, which come first.
+const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
 
 /// What a launch decided.
 pub(crate) struct Launch<'a> {
@@ -83,6 +91,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
             "--disable-sync",
             "--password-store=basic",
             "--use-mock-keychain",
+            "--disable-back-forward-cache",
         ]
         .into_iter()
         .chain(BACKGROUND_PAGES)
@@ -96,7 +105,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         arguments.push("--disable-dev-shm-usage".to_owned());
         warnings.push(Warning::SmallSharedMemory { bytes });
     }
-    let rules: Vec<String> = launch
+    let mut rules: Vec<String> = launch
         .resolve
         .iter()
         .filter_map(|(host, addresses)| {
@@ -106,9 +115,8 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
             })
         })
         .collect();
-    if !rules.is_empty() {
-        arguments.push(format!("--host-resolver-rules={}", rules.join(", ")));
-    }
+    rules.push(INVALID_NAMES.to_owned());
+    arguments.push(format!("--host-resolver-rules={}", rules.join(", ")));
     arguments.push("about:blank".to_owned());
     Arguments {
         arguments,

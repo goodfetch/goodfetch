@@ -13,6 +13,7 @@ mod crawl;
 mod daemon;
 mod journeys;
 mod outcomes;
+mod politeness;
 mod service_manager;
 mod workers;
 mod writer_lock;

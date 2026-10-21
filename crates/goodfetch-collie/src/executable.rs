@@ -640,13 +640,15 @@ fn run_attached(
     let served = runtime.block_on(async {
         match daemon {
             Some((endpoint, token)) => match transport::connect_daemon(&endpoint).await {
-                Ok(connection) => Engine::relay_attached(Network::Os, connection, token).await,
-                Err(error) => {
-                    tracing::error!(%error, %endpoint, "the Daemon does not answer");
-                    Ok(())
-                }
+                Ok(connection) => Engine::relay_attached(Network::Os, connection, token)
+                    .await
+                    .map_err(|error| error.to_string()),
+                Err(error) => Err(format!("the Daemon at {endpoint} does not answer: {error}")),
             },
-            None => engine.run_attached(Network::Os, dependencies).await,
+            None => engine
+                .run_attached(Network::Os, dependencies)
+                .await
+                .map_err(|error| error.to_string()),
         }
     });
     // Tokio's stdin reads on a blocking thread that only new input wakes, so

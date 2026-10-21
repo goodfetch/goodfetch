@@ -4,6 +4,7 @@
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
 //! items.
 
+pub mod block;
 pub mod crawl;
 pub mod settings;
 

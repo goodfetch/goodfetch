@@ -11,6 +11,7 @@ use std::fmt::Write as _;
 use rstest::rstest;
 use serde_json::Value;
 
+use crate::feature_generators::add_shared_type_values;
 use crate::workspace::{Finding, Outcome, Workspace, finding};
 
 const JSON2TS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../node_modules/.bin/json2ts");
@@ -594,6 +595,62 @@ fn each_sdk_package_generates_only_its_products_operations(
     assert!(!operations.contains(other_operation), "{operations}");
 }
 
+/// Each package spells its own Product's values of a type both Products
+/// share (ADR 0095), Foxhound's on top of Collie's, and keeps a value it
+/// does not know as received (ADR 0079).
+#[rstest]
+#[case::typescript_collie_client(
+    "sdks/typescript/collie-client/src/generated/shared-types.ts",
+    r#"export type BlockCause = "captcha" | "challenge" | (string & {});"#
+)]
+#[case::typescript_foxhound(
+    "sdks/typescript/foxhound/src/generated/shared-types.ts",
+    r#"export type BlockCause = CollieBlockCause | "decoy";"#
+)]
+#[case::typescript_foxhound_own_type(
+    "sdks/typescript/foxhound/src/generated/shared-types.ts",
+    r#"export type UsageKind = "sample_crawled_pages" | (string & {});"#
+)]
+#[case::python_collie_client(
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated/shared_types.py",
+    r#"BlockCause: TypeAlias = Literal["captcha", "challenge"] | str"#
+)]
+#[case::python_foxhound(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated/shared_types.py",
+    r#"BlockCause: TypeAlias = CollieBlockCause | Literal["decoy"]"#
+)]
+#[case::python_foxhound_own_type(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated/shared_types.py",
+    r#"UsageKind: TypeAlias = Literal["sample_crawled_pages"] | str"#
+)]
+fn each_sdk_layer_spells_its_products_values_of_a_shared_type_and_keeps_an_unknown_one(
+    #[case] path: &str,
+    #[case] declaration: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    add_shared_type_values(
+        &workspace,
+        &[
+            ("challenge", "collie", "block_cause"),
+            ("captcha", "collie", "block_cause"),
+            ("decoy", "foxhound", "block_cause"),
+            ("sample_crawled_pages", "foxhound", "usage_kind"),
+        ],
+    );
+
+    codegen(&workspace);
+
+    let shared_types = workspace
+        .read(path)
+        .map(|bytes| String::from_utf8(bytes).unwrap());
+    assert!(
+        shared_types
+            .as_deref()
+            .is_some_and(|text| text.contains(declaration)),
+        "{shared_types:?}"
+    );
+}
+
 /// The layer files `xtask codegen` writes itself, as a reviewer reads them
 /// (TESTING.md, Snapshots: generated surfaces); the outside generators'
 /// files are held to their recorded digests instead.
@@ -617,6 +674,8 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
         "index",
         "__init__",
         "connection",
+        "shared-types",
+        "shared_types",
         "operations",
         "events",
         "errors",

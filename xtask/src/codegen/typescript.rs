@@ -42,6 +42,9 @@ pub(super) fn generate(layer: &Layer) -> Generated {
     if layer.product == Product::Collie {
         files.push(("connection.ts", connection(layer)));
     }
+    if !layer.shared_types.is_empty() {
+        files.push(("shared-types.ts", shared_types(layer)));
+    }
     Generated {
         files,
         types: TypesFile {
@@ -126,6 +129,73 @@ fn index(layer: &Layer) -> String {
         text.push_str("export * from \"./connection.ts\";\n");
     }
     text.push_str("export * from \"./operations.ts\";\nexport * from \"./events.ts\";\nexport * from \"./errors.ts\";\nexport * from \"./plugins.ts\";\n");
+    if !layer.shared_types.is_empty() {
+        text.push_str("export type * from \"./shared-types.ts\";\n");
+    }
+    text
+}
+
+/// Each type both Products share that the layer adds values to (ADR 0095),
+/// as a union of its values open to any other string, which the package
+/// keeps as received (ADR 0079); Foxhound's adds its values to Collie's.
+fn shared_types(layer: &Layer) -> String {
+    let mut text = format!("{HEADER}\n");
+    let extended: Vec<String> = layer
+        .shared_types
+        .iter()
+        .filter(|shared| shared.extends_collie)
+        .map(|shared| {
+            let name = pascal(&shared.name);
+            format!("{name} as Collie{name}")
+        })
+        .collect();
+    if !extended.is_empty() {
+        let _ = writeln!(
+            text,
+            "import type {{ {} }} from \"{CLIENT_PACKAGE}\";\n",
+            extended.join(", ")
+        );
+    }
+    for shared in &layer.shared_types {
+        let name = pascal(&shared.name);
+        let mut description = if shared.extends_collie {
+            format!(
+                "A `{}`, a type both Products share (ADR 0095): Collie's values and {}'s own below; a value this package does not know is kept as received (ADR 0079).\n",
+                shared.name,
+                layer.product.name()
+            )
+        } else {
+            format!(
+                "A `{}`, a type both Products share (ADR 0095): {}'s values below; a value this package does not know is kept as received (ADR 0079).\n",
+                shared.name,
+                layer.product.name()
+            )
+        };
+        for (value, value_description) in &shared.values {
+            let _ = write!(description, "\n- `{value}`: {value_description}");
+        }
+        text.push_str(&doc("", &description, Stability::Stable, None));
+        let literals: Vec<String> = shared
+            .values
+            .iter()
+            .map(|(value, _)| format!("{value:?}"))
+            .collect();
+        if shared.extends_collie {
+            let _ = writeln!(
+                text,
+                "export type {name} = Collie{name} | {};\n",
+                literals.join(" | ")
+            );
+        } else {
+            let _ = writeln!(
+                text,
+                "export type {name} = {} | (string & {{}});\n",
+                literals.join(" | ")
+            );
+        }
+    }
+    text.truncate(text.trim_end().len());
+    text.push('\n');
     text
 }
 

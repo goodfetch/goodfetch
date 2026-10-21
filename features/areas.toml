@@ -106,6 +106,11 @@ prefix = "handler_"
 
 [[area]]
 number = 3
+kind = "error"
+prefix = "lease_lost"
+
+[[area]]
+number = 3
 kind = "setting"
 prefix = "run_state."
 
@@ -343,3 +348,10 @@ prefix = "run."
 number = 11
 kind = "command"
 prefix = "sample."
+
+# Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
+# cause, the closed list both Products share (#849).
+[[area]]
+number = 8
+kind = "block-cause"
+prefix = ""

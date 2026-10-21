@@ -31,6 +31,7 @@ use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
+use crate::block::BlockCause;
 use crate::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
 use crate::case_log::CaseLogEntry;
 use crate::catalog::{
@@ -110,6 +111,7 @@ pub fn emit() -> Emitted {
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
     });
     let command_failed = generator.subschema_for::<CommandFailed>();
+    let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
@@ -127,6 +129,7 @@ pub fn emit() -> Emitted {
             "connection": connection,
             "outputs": outputs,
             "command_failed": command_failed,
+            "shared_types": shared_types,
             "documents": {
                 "result_document": result_document,
                 "case_log_entry": case_log_entry,

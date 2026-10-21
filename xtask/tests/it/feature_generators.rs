@@ -187,7 +187,7 @@ const METRICS_SECTION: &str = "\"metrics\": sorted(self.metrics),";
 
 /// Gives the fixture's catalog the values of shared types `values` lists,
 /// each as its name, Product and type.
-fn add_shared_type_values(workspace: &Workspace, values: &[(&str, &str, &str)]) {
+pub(crate) fn add_shared_type_values(workspace: &Workspace, values: &[(&str, &str, &str)]) {
     let values: Vec<String> = values
         .iter()
         .map(|(name, product, shared_type)| {

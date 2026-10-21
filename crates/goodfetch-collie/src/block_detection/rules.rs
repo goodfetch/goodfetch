@@ -3,7 +3,9 @@
 //! and the headers and markers its response must hold. A rule seeded from an
 //! outside source names it, and that source is an input of
 //! `third-party.toml` beside this file with the same license, so `xtask
-//! notices` lists it (story 60).
+//! notices` lists it (story 60). The vendors the rules cover are listed, by
+//! rule, in `vendors.toml` beside this file, for the watchlist job (story
+//! 61).
 
 use goodfetch_protocol::block::BlockCause;
 

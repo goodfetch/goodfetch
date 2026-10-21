@@ -6,7 +6,9 @@ set = "block-detection-rules"
 # used `modified`. `block_detection`'s tests check that every outside source
 # a rule names is here with the rule's license, and nothing else is.
 # webappanalyzer (GPL-3.0) and Scrapfly's Antibot-Detector (NPOSL-3.0) are
-# watchlists only and never sources (story 61).
+# watchlists only and never sources (story 61): `xtask notices` fails on an
+# input that names either, and the vendors they list are compared with
+# `vendors.toml` by the watchlist job.
 
 [[input]]
 name = "Spider"

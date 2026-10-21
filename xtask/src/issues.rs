@@ -7,7 +7,9 @@
 //! (docs/agents/issue-tracker.md, Frontier); an open one gets the current
 //! results; a closed one reopens only for a result after it closed. The
 //! checks of the files that name an issue (the quarantine list, the axe
-//! exception file) read it through [`find`].
+//! exception file) read it through [`find`]. The watchlist job's issues
+//! (`xtask watchlist`) are opened once, outside every milestone, and never
+//! reopened: closing one declines its vendor.
 
 use std::num::NonZeroU64;
 
@@ -23,6 +25,7 @@ pub(crate) enum Label {
     FlakyTest,
     LiveCheck,
     NeedsTriage,
+    Watchlist,
 }
 
 impl Label {
@@ -31,6 +34,7 @@ impl Label {
             Self::FlakyTest => "flaky-test",
             Self::LiveCheck => "live-check",
             Self::NeedsTriage => "needs-triage",
+            Self::Watchlist => "watchlist",
         }
     }
 }
@@ -43,6 +47,20 @@ struct Issue {
     body: Option<String>,
     /// Present when the "issue" is a pull request.
     pull_request: Option<Value>,
+}
+
+impl Issue {
+    /// Whether a line of its body is `marker`.
+    fn marked(&self, marker: &str) -> bool {
+        self.body
+            .as_deref()
+            .is_some_and(|text| text.lines().any(|line| line == marker))
+    }
+}
+
+/// The line that finds the issue of `key` under `label` again.
+fn marker(label: Label, key: &str) -> String {
+    format!("<!-- goodfetch-results: {} {key} -->", label.name())
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -145,17 +163,12 @@ impl<'a> Issues<'a> {
         body: &str,
         latest: Timestamp,
     ) -> Result<()> {
-        let marker = format!("<!-- goodfetch-results: {} {key} -->", label.name());
+        let marker = marker(label, key);
         let body = format!("{marker}\n{body}");
         let existing = self
             .issues(label)?
             .iter()
-            .find(|issue| {
-                issue
-                    .body
-                    .as_deref()
-                    .is_some_and(|text| text.lines().any(|line| line == marker))
-            })
+            .find(|issue| issue.marked(&marker))
             .map(|issue| {
                 (
                     issue.number,
@@ -204,6 +217,38 @@ impl<'a> Issues<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Opens the issue of `key` under `label` and `needs-triage`, outside
+    /// every milestone, unless one exists, open or closed; true when it
+    /// opened one.
+    pub(crate) fn open_once(
+        &mut self,
+        label: Label,
+        key: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<bool> {
+        let marker = marker(label, key);
+        if self
+            .issues(label)?
+            .iter()
+            .any(|issue| issue.marked(&marker))
+        {
+            return Ok(false);
+        }
+        let created: Created = self.api.send(
+            Write::Post,
+            &format!("/repos/{}/issues", self.repository),
+            &json!({
+                "title": title,
+                "body": format!("{marker}\n{body}"),
+                "labels": [label.name(), Label::NeedsTriage.name()],
+            }),
+        )?;
+        self.actions
+            .push(format!("opened #{}: {title}", created.number));
+        Ok(true)
     }
 
     fn issues(&mut self, label: Label) -> Result<&[Issue]> {

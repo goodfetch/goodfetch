@@ -72,4 +72,5 @@ mod stress;
 mod telemetry;
 mod test_tools;
 mod tlc;
+mod watchlist;
 mod wording;

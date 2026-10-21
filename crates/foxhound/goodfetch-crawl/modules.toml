@@ -2,6 +2,7 @@
 [modules]
 delivery = ["lease", "policy", "work_items"]
 lease = ["work_items"]
+outcomes = ["work_items"]
 policy = []
-start = ["delivery", "policy", "work_items"]
+start = ["delivery", "outcomes", "policy", "work_items"]
 work_items = []

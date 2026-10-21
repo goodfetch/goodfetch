@@ -4,7 +4,6 @@
 // Journey-shaped test drives the Proving ground's `catalog/2` task and its
 // oracle, and writes one `proved` and one `failed` document.
 import { readFileSync } from "node:fs";
-import { request } from "node:http";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Ajv2020 } from "ajv/dist/2020.js";
@@ -18,6 +17,7 @@ import {
   type ProcessRecord,
   type TestEnvDescription,
 } from "@goodfetch/test-support";
+import { exchange, product, type TaskList } from "./catalog-product.ts";
 
 const root = new URL("../../../", import.meta.url);
 
@@ -118,60 +118,6 @@ async function startProvingGround(
       serve.child.kill("SIGKILL");
       await serve.exit;
     },
-  };
-}
-
-/** One HTTP exchange with the copy, naming `host` in the `Host` header. */
-function exchange(
-  provingGround: ProvingGround,
-  method: "GET" | "POST",
-  host: string,
-  path: string,
-  body?: unknown,
-): Promise<string> {
-  const [hostname, port] = provingGround.address.split(":");
-  return new Promise((resolve, reject) => {
-    const sent = request(
-      { method, hostname, port, path, headers: { host, "content-type": "application/json" } },
-      (response) => {
-        let text = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk: string) => {
-          text += chunk;
-        });
-        response.on("end", () => {
-          resolve(text);
-        });
-      },
-    );
-    sent.on("error", reject);
-    sent.end(body === undefined ? undefined : JSON.stringify(body));
-  });
-}
-
-interface Task {
-  readonly id: string;
-  readonly start_url: string;
-}
-
-interface TaskList {
-  readonly proving_ground: { readonly version: string; readonly seed: number };
-  readonly tasks: readonly Task[];
-}
-
-/** The product a `catalog` product page shows, read as any tool would. */
-function product(page: string): { id: string; name: string; price: string } {
-  const field = (pattern: RegExp): string => {
-    const found = pattern.exec(page)?.[1];
-    if (found === undefined) {
-      throw new Error(`the product page has no match for ${pattern}`);
-    }
-    return found;
-  };
-  return {
-    id: field(/<article class="product" data-id="([^"]+)"/),
-    name: field(/<h1 class="name">([^<]+)<\/h1>/),
-    price: field(/data-price="([^"]+)"/),
   };
 }
 

@@ -115,6 +115,22 @@ fn an_empty_crash_dump_folder_passes_teardown() {
     assert!(teardown.is_ok());
 }
 
+/// Crashpad's database, as every Chromium that ran with the folder writes
+/// it, crash or no crash: its settings and its empty report folders.
+#[test]
+fn the_crash_reporters_own_database_passes_teardown() {
+    let env = TestEnv::new();
+    let folder = env.crash_dump_folder();
+    std::fs::write(folder.join("settings.dat"), "settings").unwrap();
+    for report_folder in ["new", "pending", "completed", "attachments"] {
+        std::fs::create_dir(folder.join(report_folder)).unwrap();
+    }
+
+    let teardown = catch_unwind(AssertUnwindSafe(|| drop(env)));
+
+    assert!(teardown.is_ok());
+}
+
 #[test]
 fn a_child_that_exited_passes_teardown() {
     let env = TestEnv::new();

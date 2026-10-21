@@ -1,5 +1,6 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
+browsers = ["env", "variables"]
 canaries = ["proving_ground"]
 cli = ["env", "exercise", "locales", "snapshot"]
 colour = ["env", "pty"]

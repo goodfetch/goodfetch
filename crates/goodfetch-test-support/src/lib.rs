@@ -33,6 +33,7 @@
 //! works on values only: it depends on no Goodfetch crate and is only ever
 //! a dev-dependency.
 
+mod browsers;
 mod canaries;
 mod cli;
 mod colour;
@@ -78,6 +79,9 @@ mod trace;
 mod unicode;
 mod variables;
 
+pub use browsers::{
+    BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_BUILD, browser_cache,
+};
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
     Sighting, gitleaks_rule,

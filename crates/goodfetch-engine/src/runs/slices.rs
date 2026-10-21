@@ -49,14 +49,20 @@ impl Limits {
         Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH)
     }
 
-    /// The charging of the new Run `run_id`, under its first run epoch, its
+    /// The charging of the Run `run_id` under its run epoch `epoch`, its
     /// state in `folder`, placed at `placement`.
-    pub(crate) fn charging(&self, run_id: &RunId, folder: &Path, placement: Placement) -> Charging {
+    pub(crate) fn charging(
+        &self,
+        run_id: &RunId,
+        folder: &Path,
+        epoch: u64,
+        placement: Placement,
+    ) -> Charging {
         Charging::new(
             self.ledger.clone(),
             Holder {
                 run_id: run_id.as_str().to_owned(),
-                epoch: 1,
+                epoch,
                 folder: folder.to_owned(),
             },
             placement,

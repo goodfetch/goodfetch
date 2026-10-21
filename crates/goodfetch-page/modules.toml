@@ -1,0 +1,11 @@
+# Which of goodfetch-page's top-level modules may import which (ADR 0126).
+[modules]
+driver = ["errors", "launch", "trace"]
+errors = []
+launch = []
+pages = ["driver"]
+trace = []
+
+# Which of `launch`'s own modules may import which.
+[submodules.launch]
+pipe = []

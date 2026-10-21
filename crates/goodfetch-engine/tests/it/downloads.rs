@@ -217,7 +217,7 @@ fn pin(build_id: &str, url: String, build: &Build) -> PinnedArtifact {
         },
         platform: Some(BuildPlatform::LinuxX64),
         url,
-        archive_digest: build.archive_digest,
+        archive_digest: Some(build.archive_digest),
         digest: build.digest,
     }
 }

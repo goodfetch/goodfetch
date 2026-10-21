@@ -222,6 +222,27 @@ class PageBodyRead(BaseModel):
     """The body's size in bytes."""
 
 
+class PageId(RootModel[str]):
+    root: str
+    """A page of a Run, named by the engine when it opens it."""
+
+
+class PageResponse(BaseModel):
+    """The response to a request of a page, such as a navigation's document."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    headers: dict[str, str]
+    """Its headers, their names lower-cased, as the browser received them."""
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its HTTP status."""
+    status_text: str
+    """Its status text."""
+    url: str
+    """Its final URL."""
+
+
 class PeriodLength(StrEnum):
     """How long a period Limit counts before it starts again (ADR 0041)."""
 
@@ -312,6 +333,16 @@ class RunId(RootModel[str]):
     """A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
 
 
+class RunMigrating(BaseModel):
+    """What `run.migrating` carries."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunOrigin(StrEnum):
     """Where a run-layer value came from (ADR 0083)."""
 
@@ -333,6 +364,29 @@ class RunParams(BaseModel):
     )
     run_id: RunId
     """The Run's ID."""
+
+
+class RunResumeParams(BaseModel):
+    """What `run.resume` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    checkpoint: str | None = None
+    """
+    A Checkpoint to resume from, a path on the engine's machine, which
+    becomes the Run's state in this engine's run folder; by default the
+    Run resumes from its run file on this machine.
+    """
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId
+    """The Run's ID."""
+    settings: dict[str, Any] | None = None
+    """
+    The Run's settings from the resume on, nested by key: the run layer
+    (ADRs 0083 and 0102).
+    """
 
 
 class SampleEchoParams(BaseModel):
@@ -387,6 +441,11 @@ class SampleStorePutResult(BaseModel):
     """Whether a value was already kept under the key."""
 
 
+class SessionId(RootModel[str]):
+    root: str
+    """A Session of a Run, named by the engine when it opens it."""
+
+
 class SettingsLayer(StrEnum):
     """The layers settings resolve through, lowest first (ADRs 0028 and 0083)."""
 
@@ -417,9 +476,39 @@ class StartedAs(StrEnum):
     Its Run ID named a Run started before with the same inputs, which is
     returned as it is.
     """
+    resumed = "resumed"
+    """
+    It was interrupted and goes on from its committed state, its run
+    file or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and
+    0102).
+    """
 
 
 class StopReason2(BaseModel):
+    """
+    It was paused: checkpointed and stopped, to be resumed by its Run ID
+    (RT-11).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["pause"]
+
+
+class StopReason3(BaseModel):
+    """
+    It was migrated: checkpointed and stopped, to be resumed from its
+    Checkpoint on another machine (ADR 0002).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["migrate"]
+
+
+class StopReason4(BaseModel):
     """
     Its `timeout.run` passed, and it stopped at its next safe point,
     resumable with a fresh clock (ADR 0080); no Error code of its own.
@@ -534,6 +623,39 @@ class CancelParams(BaseModel):
     )
     id: RequestId
     """The call's id."""
+
+
+class Checkpoint(BaseModel):
+    """
+    A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a
+    consistent, self-contained copy of a Run's state, complete at its
+    location before it is reported, from which the Run resumes on this
+    machine or another one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    journal_position: Annotated[int, Field(ge=0)]
+    """
+    The position of the run's journal it holds: how many commits of the
+    run file it contains. A resume from it redoes the work after.
+    """
+    location: str
+    """Where it is: the file's path on the engine's machine."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """
+    The run epoch of the writer that took it (ADR 0003), which a
+    destination compares and sets: one older than it holds is refused.
+    """
+    run_id: RunId
+    """The Run's ID."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
+    time: PointInTime
+    """When it was taken."""
 
 
 class Chunk(BaseModel):
@@ -720,6 +842,18 @@ class ExplainedSetting(BaseModel):
     """
 
 
+class GotoParams(BaseModel):
+    """What `page.goto` takes: the page, and the URL it goes to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: str
+    """The URL."""
+
+
 class HelloParams(BaseModel):
     """What a `hello` says."""
 
@@ -761,6 +895,30 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class Navigated(BaseModel):
+    """
+    What `page.goto` answers: the document's response, or none for a
+    navigation within the same document or to a URL no server answers, such
+    as `about:blank`. A 404 or a 500 is a response, a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    response: PageResponse | None = None
+    """The document's response."""
+
+
+class NewPageParams(BaseModel):
+    """What `run.new_page` takes: the Run whose default Session opens the page."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run."""
+
+
 class PageBodyParams(BaseModel):
     """What `page.body` takes: the body to read."""
 
@@ -771,6 +929,21 @@ class PageBodyParams(BaseModel):
     """Its ID."""
     run_id: RunId
     """The Run whose folder holds it."""
+
+
+class PageOpened(BaseModel):
+    """
+    What `run.new_page` answers: the page, and the Session it belongs to,
+    which `page.session()` returns.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+    session_id: SessionId
+    """Its Session: the Run's default Session."""
 
 
 class Period(BaseModel):
@@ -825,6 +998,18 @@ class RunAbortParams(BaseModel):
     """The Run's ID."""
 
 
+class RunAborting(BaseModel):
+    """What `run.aborting` carries."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by: StoppedBy
+    """Who aborts it."""
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunAxes(BaseModel):
     """
     A Run's three axes as they are now (ADR 0029): what
@@ -842,6 +1027,33 @@ class RunAxes(BaseModel):
     """The Run's ID."""
     verdict: Verdict | None = None
     """Whether its own checks prove what it committed, once it ended."""
+
+
+class RunCheckpointParams(BaseModel):
+    """What `run.checkpoint` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str | None = None
+    """
+    Where to write the Checkpoint, a path on the engine's machine; by
+    default where the engine keeps the Run's Checkpoints, its own folder.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
+class RunCheckpointing(BaseModel):
+    """What `run.checkpointing` carries."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch the Checkpoint is taken under."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class RunStartParams(BaseModel):
@@ -930,7 +1142,7 @@ class StopReason1(BaseModel):
     kind: Literal["abort"]
 
 
-class StopReason3(BaseModel):
+class StopReason5(BaseModel):
     """
     It could not take another Slice of a Limit, and stopped at its next
     safe point, resumable once the period starts again or a person
@@ -953,8 +1165,10 @@ class StopReason3(BaseModel):
     kind: Literal["limit"]
 
 
-class StopReason(RootModel[StopReason1 | StopReason2 | StopReason3]):
-    root: StopReason1 | StopReason2 | StopReason3
+class StopReason(
+    RootModel[StopReason1 | StopReason2 | StopReason3 | StopReason4 | StopReason5]
+):
+    root: StopReason1 | StopReason2 | StopReason3 | StopReason4 | StopReason5
     """
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.
@@ -1090,6 +1304,11 @@ class RunReport(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    checkpoint: Checkpoint | None = None
+    """
+    The last Checkpoint written of it in this engine, when one was (ADR
+    0102).
+    """
     completeness: Completeness
     """Whether its results cover its scope."""
     ended_at: PointInTime
@@ -1114,6 +1333,18 @@ class RunReport(BaseModel):
     Every setting it ran with that weakens a guarantee class or switches
     off a costly control, with its value and layer (ADR 0028).
     """
+
+
+class RunStopping(BaseModel):
+    """What `run.stopping` carries."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: StopReason
+    """Why it stops."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class SettingsExplanation(BaseModel):

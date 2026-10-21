@@ -18,6 +18,7 @@
 mod admission;
 mod limits;
 mod model;
+mod resume;
 mod safe_point;
 
 use std::path::PathBuf;

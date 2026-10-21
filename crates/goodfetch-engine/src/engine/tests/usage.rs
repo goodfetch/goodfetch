@@ -63,7 +63,11 @@ fn charging() -> Contribution {
                     initialize: None,
                     policy_version: None,
                     weakened_by: Vec::new(),
+                    binding: None,
+                    clean_up_digest: None,
+                    checkpoint_interval: None,
                     timeout: None,
+                    settings: None,
                 })
                 .await
                 .map_err(crate::run::start_error)?;
@@ -189,7 +193,7 @@ fn a_new_run_is_refused_with_limit_reached_naming_the_scope_and_period() {
     );
 }
 
-/// Covers: story:3-79, command:usage.list, command:usage.set
+/// Covers: story:3-79
 #[test]
 fn usage_lists_the_usage_against_each_limit_by_scope() {
     let env = TestEnv::new();

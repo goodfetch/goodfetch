@@ -1,0 +1,9 @@
+{
+  "digest": "975f5594a0480b63410105a616be79b3b6696670233c54aca7c9a34cc17379e4",
+  "journal_position": 2,
+  "location": "checkpoint.sqlite",
+  "run_epoch": 1,
+  "run_id": "paused",
+  "size": 86016,
+  "time": "2026-01-05T09:00:00Z"
+}

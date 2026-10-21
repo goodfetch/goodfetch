@@ -46,7 +46,7 @@ pub use platform::{
 };
 
 use crate::composition::CallError;
-use crate::pinned_download::{self, Failure, Fetching, PinnedUrl};
+use crate::pinned_download::{self, Digest, Failure, Fetching, PinnedUrl};
 use store::{Locking, Read};
 
 /// The variable that points at a copy of the Browser cache, which wins over
@@ -198,6 +198,15 @@ async fn blocking<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
+/// Why a missing build cannot be put in the cache.
+#[derive(Clone, Copy)]
+enum Unreachable {
+    /// The engine cannot write the cache.
+    ReadOnly,
+    /// Its pin names no archive digest, so no download could be checked.
+    NoArchiveDigest,
+}
+
 /// What a check of the build at its pinned path found.
 enum Present {
     /// The build, with its pinned digest, held.
@@ -269,17 +278,22 @@ impl BrowserCache {
                         downloaded: false,
                     });
                 }
-                Present::Refused => return Err(self.not_installed(artifact, pinned_by)),
+                Present::Refused => {
+                    return Err(self.not_installed(artifact, pinned_by, Unreachable::ReadOnly));
+                }
                 Present::Missing => {}
             }
             if let Some(layer) = fetching.offline {
                 return Err(self.offline(artifact, pinned_by, layer));
             }
+            let Some(archive_digest) = artifact.archive_digest else {
+                return Err(self.not_installed(artifact, pinned_by, Unreachable::NoArchiveDigest));
+            };
             if !self.writable().await {
-                return Err(self.not_installed(artifact, pinned_by));
+                return Err(self.not_installed(artifact, pinned_by, Unreachable::ReadOnly));
             }
             if let Some(held) = self
-                .download(artifact, pinned_by, fetching, now, progress)
+                .download(artifact, archive_digest, pinned_by, fetching, now, progress)
                 .await?
             {
                 return Ok(Prepared {
@@ -294,7 +308,9 @@ impl BrowserCache {
                 artifact: held,
                 downloaded: false,
             }),
-            Present::Missing | Present::Refused => Err(self.not_installed(artifact, pinned_by)),
+            Present::Missing | Present::Refused => {
+                Err(self.not_installed(artifact, pinned_by, Unreachable::ReadOnly))
+            }
         }
     }
 
@@ -432,6 +448,7 @@ impl BrowserCache {
     async fn download(
         &self,
         artifact: &PinnedArtifact,
+        archive_digest: Digest,
         pinned_by: &PinnedBy,
         fetching: &Fetching,
         now: jiff::Timestamp,
@@ -463,14 +480,8 @@ impl BrowserCache {
             });
         };
         tracing::info!(artifact = %artifact.id.name, build = %artifact.id.build, %host, "downloading into the Browser cache");
-        let received = pinned_download::download(
-            &url,
-            artifact.archive_digest,
-            fetching,
-            &archive,
-            &mut report,
-        )
-        .await;
+        let received =
+            pinned_download::download(&url, archive_digest, fetching, &archive, &mut report).await;
         let failure = match received {
             Ok(()) => None,
             Err(Failure::Offline(layer)) => return Err(self.offline(artifact, pinned_by, layer)),
@@ -531,11 +542,21 @@ impl BrowserCache {
         }))
     }
 
-    fn not_installed(&self, artifact: &PinnedArtifact, pinned_by: &PinnedBy) -> CacheError {
+    fn not_installed(
+        &self,
+        artifact: &PinnedArtifact,
+        pinned_by: &PinnedBy,
+        why: Unreachable,
+    ) -> CacheError {
         let cache = self.root.display().to_string();
         let message = format!(
-            "{} is not in the Browser cache at {cache}, which this engine cannot write",
+            "{} is not in the Browser cache at {cache}, {}",
             describe(&artifact.id, pinned_by),
+            match why {
+                Unreachable::ReadOnly => "which this engine cannot write",
+                Unreachable::NoArchiveDigest =>
+                    "and its pin names no archive digest yet, so it is never downloaded",
+            },
         );
         CacheError::BrowserNotInstalled {
             message,

@@ -323,6 +323,12 @@ pub enum StopReason {
         #[schemars(extend("arrived_in" = "0.1"))]
         by: StoppedBy,
     },
+    /// It was paused: checkpointed and stopped, to be resumed by its Run ID
+    /// (RT-11).
+    Pause,
+    /// It was migrated: checkpointed and stopped, to be resumed from its
+    /// Checkpoint on another machine (ADR 0002).
+    Migrate,
     /// Its `timeout.run` passed, and it stopped at its next safe point,
     /// resumable with a fresh clock (ADR 0080); no Error code of its own.
     Timeout,
@@ -411,7 +417,9 @@ pub struct ReachedLimit {
 
 /// What kind of Run it is: a Collie Run its program drives, or a crawl
 /// (ADR 0102), which its start's inputs name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RunKind {
     /// A Run its program drives page by page.
@@ -463,6 +471,10 @@ pub enum StartedAs {
     /// Its Run ID named a Run started before with the same inputs, which is
     /// returned as it is.
     Existing,
+    /// It was interrupted and goes on from its committed state, its run
+    /// file or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and
+    /// 0102).
+    Resumed,
 }
 
 /// What a start answers once its Run is started, never at its end.
@@ -543,6 +555,42 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub weakened_by: Vec<SettingLimit>,
+    /// The last Checkpoint written of it in this engine, when one was (ADR
+    /// 0102).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub checkpoint: Option<Checkpoint>,
+}
+
+/// A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a
+/// consistent, self-contained copy of a Run's state, complete at its
+/// location before it is reported, from which the Run resumes on this
+/// machine or another one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Checkpoint {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where it is: the file's path on the engine's machine.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub location: String,
+    /// Its size in bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub size: u64,
+    /// The SHA-256 of its bytes, in lowercase hexadecimal.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub digest: String,
+    /// The run epoch of the writer that took it (ADR 0003), which a
+    /// destination compares and sets: one older than it holds is refused.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
+    /// The position of the run's journal it holds: how many commits of the
+    /// run file it contains. A resume from it redoes the work after.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub journal_position: u64,
+    /// When it was taken.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time: PointInTime,
 }
 
 /// A Run's three axes as they are now (ADR 0029): what
@@ -793,6 +841,14 @@ pub struct RunStateRow {
     /// costly control, as a JSON list of each one's key, value and layer
     /// (ADR 0028).
     pub weakened_by: String,
+    /// How many commits the run file holds: the position of its journal,
+    /// which a Checkpoint reports (ADR 0002).
+    pub journal_position: u64,
+    /// What the Run is bound to (ADR 0056), as JSON, or none.
+    pub binding: Option<String>,
+    /// The digest of the Clean-up rules the Run holds to, which a resume
+    /// keeps (ADR 0047), or none.
+    pub clean_up_digest: Option<String>,
 }
 
 /// Whether the state a Run index row points at is there (ADRs 0031 and

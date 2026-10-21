@@ -38,6 +38,15 @@ pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
 /// tries the first, then the second.
 pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
 
+/// Where Playwright keeps its browsers when it is not its default folder
+/// (the CI image sets it), from which the tests' Browser cache takes the
+/// Chrome for Testing build Playwright pins.
+pub(crate) const PLAYWRIGHT_BROWSERS_VARIABLE: &str = "PLAYWRIGHT_BROWSERS_PATH";
+
+/// The user's folders, under which Playwright's default folder is: `HOME`
+/// on macOS and Linux, `LOCALAPPDATA` on Windows.
+pub(crate) const USER_FOLDER_VARIABLES: [&str; 2] = ["HOME", "LOCALAPPDATA"];
+
 /// The binary ID of the test nextest runs (`<package>::<target>`).
 pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";
 
@@ -78,8 +87,10 @@ impl Variables {
             TEST_NAME_VARIABLE,
             COVERAGE_VARIABLE,
             DNS_NAMESPACE_VARIABLE,
+            PLAYWRIGHT_BROWSERS_VARIABLE,
         ]
         .into_iter()
+        .chain(USER_FOLDER_VARIABLES)
         .chain(WINDOWS_VARIABLES)
         .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)))
         .collect()

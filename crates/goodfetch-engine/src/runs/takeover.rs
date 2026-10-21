@@ -197,10 +197,16 @@ impl TakeOver {
         let next = file.clone();
         let epoch = self
             .owner
-            .blocking(move || run_state::next_epoch(&next, &options, &tables))
+            .blocking(move || run_state::next_epoch(&next, &options, &tables, 0))
             .await
             .map_err(|error| self.unavailable(&error))?;
-        tracing::info!(run_id = %self.run_id, epoch, "took the Run's writer role to abort it");
+        tracing::info!(
+            target: "goodfetch::lease",
+            transition = "take_epoch",
+            run_id = %self.run_id,
+            run_epoch = epoch,
+            "took the Run's writer role to abort it"
+        );
         let writer = self.owner.child();
         let state = RunState::open(file, &self.run_state, self.tables.clone(), epoch, &writer)
             .await
@@ -215,6 +221,7 @@ impl TakeOver {
             ended_at: point_in_time(&self.clock),
             policy_version: recorded.policy_version.clone(),
             weakened_by: recorded.weakened_by.clone(),
+            checkpoint: None,
         };
         let written = report.clone();
         let ended = state

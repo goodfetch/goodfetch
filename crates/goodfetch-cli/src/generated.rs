@@ -73,11 +73,16 @@ impl Generated {
     /// The commands of every namespace no command group of `hand_written`
     /// takes.
     pub fn beside(hand_written: &Command) -> Self {
-        let mut namespaces: Vec<&'static str> = commands()
-            .map(namespace)
-            .filter(|namespace| hand_written.find_subcommand(spelled(namespace)).is_none())
-            .collect();
-        namespaces.dedup();
+        let mut namespaces: Vec<&'static str> = Vec::new();
+        // A namespace's operations may sit in several modules of the
+        // catalog, such as `run.new_page` among the page's: one group each.
+        for namespace in commands().map(namespace) {
+            if hand_written.find_subcommand(spelled(namespace)).is_none()
+                && !namespaces.contains(&namespace)
+            {
+                namespaces.push(namespace);
+            }
+        }
         Self { namespaces }
     }
 

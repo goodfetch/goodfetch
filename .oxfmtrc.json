@@ -3,6 +3,7 @@
   "ignorePatterns": [
     "rnd/**",
     "**/generated/**",
+    "crates/goodfetch-cdp/protocol.json",
     "**/features/inventory.json",
     "**/features/*.schema.json",
     "**/fixtures/schemas/**",

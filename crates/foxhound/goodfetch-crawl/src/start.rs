@@ -8,8 +8,9 @@
 //! `run_conflict`.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use goodfetch_engine::run::{run_error, run_id, settings_error, start_error};
+use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
 use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
@@ -27,11 +28,13 @@ use crate::serving::Crawls;
 use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
-/// the reads of its outcomes, and the work items', Records' and outcomes'
-/// tables of every run file.
+/// the reads of its outcomes, the work items', Records' and outcomes'
+/// tables of every run file, and the driver a resumed crawl starts again
+/// with.
 pub fn contribution() -> Contribution {
     let crawls = Crawls::default();
     let serving = crawls.clone();
+    let resuming = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
@@ -43,6 +46,12 @@ pub fn contribution() -> Contribution {
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
+        .with_driver(
+            RunKind::Crawl,
+            Arc::new(move |run, client, settings| {
+                Box::pin(delivery::resume(run, client, settings, resuming.clone()))
+            }),
+        )
 }
 
 /// Joins the calling Connection's handler to the live crawl the params
@@ -109,7 +118,11 @@ async fn start(
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened_by: settings.resolved().weakened_by(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            settings: Some(settings.clone()),
         })
         .await
         .map_err(start_error)?;

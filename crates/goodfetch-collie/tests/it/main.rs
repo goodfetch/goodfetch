@@ -9,6 +9,8 @@
 
 mod attached;
 mod browsers;
+#[cfg(target_os = "macos")]
+mod checkpoint;
 mod client_conformance;
 mod commands;
 mod config;
@@ -22,6 +24,7 @@ mod journeys;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod log;
+mod page;
 mod parent_death;
 mod private_endpoint;
 mod run;

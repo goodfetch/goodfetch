@@ -141,6 +141,15 @@ export class BodyNotFoundError extends ProgramError {
 }
 
 /**
+ * The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.
+ */
+export class BrowserLaunchFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_launch_failed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.
  */
 export class BrowserNotInstalledError extends UnavailableError {
@@ -213,6 +222,24 @@ export class ExecutableBlockedBySmartAppControlError extends RefusedError {
 }
 
 /**
+ * The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.
+ */
+export class FileWriteFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "file_write_failed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.
+ */
+export class FormatVersionUnsupportedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "format_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
  */
 export class LimitNotUnderstoodError extends RefusedError {
@@ -249,6 +276,15 @@ export class NameNotResolvedError extends UnavailableError {
 }
 
 /**
+ * The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name.
+ */
+export class NavigationFailedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "navigation_failed", group: "page", retryable: true });
+  }
+}
+
+/**
  * The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.
  */
 export class NotADaemonError extends ProgramError {
@@ -263,6 +299,15 @@ export class NotADaemonError extends ProgramError {
 export class NotInProductError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "not_in_product", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.
+ */
+export class PageCrashedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_crashed", group: "unavailable", retryable: true });
   }
 }
 
@@ -348,6 +393,15 @@ export class SampleRefusedError extends RefusedError {
 }
 
 /**
+ * The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.
+ */
+export class SessionBoundToMachineError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "session_bound_to_machine", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.
  */
 export class SettingInvalidError extends ProgramError {
@@ -389,6 +443,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
   body_not_found: BodyNotFoundError,
+  browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   closed: ClosedError,
@@ -397,12 +452,16 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
+  file_write_failed: FileWriteFailedError,
+  format_version_unsupported: FormatVersionUnsupportedError,
   limit_not_understood: LimitNotUnderstoodError,
   limit_reached: LimitReachedError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
+  navigation_failed: NavigationFailedError,
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
+  page_crashed: PageCrashedError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
@@ -412,6 +471,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
+  session_bound_to_machine: SessionBoundToMachineError,
   setting_invalid: SettingInvalidError,
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,

@@ -40,6 +40,7 @@ use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_cli::generated::{Call, Generated};
 use goodfetch_cli::output::{ColourChoice, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
+use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -555,10 +556,13 @@ fn config_explain(
 /// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`
 /// folder of the OS's usual data folder otherwise.
 fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
-    match deployment_variable(environment, HOME_VARIABLE) {
-        Some(home) => Some(Home::new(home.into())),
-        None => dirs::data_dir().map(|data| Home::new(data.join("goodfetch"))),
-    }
+    let home = match deployment_variable(environment, HOME_VARIABLE) {
+        Some(home) => Home::new(home.into()),
+        None => Home::new(dirs::data_dir()?.join("goodfetch")),
+    };
+    Some(home.with_browsers_path(
+        deployment_variable(environment, BROWSERS_PATH_VARIABLE).map(Into::into),
+    ))
 }
 
 /// The command line of `product`'s executable, without its version: its

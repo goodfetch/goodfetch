@@ -3,7 +3,7 @@
 
 use goodfetch_engine::Composition;
 
-use crate::sample;
+use crate::{pins, sample};
 
 /// What Collie's engine is composed of: the engine's own operations, then
 /// the contribution of each Collie crate.
@@ -19,6 +19,7 @@ pub fn composition() -> Composition {
     Composition::default()
         .with(goodfetch_engine::contribution())
         .with(sample::contribution())
+        .with(goodfetch_page::contribution(pins::pinned_artifacts()))
 }
 
 #[cfg(test)]

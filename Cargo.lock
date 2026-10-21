@@ -1146,6 +1146,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "goodfetch-cdp"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-test-support",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "goodfetch-cli"
 version = "0.0.0"
 dependencies = [
@@ -1172,6 +1185,7 @@ dependencies = [
  "goodfetch-cli",
  "goodfetch-collie",
  "goodfetch-engine",
+ "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "gungraun",
@@ -1190,6 +1204,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ureq",
+ "zip",
 ]
 
 [[package]]
@@ -1302,6 +1317,22 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "goodfetch-page"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-cdp",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "jiff",
+ "libc",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

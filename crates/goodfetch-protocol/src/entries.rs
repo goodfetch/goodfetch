@@ -4,12 +4,12 @@
 
 use crate::catalog::{Entries, Operation, Product};
 use crate::{
-    browser_cache, connection, daemon, dns, engine, events, executables, foxhound, page, run,
-    sample, settings,
+    block, browser_cache, connection, daemon, dns, engine, events, executables, foxhound, page,
+    run, sample, settings,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 14] = [
+pub const MODULES: [&Entries; 16] = [
     &connection::ENTRIES,
     &daemon::ENTRIES,
     &browser_cache::ENTRIES,
@@ -21,9 +21,11 @@ pub const MODULES: [&Entries; 14] = [
     &run::ENTRIES,
     &sample::ENTRIES,
     &settings::ENTRIES,
+    &block::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
     &foxhound::settings::ENTRIES,
+    &foxhound::block::ENTRIES,
 ];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every

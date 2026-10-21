@@ -1,0 +1,1208 @@
+# Area 8's user stories (spec #598 and #599, Stealth and Challenge solving,
+# Collie, parts 1 and 2: stories 1 to 112; spec #600, Foxhound's part:
+# stories from 201), the declared `story:8-<id>` Features of ADR 0072, every
+# story of both Products' specs as their Further Notes give them: each
+# story's milestone is that of the ticket that finishes it, and a story
+# without a Journey carries ADR 0075's reason (`actor`, `part` or `reach`).
+# The specs' issues keep the full text; this copy is the one the Feature
+# check reads. Never renumber or reuse an ID: a removed story stays with
+# `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a developer, I want every Session to open in `standard` by default, presenting a real browser's identity with no automation leak, so that I get a consistent identity without opting into anything (ST-02; pitfalls S07, B19)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want to open a Session in `stealth` with one setting, `browser.access_mode: \"stealth\"` **(shape)**, so that the whole catalog turns on at once and I switch items off rather than on (ADR 0035; ST-01)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 3
+title = "As a developer, I want choosing any Fingerprint method other than `none` to make the Session a `stealth` Session, with the items I set keeping their values and `stealth`'s defaults filling the rest, so that one choice never leaves a half-masked Session."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a developer, I want each catalog item (`stealth.fingerprint_method`, `stealth.generated_identity`, `browser.headless`, `stealth.human_input`) switchable off under `stealth` **(shape)**, so that I keep what a site needs and drop what it does not."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a developer, I want a stealth item set explicitly where a `standard` Session opens refused with `setting_not_applicable`, an explicit `standard` beside a non-`none` Fingerprint method at the same scope refused with `setting_invalid` naming both keys, and an inherited stealth item to yield, so that an option that cannot take effect is never silently ignored (ADR 0077's G3; ADR 0083)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer, I want an `identified` Session that sets a masking item or `challenge.solve` explicitly refused with `setting_invalid` naming both keys, and an inherited masking item to yield to `identified` with `explainSettings()` saying so, so that a signed agent never spends its key's reputation by masking (ADR 0035; ADR 0021)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a developer, I want the Access mode, Identity profile and proxy fixed for a Session's life, and changing any of them to mean opening a new Session, so that no Identity profile or IP changes under the same cookies (ADR 0021; pitfall S05)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer, I want a `browser.locale`, `browser.timezone_id` or `browser.geolocation` set where a `stealth` Session opens and conflicting with its Identity profile refused with `setting_locked` whose `limit` names the Access mode, and an inherited value to yield, with `explainSettings()` saying what fixed it, so that I can keep defaults above `stealth` Sessions without breaking them (ADR 0083, which gives area 8 these refusals)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a developer, I want `stealth` on a WebKit Session refused with `capability_unavailable` naming `browser.access_mode`, so that WebKit never claims to be Safari (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer, I want a Session on a Borrowed browser to stay `standard` with the browser's own identity, and `stealth` set where it opens refused with `setting_not_applicable`, so that the person's own browser is never changed (ADRs 0056, 0083)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a developer, I want `stealth` chosen for an import or a Profile directory used in place to run on the Goodfetch Chromium for a Chromium-family source (on a directory the Goodfetch Chromium created) or Camoufox for a Firefox source, refused for a Safari source, and to keep the source's language and time zone, with a warning that the identity changes under the same cookies, so that a login's identity follows ADR 0056's binding."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a developer, I want the four Fingerprint methods, `none`, `js_injection`, `basic` and `engine` (ADR 0038's snake_case makes ADR 0035's `js-injection` `js_injection` on the wire; the word is this spec's **(shape)**), each with its stated warning, so that I know what each one leaves visible."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a developer, I want `basic` to change user agent, client hints, time zone, locale, geolocation, screen and core count through the CDP Emulation domain and launch flags, and to say that graphics, canvas, audio and fonts stay the machine's own, so that I choose it knowing Sessions on one machine stay linkable."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a developer, I want `js_injection` to warn that detectors can see the injected values and to be marked in Provenance as a main-world action, so that the opt-in departs from `standard`'s no-injection identity openly (ADRs 0019, 0048)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer, I want `engine` to run the Goodfetch Chromium, which changes the Identity profile's values inside the browser engine, so that no page-visible override exists (ST-02, ST-05)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer on a musl host, I want `engine` to fall back to `basic` on the distribution's Chromium with that method's warning, so that the run goes on and says what it lost."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer, I want a Firefox `stealth` Session to run Camoufox, through Playwright's driver, with Firefox identities only and the warning of a smaller crowd, so that Firefox stealth is a real Firefox (ADR 0035; ST-05)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a developer, I want a `stealth` Camoufox Session to refuse service-worker registration through Firefox's own `dom.serviceWorkers.enabled` preference, never a page-visible stub, and the Run report to say a site can see the difference from real Firefox, so that the engine's interception still sees every request (ADR 0121). This preference is how `browser.service_workers` is `block`, its default on Firefox: an explicit `allow` set where the Session opens is refused with `capability_unavailable` whose `fix` names `block`, and an inherited `allow` yields."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As an operator, I want the fingerprint-chromium and Clearcote binaries refused unless my Operator policy allows each by digest, the allowance off by default, recorded in the Audit log and marking every result, so that a build behind on security fixes never runs by surprise (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a user with a licensed browser of my own (a CloakBrowser, another Chromium build), I want to run it under `engine` through a Browser backend Plugin, with the warning that Goodfetch cannot vouch for the build or its licence, and a browser the Plugin declares as a download allowed only per digest by Operator policy, off by default, so that I can use it without Goodfetch shipping it (ADRs 0033, 0035; ST-05)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a developer, I want the Goodfetch Chromium and Camoufox to download on first use into the digest-checked Browser cache, or through `browser install`, never inside either executable, so that both Products' Size budgets hold (ADRs 0084, 0087)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a developer, I want a missing stealth build to fail the call that launches it with `browser_not_installed`, `artifact_unavailable_offline` or `artifact_download_failed`, naming the build, the Product version that pins it and the install command, so that a missing browser never fails `connect()` (ADR 0115)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a developer, I want every Session of one run that uses a per-process Fingerprint method (`engine`, Camoufox) to get a browser process of its own, while `none`, `js_injection` and `basic` Sessions share one as contexts, so that one identity never leaks into another (SA-09)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 24
+title = "As a user, I want the Goodfetch Chromium built from fingerprint-chromium's open patch series on ungoogled-chromium's pipeline, on every Chrome Stable major, for Linux, Windows and macOS on x64 and arm64, so that the Goodfetch Chromium is current and runs where I do (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a user, I want the Goodfetch Chromium reproducible from the patch files and build scripts under `chromium/` and the Chromium source fetched at its tag, never copied in, so that I can rebuild what I run."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a user, I want it to always claim its true version in the user agent, client hints and features, so that it never shows the contradiction detectors look for."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a user, I want it to turn background traffic off at build time and ship the variations seed captured at build with its signature, the seed licence-checked before the first public preview and entered in ADR 0018's notice inventory, and the docs to state that Chrome for Testing never sends `X-Client-Data`, so that Google sites receive Chrome's `X-Client-Data` header with no call at run time (ADR 0043)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a user, I want it Platform-signed, attested and fetched by digest, never inside the npm, PyPI or crates.io packages, so that what I run is what the gate tested (ADRs 0039, 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As area 8, I want a scheduled job that opens a Chromium pull request when Google's version history shows a new Stable version, running none of the product, so that every major reaches users through one reviewed pull request (ADR 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 30
+title = "As area 8, I want every patch file to have a row in `chromium/surfaces.toml` with its surface, its WPT directories and its Goodfetch tests, and infrastructure patches their own rows, so that no patch is untested (ADR 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 31
+title = "As area 8, I want every expectation entry to carry its category (`upstream`, `upstream-flaky`, `intended`) and evidence, `intended` naming its surface row, so that a patch regression can never pass as upstream."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 32
+title = "As area 8, I want the patch series carried forward by Goodfetch itself, with fixes sent upstream to fingerprint-chromium, so that the Goodfetch Chromium never waits for a project five majors behind."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a maintainer, I want a new major to ship only when the Chromium build gate is green on every platform, the Chromium pull request passes the Release suite with Goodfetch's own tests on the new digests, and the patch passes ADR 0032's gates and the signed-bundle smoke, so that a stealth regression never ships (ADR 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a maintainer, I want a held major never to weaken the gate: the pinned Goodfetch Chromium keeps shipping, the version check warns users as it falls behind, and the owner decides whether a major ships without a patch that still cannot pass at the next Stable version, so that safety and currency are traded only by a person."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 35
+title = "As area 8, I want the Chromium patch preview (weekly, and when Beta reaches a new major) and the Chromium build currency check (daily) as Live checks I own, so that a broken patch or a stale build is known before it blocks a release (ADRs 0064, 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 36
+title = "As a developer, I want a `stealth` Session's Identity profile drawn from a population model per engine, built from fpgen's, fingerprint-suite's and BrowserForge's open data (Apache-2.0), so that its values are ones real browsers present together (ADR 0035; ST-01)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 37
+title = "As a developer, I want the generated identity matched to the proxy exit for language, time zone, geolocation and WebRTC address, with the OS following real traffic shares rather than the host's, so that the identity is consistent with where the traffic comes from (pitfall S08)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a developer, I want to narrow the population with `stealth.identity.os`, `stealth.identity.device` and `stealth.identity.brand` **(shape)** (Chrome, Edge and Android Chrome on Chromium), so that a task needing a mobile or an Edge identity gets one."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a developer, I want the same identity seed to give the same values across launches, frames, every worker kind and the HTTP headers, and nothing to change within a Session, so that the identity holds wherever a detector looks (ADR 0074's Identity consistency test)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a developer, I want `stealth` Sessions headful by default (`browser.headless: false`), on a virtual display on Linux, so that I get the pass rate a headful browser has (ADR 0035; pitfall B19)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 41
+title = "As a developer on a Linux host without the virtual display server, I want the Session to fail when it opens with `capability_unavailable` naming `browser.headless`, so that I learn to install it or go headless."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a developer, I want human-like input in `stealth` Sessions: mouse paths from Cursory's recorded movements reshaped by Goodfetch's own step, typing with neighbouring-key slips that are corrected before the field is checked, scrolling and press-and-hold from Goodfetch's own model, all sent as native CDP events inside the guard's deadlines, so that input looks like a person's without breaking the guard (ADRs 0019, 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a developer, I want Cursory's recordings downloaded at runtime into the Browser cache, never compiled in, replaceable and listed in the notice inventory, and a Rust port of ghost-cursor used when they are absent, with a Run report warning, so that the LGPL data never enters the executable and the run still works offline."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a developer, I want `fill` and `pressSequentially` in a `stealth` Session with human-like input to type key by key and the guard to re-check that the field holds exactly the requested value, so that a slip never changes what I submit (ADR 0092 keeps Secret placeholders on these two calls)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a developer, I want human-like input to apply only to the engine's own actions, and a library attached to a Lent page to keep its own input, so that the Provenance of each action stays true (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a user, I want the engine to grade each Chromium- or Firefox-based build before a Session uses it against a release table shipped in every release, with no network call, so that I learn a build is outdated even offline (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a user, I want the grades current (nothing shown), 1 version behind Stable (info), 2 or 3 behind (notice), 4 or more behind or unpatched by its vendor (a warning that calls it outdated), each with the exact gap in versions and weeks, so that the message says how far behind it is."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a user, I want an installed Chrome that ADR 0030 supports graded against its own channel and never above a notice, and Playwright's WebKit not graded, so that a supported browser never alarms me."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a user, I want the version check never to block a run, so that it informs rather than refuses."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a user, I want an online lookup of Google's release data only when I opt in with `version_check.online_lookup` **(shape)** in configuration, a configured destination (ADR 0035) that needs no entry on ADR 0043's endpoint list, recorded in the Audit log, so that nothing leaves the machine unless configured (ADR 0043)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a user, I want `browser versions` **(shape)** on the CLI and its catalog operation to list each build in the Browser cache and each installed Chrome with its grade, so that I can check before a run."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want a Saved identity to keep the seed that regenerates its Identity profile exactly, its Access mode and its proxy binding (the same sticky exit where the provider supports it, else the same country and proxy kind), beside the cookies and storage area 5 saves, so that a later run presents the same identity (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a developer, I want a Saved identity reused after the browser moved to a new major to take the current build's version fields (user agent, client hints, the HTTP profile) and keep every other value, so that it looks like a browser that updated."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a developer, I want reusing a Saved identity under another Access mode or a proxy inconsistent with its binding refused with `saved_identity_mismatch` **(shape)**, naming what it was saved with, so that I never open a Session that contradicts its own cookies."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 55
+title = "As a developer, I want an optional warm-up, `session.warm_up.urls` **(shape)**, browsed when the Session opens and before any work, so that a new identity has history."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a user, I want a Saved identity unused for `saved_identity.max_unused_age` (30 days by default, `null` for never) **(shape)** deleted, recorded in the Audit log, so that stale identities do not pile up (Steel's saved profiles do the same)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a developer, I want a Session saved while a library was attached to it as a Lent page to record that in its Saved identity, so that a later run knows `Runtime` was enabled on it (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a developer, I want every page a Session loads classified by block-detection rules into `challenge`, `captcha`, `rate_limit` or `ip_block`, beside `payment_required` (ADR 0045) and `consent_required` (ADR 0048), and `decoy` left to Foxhound's Frontier, the only producer of that Foxhound-marked cause (ADR 0095), so that a block is a typed outcome, never content (pitfall S01; ST-08)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a site owner, I want a rule to fire on evidence of a challenge or a refusal, never on my bot vendor's mere presence, so that my ordinary pages are never classed as blocks."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a contributor, I want the rules seeded from Spider-rs (MIT), wafw00f (BSD-3), identYwaf and Nuclei's `waf-detect` (MIT), each rule recording its source and licence, so that the notice inventory is exact."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a contributor, I want webappanalyzer (GPL-3.0) and Scrapfly's Antibot-Detector (NPOSL-3.0) used only as watchlists: a scheduled job opens an issue when they list a vendor Goodfetch lacks, and the rule is written from vendor documentation and Goodfetch's own captures, so that no incompatible licence enters the code."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a developer, I want a page the rules cannot classify, such as a possible soft block, passed to the Decision provider, which may abstain, never declares a success and never decides `payment_required`, which rules alone detect, so that unusual blocks are caught without trusting a model (ADRs 0013, 0021, 0045)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a developer, I want a block on a Session I or my Agent opened reported on the call that met it as `blocked` with its cause, URL, status and `retryAfter`, and the Session neither retired nor replaced, so that I decide what happens to my own Session (ADRs 0088, 0092, 0118; area 5 raises it)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a developer, I want a proxy's own 429 or 502 classed as a proxy error and its 407 failing the call with `proxy_auth_failed`, never a Block cause, told only where an engine module sees the proxy's answer (area 5's transport primitives and CDP client), so that my proxy's limits are never read as the site's (ADRs 0053, 0088, 0127)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a developer, I want no response carrying a Block cause stored in the Response cache, so that a challenge page is never replayed as content (ADR 0046)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a developer, I want a Challenge on my Session to go down ADR 0035's ladder without its new-`stealth`-Session step, so that my Session and its page are never replaced (ADR 0088)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a developer, I want a challenge's document retried once with Filter-list blocking off, at once, when the interception blocked one of its requests, before the ladder waits, and blocking learned off for the domain only if that clears the challenge, with Provenance and the Run report then flagging the vendor for me to report and the maintainers adding it to the never-block list and its suite, so that an ad blocker never causes a challenge it cannot pass (ADR 0047)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 68
+title = "As a developer, I want the ladder first to wait up to `timeout.challenge_wait` (15 s by default) **(shape)** for an invisible challenge to clear in the genuine browser, so that the commonest challenge passes with no solver and no spend."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 69
+title = "As a developer, I want the Challenge solver to run only when `challenge.solve` is on (off by default) **(shape: ADR 0035's `solve_challenges` under its area)**, in `standard` and `stealth` Sessions, so that solving is always opted into and does not itself require `stealth`."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 70
+title = "As a developer, I want the deterministic solvers tried first in the order `challenge.solver` names them **(shape)**: scripted interactive steps (checkbox, slider, press-and-hold), then the token services and sensor-data services I configured, so that cheap, reproducible steps run before costly ones."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 71
+title = "As a developer, I want vision-model solving tried only when `challenge.ai` **(shape)** is on as well, with the call made by the engine with the run's Model provider, Limits and Model allowance, so that no solver ever holds model credentials and a spent allowance skips the step (ADRs 0012, 0107)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 72
+title = "As a developer, I want a Human pause next, when a person can answer (a human channel is configured and `session.recovery.human_pause` is on), shown in \"Needs you\" with the step `challenge` **(shape: the value)**, so that a person finishes what no solver could (ADRs 0006, 0092, 0102)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 73
+title = "As a developer running an unattended program, I want `session.recovery.human_pause: false` to skip the ladder's Human pause, so that a Challenge the earlier steps cannot pass raises `challenge_unsolved` at once instead of waiting up to `timeout.human_pause` for no one (ADR 0092)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 74
+title = "As a developer, I want a ladder that ends without passing to raise `challenge_unsolved`, a `PageError` carrying the Block cause, the URL, the status and `steps`, each step tried with why it ended **(shape: `steps`)**, so that I catch a Challenge in one place and see what was tried (ADRs 0035, 0038, 0079; pitfall S02)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 75
+title = "As a developer, I want only the Page check to declare a Challenge passed, a solver's `solved` being evidence the engine re-checks, so that no solver can claim success the page does not show (ADRs 0006, 0013, 0033)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a developer, I want the step that cleared a Challenge learned per domain, keyed as ADR 0004 keys domains, kept in run state and carried by Checkpoints, so that later pages there start at that step (ADR 0035; the Session ownership case \"the program's next Challenge there starts at the solver\")."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a developer, I want the whole ladder bounded by `timeout.challenge` (3 minutes by default) **(shape)**, its time counting against neither `timeout.navigation` nor `timeout.handler` as a Politeness permit's wait does (ADR 0093), and a Human pause counting toward none, so that a slow token service never makes a `goto()` or a crawl handler time out early while the ladder still ends (ADR 0080)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As an Agent's user, I want a Challenge met by an Agent's page to follow the same ladder, its `challenge_unsolved` reaching the Agent as the action's outcome, so that the model can try another path within its task (ADR 0100)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a developer, I want a Challenge on a Wall allowance refetch never to run the ladder, a Challenge met later by a Session that had cleared the site's data to end refetching on the domain and still go down the ladder, and `payment_required` and `consent_required` never to escalate, so that the engine never presses past a condition the site set (ADRs 0045, 0048, 0052)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 80
+title = "As a user, I want built-in adapters for the token services CapSolver, 2Captcha and CapMonster and the sensor-data service Hyper Solutions, each reached with my own account through `challenge.services.<name>.api_key`, a Secret reference **(shape)**, so that I bring the account and Goodfetch brings the wiring (ST-06, ST-07)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 81
+title = "As a user, I want a token returned by a service injected by the engine, and every solver acting on the page only through engine operations on the challenge's own widget, so that a solver never reaches the rest of the page or my Secrets (ADR 0033)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a user, I want each paid solve journaled in the Effect journal, counted in Usage as `paid_solves`, reserved against my money Limits before the call at the price set in configuration (`challenge.services.<name>.price`) **(shape)**, and refused when the price is missing under a money Limit, and a run that can spend on paid solves with no money Limit marked uncapped, so that solving never spends past my cap unseen (ADRs 0010, 0033, 0041, 0101)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 83
+title = "As a user, I want to plug my own Challenge solver in as a Plugin, or as an SDK handler registered on `connect()`, chosen by `challenge.solver` like a built-in, so that I can use any service or my own code (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 84
+title = "As an operator, I want Goodfetch's own solving logic, the Private component, loaded only as a fully confined process Plugin that my Operator policy allows, its provenance attestation checked against the signer identity the signed Plugin index lists, and revoked by digest there if compromised, so that the one High-exposure item never runs unasked (ADRs 0018, 0033, 0035)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 85
+title = "As a self-hoster without a licence for the Private component, I want the whole ladder except Goodfetch's own solving logic, with steps 4 and 5 through my token-service account or my own solver, so that I keep parity with Spider's published solvers (ADR 0035)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a user, I want a solver's `needs_human` outcome to hand over to the Human pause only after the engine has checked that the page is still the challenged one, so that a solver cannot steer a person to a look-alike page (ADR 0033)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a user, I want a solver that needs a vision model to ask through the catalog operation `challenge.ask_model` **(shape)**, which counts against the run and needs no extra permission, so that model spend and credentials stay the engine's (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 88
+title = "As a user, I want proxy pools by kind (`datacenter`, `isp`, `residential`, `mobile`) or my own list, chosen with `proxy.provider` and `proxy.kind` **(shape)**, so that each Session gets a proxy of the kind I need (ADRs 0021, 0088; ST-09)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 89
+title = "As a user, I want built-in provider adapters for Bright Data, Oxylabs and Apify that build each provider's sticky-session username and lifetime, and a `list` provider for my own servers, so that I configure an account rather than a username format."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 90
+title = "As a user, I want each Session bound to one proxy and one sticky exit for its life, with `proxy.country` and `proxy.sticky_lifetime` **(shape)**, and a Run report warning when a Session outlives the exit's lifetime, so that the IP under my cookies never changes silently (pitfall S05)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 91
+title = "As a developer, I want my own Proxy provider registered on `connect()` (`proxyProviders`) to become `proxy.provider`'s value with the origin `registered`, so that a pool I register is never left unused while the run leaves from my own address (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a user, I want bytes per proxy kind counted in Usage and a metered proxy's price set only in configuration, so that a money Limit caps proxy spend (ADRs 0021, 0101; pain 13)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 93
+title = "As a Recipe author, I want a Recipe to set `proxy.kind` (a pool kind, ADR 0092) but never `proxy.country` (`setting_locked`), and only expose `proxy.provider` and its credentials, and a Client acting for a model never to set them (`setting_locked`), so that third-party code cannot route a person's traffic to a destination it names (ADR 0092)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 94
+title = "As a user, I want the Fingerprint method's warning in the CLI, the SDK results, the Console and the Run report's `warnings`, and the choice recorded in Provenance and the Audit log, so that a run never hides what it masked (ADRs 0016, 0023, 0102)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 95
+title = "As a user, I want the Run trace to record every ladder step, wait, solve and Human pause, so that I can see what a Challenge cost and where it ended (ADR 0031)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As the owner, I want every stealth page of both Products' docs sections, every Error code message and every setting description written in ADR 0035's terms (consistency, privacy, testing, authorized automation) and passing `xtask wording`, so that no published text markets circumvention (ADR 0097)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 97
+title = "As the owner, I want no opening of either Product (a tagline, a registry description, a README's first section, a docs home) to lead with stealth, blocks, challenges or access, and no page to promise access to a site, so that the Products lead with what Goodfetch guarantees (ADR 0097; ADR 0037, pain 1)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As the Stealth area, I want the hermetic stealth fixtures on the Proving ground's local copy (JA4, HTTP/2, header order and client hints of a wreq request and of the browser on one seed; self-hosted CreepJS and BotD; CDP side-effect probes; the version check; the block-detection corpus), so that stealth regressions are caught with no outside network (ADR 0035's first rung)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 99
+title = "As the Stealth area, I want every Access result reported per Fingerprint method, engine, Access mode and build age, against stock headless and stock headful Chrome as controls, so that a stealth claim always has a baseline (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 100
+title = "As the Stealth area, I want the cost of Camoufox's missing service workers measured on the online Proving ground behind real vendors, against stock Firefox with service workers on, so that ADR 0121's trade-off is known per vendor (ADR 0121)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 101
+title = "As a developer, I want a Lent page's Identity profile overrides (device emulation, permissions, and the CDP Emulation values `basic` sets) re-applied by its Fingerprint method after a library's attach to it ends, before any other use of the page **(shape: the re-apply step)**, so that a CDP detach never leaves the page showing the machine's own values (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 102
+title = "As a developer, I want `identified` refused at import and on a Profile directory used in place, with `setting_not_applicable` naming `browser.access_mode` and the source **(shape: the code)**, so that a person's login is never passed off as a declared agent's (ADRs 0056, 0021)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 103
+title = "As the Stealth area, I want a relayed Session, whose browser reaches sites through Collie's egress relay and so never speaks HTTP/3, measured against the pinned Chrome on hosts that advertise `h3`, on the online rung, reported in the release notes and never blocking, so that what no HTTP/3 shows a site is known (ADRs 0124, 0043)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 104
+title = "As the Stealth area, I want the Goodfetch Chromium's background-page launch flags (`--disable-background-timer-throttling`, `--disable-renderer-backgrounding`, `--disable-backgrounding-occluded-windows`) and its focus emulation (`Emulation.setFocusEmulationEnabled`) checked against each Identity profile in the quiet-browser rows of `chromium/surfaces.toml`, so that a page in the background shows the timers and visibility of one in front (ADR 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 105
+title = "As a maintainer, I want one Challenge-solver driver to own what every Challenge solver shares (the create-task and poll loop, the deadline and cancellation, the price reservation against money Limits, the Effect journal entry, `paid_solves` Usage, token injection, the `needs_human` re-check, the rule that only the Page check declares a pass, and the check of which challenge kinds a service supports), and each service to fill only `create_task`, `poll` and `map_failure` **(shape)**, so that no service re-implements a spend rule (ADR 0129)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 106
+title = "As a maintainer, I want one Proxy-provider driver to own the sticky lifetime, the `proxy.country` and `proxy.kind` validation, `proxy_exit_may_change` and Usage, and each provider to fill only its username and lifetime formatting **(shape)**, so that providers differ only where their formats do (ADR 0129)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 107
+title = "As a maintainer, I want `fingerprint_method` to be a driver whose shared steps (the Provenance mark, the warning, the Audit record) live in it once, each method filling only its primitives **(shape)**, so that no method forgets to say what it leaves visible (ADR 0129)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 108
+title = "As a maintainer, I want each solver adapter's and each Proxy-provider adapter's reading of its service's failures to be a translation point with typed variants and an `Unrecognized` one, an unknown solver failure ending its ladder step with `service_failed` in `steps` and the ladder moving to its next step, so that a service rewording an error breaks one table and adds no Error code (ADR 0127)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 109
+title = "As a maintainer, I want the Camoufox launch through Playwright's driver, the Xvfb child and the online release lookup to be translation points too, with `block_detection` staying rule data in which an unclassifiable response means no block, so that no other code reads a party's text (ADR 0127)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 110
+title = "As a maintainer, I want the Challenge ladder's state table (per Challenge) written out with its states, events, allowed transitions and the code of each refused pair, every pair a named test case **(shape)**, so that an invalid transition is refused and never a warning (ADR 0128)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 111
+title = "As area 8, I want the `upstream-flaky` tracking issues kept outside the milestone: regenerated from LUCI Analysis at the 1% flake-rate threshold, rechecked over 20 runs, expiring after 8 weeks, and a failed Live check's cause stated within two business days, so that an upstream flake never hides a patch regression (ADR 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 112
+title = "As the Stealth area, I want the online conformance to run on every Chrome-major patch and on new stealth material, be reported in the release notes and never block, so that stealth currency is measured where real vendors can be seen (ADRs 0043, 0074)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 201
+title = "As a crawl developer, I want a `stealth` Session that cannot move to the browser (`fetch.tier` forced to `http` or `discovered_api`, or a Run without browser capability) to send through wreq the TLS ClientHello, HTTP/2 settings, header order and client hints captured from the Goodfetch Chromium, so that HTTP and the browser claim the same version **(shape: which Sessions)** (ADRs 0020, 0035; ST-03, ST-04; pitfall S06)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 202
+title = "As a crawl developer, I want the HTTP profile chosen to match the Session's Identity profile (its platform, its brand's client-hint values and the Goodfetch Chromium's version), so that the HTTP request and the browser of the same seed present one identity."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 203
+title = "As a crawl developer, I want a `stealth` Session that may move to the browser, by escalation or a sample comparison, to fetch through browser-fetch from its first request **(shape)**, so that it shows the Goodfetch Chromium's own identity before and after any move and no `stealth` Session changes its TLS identity midway (ADR 0020)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 204
+title = "As a crawl developer, I want `standard` and `identified` HTTP Sessions to keep reqwest, and wreq's impersonation to apply only to a `stealth` Session that cannot move to the browser, so that no Session changes TLS identity mid-way (ADR 0020)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 205
+title = "As a crawl developer, I want `stealth.http_fingerprint` **(shape)**, on by default under `stealth`, switchable off, with the HTTP request then sent by reqwest and Provenance recording the identity change, so that I can trade consistency for a plainer client knowingly (ADR 0023)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 206
+title = "As a user, I want the version check to grade each HTTP profile as it grades its Goodfetch Chromium, so that an outdated profile is reported like an outdated browser (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 207
+title = "As area 8, I want each Goodfetch Chromium's HTTP profiles captured in its Chromium pull request by launching it, per platform, against the Proving ground's TLS-fingerprint relay, and committed beside the digest manifest as outputs, so that every Goodfetch Chromium digest ships its own HTTP profiles and no HTTP profile is written by hand **(shape)**."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 208
+title = "As a Collie user, I want `stealth.http_fingerprint` and the other keys this spec adds refused with `not_in_product` on a Collie engine, and with `setting_not_applicable` on a Collie Run on a Foxhound engine, so that a key that cannot act is never ignored (ADRs 0083, 0087)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 209
+title = "As a crawl developer, I want a challenge page met on an HTTP tier (`http`, `discovered_api`, `browser_fetch`, `light_browser`) to move the request to the browser tier in the same Access mode, learned per domain, so that a challenge is met where it can be passed (ADR 0035's step 1; ADR 0020)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 210
+title = "As a crawl developer, I want a forced `fetch.tier` that is not `browser` to end such a request `blocked` with its cause instead of moving it, so that a forced tier is never left silently (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 211
+title = "As a crawl developer, I want the ladder's later steps (the timed wait, the solver, the Human pause, `challenge_unsolved`) to run for a Session pool's Session exactly as Collie's spec runs them, so that a crawl and a program meet one ladder (ADR 0088)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 212
+title = "As a crawl developer, I want a Session pool's Session that meets a Challenge the browser cannot pass retired, and its replacement opened in `stealth`, only when `escalation.allow_stealth` **(shape)** is on (off by default), so that nothing escalates into `stealth` unless I switched that on (ADR 0021; ADR 0035's step 3)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 213
+title = "As a crawl developer, I want the step that passed a Challenge learned per domain for the whole Run, shared by every Session of its pools, so that later requests to that domain start there (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 214
+title = "As a crawl developer, I want a crawl's Session on a Borrowed browser or a Profile directory used in place to raise a Human pause where the ladder would replace it, so that the person's own browser is never swapped (ADRs 0056, 0088)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 215
+title = "As a crawl developer, I want a request whose ladder ends unpassed to end `blocked` with its Block cause and `challenge_unsolved` as its last attempt's error, and `retryFailed({ blocked: true })` to re-admit it, so that I read and retry blocks as values (ADRs 0079, 0102; pitfall S02)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 216
+title = "As a crawl developer, I want an after-response Hook's `block(cause)` to enter the same escalation as a block the rules detected, so that a soft block I recognize myself is handled like any other (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 217
+title = "As a crawl developer, I want an escalation, a retirement and a sample-comparison run never to spend `crawl.retry.max`, so that a block does not use up my retries (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 218
+title = "As a crawl developer, I want a 401, 403 or 429 without a challenge page to retire the Session with its proxy and open its replacement one kind up `escalation.proxy_kinds` **(shape)**, so that the IP never changes under the same cookies (ADR 0021; ST-09)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 219
+title = "As a crawl developer, I want the tier learned per domain, keyed as ADR 0004 keys domains, kept in run state and carried by Checkpoints, so that a domain stays at the tier that worked across a resume."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 220
+title = "As a user paying per gigabyte, I want a periodic trial on the cheaper tier every `escalation.trial_interval` (10 minutes by default) **(shape)** to bring a domain back down when it succeeds, so that a crawl does not stay on the costliest tier for good (ADR 0021; pain 13)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 221
+title = "As a crawl developer, I want `escalation.proxy_kinds` to default to the proxy kinds the run's pools configure, cheapest first (`datacenter`, `isp`, `residential`, `mobile`), so that a 403 climbs only to a kind I configured a pool for, a run with no paid pool configured spends nothing, and escalating into `stealth` still needs `escalation.allow_stealth` (ADR 0021; pain 13)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 222
+title = "As a crawl developer, I want rotation on whenever the provider has more than one exit, each new Session asking `proxy.provider` for a fresh sticky exit, so that a retired Session's exit is not reused at once (ADR 0021)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 223
+title = "As a site owner and a user, I want `payment_required`, `consent_required`, `decoy` and a Wall allowance refetch's refusal never to escalate, rotate or retry, so that the crawl never presses past a condition the site set (ADRs 0045, 0048, 0052)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 224
+title = "As a user, I want proxy bytes per kind and paid solves counted in Usage and capped by money Limits during escalation, and the Run report to count requests by Block cause, so that what blocks cost is visible and bounded (ADRs 0041, 0101, 0102; pain 13)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 225
+title = "As a crawl developer, I want `run.progress()` to say when requests wait for a Session of the pool to open after a retirement, so that a slow escalation is never a silent hang (ADR 0102's `session` waiting reason)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 226
+title = "As a crawl developer, I want the browser tier's link discovery to leave out links a person cannot see and invisible `nofollow` links, each answered \"not added\" with the reason `trap_link` **(shape)**, so that a crawl never enters a labyrinth (ADR 0035; pitfall S03)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 227
+title = "As a crawl developer, I want a page reached through such a link, or marked `noindex` and failing its Page check, to end `blocked` with the cause `decoy`, never escalate, and have none of its links followed **(shape)**, so that one trap never fans out (ADR 0035)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 228
+title = "As a crawl developer, I want an HTTP-tier crawl, which cannot see layout, to add such links with a `trap_link_suspected` mark in Provenance **(shape)** rather than skip them, so that the HTTP tier flags what it cannot judge (ADR 0035)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 229
+title = "As a crawl developer, I want links inside an element a cosmetic rule of the Clean-up rules matched left out of the judgement, so that a link inside a hidden ad is not taken for a trap (ADR 0047)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 230
+title = "As a crawl developer, I want `crawl.trap_links.avoid` **(shape)**, on by default, switchable off per run or Label, the switch recorded in the Audit log and listed in the Run report's `weakened`, so that I can crawl a site whose hidden links are real while the results say so (ADR 0023)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 231
+title = "As a site owner, I want trap-link avoidance to be about traps, never about my Site preferences, so that robots.txt and use signals are still obeyed as ADR 0086 says."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 232
+title = "As a user with a managed fetching service account, I want to reach it through a Fetch backend Plugin or my own Fetch backend handler, its spend reported in Usage and capped by Limits, so that I can hand hard sites to it without leaving Foxhound (ADR 0033; ST-10)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 233
+title = "As a user, I want a Fetch backend's responses judged by block detection like the engine's own, and a Block cause there entering the same ladder and escalation, so that a block from the service is never stored as content."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 234
+title = "As a user, I want a request that uses a Secret or a logged-in Session never handed to a Fetch backend, so that no credential reaches the service (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 235
+title = "As a crawl developer, I want a Run's Access mode, catalog and proxy settings to apply to every Session of its pools, a Label refusing them with `setting_not_applicable`, so that one crawl presents one identity policy (ADRs 0093, 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 236
+title = "As a crawl developer, I want a Saved identity used by a crawl's pool to keep its binding and its Identity profile while the pool retires its Sessions by age and use, so that account rotation reuses identities consistently (ADR 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 237
+title = "As the Stealth area, I want the hermetic Access rung on Foxhound's executable to compare, on the Proving ground's server-side observations, the JA4, HTTP/2 settings, header order and client hints of a `stealth` request that cannot move to the browser with those of the browser on the same seed, so that a drift between HTTP and the browser is caught in CI (ADR 0035's first rung)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 238
+title = "As the Stealth area, I want the crawl families of the Access benchmark reported per Fingerprint method, tier, Access mode and build age, so that escalation's cost per verified result is measured (ADR 0025)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 239
+title = "As a crawl developer, I want `escalation.allow_stealth` set explicitly beside `identified` refused with `setting_invalid` naming both keys, and an inherited `true` to yield, so that an `identified` Session never escalates into `stealth` and a signed agent never spends its key's reputation by masking (ADRs 0021, 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 240
+title = "As a maintainer, I want escalation's per-domain state table written out with its states, events, allowed transitions and the code of each refused pair, every pair a named test case **(shape)**, so that an invalid transition is refused and never a warning (ADR 0128)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 241
+title = "As a maintainer, I want `escalation` to read the typed variants of the failures area 5's wreq primitive translates, never a failure's text, so that a reworded library error changes one table in one place (ADR 0127)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"

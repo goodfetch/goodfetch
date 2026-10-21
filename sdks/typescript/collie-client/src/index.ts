@@ -16,6 +16,7 @@ export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
 export * from "./generated/errors.ts";
 export type {
+  BlockCause,
   CallOptions,
   Completeness,
   Lifecycle,

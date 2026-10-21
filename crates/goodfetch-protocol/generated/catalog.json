@@ -1310,6 +1310,55 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "A page that asks a person to prove they are human.",
+      "name": "captcha",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page that checks the browser before it lets it through.",
+      "name": "challenge",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A wall that asks for consent before it shows the page (ADR 0048).",
+      "name": "consent_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A trap page a person would never reach; only Foxhound's Frontier produces it.",
+      "name": "decoy",
+      "product": "foxhound",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused the address the request came from.",
+      "name": "ip_block",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site asked to be paid for the page (ADR 0045).",
+      "name": "payment_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused because too many requests came too fast.",
+      "name": "rate_limit",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Pages the sample crawl visited.",
       "name": "sample_crawled_pages",
       "product": "foxhound",

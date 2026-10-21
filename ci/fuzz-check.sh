@@ -8,6 +8,8 @@
 #
 #   ci/fuzz-check.sh fetch   fetches each fuzz crate's locked dependencies,
 #                            before the egress deny (`just fetch`);
+#   ci/fuzz-check.sh locked  fails when a fuzz crate's Cargo.lock is stale,
+#                            offline, in `just lint` beside the workspace's;
 #   ci/fuzz-check.sh check   checks every target of every fuzz crate.
 #
 # A fuzz crate is a `fuzz/Cargo.toml` the repository tracks whose package
@@ -34,6 +36,11 @@ if [[ ${#crates[@]} -eq 0 ]]; then
 fi
 
 case "${1:-}" in
+  locked)
+    for crate in "${crates[@]}"; do
+      cargo metadata --locked --offline --format-version 1 --manifest-path "$crate/Cargo.toml" > /dev/null
+    done
+    ;;
   fetch)
     for crate in "${crates[@]}"; do
       cargo fetch --locked --manifest-path "$crate/Cargo.toml"
@@ -61,7 +68,7 @@ case "${1:-}" in
     done
     ;;
   *)
-    echo "usage: ci/fuzz-check.sh fetch|check" >&2
+    echo "usage: ci/fuzz-check.sh locked|fetch|check" >&2
     exit 2
     ;;
 esac

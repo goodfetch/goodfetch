@@ -70,6 +70,7 @@ mod resolver;
 mod runtime;
 mod runtime_file;
 mod script;
+mod seeded;
 mod snapshot;
 mod special_purpose;
 mod sql_dump;

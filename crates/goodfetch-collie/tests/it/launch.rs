@@ -46,6 +46,13 @@ const BACKGROUND_FLAGS: [&str; 3] = [
     "--disable-backgrounding-occluded-windows",
 ];
 
+/// Whether the build's window gives a high-entropy platform version, which
+/// a headless page then shows too. Chromium gives one on macOS and Windows
+/// and an empty one on Linux, headless or with a window (measured by
+/// `virtual_display`'s comparison on Xvfb), which the identity page
+/// reports as `none` and the site receives as `""`.
+const WINDOW_GIVES_A_PLATFORM_VERSION: bool = !cfg!(target_os = "linux");
+
 /// How long a page's script may take to report.
 const REPORTS_DEADLINE: Duration = Duration::from_secs(20);
 
@@ -180,7 +187,8 @@ pub(crate) fn identity_seen(
 /// `browser.headless` is `true` by default, and the headless build shows
 /// the site its window's identity: one `Chrome/` user agent on every
 /// request and in the page, the build's full version in the high-entropy
-/// client hints, and no `HeadlessChrome` anywhere.
+/// client hints, the platform version its window gives (none on Linux), and
+/// no `HeadlessChrome` anywhere.
 /// Covers: story:5-56, setting:browser.headless
 #[test]
 fn a_headless_page_shows_the_site_its_windows_identity_with_no_headless_token() {
@@ -207,7 +215,7 @@ fn a_headless_page_shows_the_site_its_windows_identity_with_no_headless_token() 
                     .contains(&format!("\"Chromium\";v=\"{CHROME_FOR_TESTING_BUILD}\"")))),
             seen.read
                 .get("platform_version")
-                .is_some_and(|version| version != "none"),
+                .map(|version| version != "none"),
         ),
         (
             true,
@@ -216,7 +224,7 @@ fn a_headless_page_shows_the_site_its_windows_identity_with_no_headless_token() 
             Some(&BTreeSet::from([user_agent.clone()])),
             true,
             true,
-            true,
+            Some(WINDOW_GIVES_A_PLATFORM_VERSION),
         ),
         "{seen:#?}"
     );

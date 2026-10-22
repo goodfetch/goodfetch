@@ -148,6 +148,10 @@ impl StrictStdout {
     /// The failure of `kind`, with the child's stderr: all of it if the
     /// child closes its stderr, or what came until it was quiet for
     /// [`STDERR_GRACE`], or for [`STDERR_LIMIT`] in all.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test helper's wall-clock limit on a child's output, outside any async worker (ADR 0062)"
+    )]
     fn fail(&mut self, kind: StrictStdoutErrorKind) -> StrictStdoutError {
         let limit = Instant::now() + STDERR_LIMIT;
         loop {

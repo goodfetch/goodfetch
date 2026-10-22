@@ -22,14 +22,43 @@ pub(super) struct Rule {
     pub(super) markers: &'static [&'static [&'static str]],
 }
 
-/// Where a rule comes from and the license it is used under.
+/// Where a rule comes from: Goodfetch itself, or an outside source it was
+/// seeded from.
 #[derive(Clone, Copy)]
-pub(super) struct Source {
-    /// Its name; an outside source's is its input's name in
-    /// `third-party.toml`.
+pub(super) enum Source {
+    /// Goodfetch's own rules, written from the Proving ground's
+    /// block-detection corpus and the HTTP specifications.
+    Goodfetch,
+    /// An outside source, declared in `third-party.toml` for the notice
+    /// inventory.
+    Seeded(Outside),
+}
+
+/// An outside source a rule was seeded from.
+#[derive(Clone, Copy)]
+pub(super) struct Outside {
+    /// Its input's name in `third-party.toml`.
     pub(super) name: &'static str,
     /// The SPDX license expression it is used under.
     pub(super) license: &'static str,
+}
+
+impl Source {
+    /// Its name.
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Goodfetch => "Goodfetch, from the Proving ground's block-detection corpus",
+            Self::Seeded(outside) => outside.name,
+        }
+    }
+
+    /// The SPDX license expression it is used under.
+    pub(super) fn license(self) -> &'static str {
+        match self {
+            Self::Goodfetch => "MIT OR Apache-2.0",
+            Self::Seeded(outside) => outside.license,
+        }
+    }
 }
 
 /// A header a rule reads: its lowercase name, and lowercase text its value
@@ -40,36 +69,32 @@ pub(crate) struct HeaderMarker {
     pub(crate) value: &'static str,
 }
 
-/// Goodfetch's own rules, written from the Proving ground's block-detection
-/// corpus and the HTTP specifications.
-pub(super) const GOODFETCH: Source = Source {
-    name: "Goodfetch, from the Proving ground's block-detection corpus",
-    license: "MIT OR Apache-2.0",
-};
+/// Goodfetch's own rules.
+const GOODFETCH: Source = Source::Goodfetch;
 
 /// Spider's anti-bot markers (`spider/src/utils/mod.rs`).
-const SPIDER: Source = Source {
+const SPIDER: Source = Source::Seeded(Outside {
     name: "Spider",
     license: "MIT",
-};
+});
 
 /// wafw00f's plugins (`wafw00f/plugins/`).
-const WAFW00F: Source = Source {
+const WAFW00F: Source = Source::Seeded(Outside {
     name: "wafw00f",
     license: "BSD-3-Clause",
-};
+});
 
 /// identYwaf's blocking-page expressions (`data.json`).
-const IDENTYWAF: Source = Source {
+const IDENTYWAF: Source = Source::Seeded(Outside {
     name: "identYwaf",
     license: "MIT",
-};
+});
 
 /// Nuclei's `waf-detect` template.
-const NUCLEI_WAF_DETECT: Source = Source {
+const NUCLEI_WAF_DETECT: Source = Source::Seeded(Outside {
     name: "Nuclei's waf-detect template",
     license: "MIT",
-};
+});
 
 /// Every rule, in the order they are tried: challenges first, so a challenge
 /// served with a refusal's status is a challenge, then captchas, refusals of

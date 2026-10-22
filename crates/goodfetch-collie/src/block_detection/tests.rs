@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use goodfetch_protocol::block::BlockCause;
 use rstest::rstest;
 
-use super::rules::{GOODFETCH, HeaderMarker, RULES};
+use super::rules::{HeaderMarker, RULES, Source};
 use super::{Document, Response, classify};
 
 /// The headers the corpus's interstitial is served with.
@@ -105,8 +105,10 @@ fn the_notice_inventory_declares_exactly_the_rules_outside_sources() {
 
     let named: BTreeSet<(&str, &str)> = RULES
         .iter()
-        .filter(|rule| rule.source.name != GOODFETCH.name)
-        .map(|rule| (rule.source.name, rule.source.license))
+        .filter_map(|rule| match rule.source {
+            Source::Seeded(outside) => Some((outside.name, outside.license)),
+            Source::Goodfetch => None,
+        })
         .collect();
 
     let inputs: BTreeSet<(&str, &str)> = declared["input"]

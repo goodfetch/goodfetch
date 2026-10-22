@@ -102,8 +102,8 @@ fn fire(
         cause: rule.cause,
         evidence: Evidence {
             rule: rule.name,
-            source: rule.source.name,
-            license: rule.source.license,
+            source: rule.source.name(),
+            license: rule.source.license(),
             status,
             headers: matched_headers,
             markers,

@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "antibot": {
+    "colour": "#FF5733",
+    "detectors": ["detect-akamai", "detect-cloudflare", "detect-datadome"]
+  },
+  "captcha": {
+    "colour": "#33C3FF",
+    "detectors": ["detect-recaptcha", "detect-geetest"]
+  },
+  "fingerprint": {
+    "colour": "#3b82f6",
+    "detectors": ["detect-canvas-fingerprint"]
+  }
+}

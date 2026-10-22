@@ -11,7 +11,8 @@ use goodfetch_protocol::block::BlockCause;
 
 /// One rule: it fires on a response whose status is one of `statuses`,
 /// whose headers hold, for each group of `headers`, one of its markers, and
-/// whose document holds, for each group of `markers`, one of its markers.
+/// whose document holds, for each group of `markers`, one of its markers and
+/// none of `unless`.
 pub(super) struct Rule {
     pub(super) name: &'static str,
     pub(super) cause: BlockCause,
@@ -20,16 +21,48 @@ pub(super) struct Rule {
     pub(super) headers: &'static [&'static [HeaderMarker]],
     /// Lowercase text, matched in the lowercased markup.
     pub(super) markers: &'static [&'static [&'static str]],
+    /// Lowercase text whose presence in the lowercased markup shows the page
+    /// is no refusal, though it holds the markers.
+    pub(super) unless: &'static [&'static str],
 }
 
-/// Where a rule comes from and the license it is used under.
+/// Where a rule comes from: Goodfetch itself, or an outside source it was
+/// seeded from.
 #[derive(Clone, Copy)]
-pub(super) struct Source {
-    /// Its name; an outside source's is its input's name in
-    /// `third-party.toml`.
+pub(super) enum Source {
+    /// Goodfetch's own rules, written from the Proving ground's
+    /// block-detection corpus and the HTTP specifications.
+    Goodfetch,
+    /// An outside source, declared in `third-party.toml` for the notice
+    /// inventory.
+    Seeded(Outside),
+}
+
+/// An outside source a rule was seeded from.
+#[derive(Clone, Copy)]
+pub(super) struct Outside {
+    /// Its input's name in `third-party.toml`.
     pub(super) name: &'static str,
     /// The SPDX license expression it is used under.
     pub(super) license: &'static str,
+}
+
+impl Source {
+    /// Its name.
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Goodfetch => "Goodfetch, from the Proving ground's block-detection corpus",
+            Self::Seeded(outside) => outside.name,
+        }
+    }
+
+    /// The SPDX license expression it is used under.
+    pub(super) fn license(self) -> &'static str {
+        match self {
+            Self::Goodfetch => "MIT OR Apache-2.0",
+            Self::Seeded(outside) => outside.license,
+        }
+    }
 }
 
 /// A header a rule reads: its lowercase name, and lowercase text its value
@@ -40,36 +73,32 @@ pub(crate) struct HeaderMarker {
     pub(crate) value: &'static str,
 }
 
-/// Goodfetch's own rules, written from the Proving ground's block-detection
-/// corpus and the HTTP specifications.
-pub(super) const GOODFETCH: Source = Source {
-    name: "Goodfetch, from the Proving ground's block-detection corpus",
-    license: "MIT OR Apache-2.0",
-};
+/// Goodfetch's own rules.
+const GOODFETCH: Source = Source::Goodfetch;
 
 /// Spider's anti-bot markers (`spider/src/utils/mod.rs`).
-const SPIDER: Source = Source {
+const SPIDER: Source = Source::Seeded(Outside {
     name: "Spider",
     license: "MIT",
-};
+});
 
 /// wafw00f's plugins (`wafw00f/plugins/`).
-const WAFW00F: Source = Source {
+const WAFW00F: Source = Source::Seeded(Outside {
     name: "wafw00f",
     license: "BSD-3-Clause",
-};
+});
 
 /// identYwaf's blocking-page expressions (`data.json`).
-const IDENTYWAF: Source = Source {
+const IDENTYWAF: Source = Source::Seeded(Outside {
     name: "identYwaf",
     license: "MIT",
-};
+});
 
 /// Nuclei's `waf-detect` template.
-const NUCLEI_WAF_DETECT: Source = Source {
+const NUCLEI_WAF_DETECT: Source = Source::Seeded(Outside {
     name: "Nuclei's waf-detect template",
     license: "MIT",
-};
+});
 
 /// Every rule, in the order they are tried: challenges first, so a challenge
 /// served with a refusal's status is a challenge, then captchas, refusals of
@@ -88,6 +117,7 @@ pub(super) const RULES: &[Rule] = &[
             value: "challenge",
         }]],
         markers: &[],
+        unless: &[],
     },
     // A vendor-neutral interstitial challenge: a refusal whose page says it
     // checks the browser and needs JavaScript to let it through. A vendor's
@@ -111,6 +141,7 @@ pub(super) const RULES: &[Rule] = &[
                 "enable javascript",
             ],
         ],
+        unless: &[],
     },
     // A press-and-hold human check on a refusal (Spider's markers: the
     // denial's title and the widget's element or script).
@@ -124,10 +155,14 @@ pub(super) const RULES: &[Rule] = &[
             &["access to this page has been denied"],
             &["px-captcha", "/captcha/captcha.js"],
         ],
+        unless: &[],
     },
     // A page that asks the visitor to prove they are human and holds a
     // captcha widget (Spider's generic phrases and its widget markers). A
-    // widget alone, on a contact form, is no block.
+    // widget alone, on a contact form, is no block, and neither is a login
+    // or sign-up form whose widget says the same: the page is served, and
+    // the check guards only the form's submission, which the program meets
+    // when it submits.
     Rule {
         name: "captcha_widget",
         cause: BlockCause::Captcha,
@@ -142,7 +177,18 @@ pub(super) const RULES: &[Rule] = &[
             ],
             &["g-recaptcha", "h-captcha", "cf-turnstile", "funcaptcha"],
         ],
+        unless: &["type=\"password\"", "type='password'", "type=password"],
     },
+    // The three firewall refusals below (Cloudflare's, Imperva's and
+    // Sucuri's) are `ip_block`, though a firewall refuses by its rules (the
+    // user agent, the path, the country) as well as by address: ADR 0035's
+    // closed list has no cause for a refusal by rule, and a firewall's
+    // refusal page names no rule, so the evidence is a refusal of this
+    // client where it stands, whose remedy is the IP block's (another
+    // address or identity, or a pause), never the challenge's or the rate
+    // limit's. Whether a firewall's refusal earns a cause of its own is the
+    // owner's to decide (review of specs #598 and #606, L9).
+    //
     // Cloudflare's block page (identYwaf's expression for its title), with
     // the words of a block rather than of its older captcha page.
     Rule {
@@ -155,6 +201,7 @@ pub(super) const RULES: &[Rule] = &[
             &["attention required! | cloudflare"],
             &["you have been blocked"],
         ],
+        unless: &[],
     },
     // Imperva's refusal (wafw00f's `incapsula incident id`).
     Rule {
@@ -164,6 +211,7 @@ pub(super) const RULES: &[Rule] = &[
         statuses: &[403],
         headers: &[],
         markers: &[&["request unsuccessful"], &["incapsula incident id"]],
+        unless: &[],
     },
     // Sucuri's refusal (the template's expressions for its title).
     Rule {
@@ -177,6 +225,7 @@ pub(super) const RULES: &[Rule] = &[
             "sucuri website firewall - cloudproxy - access denied",
             "sucuri website firewall - access denied",
         ]],
+        unless: &[],
     },
     // A refusal that says the visitor's address is blocked.
     Rule {
@@ -190,6 +239,7 @@ pub(super) const RULES: &[Rule] = &[
             "your ip has been blocked",
             "your ip address is blocked",
         ]],
+        unless: &[],
     },
     // 429 Too Many Requests is the site's statement of a rate limit (RFC
     // 6585), whether or not it says when to come back.
@@ -200,5 +250,6 @@ pub(super) const RULES: &[Rule] = &[
         statuses: &[429],
         headers: &[],
         markers: &[],
+        unless: &[],
     },
 ];

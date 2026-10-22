@@ -44,3 +44,19 @@ rules = ["incapsula_block"]
 [[vendor]]
 name = "Sucuri"
 rules = ["sucuri_block"]
+
+# Vendors no rule covers yet that the two watchlists spell differently, so
+# the job opens one issue for each, keyed by `name`, not one per spelling.
+# An entry moves up to `[[vendor]]` with the rules written for it.
+
+[[uncovered]]
+name = "Akamai Bot Manager"
+listed_as = ["akamai"]
+
+[[uncovered]]
+name = "AWS WAF Captcha"
+listed_as = ["aws-waf"]
+
+[[uncovered]]
+name = "Yandex SmartCaptcha"
+listed_as = ["smartcaptcha"]

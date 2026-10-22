@@ -71,15 +71,15 @@ pub(crate) fn classify(response: &Response<'_>, document: &Document<'_>) -> Opti
 
 /// `rule`'s classification of a response with `status`, the lowercased
 /// `headers` and the lowercased `markup`, if every group of its header
-/// markers has one in the headers and every group of its markers has one in
-/// the markup.
+/// markers has one in the headers, every group of its markers has one in
+/// the markup, and the markup holds none of what it is `unless`.
 fn fire(
     rule: &Rule,
     status: u16,
     headers: &[(String, String)],
     markup: &str,
 ) -> Option<Classification> {
-    if !rule.statuses.contains(&status) {
+    if !rule.statuses.contains(&status) || rule.unless.iter().any(|text| markup.contains(text)) {
         return None;
     }
     let matched_headers = rule
@@ -102,8 +102,8 @@ fn fire(
         cause: rule.cause,
         evidence: Evidence {
             rule: rule.name,
-            source: rule.source.name,
-            license: rule.source.license,
+            source: rule.source.name(),
+            license: rule.source.license(),
             status,
             headers: matched_headers,
             markers,

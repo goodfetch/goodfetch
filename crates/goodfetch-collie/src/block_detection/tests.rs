@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use goodfetch_protocol::block::BlockCause;
 use rstest::rstest;
 
-use super::rules::{GOODFETCH, HeaderMarker, RULES};
+use super::rules::{HeaderMarker, RULES, Source};
 use super::{Document, Response, classify};
 
 /// The headers the corpus's interstitial is served with.
@@ -13,9 +13,10 @@ const INTERSTITIAL_HEADERS: &[(&str, &str)] =
 /// Each captured page of the Proving ground, with the status and headers it
 /// was served with, classifies to the Block cause its corpus records by the
 /// rule written for it; a page no rule decides, a vendor's script or widget
-/// on an ordinary page among them, is no block.
-///
-/// Covers: story:8-58, story:8-59
+/// on an ordinary page among them, is no block. Stories 8-58 and 8-59 are
+/// declared by the same corpus met by a Session in the engine, which raising
+/// `blocked` brings (#711); until then they are excepted
+/// (`features/exceptions.toml`), since a unit test proves no story.
 #[rstest]
 #[case::challenge_header(403, INTERSTITIAL_HEADERS, include_str!("fixtures/interstitial.html"), Some((BlockCause::Challenge, "cloudflare_challenge")))]
 #[case::interstitial_without_its_header(403, &[], include_str!("fixtures/interstitial.html"), Some((BlockCause::Challenge, "interstitial_challenge")))]
@@ -29,6 +30,7 @@ const INTERSTITIAL_HEADERS: &[(&str, &str)] =
 #[case::rate_limit(429, &[("retry-after", "120")], include_str!("fixtures/rate-limit.html"), Some((BlockCause::RateLimit, "too_many_requests")))]
 #[case::vendor_script_only(200, &[], include_str!("fixtures/vendor-script.html"), None)]
 #[case::captcha_widget_on_a_contact_form(200, &[], "<form><div class=\"g-recaptcha\"></div><button>Send</button></form>", None)]
+#[case::captcha_widget_on_a_login_form(200, &[], "<h1>Sign in</h1><form action=\"/login\" method=\"post\"><input type=\"email\" name=\"email\"><input type=\"password\" name=\"password\"><p>Verify you are human</p><div class=\"g-recaptcha\"></div><button>Sign in</button></form>", None)]
 #[case::ordinary_article(200, &[], include_str!("fixtures/article.html"), None)]
 #[case::not_found(404, &[], include_str!("fixtures/not-found.html"), None)]
 #[case::interstitial_words_served_as_content(200, &[], include_str!("fixtures/interstitial.html"), None)]
@@ -105,8 +107,10 @@ fn the_notice_inventory_declares_exactly_the_rules_outside_sources() {
 
     let named: BTreeSet<(&str, &str)> = RULES
         .iter()
-        .filter(|rule| rule.source.name != GOODFETCH.name)
-        .map(|rule| (rule.source.name, rule.source.license))
+        .filter_map(|rule| match rule.source {
+            Source::Seeded(outside) => Some((outside.name, outside.license)),
+            Source::Goodfetch => None,
+        })
         .collect();
 
     let inputs: BTreeSet<(&str, &str)> = declared["input"]

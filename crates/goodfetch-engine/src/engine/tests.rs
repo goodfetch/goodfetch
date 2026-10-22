@@ -17,6 +17,7 @@ mod durability;
 mod events;
 mod key_value_store;
 mod layout;
+mod lifecycle;
 mod progress;
 mod refusals;
 mod run;

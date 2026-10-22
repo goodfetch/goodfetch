@@ -33,6 +33,10 @@ use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{Driver, Runs, RunsSetup};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
+use crate::transition::{
+    self,
+    engine::{EngineEvent, EngineState},
+};
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
 
 /// An engine of one Product, composed and ready to serve.
@@ -334,9 +338,16 @@ impl Engine {
             ));
             private_files = Some(files);
         }
-        tokio::select! {
-            () = stdio => {}
-            () = gone => tracing::warn!("the Attached engine's parent is gone: its Runs stop"),
+        let ended = tokio::select! {
+            () = stdio => EngineEvent::StdioEnded,
+            () = gone => {
+                tracing::warn!("the Attached engine's parent is gone: its Runs stop");
+                EngineEvent::ParentGone
+            }
+        };
+        // Either end stops it, as the engine's table says (ADR 0128).
+        if let Err(refused) = transition::engine::engine(EngineState::Attached, ended) {
+            let _ = refused.logged();
         }
         accepting.stop().await;
         runs.stop_all().await;

@@ -125,6 +125,72 @@ fn exported<T>(seed: u64, talk: impl FnOnce() -> T) -> (T, Vec<SpanData>) {
     (answered, spans)
 }
 
+/// The reason of each event of the Trace context's target, as its
+/// subscriber sees it.
+#[derive(Clone, Default)]
+struct Reasons(Arc<Mutex<Vec<String>>>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Reasons {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        struct Reason(Option<String>);
+        impl tracing::field::Visit for Reason {
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                if field.name() == "reason" {
+                    self.0 = Some(value.to_owned());
+                }
+            }
+            fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
+        }
+        if event.metadata().target() == crate::trace::TRACE_TARGET {
+            let mut reason = Reason(None);
+            event.record(&mut reason);
+            self.0.lock().unwrap().push(reason.0.unwrap_or_default());
+        }
+    }
+}
+
+/// The reasons of the `debug` events `engine.info` under `meta` leaves,
+/// with the spans exported or not.
+fn dropped(exporting: bool, meta: Value) -> Vec<String> {
+    let reasons = Reasons::default();
+    let provider = SdkTracerProvider::builder().build();
+    let export = exporting.then(|| {
+        tracing_opentelemetry::layer()
+            .with_tracer(provider.tracer("goodfetch"))
+            .with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+                metadata.is_span()
+            }))
+    });
+    let subscriber = tracing_subscriber::registry()
+        .with(export)
+        .with(reasons.clone());
+    tracing::subscriber::with_default(subscriber, || {
+        replies(vec![traced(1, "engine.info", json!({}), meta)])
+    });
+    provider.shutdown().unwrap();
+    std::mem::take(&mut *reasons.0.lock().unwrap())
+}
+
+/// A value a receiver drops leaves one `debug` event each, and none while
+/// no span is exported, when the Trace context is not read at all.
+#[test]
+fn each_value_a_receiver_drops_leaves_one_debug_event_while_spans_are_exported() {
+    let meta = json!({ "traceparent": "00-0af7", "tracestate": "congo=t61rcWkgMzE" });
+
+    let (exporting, not) = (dropped(true, meta.clone()), dropped(false, meta));
+
+    assert_eq!(
+        (exporting, not),
+        (
+            vec![
+                "traceparent_unreadable".to_owned(),
+                "tracestate_without_parent".to_owned()
+            ],
+            vec![]
+        )
+    );
+}
+
 /// The request `method` with `params` and the Trace context `meta`.
 fn traced(id: i64, method: &str, mut params: Value, meta: Value) -> Value {
     params["_meta"] = meta;

@@ -96,6 +96,19 @@ pub enum Endpoint {
         /// The token the sign-in link carries.
         link_token: String,
     },
+    /// An HTTP/1.1 listener on loopback TCP that serves a file only to an
+    /// address signed for it: its token is such an address's path and
+    /// query, its valid request names `host` as its `Host`, and
+    /// `other_file` is the path of another file it holds. Another
+    /// listener's token is presented as a `Cookie` header.
+    SignedAddress {
+        /// Where it listens.
+        address: SocketAddr,
+        /// The `Host` its valid request names, such as `127.0.0.1:51234`.
+        host: String,
+        /// Another file's path, which the valid signature does not cover.
+        other_file: String,
+    },
 }
 
 /// The listener under test, as a value.
@@ -313,6 +326,18 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 sign_in,
                 link_token,
             }),
+            (
+                Endpoint::SignedAddress {
+                    address,
+                    host,
+                    other_file,
+                },
+                Transport::SignedAddress,
+            ) => Reach::SignedAddress {
+                address: *address,
+                host,
+                other_file,
+            },
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -352,13 +377,14 @@ fn apply(
     let token = listener.token.as_str();
     let observed = match rule {
         Rule::TokenMissing => reach.attempt(token, Attempt::Token(None)),
-        Rule::TokenWrong => reach.attempt(token, Attempt::Token(Some(&wrong_token(token)))),
+        Rule::TokenWrong => reach.attempt(token, Attempt::Token(Some(&reach.wrong_token(token)))),
         Rule::TokenFromAnotherListener => {
             let Some(other) = &listener.other_listener_token else {
                 return Some(Failure::NoOtherListenerToken);
             };
-            reach.attempt(token, Attempt::Token(Some(other)))
+            reach.attempt(token, Attempt::OtherListener(other))
         }
+        Rule::TokenForAnotherFile => reach.attempt(token, Attempt::OtherFile),
         Rule::TokenInQueryString => reach.attempt(token, Attempt::TokenInQuery),
         Rule::HostForeign => reach.attempt(token, Attempt::ForeignHost),
         Rule::OriginForeign => reach.attempt(token, Attempt::ForeignOrigin),
@@ -397,6 +423,10 @@ enum Attempt<'a> {
     Valid,
     /// The valid message or request with this token, or none.
     Token(Option<&'a str>),
+    /// The valid message or request with another listener's valid token.
+    OtherListener(&'a str),
+    /// The valid signature on another file's address.
+    OtherFile,
     /// An HTTP request carrying the valid token in its query string only.
     TokenInQuery,
     /// An HTTP request with the valid token and a foreign `Host`.
@@ -434,6 +464,11 @@ enum Reach<'a> {
         hello: &'a Hello,
     },
     SignedInWebSocket(SignedInReach<'a>),
+    SignedAddress {
+        address: SocketAddr,
+        host: &'a str,
+        other_file: &'a str,
+    },
 }
 
 /// A listener whose WebSocket's handshake carries a sign-in's cookie, and
@@ -453,9 +488,15 @@ impl Reach<'_> {
     /// attempt, so an attempt a transport cannot carry is never asked for.
     fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
         match self {
+            Self::SignedAddress {
+                address,
+                host,
+                other_file,
+            } => signed_address(*address, host, other_file, token, attempt),
             Self::JsonRpc { address, hello } => {
                 let message = match attempt {
                     Attempt::Token(token) => hello.message("hello", token),
+                    Attempt::OtherListener(token) => hello.message("hello", Some(token)),
                     Attempt::NotHello => hello.message(NOT_HELLO, Some(token)),
                     Attempt::Valid
                     | Attempt::TokenInQuery
@@ -465,7 +506,8 @@ impl Reach<'_> {
                     | Attempt::Probe(_)
                     | Attempt::SignOutWithoutCsrf
                     | Attempt::SignedOut
-                    | Attempt::SignInTooOften => hello.message("hello", Some(token)),
+                    | Attempt::SignInTooOften
+                    | Attempt::OtherFile => hello.message("hello", Some(token)),
                 };
                 json_rpc::attempt(address, &message)
             }
@@ -486,6 +528,8 @@ impl Reach<'_> {
                     | Attempt::SignedOut
                     | Attempt::SignInTooOften => {}
                     Attempt::Token(token) => message = hello.message("hello", token),
+                    Attempt::OtherListener(token) => message = hello.message("hello", Some(token)),
+                    Attempt::OtherFile => {}
                     Attempt::TokenInQuery => {
                         handshake.target = format!("/?access_token={}", percent_encoded(token));
                         message = hello.message("hello", None);
@@ -508,6 +552,7 @@ impl Reach<'_> {
                     host: &authority,
                     bearer: Some(token),
                     origin: None,
+                    cookie: None,
                 };
                 match attempt {
                     Attempt::Valid
@@ -517,6 +562,8 @@ impl Reach<'_> {
                     | Attempt::SignedOut
                     | Attempt::SignInTooOften => {}
                     Attempt::Token(token) => request.bearer = token,
+                    Attempt::OtherListener(token) => request.bearer = Some(token),
+                    Attempt::OtherFile => {}
                     Attempt::TokenInQuery => {
                         request.target =
                             format!("{protected_path}?access_token={}", percent_encoded(token));
@@ -533,6 +580,63 @@ impl Reach<'_> {
             }
         }
     }
+}
+
+impl Reach<'_> {
+    /// A token this listener never issued, of the valid one's shape: for an
+    /// address signed for a file, the same address with another signature.
+    fn wrong_token(&self, token: &str) -> String {
+        match self {
+            Self::SignedAddress { .. } => match token.rsplit_once("signature=") {
+                Some((rest, signature)) => format!("{rest}signature={}", wrong_token(signature)),
+                None => wrong_token(token),
+            },
+            Self::JsonRpc { .. }
+            | Self::Http { .. }
+            | Self::WebSocket { .. }
+            | Self::SignedInWebSocket(_) => wrong_token(token),
+        }
+    }
+}
+
+/// Tries `attempt` on the signed-address listener at `address`, reached
+/// as `host`, whose valid address is `token` and which holds `other_file`
+/// too.
+fn signed_address(
+    address: SocketAddr,
+    host: &str,
+    other_file: &str,
+    token: &str,
+    attempt: Attempt<'_>,
+) -> Observed {
+    let (path, query) = token.split_once('?').unwrap_or((token, ""));
+    let mut request = http::Request {
+        target: token.to_owned(),
+        host,
+        bearer: None,
+        origin: None,
+        cookie: None,
+    };
+    match attempt {
+        Attempt::Valid
+        | Attempt::TokenInQuery
+        | Attempt::NoOrigin
+        | Attempt::NotHello
+        | Attempt::Probe(_)
+        | Attempt::SignOutWithoutCsrf
+        | Attempt::SignedOut
+        | Attempt::SignInTooOften => {}
+        Attempt::Token(None) => path.clone_into(&mut request.target),
+        Attempt::Token(Some(other)) => other.clone_into(&mut request.target),
+        Attempt::OtherListener(other) => {
+            path.clone_into(&mut request.target);
+            request.cookie = Some(other);
+        }
+        Attempt::OtherFile => request.target = format!("{other_file}?{query}"),
+        Attempt::ForeignHost => request.host = FOREIGN_HOST,
+        Attempt::ForeignOrigin => request.origin = Some(FOREIGN_ORIGIN),
+    }
+    http::attempt(address, &request)
 }
 
 impl SignedInReach<'_> {
@@ -566,6 +670,8 @@ impl SignedInReach<'_> {
                 return sign_ins.too_often(&wrong_token(self.link_token), SIGN_IN_ATTEMPTS);
             }
             Attempt::Token(token) => handshake.cookie = token.map(signed_in),
+            Attempt::OtherListener(token) => handshake.cookie = Some(signed_in(token)),
+            Attempt::OtherFile => {}
             Attempt::TokenInQuery => {
                 handshake.target = format!("{}?access_token={}", self.path, percent_encoded(token));
                 handshake.cookie = None;

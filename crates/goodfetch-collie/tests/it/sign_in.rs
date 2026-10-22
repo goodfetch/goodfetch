@@ -122,8 +122,8 @@ fn console_json_prints_the_sign_in_link_and_opens_no_browser(#[case] running: bo
         "the token is in no log: {}",
         opened.output.stderr
     );
-    // The token is taken out before the snapshot's filters run, one of
-    // which reads 26 of its hex digits as a ULID.
+    // The token is random, and no shared filter names it: it is taken out
+    // before the snapshot.
     let stdout = opened.output.stdout.replace(&found.token, "[TOKEN]");
     opened
         .output

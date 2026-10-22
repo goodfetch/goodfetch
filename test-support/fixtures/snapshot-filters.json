@@ -16,7 +16,7 @@
   "patterns": [
     {
       "name": "ulid",
-      "pattern": "[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}\\b",
+      "pattern": "\\b[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}\\b",
       "replacement": "[ULID]"
     },
     {

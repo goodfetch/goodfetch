@@ -22,6 +22,8 @@ mod daemon;
 mod daemon_run;
 mod events;
 mod exit_codes;
+#[cfg(target_os = "linux")]
+mod governor;
 mod help;
 mod human_output;
 mod invalid_calls;

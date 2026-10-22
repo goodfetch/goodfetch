@@ -1,7 +1,7 @@
-//! The page suite (spec #577, tickets #695 and #698; spec #580, ticket #783)
-//! against an Attached engine of Collie's executable, given by path, on the
-//! local Proving ground (ADR 0094): its browser from a Browser cache in the
-//! test's own folder, which its environment names (ADR 0059).
+//! The page suite (spec #577, tickets #695, #696 and #698; spec #580, ticket
+//! #783) against an Attached engine of Collie's executable, given by path, on
+//! the local Proving ground (ADR 0094): its browser from a Browser cache in
+//! the test's own folder, which its environment names (ADR 0059).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -16,7 +16,7 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, Tool, browser_cach
 
 use crate::proving_ground::LocalCopy;
 
-/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, error:navigation_failed, error:navigation_interrupted, story:6-1, story:6-8, story:6-12, operation:page.formats
+/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, story:5-56, story:5-11, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, error:navigation_failed, error:navigation_interrupted, story:6-1, story:6-8, story:6-12, operation:page.formats
 #[test]
 fn the_page_suite_is_proved_against_collies_attached_engine() {
     let env = TestEnv::new();
@@ -58,9 +58,20 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
                 ("navigation.back_forward_cache", Outcome::Proved),
                 ("navigation.failures", Outcome::Proved),
                 ("formats", Outcome::Proved),
+                ("launch", Outcome::Proved),
             ],
             Some(Product::Collie),
         ),
-        "{cases:?}"
+        "{cases:?} {:?}",
+        document
+            .capabilities()
+            .iter()
+            .flat_map(CapabilityResult::cases)
+            .flat_map(|case| case.facts().entries.iter().flat_map(|entry| entry
+                .checks
+                .iter()
+                .filter(|check| !check.passed)
+                .map(|check| check.name.clone())))
+            .collect::<Vec<_>>()
     );
 }

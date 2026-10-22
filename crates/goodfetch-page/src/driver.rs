@@ -8,14 +8,19 @@
 //! isolated world no page script reaches (ADR 0019). A page's navigations
 //! each wait for their document's `load` event and answer its response; the
 //! back/forward cache is off at launch, so going back or forward always
-//! loads its document again (ADR 0121).
+//! loads its document again (ADR 0121). Every page reports itself focused,
+//! so one behind another tab of its Session keeps its timers (ADR 0085's
+//! question), and a headless browser's pages show the identity it shows
+//! with a window (`identity`).
+
+mod identity;
 
 mod navigation;
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::{browser, dom, network, page, target};
+use goodfetch_cdp::generated::{browser, dom, emulation, network, page, target};
 use goodfetch_cdp::{Command, Connection, Failure, SessionId as TargetSession, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
@@ -29,6 +34,7 @@ use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{Call, call_error, interrupted, network_error, renderer_crashed};
 use crate::launch::launch;
 use crate::trace::CommandLog;
+use identity::Identity;
 
 /// How long one CDP command may go unanswered.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -50,6 +56,8 @@ pub(crate) struct Browser {
     log: CommandLog,
     exit: watch::Receiver<Option<BrowserExit>>,
     executable: String,
+    /// The identity a headless browser's pages show; `None` with a window.
+    identity: Option<Identity>,
 }
 
 impl Browser {
@@ -133,16 +141,20 @@ impl Connect for LocalBrowser {
                             },
                         )
                     })?;
-                let browser = Browser {
+                let mut browser = Browser {
                     connection: launched.connection,
                     log,
                     exit: launched.exit,
                     executable: launched.executable.display().to_string(),
+                    identity: None,
                 };
                 // The first answer says the browser is up.
-                browser
+                let version = browser
                     .send(None, &browser::GetVersionParams {}, &browser.opening())
                     .await?;
+                if launched.headless {
+                    browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
+                }
                 Ok(browser)
             })
             .await
@@ -221,6 +233,18 @@ impl<B: Connect> SessionDriver<B> {
             )
             .await?;
         let session = TargetSession(attached.session_id);
+        browser
+            .send(
+                Some(&session),
+                &emulation::SetFocusEmulationEnabledParams { enabled: true },
+                &opening,
+            )
+            .await?;
+        if let Some(identity) = &browser.identity {
+            browser
+                .send(Some(&session), &identity.command(), &opening)
+                .await?;
+        }
         browser
             .send(Some(&session), &page::EnableParams::default(), &opening)
             .await?;

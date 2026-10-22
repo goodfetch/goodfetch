@@ -66,10 +66,36 @@ use goodfetch_cli::output;
 
 use super::browsers;
 
+mod foreground;
 mod launched;
+#[cfg(target_os = "linux")]
+mod reaper;
 
 use launched::launch;
 pub(super) use launched::launched;
+
+/// `daemon run`, the foreground Daemon (ADR 0049); on Linux, under its
+/// reaper unless `reaped` says it runs under it already.
+pub(super) fn run(
+    engine: &goodfetch_engine::Engine,
+    dependencies: goodfetch_engine::Dependencies,
+    machine: &Machine<'_>,
+    reaped: bool,
+) -> ExitCode {
+    #[cfg(target_os = "linux")]
+    if !reaped {
+        let Some(executable) = machine.executable.as_deref() else {
+            tracing::error!(
+                "the executable's own path is unknown, so its reaper cannot start the Daemon"
+            );
+            return ExitCode::FAILURE;
+        };
+        return reaper::reap_around(executable, machine.environment);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = reaped;
+    foreground::run(engine, dependencies, machine)
+}
 
 /// How many times a Client looks for the Daemon again when the one it
 /// found went away, or handed over, before it gives up.

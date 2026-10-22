@@ -186,6 +186,15 @@ export class ConsolePortInUseError extends UnavailableError {
 }
 
 /**
+ * The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.
+ */
+export class DaemonDrainingError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "daemon_draining", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
  */
 export class EngineExitedError extends UnavailableError {
@@ -475,6 +484,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   call_cancelled: CallCancelledError,
   closed: ClosedError,
   console_port_in_use: ConsolePortInUseError,
+  daemon_draining: DaemonDrainingError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,

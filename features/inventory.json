@@ -165,6 +165,17 @@
       ]
     },
     {
+      "id": "command:daemon.run",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:daemon.start",
       "kind": "command",
       "area": 3,
@@ -551,6 +562,17 @@
       "id": "error:console_port_in_use",
       "kind": "error",
       "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:daemon_draining",
+      "kind": "error",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3341,6 +3363,17 @@
       ]
     },
     {
+      "id": "setting:browser.headless",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser_cache.max_unused_age",
       "kind": "setting",
       "area": 3,
@@ -3431,6 +3464,28 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.address",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.drain_grace",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -11272,7 +11327,7 @@
       "id": "story:5-11",
       "kind": "story",
       "area": 5,
-      "milestone": "M3 Browser automation",
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",

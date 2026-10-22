@@ -1,5 +1,5 @@
-# The page suite's case list (spec #577, tickets #695 and #698; spec #580,
-# ticket #783): a Collie program's pages and their formats over the
+# The page suite's case list (spec #577, tickets #695, #696 and #698; spec
+# #580, ticket #783): a Collie program's pages and their formats over the
 # protocol, run by `goodfetch-conformance`'s engine harness against an
 # Attached engine of Collie's executable on the local Proving ground (ADR
 # 0094), each case on a Run of its own whose `network.resolve` maps the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "3"
+version = "4"
 
 [[capability]]
 name = "sessions.default"
@@ -52,6 +52,7 @@ covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
 [[capability.case]]
 id = "a-navigation-superseded-before-it-committed-is-interrupted"
 covers = ["operation:page.goto", "error:navigation_interrupted"]
+
 [[capability]]
 name = "formats"
 
@@ -66,3 +67,14 @@ covers = ["story:6-8", "operation:page.formats"]
 [[capability.case]]
 id = "a-page-with-no-main-content-answers-empty-markdown-and-none"
 covers = ["story:6-12", "operation:page.formats"]
+
+[[capability]]
+name = "launch"
+
+[[capability.case]]
+id = "a-headless-page-shows-the-site-its-windows-identity"
+covers = ["story:5-56", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-page-behind-another-keeps-its-timer-and-its-focus"
+covers = ["story:5-11", "operation:run.new_page", "operation:page.goto"]

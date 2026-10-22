@@ -10,8 +10,10 @@ url_pattern = []
 
 # Which of `driver`'s own modules may import which.
 [submodules.driver]
+identity = []
 navigation = []
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]
+arguments = []
 pipe = []

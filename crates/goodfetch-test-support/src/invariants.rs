@@ -39,6 +39,8 @@ pub enum ViolationKind {
     CommitMissing,
     /// Charged plus reserved Usage went past a Limit and the allowed loss.
     LimitExceeded,
+    /// A settle returned more Usage than its scope had reserved.
+    OverSettled,
 }
 
 /// The first violation a checker found, with the records that show it, in
@@ -291,9 +293,16 @@ pub fn limits<R: Serialize + Clone>(
                 charged,
             } => {
                 let entry = scopes.entry(scope).or_default();
-                entry.reserved = entry.reserved.saturating_sub(*reserved);
-                entry.charged = entry.charged.saturating_add(*charged);
                 entry.positions.push(position);
+                let Some(left) = entry.reserved.checked_sub(*reserved) else {
+                    return Err(violation(
+                        records,
+                        ViolationKind::OverSettled,
+                        entry.positions.clone(),
+                    ));
+                };
+                entry.reserved = left;
+                entry.charged = entry.charged.saturating_add(*charged);
                 entry
             }
             _ => continue,

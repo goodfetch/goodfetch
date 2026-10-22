@@ -339,3 +339,21 @@ fn limits_fail_when_usage_goes_past_the_limit_and_the_allowed_loss() {
         })
     );
 }
+
+/// Settling more Usage than is reserved is a bookkeeping error the checker
+/// reports, rather than clamping it to zero, which would hide Usage a
+/// reservation still holds.
+#[test]
+fn limits_fail_when_a_settle_returns_more_than_was_reserved() {
+    let log = log(&[limit(100), reserve("install/requests", 10), settle(30, 10)]);
+
+    let verdict = limits(&log, 0);
+
+    assert_eq!(
+        verdict,
+        Err(Violation {
+            kind: ViolationKind::OverSettled,
+            records: vec![reserve("install/requests", 10), settle(30, 10)],
+        })
+    );
+}

@@ -12,6 +12,7 @@ mod audit;
 #[cfg(unix)]
 mod background_traffic;
 mod browsers;
+mod certs;
 #[cfg(target_os = "macos")]
 mod checkpoint;
 mod client_conformance;

@@ -314,10 +314,12 @@ fn proving_ground_lists(root: &Path, proving_ground: &Path) -> Result<BTreeMap<S
     for path in journey_files(root)? {
         let text =
             std::fs::read_to_string(root.join(&path)).with_context(|| format!("reading {path}"))?;
-        // A file that does not parse is `check`'s finding; it uses no seed.
-        if let Ok((journey, _)) = parse(&text) {
-            journeys.push(journey);
-        }
+        // A file that does not parse names no seed, so its seed's list
+        // would be removed as unused: refuse until it parses (`check`).
+        let (journey, _) = parse(&text).map_err(|error| {
+            anyhow::anyhow!("{path} does not parse ({error}); fix it before writing the task lists")
+        })?;
+        journeys.push(journey);
     }
     let mut lists = BTreeMap::new();
     for seed in seeds(journeys.iter()) {

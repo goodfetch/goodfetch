@@ -499,3 +499,22 @@ fn drift_check_fails_on_a_list_that_is_not_the_proving_grounds(
         before
     );
 }
+
+/// A Journey that does not parse names no seed, so writing the lists then
+/// would delete its seed's committed list: `tasks` refuses instead, and
+/// keeps every list.
+#[test]
+fn tasks_refuses_while_a_journey_does_not_parse_and_keeps_its_list() {
+    let workspace = catalog();
+    workspace.edit("journeys/J-003.toml", "[surfaces]", "[surfaces");
+
+    let outcome = tasks(&workspace, &[]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(
+        outcome.stderr.contains("journeys/J-003.toml"),
+        "{}",
+        outcome.stderr
+    );
+    assert!(workspace.read(TASK_LIST).is_some());
+}

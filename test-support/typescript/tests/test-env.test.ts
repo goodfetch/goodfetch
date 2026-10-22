@@ -138,6 +138,23 @@ describe("startTestEnv", () => {
     await processes.close();
   });
 
+  test("fails a start whose program cannot run, with the spawn's error as its cause", async () => {
+    const processes = new ProcessRecord();
+
+    const started = startTestEnv({
+      processes,
+      testName: "a missing program",
+      toolManifest: undefined,
+      program: { command: "/nonexistent/goodfetch-test-env", args: [] },
+    });
+
+    await expect(started).rejects.toMatchObject({
+      code: "start_failed",
+      cause: expect.objectContaining({ code: "ENOENT" }),
+    });
+    await processes.close();
+  });
+
   test("fails a teardown that goodfetch-test-env ends with a failure", async () => {
     const processes = new ProcessRecord();
     const started = await startTestEnv({

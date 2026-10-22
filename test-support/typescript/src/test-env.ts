@@ -133,7 +133,8 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
     const exit = await started.exit;
     throw new TestSupportError(
       "start_failed",
-      `goodfetch-test-env exited (code ${exit.code}, signal ${exit.signal}) before describing the test's setup: ${stderr().trim()}`,
+      `goodfetch-test-env exited (code ${exit.code}, signal ${exit.signal}) before describing the test's setup: ${exit.error?.message ?? stderr().trim()}`,
+      exit.error === undefined ? undefined : { cause: exit.error },
     );
   }
   const close = (outcome?: { readonly failed: boolean }): Promise<void> =>

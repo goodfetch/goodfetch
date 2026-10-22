@@ -198,27 +198,36 @@ pub(crate) fn read_listed(folders: &[(Watchlist, &Path)]) -> Result<Vec<Listed>>
     Ok(listed)
 }
 
-/// A vendor the rules cover: its name and the other names a watchlist lists
-/// it under (`block_detection`'s tests check its `rules` exist).
+/// A vendor the coverage file names: its name and the other names a
+/// watchlist lists it under.
 #[derive(Deserialize)]
-pub(crate) struct Covered {
+struct Known {
     name: String,
     #[serde(default)]
     listed_as: Vec<String>,
 }
 
-/// The vendors the rules of the workspace at `root` cover.
-pub(crate) fn read_covered(root: &Path) -> Result<Vec<Covered>> {
-    #[derive(Deserialize)]
-    struct File {
-        vendor: Vec<Covered>,
+/// The coverage file, `vendors.toml`: the vendors the rules cover
+/// (`block_detection`'s tests check their `rules` exist).
+#[derive(Deserialize)]
+pub(crate) struct Coverage {
+    #[serde(rename = "vendor")]
+    covered: Vec<Known>,
+}
+
+impl Coverage {
+    /// The coverage file `text`.
+    pub(crate) fn parse(text: &str) -> Result<Self> {
+        Ok(toml::from_str(text)?)
     }
+}
+
+/// The coverage file of the workspace at `root`.
+pub(crate) fn read_coverage(root: &Path) -> Result<Coverage> {
     let path = root.join(VENDORS);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let file: File =
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    Ok(file.vendor)
+    Coverage::parse(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 /// A vendor the watchlists list that no rule covers.
@@ -230,11 +239,12 @@ pub(crate) struct Missing {
     pub(crate) listings: Vec<Listed>,
 }
 
-/// Each vendor of `listed` that `covered` lacks, by key, its listings in
+/// Each vendor of `listed` that `coverage` lacks, by key, its listings in
 /// `listed`'s order. A name matches a covered vendor's name or one of its
 /// `listed_as` names, compared as keys.
-pub(crate) fn missing(listed: &[Listed], covered: &[Covered]) -> Vec<Missing> {
-    let covered: BTreeSet<String> = covered
+pub(crate) fn missing(listed: &[Listed], coverage: &Coverage) -> Vec<Missing> {
+    let covered: BTreeSet<String> = coverage
+        .covered
         .iter()
         .flat_map(|vendor| std::iter::once(&vendor.name).chain(&vendor.listed_as))
         .map(|name| key(name))
@@ -286,12 +296,12 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         (Watchlist::WebAppAnalyzer, &webappanalyzer),
         (Watchlist::AntibotDetector, &antibot_detector),
     ])?;
-    let covered = read_covered(&environment.root)?;
+    let coverage = read_coverage(&environment.root)?;
     let api = arguments.github.api(environment.token());
     let mut issues = Issues::new(&api, &arguments.github.repository);
     let mut opened = 0;
     let mut waiting = 0;
-    for vendor in missing(&listed, &covered) {
+    for vendor in missing(&listed, &coverage) {
         if opened == arguments.limit {
             waiting += 1;
             continue;

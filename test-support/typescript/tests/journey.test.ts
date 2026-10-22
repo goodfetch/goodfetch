@@ -11,11 +11,10 @@
 // case's own, which `goodfetch-conformance read --journey` loads as every
 // reader does: through `goodfetch-protocol`'s reader, then compared with
 // its Journey.
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, onTestFinished } from "vitest";
+import { describe, expect } from "vitest";
 import {
   test,
   toolPath,
@@ -23,9 +22,8 @@ import {
   type ProcessRecord,
   type TestEnvDescription,
 } from "@goodfetch/test-support";
+import { runRepositoryPlaywright } from "./repository-playwright.ts";
 
-const ROOT = join(import.meta.dirname, "..", "..", "..");
-const CLI = createRequire(import.meta.url).resolve("@playwright/test/cli");
 const JOURNEYS = join(import.meta.dirname, "fixtures", "journeys");
 
 /** An `import` of a module of this package, by its absolute URL. */
@@ -118,43 +116,13 @@ async function run(
   env: Readonly<Record<string, string>> = {},
   config?: string,
 ): Promise<Ran> {
-  // Inside the repository, so the copied configuration finds `@playwright/test`.
-  mkdirSync(join(ROOT, "target"), { recursive: true });
-  const project = mkdtempSync(join(ROOT, "target", "journey-test-"));
-  onTestFinished(() => rmSync(project, { recursive: true, force: true }));
-  copyFileSync(join(ROOT, "playwright.config.ts"), join(project, "playwright.config.ts"));
-  mkdirSync(join(project, "features"));
-  copyFileSync(
-    join(ROOT, "features", "inventory.json"),
-    join(project, "features", "inventory.json"),
-  );
-  writeFileSync(join(project, "journey.spec.ts"), specText);
-  if (config !== undefined) {
-    writeFileSync(join(project, "built.config.ts"), config);
-  }
-  const documents = join(project, "result-documents");
-  const playwrightEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    GOODFETCH_TEST_SUITE: "pre-merge",
-    GOODFETCH_TEST_RESULT_DOCUMENTS: documents,
-    ...env,
-  };
-  delete playwrightEnv["PLAYWRIGHT_JUNIT_OUTPUT_FILE"];
-  const playwright = processes.spawn(
-    process.execPath,
-    [
-      CLI,
-      "test",
-      "--config",
-      config === undefined ? "playwright.config.ts" : "built.config.ts",
-      "--workers",
-      "1",
-    ],
-    { env: playwrightEnv, cwd: project },
-  );
-  playwright.child.stdout.resume();
-  playwright.child.stderr.resume();
-  const { code } = await playwright.exit;
+  const { documents, code } = await runRepositoryPlaywright(processes, {
+    folder: "journey-test",
+    spec: { name: "journey.spec.ts", text: specText },
+    env,
+    ...(config === undefined ? {} : { config }),
+    workers: 1,
+  });
   const file = join(documents, `${journey}@console.json`);
   const reader = processes.spawn(
     toolPath(testEnv.tools, "conformance"),

@@ -55,7 +55,7 @@ pub mod upgrade;
 mod usage;
 
 pub use composition::{
-    CallContext, CallError, Composition, CompositionError, Contribution, Handler,
+    CallContext, CallError, CallInput, Composition, CompositionError, Contribution, Handler,
 };
 pub use engine::{Dependencies, Engine};
 pub use info::contribution;

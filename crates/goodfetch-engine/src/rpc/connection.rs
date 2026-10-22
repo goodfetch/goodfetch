@@ -11,7 +11,7 @@
 //! `crawl_request.handle`, each under an id of its own, and routes each
 //! reply back to its sender; a sender's cancel of one still unanswered
 //! goes to the Client as `$/cancel`, and the reply that still comes is
-//! routed the same way. The Connection's end fails those still waiting. A `$/credit` adds credits to the streaming call it names.
+//! routed the same way. The Connection's end fails those still waiting. A `$/credit` adds credits to the streaming call it names, and a notification a call takes as its input goes to that call.
 //!
 //! A Connection to a Daemon or to an Attached engine's private endpoint
 //! must open with a `hello` carrying that listener's token: anything else
@@ -46,7 +46,7 @@ use super::{
 };
 use crate::client::{Client, Outgoing};
 use crate::composition::{
-    CallContext, CallError, CallStream, ConnectionContext, DaemonSide, Handler,
+    CallContext, CallError, CallInput, CallStream, ConnectionContext, DaemonSide, Handler,
 };
 use crate::events::{Credits, Events};
 use crate::product::{Identity, Requested};
@@ -180,6 +180,8 @@ struct InFlight {
     token: CancellationToken,
     cancellable: bool,
     credits: Option<Credits>,
+    /// The notification it takes as its input, and where each goes.
+    input: Option<(&'static str, mpsc::UnboundedSender<Value>)>,
 }
 
 /// A message read from the Connection, by the event of the engine's table
@@ -624,7 +626,22 @@ impl Session<'_> {
             credits,
             outgoing: self.outgoing.clone(),
         });
-        let context = CallContext::new(Arc::clone(&self.connection), token.clone(), stream);
+        let (input, call_input) = match handler.input() {
+            Some(method) => {
+                let (sender, incoming) = mpsc::unbounded_channel();
+                (
+                    Some((method, sender)),
+                    Some(CallInput::new(id.clone(), incoming, self.outgoing.clone())),
+                )
+            }
+            None => (None, None),
+        };
+        let context = CallContext::new(
+            Arc::clone(&self.connection),
+            token.clone(),
+            stream,
+            call_input,
+        );
         let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
         self.in_flight.insert(
             id.clone(),
@@ -632,6 +649,7 @@ impl Session<'_> {
                 token: token.clone(),
                 cancellable: operation.cancellable,
                 credits,
+                input,
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
@@ -670,7 +688,7 @@ impl Session<'_> {
             return;
         }
         if notification.method != CANCEL {
-            tracing::debug!(method = %notification.method, "an unknown notification is ignored");
+            self.input(notification);
             return;
         }
         let params = notification.params.clone().unwrap_or(Value::Null);
@@ -684,6 +702,29 @@ impl Session<'_> {
                 }
             }
             Err(error) => tracing::debug!(%error, "a `$/cancel` without a call's id is ignored"),
+        }
+    }
+
+    /// Hands an input notification to the call in flight it names, which
+    /// takes it; any other is ignored.
+    fn input(&self, notification: &Notification) {
+        #[derive(serde::Deserialize)]
+        struct Named {
+            id: RequestId,
+        }
+        let params = notification.params.clone().unwrap_or(Value::Null);
+        let taker = serde_json::from_value::<Named>(params.clone())
+            .ok()
+            .and_then(|Named { id }| self.in_flight.get(&id))
+            .and_then(|call| call.input.as_ref())
+            .filter(|(method, _)| *method == notification.method);
+        match taker {
+            Some((_, sender)) => {
+                let _ = sender.send(params);
+            }
+            None => {
+                tracing::debug!(method = %notification.method, "an unknown notification is ignored");
+            }
         }
     }
 

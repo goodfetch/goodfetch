@@ -5,16 +5,17 @@
 use crate::catalog::{Entries, Operation, Product, SharedType};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, console, daemon, dns, engine, events,
-    executables, foxhound, key_value_store, log, page, politeness, run, sample, secrets, settings,
-    usage, versions,
+    executables, foxhound, key_value_store, log, ops, page, politeness, run, sample, secrets,
+    settings, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 29] = [
+pub const MODULES: [&Entries; 30] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
     &daemon::ENTRIES,
+    &ops::ENTRIES,
     &browser_cache::ENTRIES,
     &dns::ENTRIES,
     &engine::ENTRIES,
@@ -80,6 +81,7 @@ mod tests {
                 "connection.set_log_level",
                 "daemon.status",
                 "daemon.stop",
+                "daemon.health",
                 "engine.info",
                 "events.subscribe",
                 "run.new_page",
@@ -118,6 +120,7 @@ mod tests {
                 "connection.set_log_level",
                 "daemon.status",
                 "daemon.stop",
+                "daemon.health",
                 "engine.info",
                 "events.subscribe",
                 "run.new_page",
@@ -152,6 +155,8 @@ mod tests {
                 "crawl.start",
                 "crawl.serve",
                 "run.seeds",
+                "run.add_seed",
+                "run.add_seeds",
                 "crawl_request.enqueue",
                 "run.outcomes",
                 "run.failed_requests"

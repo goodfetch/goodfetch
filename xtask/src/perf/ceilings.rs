@@ -20,7 +20,7 @@ use serde::Deserialize;
 
 use crate::check::Finding;
 
-use super::budget::{self, Ceiling};
+use super::budget::{self, Ceiling, Gating};
 use super::compare::Row;
 use super::figure::{self, Figure, Sign};
 use super::table;
@@ -246,25 +246,39 @@ pub(crate) fn render(checks: &[Check]) -> String {
     table
 }
 
-pub(crate) fn findings(checks: &[Check]) -> Vec<Finding> {
+/// Each figure over its ceiling, a finding of the budget that `gating`
+/// decides.
+pub(crate) fn over(checks: &[Check], gating: Gating) -> Vec<Finding> {
     checks
         .iter()
-        .filter_map(|check| match check.verdict {
-            Verdict::Over => Some(Finding::new(
+        .filter(|check| check.verdict == Verdict::Over)
+        .map(|check| {
+            Finding::new(
                 "over-ceiling",
                 check.id(),
                 format!(
-                    "is {} against its ceiling of {}; no \"Performance change\" section passes a ceiling, and only the owner moves one",
+                    "is {} against its ceiling of {}; {}",
                     check.head.as_deref().unwrap_or_default(),
-                    check.ceiling
+                    check.ceiling,
+                    gating.remedy(
+                        "no \"Performance change\" section passes a ceiling, and only the owner moves one"
+                    )
                 ),
-            )),
-            Verdict::NotMeasured => Some(Finding::new(
-                "ceiling-not-measured",
-                check.id(),
-                "has a ceiling and was measured before, but the head has no figure for it; renaming or removing a benchmark never drops its ceiling, which only the owner moves",
-            )),
-            Verdict::Within | Verdict::NotRun => None,
+            )
         })
+        .collect()
+}
+
+/// Each ceiling whose figure the head lost: a broken measurement, which
+/// fails whatever the gating.
+pub(crate) fn not_measured(checks: &[Check]) -> Vec<Finding> {
+    checks
+        .iter()
+        .filter(|check| check.verdict == Verdict::NotMeasured)
+        .map(|check| Finding::new(
+            "ceiling-not-measured",
+            check.id(),
+            "has a ceiling and was measured before, but the head has no figure for it; renaming or removing a benchmark never drops its ceiling, which only the owner moves",
+        ))
         .collect()
 }

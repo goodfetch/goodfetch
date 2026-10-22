@@ -8,8 +8,11 @@
 #                    `--without-service-manager` leaves the user's service
 #                    manager out, for a caller whose tests do not include
 #                    `service_manager::` (`just linux`, ci/linux.sh).
-#   skipped <file>   for `just test`: in CI (`CI` set) the same check, failing
-#                    on a missing service; on a local host, appends each
+#   skipped <file>   for `just test`: in CI (`CI` set), and where the caller
+#                    requires every service (`GOODFETCH_OS_SERVICES=required`,
+#                    which ci/pre-merge.sh sets on Linux after running setup),
+#                    the same check, failing on a missing service; on a
+#                    local host otherwise, appends each
 #                    missing service to <file> and prints the test-name
 #                    patterns that skip the tests needing it (ci/tool.sh's rule).
 #   addresses        prints the extra loopback addresses, one per line.
@@ -19,8 +22,12 @@
 #     its login keyring created and unlocked with a throwaway password drawn
 #     here, as keyring-rs's CI does. Later steps find the bus through
 #     DBUS_SESSION_BUS_ADDRESS: written to $GITHUB_ENV on a runner's own
-#     system, and to $RUNTIME/env, which ci/vm/in-container.sh reads, in the
-#     job's container.
+#     system, and to $RUNTIME/env, which ci/vm/in-container.sh and
+#     ci/pre-merge.sh read. XDG_RUNTIME_DIR, written beside it, stays the
+#     user's own folder where systemd made one, for the user's manager.
+#     The keyring keeps its files and control socket in $RUNTIME, apart from
+#     any keyring of the user's login session. A setup run again while the
+#     earlier session's Secret Service answers keeps that session.
 #   - macOS: the extra loopback addresses as `lo0` aliases, which needs sudo.
 #     The owner's machine's runner user has none: its aliases come from
 #     ci/runner/loopback-aliases.sh, which the owner installs once (#1562).
@@ -115,34 +122,53 @@ setup_linux() {
   fi
   setup_user_namespaces
 
-  rm -rf "$RUNTIME"
-  mkdir -p "$RUNTIME"
-  chmod 700 "$RUNTIME"
-  export XDG_RUNTIME_DIR=$RUNTIME
   # A bus at a path, not an abstract socket, so the deny's network namespace
   # on a hosted runner reaches it too.
   export DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME/bus"
-  dbus-daemon --session --fork --address="$DBUS_SESSION_BUS_ADDRESS"
+  # A host that runs the gate again and again (the local gate on Linux,
+  # ci/pre-merge.sh) keeps the session an earlier setup started while its
+  # Secret Service answers, so a run still using it keeps it.
+  if [[ -S "$RUNTIME/bus" ]] &&
+    (cd "$root" && cargo run --quiet --locked -p xtask -- os-services check --secret-service) >/dev/null 2>&1; then
+    echo "Kept the D-Bus session and Secret Service an earlier setup started."
+  else
+    # The earlier session's bus, if it still runs; its keyring daemon ends
+    # with it.
+    if [[ -f "$RUNTIME/dbus.pid" ]]; then kill "$(cat "$RUNTIME/dbus.pid")" 2>/dev/null || true; fi
+    rm -rf "$RUNTIME"
+    mkdir -p "$RUNTIME"
+    chmod 700 "$RUNTIME"
+    dbus-daemon --session --fork --address="$DBUS_SESSION_BUS_ADDRESS" --print-pid >"$RUNTIME/dbus.pid"
 
-  # The password unlocks a keyring that lives as long as the job and holds
-  # only the tests' own items; it is never written anywhere.
-  local password
-  password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
-  printf '%s' "$password" | gnome-keyring-daemon --unlock --components=secrets --daemonize >/dev/null
-  unset password
+    # The password unlocks a keyring that lives as long as the session and
+    # holds only the tests' own items; it is never written anywhere. The
+    # keyring's files and control socket live in the session's folder, so
+    # neither meets a keyring the user's login session started: its control
+    # socket in the user's runtime folder, its keyrings in their home.
+    local password
+    password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+    printf '%s' "$password" | XDG_DATA_HOME="$RUNTIME/data" gnome-keyring-daemon --unlock \
+      --components=secrets --control-directory="$RUNTIME/keyring" --daemonize >/dev/null
+    unset password
+    echo "Started a D-Bus session and gnome-keyring's Secret Service, unlocked."
+  fi
 
+  # The user's systemd manager, kept running by lingering, when systemd
+  # booted this host; `systemctl --user` reaches it through its own socket
+  # in the user's runtime folder, `/run/user/<uid>/systemd/private`.
+  if [[ -d /run/systemd/system ]] && command -v loginctl >/dev/null; then
+    as_root loginctl enable-linger "$(id -un)" || true
+  fi
+  # So the tests keep that runtime folder when systemd made one, and only
+  # the bus is the session's; elsewhere the session's folder stands in.
+  local runtime_dir=$RUNTIME
+  if [[ -d "/run/user/$(id -u)/systemd" ]]; then runtime_dir=/run/user/$(id -u); fi
+  export XDG_RUNTIME_DIR=$runtime_dir
   {
     echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
     echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
   } >"$RUNTIME/env"
   if [[ -n "${GITHUB_ENV:-}" ]]; then cat "$RUNTIME/env" >>"$GITHUB_ENV"; fi
-  echo "Started a D-Bus session and gnome-keyring's Secret Service, unlocked."
-
-  # The user's systemd manager, kept running by lingering, when systemd
-  # booted this host; `systemctl --user` reaches it through its own bus.
-  if [[ -d /run/systemd/system ]] && command -v loginctl >/dev/null; then
-    as_root loginctl enable-linger "$(id -un)" || true
-  fi
 }
 
 setup_macos() {
@@ -178,7 +204,7 @@ case "${1:-}" in
     ;;
   skipped)
     file=${2:?usage: ci/os-services.sh skipped <file>}
-    if [[ -n "${CI:-}" ]]; then
+    if [[ -n "${CI:-}" || "${GOODFETCH_OS_SERVICES:-}" == required ]]; then
       xtask_check >&2
     else
       mkdir -p "$(dirname "$file")"

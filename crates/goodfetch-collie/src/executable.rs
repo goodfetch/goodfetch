@@ -69,6 +69,8 @@ mod browsers;
 mod config;
 mod daemon;
 mod logs;
+mod metrics;
+mod otlp;
 mod runs;
 mod service;
 mod upgrade;
@@ -260,6 +262,18 @@ enum DaemonCommand {
     },
     /// Shows whether the Daemon runs, as which Product, and its Clients.
     Status {
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Says whether the Daemon of the major, or the foreground Daemon at
+    /// `daemon.address`, is ready to take a run, as its ops listener's
+    /// `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1
+    /// when it is not or none answers.
+    Health {
+        /// Says whether it is live instead, as `/livez` does.
+        #[arg(long)]
+        live: bool,
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
@@ -651,6 +665,7 @@ fn run(
                 daemon::restart(&machine, keep_alive, json)
             }
             DaemonCommand::Status { json } => daemon::status(&machine, json),
+            DaemonCommand::Health { live, json } => daemon::health(&machine, live, json),
             DaemonCommand::Install { json } => service::install(&machine, json),
             DaemonCommand::Uninstall { json } => service::uninstall(&machine, json),
             DaemonCommand::RotateToken { json } => service::rotate_token(&machine, json),

@@ -6,6 +6,7 @@ format = "text"
 
 [settings.otlp]
 traces_endpoint = "example"
+metrics_endpoint = "example"
 
 [settings.console]
 address = "example"
@@ -14,6 +15,9 @@ address = "example"
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+
+[settings.ops]
+address = "example"
 
 [settings.browser_cache]
 max_unused_age = 30000

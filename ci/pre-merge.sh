@@ -9,7 +9,8 @@
 # The checks that need Linux run beside the host steps, each in its own
 # container, with its lines marked `[<step>]`: `just perf`, the counted
 # figures (ci/perf.sh); `just linux`, the tests only Linux decides
-# (ci/linux.sh); `just visual`, the visual projects in the pinned Playwright
+# (ci/linux.sh), which on a Linux host run among the host's tests, after the
+# OS-service setup below; `just visual`, the visual projects in the pinned Playwright
 # image (ci/visual/container.sh). The suite waits for each and fails when one
 # fails, and stops them when a host step fails first. The host's checks that
 # take seconds and judge the whole change (sign-offs, commit messages, the SDK
@@ -31,9 +32,28 @@ case "$all" in
     ;;
 esac
 
+# On Linux the host runs the tests only Linux decides itself (ci/linux.sh),
+# so it sets up every OS service they use first, as a CI job does, and every
+# later step finds them through the setup's environment file. A service that
+# goes missing fails the suite instead of skipping its tests
+# (`GOODFETCH_OS_SERVICES=required`), and the DNS namespace's way is declared
+# (TESTING.md, `DnsNamespace`), `sudo -n` as the setup itself needs, so a
+# silent fallback fails too.
+os_services() {
+  [[ "$(uname -s)" == Linux ]] || return 0
+  just _os-services
+  set -a
+  # shellcheck source=/dev/null
+  source "${RUNNER_TEMP:-/tmp}/goodfetch-os-services/env"
+  set +a
+  export GOODFETCH_OS_SERVICES=required
+  export GOODFETCH_TEST_DNS_NAMESPACE=${GOODFETCH_TEST_DNS_NAMESPACE:-sudo}
+}
+
 rm -f target/skipped.txt
 if [[ $all == quick ]]; then
   trap 'just _skips-report' EXIT
+  os_services
   echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
   just dco
   just commit-messages
@@ -45,9 +65,6 @@ if [[ $all == quick ]]; then
   just notices
   exit 0
 fi
-# Collie's executable embeds its Console build (ADR 0057), which the steps
-# beside, in their containers, find in the workspace they mount.
-just console-build
 names=()
 pids=()
 # Starts a step beside the host's, its lines marked with its name.
@@ -61,6 +78,10 @@ beside() {
 # `kill` signals each process it is given, even past one that has ended.
 trap '[[ ${#pids[@]} -eq 0 ]] || kill "${pids[@]}" 2>/dev/null || true; just _skips-report' EXIT
 
+os_services
+# Collie's executable embeds its Console build (ADR 0057), which the steps
+# beside, in their containers, find in the workspace they mount.
+just console-build
 beside perf
 beside linux
 beside visual

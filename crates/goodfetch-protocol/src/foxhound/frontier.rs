@@ -6,9 +6,11 @@
 //! handler's attempt, resolving a relative URL against the document's base
 //! URL. A crawl request is sent with a method and a body, which with its
 //! URL's key make its identity, unless the program declares its `key`.
-//! The `crawl.scope.*` settings say which links a crawl may follow, fixed
-//! for the Run's life; `crawl.max_depth` and `crawl.max_requests` bound it,
-//! and three caps on a URL's shape end the traps no rule learned. Foxhound's
+//! `run.add_seed` adds a seed to a running crawl, and `run.add_seeds` takes
+//! a stream of them under credits, answering each in order. The
+//! `crawl.scope.*` settings say which links a crawl may follow, fixed for
+//! the Run's life; `crawl.max_depth` and `crawl.max_requests` bound it, and
+//! three caps on a URL's shape end the traps no rule learned. Foxhound's
 //! own.
 
 use std::borrow::Cow;
@@ -22,6 +24,8 @@ use crate::catalog::{
     Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
     Stability, ValueKind, schema_of,
 };
+use crate::foxhound::crawl::Seed;
+use crate::jsonrpc::RequestId;
 use crate::run::RunId;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -346,6 +350,145 @@ pub struct CrawlRequestEnqueueParams {
     pub document: Option<EnqueueDocument>,
 }
 
+/// The notification that carries a batch of the seeds a Client streams to
+/// a `run.add_seeds` call.
+pub const SEEDS: &str = "$/seeds";
+
+/// The notification that carries the answers of a batch of seeds a
+/// `run.add_seeds` call admitted, in the order they came.
+pub const ENQUEUED: &str = "$/enqueued";
+
+/// How many seeds a `run.add_seeds` call takes before it answers any: the
+/// credits it grants its Client at once (CO-02) **(shape)**. It grants one
+/// more for each seed it answers, so it holds at most this many seeds at a
+/// time, whatever the length of the stream.
+pub const SEED_CREDITS: u32 = 256;
+
+/// The attempt a seed is added from: a handler's `ctx.run`, which is bound
+/// to its attempt (ADR 0093).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SeedAttempt {
+    /// The ID of the crawl request whose attempt adds the seed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// The attempt's lease epoch, as `crawl_request.handle` gave it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lease_epoch: u64,
+}
+
+/// What `run.add_seed` takes: one seed for a running crawl.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunAddSeedParams {
+    /// The crawl's Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The seed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub seed: Seed,
+    /// The attempt that adds it, when a handler adds it through its
+    /// context's `run`; absent, the program adds it from outside any
+    /// attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attempt: Option<SeedAttempt>,
+}
+
+/// What `run.add_seeds` takes: the running crawl its Client streams seeds
+/// to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunAddSeedsParams {
+    /// The crawl's Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+}
+
+/// What `$/seeds` carries: the next seeds a Client streams to a
+/// `run.add_seeds` call, never more than the credits the call granted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SeedBatch {
+    /// The id of the `run.add_seeds` call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: RequestId,
+    /// The seeds, in order.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub seeds: Vec<Seed>,
+    /// Whether they are the stream's last: the call answers once it
+    /// answered them.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub end: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_false(flag: &bool) -> bool {
+    !*flag
+}
+
+/// What `$/enqueued` carries: the answer of each seed of one `$/seeds`
+/// batch, in the batch's order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EnqueuedBatch {
+    /// The id of the `run.add_seeds` call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: RequestId,
+    /// Each seed's answer.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub answers: Vec<Enqueued>,
+}
+
+/// What `run.add_seeds` answers once its stream ended: how many of the
+/// seeds it took were added, and how many were not.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunSeedsAdded {
+    /// The seeds added.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub added: u64,
+    /// The seeds not added, each with its reason in its answer.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub not_added: u64,
+}
+
+/// `run.add_seed`.
+pub const RUN_ADD_SEED: Operation = Operation {
+    name: "run.add_seed",
+    description: "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunAddSeedParams>,
+    result: schema_of::<Enqueued>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.add_seeds`.
+pub const RUN_ADD_SEEDS: Operation = Operation {
+    name: "run.add_seeds",
+    description: "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl fails with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::Sequence,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunAddSeedsParams>,
+    result: schema_of::<RunSeedsAdded>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `run.seeds`.
 pub const RUN_SEEDS: Operation = Operation {
     name: "run.seeds",
@@ -504,7 +647,12 @@ fn max_segment_repeats() -> Value {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_SEEDS, CRAWL_REQUEST_ENQUEUE],
+    operations: &[
+        RUN_SEEDS,
+        RUN_ADD_SEED,
+        RUN_ADD_SEEDS,
+        CRAWL_REQUEST_ENQUEUE,
+    ],
     events: &[],
     handler_requests: &[],
     error_codes: &[],

@@ -55,6 +55,7 @@ fn crawl_of(count: usize) -> Connection {
             label: "page".to_owned(),
             payload: None,
             priority: 0,
+            forefront: false,
             method: goodfetch_protocol::foxhound::frontier::HttpMethod::get(),
             body: None,
             key: None,

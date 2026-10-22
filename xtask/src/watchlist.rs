@@ -62,15 +62,17 @@ impl Watchlist {
         }
     }
 
-    /// The watchlist `text` (a source's name or address) names, if any.
+    /// The watchlist `text` (a source's name or address) names, if any:
+    /// its repository's name, compared as keys, so `Antibot Detector` and
+    /// `antibot-detector` both name it.
     pub(crate) fn named_in(text: &str) -> Option<Self> {
-        let text = text.to_ascii_lowercase();
+        let text = key(text);
         Self::ALL.into_iter().find(|watchlist| {
-            let repository = watchlist.repository().to_ascii_lowercase();
+            let repository = watchlist.repository();
             let name = repository
                 .rsplit_once('/')
-                .map_or(repository.as_str(), |(_, name)| name);
-            text.contains(name)
+                .map_or(repository, |(_, name)| name);
+            text.contains(&key(name))
         })
     }
 

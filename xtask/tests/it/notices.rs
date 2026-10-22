@@ -374,6 +374,16 @@ fn block_detection_rule_source_without_a_license_or_a_source_fails(
     "https://github.com/enthec/webappanalyzer/blob/1/src/technologies/d.json",
     "block-detection-rules vendor markers@1"
 )]
+#[case::by_name_spelled_without_its_hyphen(
+    "Scrapfly Antibot Detector",
+    "https://example.invalid/detectors",
+    "block-detection-rules Scrapfly Antibot Detector@1"
+)]
+#[case::by_name_spelled_with_spaces(
+    "Web App Analyzer",
+    "https://example.invalid/technologies",
+    "block-detection-rules Web App Analyzer@1"
+)]
 fn block_detection_rule_source_that_is_a_watchlist_fails(
     #[case] name: &str,
     #[case] source: &str,

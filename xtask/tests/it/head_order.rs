@@ -7,6 +7,7 @@
 //! The local gate is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use crate::workspace::Workspace;
@@ -89,7 +90,6 @@ fn fixture() -> Fixture {
     for (name, script) in scripts {
         let path = stand_ins.join(name);
         std::fs::write(&path, script).unwrap();
-        use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     Fixture {

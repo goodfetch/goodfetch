@@ -1,10 +1,13 @@
 """No process outlives its test (ADR 0069)."""
 
+import json
+import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from goodfetch_test_support import TestEnv
+from goodfetch_test_support import ProcessesAlive, TestEnv
 
 if TYPE_CHECKING:
     from conftest import SampleRun
@@ -61,3 +64,46 @@ def test_teardown_removes_the_tests_folder(
 
     assert outcome.results == {"test_folder": "passed"}, outcome.output
     assert not Path(record.read_text("utf-8")).exists()
+
+
+STAYS_ALIVE = """\
+import json
+import sys
+import time
+
+print(json.dumps({description}), flush=True)
+time.sleep(300)
+"""
+"""A `goodfetch-test-env` stand-in that describes a setup and never ends."""
+
+
+def test_teardown_fails_when_goodfetch_test_env_stays_alive(test_env: TestEnv) -> None:
+    """A live `goodfetch-test-env` fails teardown at the deadline the test sets."""
+    description = {
+        "folder": "/nonexistent/fake test é",
+        "home": "/nonexistent/fake test é/home",
+        "env": {"GOODFETCH_HOME": "/nonexistent/fake test é/home"},
+        "seed": 1,
+        "start_time": "2026-01-05T09:00:00Z",
+        "tools": {},
+    }
+    program = test_env.folder / "stays-alive"
+    program.write_text(
+        f"#!{sys.executable}\n"
+        + STAYS_ALIVE.format(description=json.dumps(description)),
+        "utf-8",
+    )
+    program.chmod(0o755)
+    manifest = test_env.folder / "test-tools.json"
+    manifest.write_text(json.dumps({"test_env": str(program)}), "utf-8")
+    setup = TestEnv.open(
+        "stays alive",
+        {"GOODFETCH_TEST_TOOLS": str(manifest)},
+        teardown_deadline=0.2,
+    )
+    began = time.monotonic()
+
+    with pytest.raises(ProcessesAlive):
+        setup.close()
+
+    assert time.monotonic() - began < 5

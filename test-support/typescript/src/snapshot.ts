@@ -47,7 +47,9 @@ function folderForms(folder: string): string[] {
     // A folder that does not exist has no canonical path.
   }
   const forms = new Set(paths.flatMap((path) => [path, JSON.stringify(path).slice(1, -1)]));
-  return [...forms].sort((left, right) => right.length - left.length || left.localeCompare(right));
+  return [...forms].toSorted(
+    (left, right) => right.length - left.length || left.localeCompare(right),
+  );
 }
 
 /**

@@ -71,6 +71,8 @@ export interface TestEnvStart {
   readonly provingGroundSeed?: number | undefined;
   /** The Product whose Daemon to start in the test's home, when given. */
   readonly daemon?: Product | undefined;
+  /** How long teardown waits for `goodfetch-test-env` to end once its stdin closes, 10 s unless a test sets a shorter one. */
+  readonly teardownDeadlineMs?: number | undefined;
 }
 
 /** A started setup. */
@@ -85,6 +87,7 @@ export interface StartedTestEnv {
 }
 
 /** How long `goodfetch-test-env` has to tear down once its stdin closes. */
+/** How long teardown waits for `goodfetch-test-env` to end, unless the start sets another. */
 const TEARDOWN_DEADLINE_MS = 10_000;
 
 const TOOLS_VARIABLE = "GOODFETCH_TEST_TOOLS";
@@ -132,7 +135,8 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       `goodfetch-test-env exited (code ${exit.code}, signal ${exit.signal}) before describing the test's setup: ${stderr().trim()}`,
     );
   }
-  const close = (): Promise<void> => teardown(started);
+  const close = (): Promise<void> =>
+    teardown(started, start.teardownDeadlineMs ?? TEARDOWN_DEADLINE_MS);
   const description = parseDescription(line);
   if (description === undefined) {
     await close();
@@ -206,12 +210,12 @@ function parseDescription(line: string): TestEnvDescription | undefined {
   return isDescription(description) ? description : undefined;
 }
 
-async function teardown(started: RecordedProcess): Promise<void> {
+async function teardown(started: RecordedProcess, deadlineMs: number): Promise<void> {
   started.child.stdin.end();
   const deadline = new AbortController();
   const exit = await Promise.race([
     started.exit,
-    delay(TEARDOWN_DEADLINE_MS, undefined, { signal: deadline.signal }).catch(() => undefined),
+    delay(deadlineMs, undefined, { signal: deadline.signal }).catch(() => undefined),
   ]);
   deadline.abort();
   if (exit !== undefined && exit.code !== 0) {

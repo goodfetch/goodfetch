@@ -78,9 +78,12 @@ describe("redact", () => {
     `);
   });
 
-  test.each(CASES.cases)("redacts the shared case: $description", ({ output, redacted }) => {
-    expect(redact(output, {})).toBe(redacted);
-  });
+  test.each(CASES.cases)(
+    "redacts the shared case: $description",
+    ({ output: printed, redacted }) => {
+      expect(redact(printed, {})).toBe(redacted);
+    },
+  );
 
   test.skipIf(process.platform === "win32")(
     "redacts the test's folder in each form an output prints it",
@@ -92,13 +95,13 @@ describe("redact", () => {
       const folder = join(parent, "link");
       symlinkSync(real, folder);
       const canonical = realpathSync(folder);
-      const output = [
+      const printed = [
         `${folder}/a ${canonical}/b`,
         JSON.stringify({ path: `${folder}/c` }),
         JSON.stringify({ path: `${canonical}/d` }),
       ].join(" ");
 
-      expect(redact(output, { folder })).toBe(
+      expect(redact(printed, { folder })).toBe(
         '[FOLDER]/a [FOLDER]/b {"path":"[FOLDER]/c"} {"path":"[FOLDER]/d"}',
       );
     },

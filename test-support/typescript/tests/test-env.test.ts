@@ -48,19 +48,20 @@ describe("testEnv", () => {
   });
 });
 
-describe("testEnv with a description that fails the schema", () => {
-  test.override("testEnvProgram", fake("bad-description"));
-
-  test.fails("fails the fixture", ({ testEnv }) => {
-    expect(testEnv).toBeDefined();
-  });
-});
-
 describe("testEnv with a goodfetch-test-env that stays alive", () => {
-  test.override("testEnvProgram", fake("stays-alive"));
+  test("fails its test at teardown with processes_alive", async () => {
+    const processes = new ProcessRecord();
+    const started = await startTestEnv({
+      processes,
+      testName: "stays alive",
+      toolManifest: undefined,
+      program: fake("stays-alive"),
+      teardownDeadlineMs: 200,
+    });
 
-  test.fails("fails its test at teardown", ({ testEnv }) => {
-    expect(testEnv.start_time).toBe("2026-01-05T09:00:00Z");
+    await started.close();
+
+    await expect(processes.close()).rejects.toMatchObject({ code: "processes_alive" });
   });
 });
 

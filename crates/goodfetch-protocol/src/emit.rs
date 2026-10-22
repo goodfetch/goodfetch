@@ -45,6 +45,7 @@ use crate::catalog::{
 };
 use crate::cli::{CommandFailed, ExitCodeRow, exit_code_table};
 use crate::connection::{CancelParams, HelloParams, HelloResult};
+use crate::console::ConsoleOpened;
 use crate::daemon::{
     DaemonHealthOutput, DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput,
     DaemonStatusOutput, DaemonStopOutput, DaemonUninstallOutput,
@@ -117,6 +118,7 @@ pub fn emit() -> Emitted {
         "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
         "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
         "config.explain": generator.subschema_for::<SettingsExplanation>(),
+        "console": generator.subschema_for::<ConsoleOpened>(),
         "daemon.health": generator.subschema_for::<DaemonHealthOutput>(),
         "daemon.install": generator.subschema_for::<DaemonInstallOutput>(),
         "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),

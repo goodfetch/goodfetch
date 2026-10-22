@@ -130,6 +130,14 @@ class ClosedError(ProgramError):
         super().__init__(message, code="closed", group="program", retryable=False)
 
 
+class ConnectionLostError(UnavailableError):
+    """The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="connection_lost", group="unavailable", retryable=True)
+
+
 class ConsolePortInUseError(UnavailableError):
     """The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon."""
 
@@ -492,6 +500,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
     "closed": ClosedError,
+    "connection_lost": ConnectionLostError,
     "console_port_in_use": ConsolePortInUseError,
     "daemon_draining": DaemonDrainingError,
     "egress_refused": EgressRefusedError,

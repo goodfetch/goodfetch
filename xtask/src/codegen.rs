@@ -5,6 +5,7 @@
 //! the commands `goodfetch-cli` generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
+//! the Console's operation map from Collie's projection (spec #592),
 //! each registered format's refusal cases (ADR 0066), the Journey files'
 //! schema on its own, `journeys/journey.schema.json`, for
 //! editors and the TypeScript and Python helpers (ADR 0063), and the result
@@ -30,6 +31,7 @@
 
 mod cdp;
 mod cli;
+mod console;
 mod deny;
 mod digest;
 mod emitter;
@@ -271,6 +273,7 @@ impl Plan {
             test_support::FOLDER,
             helpers::TYPESCRIPT_FOLDER,
             helpers::PYTHON_FOLDER,
+            console::FOLDER,
         ]
         .into_iter()
         .chain(PACKAGES.iter().map(|package| package.folder))
@@ -367,6 +370,9 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         test_support::canary_rule(cargo, root)?,
     );
     files.extend(cdp::generate(root)?);
+    for (name, text) in console::files(root, &collie)? {
+        files.insert(format!("{}/{name}", console::FOLDER), text.into_bytes());
+    }
 
     let mut externals = Vec::new();
     for package in &PACKAGES {

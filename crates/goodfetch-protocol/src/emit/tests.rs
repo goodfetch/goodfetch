@@ -269,6 +269,7 @@ fn the_bundle_holds_each_commands_json_output() {
             "browsers.clean": { "$ref": "#/$defs/BrowsersCleanOutput" },
             "browsers.install": { "$ref": "#/$defs/BrowsersInstallOutput" },
             "config.explain": { "$ref": "#/$defs/SettingsExplanation" },
+            "console": { "$ref": "#/$defs/ConsoleOpened" },
             "daemon.health": { "$ref": "#/$defs/DaemonHealthOutput" },
             "daemon.install": { "$ref": "#/$defs/DaemonInstallOutput" },
             "daemon.restart": { "$ref": "#/$defs/DaemonStartOutput" },

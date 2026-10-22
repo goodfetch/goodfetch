@@ -226,10 +226,20 @@ const programs = {
     );
     return { status: "success", records: paths.map((id) => ({ id })) };
   },
-  /** Reads the layout the page shows in the viewport the context has. */
+  /**
+   * Reads the layout the page shows in the viewport the context has, then
+   * leaves the page. Closing the browser ends the context's emulated device
+   * pixel ratio while a page it shows still runs, and that page picks its
+   * image again at the screen's own ratio of 1 and fetches it, which the
+   * oracle rightly counts against any other ratio. On `about:blank` the
+   * layout's page has been unloaded (Playwright turns the back-forward cache
+   * off), so nothing is left to fetch.
+   */
   layout: async (page, { url }) => {
     await page.goto(url);
-    return { status: "success", records: [await layout(page)] };
+    const record = await layout(page);
+    await page.goto("about:blank");
+    return { status: "success", records: [record] };
   },
   /** Types the asked text key by key, as a US QWERTY keyboard sends it. */
   "type-keys": async (page, { url, swap }) => {

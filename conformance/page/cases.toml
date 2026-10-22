@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #698, #699 and #700;
+# The page suite's case list (spec #577, tickets #695, #696, #698, #699, #700 and #702;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "6"
+version = "7"
 
 [[capability]]
 name = "sessions.default"
@@ -148,3 +148,41 @@ covers = ["story:5-10", "operation:locator.fill", "operation:locator.click"]
 [[capability.case]]
 id = "a-pressed-key-reaches-a-field-as-a-trusted-key"
 covers = ["story:5-10", "operation:locator.press"]
+
+[[capability]]
+name = "routes"
+
+[[capability.case]]
+id = "an-unanswered-route-lets-the-request-through-and-the-page-loads"
+covers = ["story:5-40", "operation:page.route", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-route-whose-handler-fails-aborts-its-request-is-removed-and-the-waiting-call-raises-page-handler-failed"
+covers = ["story:5-41", "operation:page.route", "error:page_handler_failed"]
+
+[[capability.case]]
+id = "a-second-answer-raises-route-already-handled"
+covers = ["story:5-41", "operation:route.fulfill", "error:route_already_handled"]
+
+[[capability.case]]
+id = "page-routes-come-before-session-routes-later-first-and-the-first-answer-wins"
+covers = ["story:5-40", "operation:page.route", "operation:session.route", "operation:route.fallback", "operation:route.continue", "operation:route.fulfill"]
+
+[[capability.case]]
+id = "continue-fulfill-and-abort-reach-the-server-as-its-record-shows"
+covers = ["story:5-40", "operation:route.continue", "operation:route.fulfill", "operation:route.abort"]
+
+[[capability.case]]
+id = "fetch-hands-the-request-on-and-fulfill-answers-its-changed-response"
+covers = ["story:5-40", "operation:route.fetch", "operation:route.fulfill"]
+
+[[capability]]
+name = "routes.interception_order"
+
+[[capability.case]]
+id = "what-a-route-sends-on-passes-the-domain-policy-and-cookies-come-after-every-route"
+covers = ["story:5-42", "operation:page.route", "operation:route.continue", "operation:route.fulfill", "error:egress_refused"]
+
+[[capability.case]]
+id = "adding-a-route-leaves-the-browsers-cache-serving-a-cached-response"
+covers = ["story:5-42", "operation:page.route"]

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, AuditVerified, AuditVerifyParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PageRouteParams, PressParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -180,6 +180,48 @@ class AsyncCollieOperations:
         """
         return Navigated.model_construct(**_fields(await self._caller.call("page.reload", params)))
 
+    async def page_route(self, params: PageRouteParams) -> RouteEnded:
+        """Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteEnded.model_construct(**_fields(await self._caller.call("page.route", params)))
+
+    async def route_abort(self, params: RouteAbortParams) -> RouteAnswered:
+        """Answers a route's request by failing it with a network error its page sees, `failed` unless named; nothing reaches the network.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(await self._caller.call("route.abort", params)))
+
+    async def route_continue(self, params: RouteOverridesParams) -> RouteAnswered:
+        """Answers a route's request by sending it on, with any overrides, past every other route: the domain policy judges what it sends.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(await self._caller.call("route.continue", params)))
+
+    async def route_fallback(self, params: RouteOverridesParams) -> RouteAnswered:
+        """Answers a route's request by passing it, with any overrides, to the route registered before, from the page's first route to the Session's last; past the last route it goes on to the network.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(await self._caller.call("route.fallback", params)))
+
+    async def route_fetch(self, params: RouteOverridesParams) -> RouteFetched:
+        """Sends a route's request on, with any overrides, past every other route, as `route.continue` does, and answers the response it got, its body kept; the handler then answers the request with `route.fulfill`, or, ending without one, the page gets that response.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteFetched.model_construct(**_fields(await self._caller.call("route.fetch", params)))
+
+    async def route_fulfill(self, params: RouteFulfillParams) -> RouteAnswered:
+        """Answers a route's request with a response of the program's own, or the one `route.fetch` returned with its changes; nothing reaches the network.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(await self._caller.call("route.fulfill", params)))
+
     async def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
@@ -266,6 +308,13 @@ class AsyncCollieOperations:
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
         return SampleEchoResult.model_construct(**_fields(await self._caller.call("sample.echo", params)))
+
+    async def session_route(self, params: SessionRouteParams) -> RouteEnded:
+        """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteEnded.model_construct(**_fields(await self._caller.call("session.route", params)))
 
     async def usage_list(self, params: UsageListParams) -> UsageListResult:
         """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
@@ -428,6 +477,48 @@ class CollieOperations:
         """
         return Navigated.model_construct(**_fields(self._caller.call("page.reload", params)))
 
+    def page_route(self, params: PageRouteParams) -> RouteEnded:
+        """Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteEnded.model_construct(**_fields(self._caller.call("page.route", params)))
+
+    def route_abort(self, params: RouteAbortParams) -> RouteAnswered:
+        """Answers a route's request by failing it with a network error its page sees, `failed` unless named; nothing reaches the network.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(self._caller.call("route.abort", params)))
+
+    def route_continue(self, params: RouteOverridesParams) -> RouteAnswered:
+        """Answers a route's request by sending it on, with any overrides, past every other route: the domain policy judges what it sends.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(self._caller.call("route.continue", params)))
+
+    def route_fallback(self, params: RouteOverridesParams) -> RouteAnswered:
+        """Answers a route's request by passing it, with any overrides, to the route registered before, from the page's first route to the Session's last; past the last route it goes on to the network.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(self._caller.call("route.fallback", params)))
+
+    def route_fetch(self, params: RouteOverridesParams) -> RouteFetched:
+        """Sends a route's request on, with any overrides, past every other route, as `route.continue` does, and answers the response it got, its body kept; the handler then answers the request with `route.fulfill`, or, ending without one, the page gets that response.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteFetched.model_construct(**_fields(self._caller.call("route.fetch", params)))
+
+    def route_fulfill(self, params: RouteFulfillParams) -> RouteAnswered:
+        """Answers a route's request with a response of the program's own, or the one `route.fetch` returned with its changes; nothing reaches the network.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteAnswered.model_construct(**_fields(self._caller.call("route.fulfill", params)))
+
     def run_abort(self, params: RunAbortParams) -> RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
 
@@ -514,6 +605,13 @@ class CollieOperations:
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
         return SampleEchoResult.model_construct(**_fields(self._caller.call("sample.echo", params)))
+
+    def session_route(self, params: SessionRouteParams) -> RouteEnded:
+        """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RouteEnded.model_construct(**_fields(self._caller.call("session.route", params)))
 
     def usage_list(self, params: UsageListParams) -> UsageListResult:
         """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.

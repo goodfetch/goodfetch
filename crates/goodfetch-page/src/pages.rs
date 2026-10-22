@@ -6,6 +6,11 @@
 //! action reaches its page's driver through the guard, under the Run's
 //! `timeout.action`. A navigation the browser turns into a download answers
 //! no response and publishes `page.download` on the engine's event stream.
+//! Every page is under the interception from its opening: `page.route`
+//! and `session.route` arm their routes there, `route.*` answer the
+//! requests those routes hold, and a failure a route's handler left on a
+//! page is raised by the navigation waiting on its request, or else by the
+//! page's next call.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -20,6 +25,12 @@ use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_extractor::{Context, Document};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::route::{
+    PAGE_ROUTE, PageRouteParams, ROUTE_ABORT, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH,
+    ROUTE_FULFILL, RouteAbortParams, RouteAnswered, RouteFetched, RouteFulfillParams,
+    RouteOverridesParams, SESSION_ROUTE, SessionRouteParams,
+};
 use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
     LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_FORMATS, PAGE_GO_BACK,
@@ -35,6 +46,7 @@ use tokio::sync::Mutex;
 
 use crate::driver::{Arrived, Destination, LocalBrowser, PageDriver, SessionDriver};
 use crate::guard::{self, Action, Request, Window};
+use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 
 /// A navigation's deadline when the Run's settings name none: 30 s.
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -46,15 +58,143 @@ const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
 /// What the page crate adds to the engine (ADR 0087): the handlers of
 /// `run.new_page`, of the navigations `page.goto`, `page.reload`,
 /// `page.go_back` and `page.go_forward`, of `page.formats` and of the
-/// locator actions, whose browsers come from `pins`, the builds the Product
-/// version pins.
+/// locator actions, and of the routes and their answers, whose browsers
+/// come from `pins`, the builds the Product version pins.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
     let pages = Pages {
         state: Arc::new(Mutex::new(State::default())),
         pins,
+        interception: Interception::default(),
     };
     let contribution = with_page_handlers(Contribution::new("page"), &pages);
-    with_locator_handlers(contribution, &pages)
+    let contribution = with_locator_handlers(contribution, &pages);
+    with_route_handlers(contribution, &pages.interception)
+}
+
+/// Adds the handlers of `page.route` and `session.route`, each arming its
+/// route when its call arrives, and of the answers to their requests, each
+/// delivered when its call arrives.
+fn with_route_handlers(contribution: Contribution, interception: &Interception) -> Contribution {
+    let (paging, sessioning) = (interception.clone(), interception.clone());
+    let contribution = contribution
+        .with_handler(Handler::new(
+            &PAGE_ROUTE,
+            move |params: PageRouteParams, context: CallContext| {
+                let armed = paging.arm(
+                    Scope::Page(&params.page_id),
+                    &params.url,
+                    context.client(),
+                    context.id(),
+                );
+                async move { armed?.ended().await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &SESSION_ROUTE,
+            move |params: SessionRouteParams, context: CallContext| {
+                let armed = sessioning.arm(
+                    Scope::Session(&params.session_id),
+                    &params.url,
+                    context.client(),
+                    context.id(),
+                );
+                async move { armed?.ended().await }
+            },
+        ));
+    let (continuing, falling_back, fulfilling, aborting, fetching) = (
+        interception.clone(),
+        interception.clone(),
+        interception.clone(),
+        interception.clone(),
+        interception.clone(),
+    );
+    contribution
+        .with_handler(Handler::new(
+            &ROUTE_CONTINUE,
+            move |params: RouteOverridesParams, _context: CallContext| {
+                let route_id = params.route_id.clone();
+                let replied = continuing.answer(&route_id, Answer::Continue(overrides(params)));
+                async move { answered(replied?.await) }
+            },
+        ))
+        .with_handler(Handler::new(
+            &ROUTE_FALLBACK,
+            move |params: RouteOverridesParams, _context: CallContext| {
+                let route_id = params.route_id.clone();
+                let replied = falling_back.answer(&route_id, Answer::Fallback(overrides(params)));
+                async move { answered(replied?.await) }
+            },
+        ))
+        .with_handler(Handler::new(
+            &ROUTE_FULFILL,
+            move |params: RouteFulfillParams, _context: CallContext| {
+                let route_id = params.route_id.clone();
+                let replied = fulfilling.answer(&route_id, Answer::Fulfill(fulfillment(params)));
+                async move { answered(replied?.await) }
+            },
+        ))
+        .with_handler(Handler::new(
+            &ROUTE_ABORT,
+            move |params: RouteAbortParams, _context: CallContext| {
+                let replied = aborting.answer(
+                    &params.route_id,
+                    Answer::Abort(params.error_code.unwrap_or_default()),
+                );
+                async move { answered(replied?.await) }
+            },
+        ))
+        .with_handler(Handler::new(
+            &ROUTE_FETCH,
+            move |params: RouteOverridesParams, _context: CallContext| {
+                let route_id = params.route_id.clone();
+                let replied = fetching.answer(&route_id, Answer::Fetch(overrides(params)));
+                async move {
+                    match replied?.await? {
+                        Reply::Fetched(fetched) => Ok::<RouteFetched, CallError>(fetched),
+                        Reply::Answered => Err(CallError::protocol(
+                            ProtocolFailure::InternalError,
+                            "the pipeline answered a fetch with no response",
+                        )),
+                    }
+                }
+            },
+        ))
+}
+
+/// The overrides `params` names.
+fn overrides(params: RouteOverridesParams) -> Overrides {
+    Overrides {
+        url: params.url,
+        method: params.method,
+        headers: params.headers,
+        post_data: params.post_data,
+    }
+}
+
+/// The response `params` names: 200 and an empty body unless it says
+/// otherwise, its `content_type` over its headers' own.
+fn fulfillment(params: RouteFulfillParams) -> Fulfillment {
+    let mut headers: BTreeMap<String, String> = params
+        .headers
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(name, _)| {
+            params.content_type.is_none() || !name.eq_ignore_ascii_case("content-type")
+        })
+        .collect();
+    if let Some(content_type) = params.content_type {
+        headers.insert("content-type".to_owned(), content_type);
+    }
+    Fulfillment {
+        status: params.status.unwrap_or(200),
+        headers,
+        body: params.body.unwrap_or_default(),
+    }
+}
+
+/// What an answer to a route answers once the pipeline acted on it.
+fn answered(reply: Result<Reply, CallError>) -> Result<RouteAnswered, CallError> {
+    reply.map(|_| RouteAnswered {})
 }
 
 /// Adds the handlers of `run.new_page`, the navigations and `page.formats`.
@@ -203,6 +343,7 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
 struct Pages {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
+    interception: Interception,
 }
 
 #[derive(Default)]
@@ -261,9 +402,15 @@ impl Pages {
             );
         let run_pages = self.default_session(&run, &context).await;
         let driver = run_pages.driver.new_page(navigation_timeout).await?;
+        let page = {
+            let mut state = self.state.lock().await;
+            state.opened_pages += 1;
+            PageId(format!("page-{}", state.opened_pages))
+        };
+        self.interception
+            .start(&page, &run_pages.session, &driver, &run)
+            .await?;
         let mut state = self.state.lock().await;
-        state.opened_pages += 1;
-        let page = PageId(format!("page-{}", state.opened_pages));
         let span = tracing::Span::current();
         span.record("page_id", page.0.as_str());
         span.record("session_id", run_pages.session.0.as_str());
@@ -306,14 +453,25 @@ impl Pages {
         });
         state.runs.insert(run.id().clone(), Arc::clone(&opened));
         drop(state);
+        self.interception.open_session(&opened.session);
         let pages = self.clone();
         let stopping = run.cancellation().clone();
         let run_id = run.id().clone();
         run.spawn(async move {
             stopping.cancelled().await;
             let mut state = pages.state.lock().await;
-            state.runs.remove(&run_id);
+            let session = state.runs.remove(&run_id).map(|run| run.session.clone());
+            let gone: Vec<PageId> = state
+                .pages
+                .iter()
+                .filter(|(_, page)| page.run.id() == &run_id)
+                .map(|(page_id, _)| page_id.clone())
+                .collect();
             state.pages.retain(|_, page| page.run.id() != &run_id);
+            drop(state);
+            if let Some(session) = session {
+                pages.interception.close(&gone, &session);
+            }
         });
         opened
     }
@@ -335,7 +493,14 @@ impl Pages {
         }
         let page = self.open(page_id).await?;
         span.record("run_id", page.run.id().as_str());
-        match page.driver.navigate(destination, wait_until).await? {
+        let navigated = page.driver.navigate(destination, wait_until).await;
+        // A failure the interception left while the navigation ran, such
+        // as a route's handler failing on its document, is the
+        // navigation's.
+        if let Some(failure) = self.interception.take_failure(page_id) {
+            return Err(failure);
+        }
+        match navigated? {
             Arrived::Document(response) => Ok(Navigated { response }),
             Arrived::Download {
                 url,
@@ -382,9 +547,11 @@ impl Pages {
         Ok(Acted {})
     }
 
-    /// The open page `page_id`, or `closed`.
+    /// The open page `page_id`, or `closed`; a failure a route's handler
+    /// left on it is raised here, by the page's next call.
     async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
-        self.state
+        let page = self
+            .state
             .lock()
             .await
             .pages
@@ -396,7 +563,11 @@ impl Pages {
                     format!("the page `{}` is closed, or its Run ended", page_id.0),
                     &json!({ "page_id": page_id }),
                 )
-            })
+            })?;
+        match self.interception.take_failure(page_id) {
+            Some(failure) => Err(failure),
+            None => Ok(page),
+        }
     }
 
     /// The formats the request names, read from one serialization of the

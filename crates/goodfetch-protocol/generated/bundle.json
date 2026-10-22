@@ -1,5 +1,80 @@
 {
   "$defs": {
+    "AbortReason": {
+      "description": "The network error an aborted request reports to its page, under\nPlaywright's names.",
+      "oneOf": [
+        {
+          "const": "aborted",
+          "description": "`aborted`.",
+          "type": "string"
+        },
+        {
+          "const": "accessdenied",
+          "description": "`accessdenied`.",
+          "type": "string"
+        },
+        {
+          "const": "addressunreachable",
+          "description": "`addressunreachable`.",
+          "type": "string"
+        },
+        {
+          "const": "blockedbyclient",
+          "description": "`blockedbyclient`.",
+          "type": "string"
+        },
+        {
+          "const": "blockedbyresponse",
+          "description": "`blockedbyresponse`.",
+          "type": "string"
+        },
+        {
+          "const": "connectionaborted",
+          "description": "`connectionaborted`.",
+          "type": "string"
+        },
+        {
+          "const": "connectionclosed",
+          "description": "`connectionclosed`.",
+          "type": "string"
+        },
+        {
+          "const": "connectionfailed",
+          "description": "`connectionfailed`.",
+          "type": "string"
+        },
+        {
+          "const": "connectionrefused",
+          "description": "`connectionrefused`.",
+          "type": "string"
+        },
+        {
+          "const": "connectionreset",
+          "description": "`connectionreset`.",
+          "type": "string"
+        },
+        {
+          "const": "internetdisconnected",
+          "description": "`internetdisconnected`.",
+          "type": "string"
+        },
+        {
+          "const": "namenotresolved",
+          "description": "`namenotresolved`.",
+          "type": "string"
+        },
+        {
+          "const": "timedout",
+          "description": "`timedout`.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "`failed`.",
+          "type": "string"
+        }
+      ]
+    },
     "Acted": {
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
@@ -5226,6 +5301,31 @@
       ],
       "type": "object"
     },
+    "PageRouteParams": {
+      "additionalProperties": false,
+      "description": "What `page.route` takes: the page, and the URLs whose requests its\nhandler answers.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "$ref": "#/$defs/UrlMatcher",
+          "arrived_in": "0.1",
+          "description": "The URLs it answers."
+        }
+      },
+      "required": [
+        "page_id",
+        "url"
+      ],
+      "type": "object"
+    },
     "Period": {
       "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
       "properties": {
@@ -6157,6 +6257,279 @@
       },
       "required": [
         "runs"
+      ],
+      "type": "object"
+    },
+    "RouteAbortParams": {
+      "additionalProperties": false,
+      "description": "What `route.abort` takes: the request, and the error its page sees.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AbortReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The network error; `failed` when absent."
+        },
+        "route_id": {
+          "$ref": "#/$defs/RouteId",
+          "arrived_in": "0.1",
+          "description": "The request."
+        }
+      },
+      "required": [
+        "route_id"
+      ],
+      "type": "object"
+    },
+    "RouteAnswered": {
+      "description": "What an answer to a route answers once the engine acted on it.",
+      "type": "object"
+    },
+    "RouteEnded": {
+      "description": "What a route's subscription answers when its page or Session closes.",
+      "type": "object"
+    },
+    "RouteFetched": {
+      "description": "What `route.fetch` answers: the response the request got, its body\nkept, for the handler to pass to `route.fulfill`.",
+      "properties": {
+        "body": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64.",
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers, their names lower-cased.",
+          "type": "object"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status_text": {
+          "arrived_in": "0.1",
+          "description": "Its status text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "status_text",
+        "headers",
+        "body"
+      ],
+      "type": "object"
+    },
+    "RouteFulfillParams": {
+      "additionalProperties": false,
+      "description": "What `route.fulfill` takes: the request, and the response the program\nanswers it with; nothing reaches the network.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "body": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64; empty when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "Its `Content-Type`, set over `headers`' own.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "route_id": {
+          "$ref": "#/$defs/RouteId",
+          "arrived_in": "0.1",
+          "description": "The request."
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its status; 200 when absent.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "route_id"
+      ],
+      "type": "object"
+    },
+    "RouteHandleParams": {
+      "description": "What `route.handle` gives the handler: the request, named by the ID its\nanswer passes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `page.route` or `session.route` call whose handler is\nasked."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page that sent the request."
+        },
+        "request": {
+          "$ref": "#/$defs/RouteRequest",
+          "arrived_in": "0.1",
+          "description": "The request."
+        },
+        "route_id": {
+          "$ref": "#/$defs/RouteId",
+          "arrived_in": "0.1",
+          "description": "The intercepted request, which an answer names."
+        }
+      },
+      "required": [
+        "id",
+        "route_id",
+        "page_id",
+        "request"
+      ],
+      "type": "object"
+    },
+    "RouteHandled": {
+      "description": "What the handler replies to `route.handle` once it ended; a failure\nreply says it failed.",
+      "type": "object"
+    },
+    "RouteId": {
+      "description": "One intercepted request a route's handler answers, which `route.*`\nnames.",
+      "type": "string"
+    },
+    "RouteOverridesParams": {
+      "additionalProperties": false,
+      "description": "What `route.continue`, `route.fallback` and `route.fetch` take: the\nrequest, and what to send instead of what it carries. Each override\nreplaces its part whole; a header value may hold a Secret placeholder\n(ADR 0092).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Other headers, in place of every header the request carries.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "Another method.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Another body, in Base64.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route_id": {
+          "$ref": "#/$defs/RouteId",
+          "arrived_in": "0.1",
+          "description": "The request."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Another URL, judged again by the domain policy.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "route_id"
+      ],
+      "type": "object"
+    },
+    "RouteRequest": {
+      "description": "A request as a route sees it: as the page sent it, with the overrides of\nthe routes that fell back before. The engine's own additions, such as\nthe Session's cookies, come after every route, so none is here.",
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers, as the page sent them.",
+          "type": "object"
+        },
+        "is_navigation_request": {
+          "arrived_in": "0.1",
+          "description": "Whether it loads the document of the page's main frame.",
+          "type": "boolean"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "Its method, such as `GET`.",
+          "type": "string"
+        },
+        "resource_type": {
+          "arrived_in": "0.1",
+          "description": "What the page loads with it, as the browser names it, such as\n`Document`, `Script` or `XHR`.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "method",
+        "headers",
+        "resource_type",
+        "is_navigation_request"
       ],
       "type": "object"
     },
@@ -7768,6 +8141,31 @@
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
     },
+    "SessionRouteParams": {
+      "additionalProperties": false,
+      "description": "What `session.route` takes: the Session, and the URLs whose requests its\nhandler answers, on every page of the Session.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session."
+        },
+        "url": {
+          "$ref": "#/$defs/UrlMatcher",
+          "arrived_in": "0.1",
+          "description": "The URLs it answers."
+        }
+      },
+      "required": [
+        "session_id",
+        "url"
+      ],
+      "type": "object"
+    },
     "SetLogLevelParams": {
       "additionalProperties": false,
       "description": "What `connection.set_log_level` takes.",
@@ -8883,6 +9281,51 @@
         "kept"
       ],
       "type": "object"
+    },
+    "UrlMatcher": {
+      "description": "A URL pattern the engine matches (ADR 0081): a glob as Playwright reads\none, or a regular expression in the `regex` crate's syntax. A predicate\nruns in the program, which routes every URL and falls back for the\nrequests it does not match.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A glob, such as `**/*.png`.",
+          "properties": {
+            "kind": {
+              "const": "glob",
+              "type": "string"
+            },
+            "pattern": {
+              "arrived_in": "0.1",
+              "description": "The glob.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A regular expression, matched anywhere in the URL.",
+          "properties": {
+            "kind": {
+              "const": "regex",
+              "type": "string"
+            },
+            "pattern": {
+              "arrived_in": "0.1",
+              "description": "The expression's source.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "UsageAmount": {
       "description": "An amount of a Usage kind counted in a currency, or as a count.",

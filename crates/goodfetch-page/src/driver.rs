@@ -559,6 +559,35 @@ enum Step {
 }
 
 impl PageDriver {
+    /// The page's main frame.
+    pub(crate) fn main_frame(&self) -> &page::FrameId {
+        &self.frame
+    }
+
+    /// The events of the page's target, from when this answers.
+    pub(crate) async fn events(&self) -> Subscription {
+        self.browser.connection.subscribe(Some(&self.session)).await
+    }
+
+    /// Sends `params` on the page's target, recorded in the Run trace, as
+    /// one of the commands that open the page: a failure raises
+    /// `browser_launch_failed` or `page_crashed`.
+    pub(crate) async fn opening_command<C: Command>(
+        &self,
+        params: &C,
+    ) -> Result<C::Returns, CallError> {
+        self.browser
+            .send(Some(&self.session), params, &self.browser.opening())
+            .await
+    }
+
+    /// Sends `params` on the page's target, recorded in the Run trace,
+    /// answering the failure itself: the interception's commands, whose
+    /// request may be gone.
+    pub(crate) async fn command<C: Command>(&self, params: &C) -> Result<C::Returns, Failure> {
+        self.browser.try_send(Some(&self.session), params).await
+    }
+
     /// Waits for the page's turn, in arrival order, for the gesture
     /// `operation`, whose failures raise its codes.
     ///

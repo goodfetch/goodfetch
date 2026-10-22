@@ -7,12 +7,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rstest::rstest;
 
-use super::plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, gate_input, plan, unit};
+use super::plan::{
+    Action, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED, gate_input, plan,
+    unit,
+};
 use super::runs;
 use crate::affected::{Job, RepoPath};
 
 const BASE: &str = "base";
 const EARLIER: &str = "earlier";
+const HOST: &str = "host";
+/// Now, in seconds since the Unix epoch, for every case.
+const NOW: u64 = 1_800_000_000;
 
 fn members() -> BTreeSet<String> {
     [
@@ -31,6 +37,7 @@ fn green(origin: &str) -> Outcome {
         green: true,
         origin: origin.to_owned(),
         tree: format!("{origin}-tree"),
+        at: NOW - 60,
     }
 }
 
@@ -49,6 +56,7 @@ fn full_green_run() -> GateRun {
     GateRun {
         head: EARLIER.to_owned(),
         base: BASE.to_owned(),
+        host: HOST.to_owned(),
         units,
     }
 }
@@ -58,10 +66,19 @@ fn touched_since_earlier(touched: Touched) -> BTreeMap<String, Touched> {
 }
 
 fn planned(record: Option<&GateRun>, touched: &BTreeMap<String, Touched>) -> Vec<Planned> {
-    let members = members();
+    planned_with(&members(), record, touched)
+}
+
+fn planned_with(
+    members: &BTreeSet<String>,
+    record: Option<&GateRun>,
+    touched: &BTreeMap<String, Touched>,
+) -> Vec<Planned> {
     let head = Head {
         base: BASE,
-        members: &members,
+        members,
+        host: HOST,
+        now: NOW,
     };
     plan(&head, record, "no earlier run", touched)
 }
@@ -139,6 +156,7 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
         jobs: BTreeSet::from([Job::PreMerge, Job::Visual]),
         crates: false,
         members: BTreeSet::from(["test-support/typescript".to_owned()]),
+        evidence: BTreeMap::new(),
     };
 
     let plan = planned(Some(&record), &touched_since_earlier(touched));
@@ -328,19 +346,118 @@ fn every_member_rerun_runs_the_step_in_full() {
 
 #[test]
 fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
-    let text =
-        "base\tb4se\nperf\tpass\tc0ffee\tt1\nquick:xtask\tpass\tc0ffee\tt1\nperf\tfail\tfeed\tt2\n";
+    let text = "base\tb4se\nhost\th0st\nperf\tpass\tc0ffee\tt1\t10\nquick:xtask\tpass\tc0ffee\tt1\t10\nperf\tfail\tfeed\tt2\t20\n";
 
     let record = runs::parse("feed", text).unwrap();
 
-    assert_eq!(record.base, "b4se");
+    assert_eq!(
+        (record.base.as_str(), record.host.as_str()),
+        ("b4se", "h0st")
+    );
     assert_eq!(
         record.units.get("perf"),
         Some(&Outcome {
             green: false,
             origin: "feed".to_owned(),
-            tree: "t2".to_owned()
+            tree: "t2".to_owned(),
+            at: 20,
         })
     );
     assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
+}
+
+#[test]
+fn a_changed_host_reruns_every_step() {
+    let mut record = full_green_run();
+    record.host = "another host".to_owned();
+
+    let (full, part) = reruns(&planned(
+        Some(&record),
+        &touched_since_earlier(Touched::default()),
+    ));
+
+    assert_eq!(full.len(), Step::ALL.len());
+    assert!(part.is_empty());
+}
+
+#[test]
+fn a_result_older_than_a_day_reruns() {
+    let mut record = full_green_run();
+    record.units.insert(
+        unit(Step::Perf, None),
+        Outcome {
+            at: NOW - MAX_AGE - 1,
+            ..green(EARLIER)
+        },
+    );
+
+    let plan = planned(Some(&record), &touched_since_earlier(Touched::default()));
+
+    assert!(
+        matches!(action(&plan, Step::Perf), Action::Run { why } if why.contains("older than a day")),
+        "{:?}",
+        action(&plan, Step::Perf)
+    );
+    assert!(matches!(action(&plan, Step::Tlc), Action::Reuse { .. }));
+}
+
+/// The tests no member owns rerun with any member, and reuse with all.
+#[test]
+fn the_tests_no_member_owns_rerun_whenever_a_member_does() {
+    let mut members = members();
+    members.insert(UNOWNED.to_owned());
+    let mut record = full_green_run();
+    for step in [Step::Quick, Step::PreMerge, Step::Stress] {
+        record
+            .units
+            .insert(unit(step, Some(UNOWNED)), green(EARLIER));
+    }
+    let reaching_one = Touched {
+        members: BTreeSet::from(["test-support/typescript".to_owned()]),
+        ..Touched::default()
+    };
+
+    let reached = planned_with(
+        &members,
+        Some(&record),
+        &touched_since_earlier(reaching_one),
+    );
+    let untouched = planned_with(
+        &members,
+        Some(&record),
+        &touched_since_earlier(Touched::default()),
+    );
+
+    assert!(matches!(
+        action(&reached, Step::PreMerge),
+        Action::Part { members, .. }
+            if members == &BTreeSet::from([UNOWNED.to_owned(), "test-support/typescript".to_owned()])
+    ));
+    assert!(matches!(
+        action(&untouched, Step::PreMerge),
+        Action::Reuse { .. }
+    ));
+}
+
+/// The evidence of what a member read reaches it where the selection does
+/// not, and the plan names that evidence.
+#[test]
+fn evidence_reaches_a_member_the_selection_misses() {
+    let record = full_green_run();
+    let touched = Touched {
+        evidence: BTreeMap::from([("xtask".to_owned(), "its build read TESTING.md".to_owned())]),
+        ..Touched::default()
+    };
+
+    let plan = planned(Some(&record), &touched_since_earlier(touched));
+
+    assert!(
+        matches!(
+            action(&plan, Step::PreMerge),
+            Action::Part { members, why }
+                if members == &BTreeSet::from(["xtask".to_owned()]) && why.contains("its build read TESTING.md")
+        ),
+        "{:?}",
+        action(&plan, Step::PreMerge)
+    );
 }

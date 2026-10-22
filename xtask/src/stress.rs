@@ -25,7 +25,7 @@ use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
 
-use crate::affected::{Kind, WorkspaceMembers};
+use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::metadata::{self, Package};
 use crate::output;
@@ -117,20 +117,23 @@ impl Narrowing {
             Runner::Vitest | Runner::Playwright => Kind::TypeScript,
             Runner::Pytest => Kind::Python,
         };
-        self.members
-            .all()
-            .any(|(name, member)| member == kind && self.within.contains(&name))
+        let unowned = kind != Kind::Crate && self.within.contains(UNOWNED);
+        unowned
+            || self
+                .members
+                .all()
+                .any(|(name, member)| member == kind && self.within.contains(&name))
     }
 
-    /// Whether the test lies within: its member is, or it lies in no
-    /// member, which nothing then narrows.
+    /// Whether the test lies within: its member is, or it lies in no member
+    /// and [`UNOWNED`] is within.
     fn holds(&self, location: &Location) -> bool {
         let member = match location {
             Location::Target { package, .. } => Some(package.clone()),
             Location::File(Some(file)) => self.members.owner(file),
             Location::File(None) => None,
         };
-        member.is_none_or(|member| self.within.contains(&member))
+        self.within.contains(member.as_deref().unwrap_or(UNOWNED))
     }
 }
 
@@ -514,8 +517,8 @@ pub(crate) enum Command {
         #[arg(long)]
         cargo_profile: Option<String>,
         /// Only the new and changed tests of these members, crates by name
-        /// and pnpm or uv packages by folder (the incremental gate, ADR
-        /// 0135); repeatable.
+        /// and pnpm or uv packages by folder, `:unowned` for the tests no
+        /// member owns (the incremental gate, ADR 0135); repeatable.
         #[arg(long)]
         within: Vec<String>,
         /// The earlier gate run's head, with `--within`: each test whose

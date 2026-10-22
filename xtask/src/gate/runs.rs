@@ -1,9 +1,10 @@
 //! The gate's records, kept with the gate's worktree under
 //! `target/gate-runs/` and never committed: `<head>.tsv`, each unit's result
 //! for the run on that head, and `<head>.plan`, the plan that run follows.
-//! A record is a `base\t<commit>` line, then one
-//! `<unit>\t<pass|fail>\t<origin commit>\t<origin tree>` line per result; the
-//! last line for a unit wins, so a run appends each step's result as it ends.
+//! A record is a `base\t<commit>` line and a `host\t<fingerprint>` line,
+//! then one `<unit>\t<pass|fail>\t<origin commit>\t<origin tree>\t<unix time>`
+//! line per result; the last line for a unit wins, so a run appends each
+//! step's result as it ends.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -22,12 +23,14 @@ const FAIL: &str = "fail";
 
 pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
     let mut base = None;
+    let mut host = None;
     let mut units = BTreeMap::new();
     for line in text.lines().filter(|line| !line.is_empty()) {
         let fields: Vec<&str> = line.split('\t').collect();
         match fields.as_slice() {
             ["base", commit] => base = Some((*commit).to_owned()),
-            [unit, status, origin, tree] => {
+            ["host", fingerprint] => host = Some((*fingerprint).to_owned()),
+            [unit, status, origin, tree, at] => {
                 let green = match *status {
                     PASS => true,
                     FAIL => false,
@@ -39,21 +42,27 @@ pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
                         green,
                         origin: (*origin).to_owned(),
                         tree: (*tree).to_owned(),
+                        at: at
+                            .parse()
+                            .with_context(|| format!("the time of {unit} is {at:?}"))?,
                     },
                 );
             }
-            _ => bail!("a record line is `<unit>\\t<status>\\t<origin>\\t<tree>`, not {line:?}"),
+            _ => bail!(
+                "a record line is `<unit>\\t<status>\\t<origin>\\t<tree>\\t<time>`, not {line:?}"
+            ),
         }
     }
     Ok(GateRun {
         head: head.to_owned(),
         base: base.context("a record names its base on a `base` line")?,
+        host: host.context("a record names its host on a `host` line")?,
         units,
     })
 }
 
 pub(crate) fn render(record: &GateRun) -> String {
-    let mut text = format!("base\t{}\n", record.base);
+    let mut text = format!("base\t{}\nhost\t{}\n", record.base, record.host);
     for (unit, outcome) in &record.units {
         text.push_str(&line(unit, outcome));
     }
@@ -66,8 +75,8 @@ pub(crate) fn line(unit: &str, outcome: &Outcome) -> String {
     let status = if outcome.green { PASS } else { FAIL };
     let _ = writeln!(
         text,
-        "{unit}\t{status}\t{}\t{}",
-        outcome.origin, outcome.tree
+        "{unit}\t{status}\t{}\t{}\t{}",
+        outcome.origin, outcome.tree, outcome.at
     );
     text
 }

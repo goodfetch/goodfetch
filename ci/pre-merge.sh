@@ -78,10 +78,30 @@ beside() {
   names+=("$1")
   pids+=("$!")
 }
-# At the end, stops the steps still running beside, then lists what this
-# host skipped.
+# At the end, stops the steps still running beside, releases the gate's
+# records, then lists what this host skipped.
 # `kill` signals each process it is given, even past one that has ended.
-trap '[[ ${#pids[@]} -eq 0 ]] || kill "${pids[@]}" 2>/dev/null || true; just _skips-report' EXIT
+lock=""
+trap '[[ ${#pids[@]} -eq 0 ]] || kill "${pids[@]}" 2>/dev/null || true; [[ -z $lock ]] || rm -rf "$lock"; just _skips-report' EXIT
+
+# One gate run at a time records into a workspace's target/gate-runs/: a
+# second run while the first's process lives fails before any step, since
+# both would share the tests' JUnit files and exercise records too.
+if [[ $all == all ]]; then
+  mkdir -p target/gate-runs
+  if ! mkdir target/gate-runs/lock 2>/dev/null; then
+    holder=$(cat target/gate-runs/lock/pid 2>/dev/null || true)
+    if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
+      echo "error: another gate run (process $holder) holds target/gate-runs/; run it again when that run ends" >&2
+      exit 1
+    fi
+    # The run that held it ended without releasing it.
+    rm -rf target/gate-runs/lock
+    mkdir target/gate-runs/lock
+  fi
+  lock=target/gate-runs/lock
+  echo "$$" >"$lock/pid"
+fi
 
 os_services
 
@@ -91,8 +111,10 @@ os_services
 # since the head each green result ran on, says for each step whether this
 # run reruns it in full (`run`), reruns its tests of some members only
 # (`part`), or reuses its green results (`reuse`); it logs each choice with
-# the run and head it reuses from. Every step's result is recorded here
-# (`just _gate-record`). Without a plan line a step runs in full.
+# the run and head it reuses from, and checks each reused member against the
+# evidence of what it read (`xtask gate`'s `evidence`). Every step's result
+# is recorded once its whole step has ended (`just _gate-record`), for the
+# planned head only. Without a plan line a step runs in full.
 plan=""
 if [[ $all == all ]]; then
   plan=$(just _gate-plan)
@@ -106,12 +128,31 @@ action() {
   echo "${planned:-run}"
 }
 previous=$(field previous 2)
+planned=$(field head 2)
+# A part's members as its runners take them: the tests no member owns
+# (`:unowned`) by their files, for `just test`.
+members_of() {
+  local member
+  for member in $(field "$1" 3); do
+    if [[ $member == :unowned ]]; then
+      local unowned
+      unowned=$(field unowned 2)
+      [[ $unowned == - ]] || echo "$unowned"
+    else
+      echo "$member"
+    fi
+  done
+}
 reused() {
   echo "Gate step $1: reused ($(field "$1" 4))"
 }
 record() {
-  [[ $all == all ]] || return 0
-  if [[ $2 -eq 0 ]]; then just _gate-record "$1" pass; else just _gate-record "$1" fail; fi
+  [[ $all == all && -n $planned ]] || return 0
+  if [[ $2 -eq 0 ]]; then
+    just _gate-record "$planned" "$1" pass
+  else
+    just _gate-record "$planned" "$1" fail
+  fi
 }
 # Runs a step's command, records its result, and fails the suite when it
 # fails.
@@ -143,23 +184,27 @@ gated proofs just proofs
 case $(action quick) in
   reuse) reused quick ;;
   part)
-    read -ra members <<<"$(field quick 3)"
+    read -ra members <<<"$(members_of quick | tr '\n' ' ')"
     gated quick just test quick "${members[@]}"
     ;;
   *) gated quick just _suite quick "$all" ;;
 esac
 # The Pre-merge suite's tests, then the exercise audit of the tests that
-# ran (ADR 0072): one step, whose last result is the audit's.
+# ran (ADR 0072): one step, recorded once both have ended.
 case $(action pre-merge) in
   reuse) reused pre-merge ;;
-  part)
-    read -ra members <<<"$(field pre-merge 3)"
-    gated pre-merge just test pre-merge "${members[@]}"
-    gated pre-merge just features-audit
-    ;;
   *)
-    gated pre-merge just _suite pre-merge "$all"
-    gated pre-merge just features-audit
+    if [[ $(action pre-merge) == part ]]; then
+      read -ra members <<<"$(members_of pre-merge | tr '\n' ' ')"
+      suite=(test pre-merge "${members[@]}")
+    else
+      suite=(_suite pre-merge "$all")
+    fi
+    status=0
+    just "${suite[@]}" || status=$?
+    [[ $status -ne 0 ]] || just features-audit || status=$?
+    record pre-merge "$status"
+    [[ $status -eq 0 ]] || exit "$status"
     ;;
 esac
 # The stress run of a part: the new and changed tests of the members the

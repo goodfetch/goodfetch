@@ -69,11 +69,16 @@ fi
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
   exit 3
 fi
+if [ -f "{killing}" ] && [ "$*" = "$(cat "{killing}")" ]; then
+  kill -KILL "$PPID"
+  exit 0
+fi
 "#,
         calls = folder.join("calls").display(),
         variables = folder.join("variables").display(),
         plan = folder.join("plan").display(),
         failing = folder.join("failing").display(),
+        killing = folder.join("killing").display(),
     );
     let just = folder.join("just");
     std::fs::write(&just, script).unwrap();
@@ -352,12 +357,14 @@ fn on_linux_a_failed_os_service_setup_stops_the_suite_before_any_step() {
 /// `earlier`, the Quick suite rerun for two members and the stress run for
 /// one; every other step runs.
 const PLAN: &str = "previous\tearlier
-members\ta b c
+head\tplanned
+members\ta b c :unowned
+unowned\tconsole/screens.spec.ts
 perf\treuse\t-\tgreen on earlier
 pre-merge\treuse\t-\tgreen on earlier
 tlc\treuse\t-\tgreen on earlier
-quick\tpart\ta b\tthe change since earlier reaches it
-stress\tpart\ta\tthe change since earlier reaches it
+quick\tpart\ta b :unowned\tthe change since earlier reaches it
+stress\tpart\ta :unowned\tthe change since earlier reaches it
 lint\trun\t-\tevery run reruns it
 ";
 
@@ -378,8 +385,8 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         );
     }
     for rerun in [
-        "test quick a b",
-        "stress  earlier a",
+        "test quick a b console/screens.spec.ts",
+        "stress  earlier a :unowned",
         "lint",
         "linux",
         "visual",
@@ -419,7 +426,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         "visual",
     ]
     .iter()
-    .map(|step| format!("_gate-record {step} pass"))
+    .map(|step| format!("_gate-record planned {step} pass"))
     .collect();
     expected.sort();
     assert_eq!(recorded, expected);
@@ -432,13 +439,16 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
 fn a_failed_step_is_recorded_as_failed(#[case] call: &str, #[case] step: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
+    // A plan with no earlier run: every step runs.
+    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
     std::fs::write(stand_in.join("failing"), call).unwrap();
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     assert!(
-        run.gate.contains(&format!("_gate-record {step} fail")),
+        run.gate
+            .contains(&format!("_gate-record planned {step} fail")),
         "{:?}",
         run.gate
     );
@@ -457,4 +467,55 @@ fn only_the_whole_workspace_gate_plans_and_records(#[case] form: &str) {
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     assert!(run.gate.is_empty(), "{:?}", run.gate);
+}
+
+/// A run stopped during the exercise audit leaves the Pre-merge suite's
+/// step unrecorded, so the next run reruns it (the review's F4).
+#[test]
+fn a_run_stopped_during_the_exercise_audit_records_no_result_for_the_suite() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("killing"), "features-audit").unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_ne!(run.code, Some(0));
+    assert!(
+        run.calls.iter().any(|call| call == "features-audit"),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        !run.gate.iter().any(|call| call.contains(" pre-merge ")),
+        "{:?}",
+        run.gate
+    );
+}
+
+/// One gate run at a time in a workspace: a second waits for none and
+/// fails before any step while the first's process lives (the review's F6).
+#[test]
+fn a_gate_run_while_another_holds_the_records_fails_before_any_step() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let mut holder = std::process::Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .unwrap();
+    workspace.write(
+        "target/gate-runs/lock/pid",
+        holder.id().to_string().as_bytes(),
+    );
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    holder.kill().unwrap();
+    holder.wait().unwrap();
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert!(run.stderr.contains("another gate run"), "{}", run.stderr);
+    assert!(
+        run.calls.iter().all(|call| call == "_skips-report"),
+        "{:?}",
+        run.calls
+    );
 }

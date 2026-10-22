@@ -1,34 +1,43 @@
 //! `xtask gate`, the incremental local gate (ADR 0135): `just pre-merge all`
 //! on a head that descends from a head whose gate already ran reruns only
-//! the steps, and the members' tests, that `xtask affected` finds the change
-//! since then reaches, and every check that judges the whole change; it
-//! reuses the other green results. A red result is never reused, a change to
-//! the gate's own inputs reruns everything, and a working tree with
-//! uncommitted changes neither reuses nor records anything.
-//! - **plan**: prints each step's action as `<step>\t<run|part|reuse>\t<members>\t<why>`
-//!   lines after a `previous\t<head|none>` line, which `ci/pre-merge.sh`
-//!   follows, says the same in words on stderr for the run's log, and
-//!   writes the plan and the carried results into the run's record.
-//! - **record**: appends a step's result to the run's record.
+//! the steps, and the members' tests, that the change since then reaches,
+//! by `xtask affected` and by the evidence of what each member read
+//! (`evidence`), and every check that judges the whole change; it reuses
+//! the other green results. A red result, a result older than a day and a
+//! result from another host fingerprint are never reused, a change to the
+//! gate's own inputs reruns everything, and a working tree with uncommitted
+//! changes neither reuses nor records anything.
+//! - **plan**: prints `previous`, `head`, `members` and `unowned` lines,
+//!   then each step's action as `<step>\t<run|part|reuse>\t<members>\t<why>`
+//!   lines, which `ci/pre-merge.sh` follows; says the same in words on
+//!   stderr for the run's log, with the evidence that reaches a member the
+//!   selection misses; and writes the plan and the carried results into the
+//!   run's record.
+//! - **record**: appends a step's result to the run's record, only for the
+//!   planned head on a clean tree.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
 )]
 
+mod evidence;
 mod plan;
 mod runs;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
+use sha2::{Digest as _, Sha256};
 
-use crate::affected::{self, Range, WorkspaceMembers};
+use crate::affected::{self, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
-use crate::output;
-use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, short, unit};
+use crate::{metadata, output};
+use evidence::RustInputs;
+use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
 
 /// The branch whose merge base with the head is the change's base.
 const BASE_BRANCH: &str = "origin/main";
@@ -60,12 +69,26 @@ pub(crate) enum Command {
         /// would rerun after a green gate there.
         #[arg(long, requires = "dry_run")]
         assume_green: Option<String>,
+        /// Now, in seconds since the Unix epoch (`date +%s`): a result older
+        /// than a day is not reused.
+        #[arg(long)]
+        now: u64,
+        /// The Cargo target folder whose dep-info shows what each crate
+        /// read; Cargo's own by default.
+        #[arg(long)]
+        target_dir: Option<std::path::PathBuf>,
     },
     /// Appends a step's result to the record of the run on HEAD, for the
     /// units the plan ran; nothing without a plan for HEAD.
     Record {
         #[arg(long)]
         records: std::path::PathBuf,
+        /// The head the plan was made for: HEAD must still be it.
+        #[arg(long)]
+        head: String,
+        /// Now, in seconds since the Unix epoch.
+        #[arg(long)]
+        now: u64,
         /// The step, by its name in the plan.
         #[arg(long)]
         step: String,
@@ -82,8 +105,14 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             full,
             dry_run,
             assume_green,
+            now,
+            target_dir,
         } => {
             let records = environment.path(&records);
+            let target = match target_dir {
+                Some(folder) => environment.path(&folder),
+                None => metadata::target_directory(&environment.cargo, root)?,
+            };
             plan_run(
                 environment,
                 &records,
@@ -91,18 +120,31 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     full,
                     dry_run,
                     assume_green,
+                    now,
+                    target,
                 },
             )?;
         }
         Command::Record {
             records,
+            head,
+            now,
             step,
             status,
         } => {
             let Some(step) = Step::from_name(&step) else {
                 bail!("no gate step is named {step}");
             };
-            record_run(root, &environment.path(&records), step, status)?;
+            record_run(
+                root,
+                &environment.path(&records),
+                &Recorded {
+                    head,
+                    now,
+                    step,
+                    status,
+                },
+            )?;
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -112,6 +154,8 @@ struct Options {
     full: bool,
     dry_run: bool,
     assume_green: Option<String>,
+    now: u64,
+    target: std::path::PathBuf,
 }
 
 fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Result<()> {
@@ -132,8 +176,13 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         return Ok(());
     }
     let base = commit(root, &git(root, &["merge-base", BASE_BRANCH, "HEAD"])?)?;
+    let host = host_fingerprint(root, &environment.cargo);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
-    let members: BTreeSet<String> = members_read.all().map(|(name, _)| name).collect();
+    let unowned = evidence::unowned_tests(root, &members_read)?;
+    let mut members: BTreeSet<String> = members_read.all().map(|(name, _)| name).collect();
+    if !unowned.is_empty() {
+        members.insert(UNOWNED.to_owned());
+    }
     let (previous, no_previous) = if options.full {
         (
             None,
@@ -141,7 +190,16 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         )
     } else if let Some(assumed) = &options.assume_green {
         let assumed = commit(root, assumed)?;
-        let record = assumed_green(root, &assumed, &base, &members)?;
+        let record = assumed_green(
+            root,
+            &assumed,
+            &Head {
+                base: &base,
+                members: &members,
+                host: &host,
+                now: options.now,
+            },
+        )?;
         (Some(record), String::new())
     } else {
         match nearest(root, records, &head)? {
@@ -152,77 +210,204 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             ),
         }
     };
-    let mut touched = BTreeMap::new();
-    if let Some(previous) = &previous {
-        let origins: BTreeSet<&String> = previous
-            .units
-            .values()
-            .filter(|outcome| outcome.green)
-            .map(|outcome| &outcome.origin)
-            .collect();
-        for origin in origins {
-            touched.insert(
-                origin.clone(),
-                touched_since(root, &members_read, origin, &head),
-            );
-        }
-    }
+    let reader = Reader {
+        root,
+        cargo: &environment.cargo,
+        members: &members_read,
+        head: &head,
+        target: &options.target,
+    };
+    let (touched, beyond) = match &previous {
+        Some(previous) => reader.touched_by_origin(previous)?,
+        None => (BTreeMap::new(), Vec::new()),
+    };
     let planned = plan::plan(
         &Head {
             base: &base,
             members: &members,
+            host: &host,
+            now: options.now,
         },
         previous.as_ref(),
         &no_previous,
         &touched,
     );
     let previous_head = previous.as_ref().map(|record| record.head.as_str());
-    let machine = render(previous_head, &members, &planned);
-    output::error(&describe(previous_head, &planned));
+    let machine = render(previous_head, &head, &members, &unowned, &planned);
+    let mut log = describe(previous_head, &planned);
+    if !beyond.is_empty() {
+        log.push_str(
+            "Evidence reaches these members, which `xtask affected` does not select (they rerun):\n",
+        );
+        log.push_str(&beyond.join("\n"));
+        log.push('\n');
+    }
+    output::error(&log);
     output::line(machine.trim_end());
     if options.dry_run {
         return Ok(());
     }
-    std::fs::create_dir_all(records).with_context(|| format!("creating {}", records.display()))?;
     let carried = GateRun {
-        head: head.clone(),
+        head,
         base,
+        host,
         units: planned
             .iter()
             .flat_map(|planned| planned.carried.clone())
             .collect(),
     };
-    let record_file = runs::file(records, &head);
-    std::fs::write(&record_file, runs::render(&carried))
-        .with_context(|| format!("writing {}", record_file.display()))?;
-    std::fs::write(&plan_file, machine)
-        .with_context(|| format!("writing {}", plan_file.display()))?;
-    Ok(())
+    write(records, &carried, &machine)
 }
 
-/// What the change from `origin` to `head` reaches; a change git cannot
-/// read reruns whatever ran on `origin`.
-fn touched_since(root: &Path, members: &WorkspaceMembers, origin: &str, head: &str) -> Touched {
-    let range = Range::Commits {
-        base: origin.to_owned(),
-        head: head.to_owned(),
-    };
-    match affected::changed_paths(root, &range) {
-        Ok(paths) => Touched::new(&paths, &members.select(&paths)),
-        Err(error) => Touched {
-            gate_input: Some(format!("the history git cannot read ({error:#})")),
-            ..Touched::default()
-        },
+/// Writes the run's record, its carried results, and its plan.
+fn write(records: &Path, carried: &GateRun, plan: &str) -> Result<()> {
+    std::fs::create_dir_all(records).with_context(|| format!("creating {}", records.display()))?;
+    let record_file = runs::file(records, &carried.head);
+    std::fs::write(&record_file, runs::render(carried))
+        .with_context(|| format!("writing {}", record_file.display()))?;
+    let plan_file = runs::plan_file(records, &carried.head);
+    std::fs::write(&plan_file, plan).with_context(|| format!("writing {}", plan_file.display()))
+}
+
+/// What reads the change since a head: the workspace and its evidence.
+struct Reader<'a> {
+    root: &'a Path,
+    cargo: &'a OsStr,
+    members: &'a WorkspaceMembers,
+    head: &'a str,
+    target: &'a Path,
+}
+
+impl Reader<'_> {
+    /// What the change since each head a green result of `previous` ran on
+    /// reaches, by that head, and the log's lines for the members the
+    /// evidence reaches beyond the selection.
+    fn touched_by_origin(
+        &self,
+        previous: &GateRun,
+    ) -> Result<(BTreeMap<String, Touched>, Vec<String>)> {
+        let origins: BTreeSet<&String> = previous
+            .units
+            .values()
+            .filter(|outcome| outcome.green)
+            .map(|outcome| &outcome.origin)
+            .collect();
+        let mut rust = None;
+        let mut touched = BTreeMap::new();
+        let mut beyond = Vec::new();
+        for origin in origins {
+            let (since, missed) = self.touched_since(origin, &mut rust)?;
+            beyond.extend(missed.into_iter().map(|(member, evidence)| {
+                format!("  {member}, since {}: {evidence}", short(origin))
+            }));
+            touched.insert(origin.clone(), since);
+        }
+        Ok((touched, beyond))
+    }
+
+    /// What the change from `origin` to the head reaches: `xtask
+    /// affected`'s selection, widened to the members the evidence of what
+    /// each read reaches, with those the selection alone misses; a change
+    /// git cannot read reruns whatever ran on `origin`. `rust` keeps the
+    /// dep-info, read once.
+    fn touched_since(
+        &self,
+        origin: &str,
+        rust: &mut Option<RustInputs>,
+    ) -> Result<(Touched, BTreeMap<String, String>)> {
+        let range = Range::Commits {
+            base: origin.to_owned(),
+            head: self.head.to_owned(),
+        };
+        let paths = match affected::changed_paths(self.root, &range) {
+            Ok(paths) => paths,
+            Err(error) => {
+                return Ok((
+                    Touched {
+                        gate_input: Some(format!("the history git cannot read ({error:#})")),
+                        ..Touched::default()
+                    },
+                    BTreeMap::new(),
+                ));
+            }
+        };
+        let selection = self.members.select(&paths);
+        if paths.is_empty() || plan::gate_input(&paths).is_some() {
+            return Ok((Touched::new(&paths, &selection), BTreeMap::new()));
+        }
+        let mut found = BTreeMap::new();
+        if rust.is_none() {
+            *rust = Some(evidence::rust_inputs(self.root, self.target, self.members)?);
+        }
+        if let Some(rust) = rust {
+            let changed: BTreeSet<String> =
+                paths.iter().map(|path| path.as_str().to_owned()).collect();
+            found.extend(rust.reached(self.members, &changed));
+        }
+        for (member, why) in evidence::listed_since(self.root, self.cargo, origin, self.members) {
+            found.entry(member).or_insert(why);
+        }
+        for (member, why) in evidence::literal_readers(self.root, self.members, &paths)? {
+            found.entry(member).or_insert(why);
+        }
+        // A member the evidence reaches reaches its dependants as a change
+        // to its own files would.
+        let mut widened = paths.clone();
+        widened.extend(
+            found
+                .keys()
+                .filter_map(|member| self.members.folder(member))
+                .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
+        );
+        let selected = selection.members();
+        let missed = found
+            .iter()
+            .filter(|(member, _)| !selected.contains(*member))
+            .map(|(member, why)| (member.clone(), why.clone()))
+            .collect();
+        let mut touched = Touched::new(&paths, &self.members.select(&widened));
+        touched.evidence = found;
+        Ok((touched, missed))
     }
 }
 
-/// A full green run on `assumed`, for a dry run.
-fn assumed_green(
-    root: &Path,
-    assumed: &str,
-    base: &str,
-    members: &BTreeSet<String>,
-) -> Result<GateRun> {
+/// The fingerprint of this host and the tools the gate's steps run: the
+/// kernel, the system's packages, the runtimes, the test runners, the
+/// container engines and the toolchain. A command that is missing counts as
+/// such.
+fn host_fingerprint(root: &Path, cargo: &OsStr) -> String {
+    const PROBES: [&[&str]; 11] = [
+        &["uname", "-srvm"],
+        &["dpkg-query", "-W", "-f=${Package}=${Version}\n"],
+        &["node", "--version"],
+        &["pnpm", "--version"],
+        &["uv", "--version"],
+        &["python3", "--version"],
+        &["valgrind", "--version"],
+        &["podman", "--version"],
+        &["docker", "--version"],
+        &["java", "-version"],
+        &["rustc", "-Vv"],
+    ];
+    let mut digest = Sha256::new();
+    let mut probe = |command: &mut Process| match command.current_dir(root).output() {
+        Ok(output) => {
+            digest.update(output.status.code().unwrap_or(-1).to_le_bytes());
+            digest.update(&output.stdout);
+            digest.update(&output.stderr);
+        }
+        Err(_) => digest.update(b"missing"),
+    };
+    for arguments in PROBES {
+        let (program, rest) = arguments.split_first().unwrap_or((&"true", &[]));
+        probe(Process::new(program).args(rest));
+    }
+    probe(Process::new(cargo).args(["nextest", "--version"]));
+    format!("{:x}", digest.finalize())
+}
+
+/// A full green run on `assumed` on this host, now, for a dry run.
+fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun> {
     let tree = git(
         root,
         &["rev-parse", "--verify", &format!("{assumed}^{{tree}}")],
@@ -231,11 +416,12 @@ fn assumed_green(
         green: true,
         origin: assumed.to_owned(),
         tree,
+        at: head.now,
     };
     let mut units = BTreeMap::new();
     for step in Step::ALL {
         if step.per_member() {
-            for member in members {
+            for member in head.members {
                 units.insert(unit(step, Some(member)), outcome.clone());
             }
         } else {
@@ -244,7 +430,8 @@ fn assumed_green(
     }
     Ok(GateRun {
         head: assumed.to_owned(),
-        base: base.to_owned(),
+        base: head.base.to_owned(),
+        host: head.host.to_owned(),
         units,
     })
 }
@@ -286,7 +473,13 @@ fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
 }
 
 /// The plan as `ci/pre-merge.sh` and `xtask gate record` read it.
-fn render(previous: Option<&str>, members: &BTreeSet<String>, planned: &[Planned]) -> String {
+fn render(
+    previous: Option<&str>,
+    head: &str,
+    members: &BTreeSet<String>,
+    unowned: &[String],
+    planned: &[Planned],
+) -> String {
     let joined = |members: &BTreeSet<String>| {
         if members.is_empty() {
             "-".to_owned()
@@ -294,8 +487,14 @@ fn render(previous: Option<&str>, members: &BTreeSet<String>, planned: &[Planned
             members.iter().cloned().collect::<Vec<_>>().join(" ")
         }
     };
-    let mut text = format!("previous\t{}\n", previous.unwrap_or("none"));
+    let mut text = format!("previous\t{}\nhead\t{head}\n", previous.unwrap_or("none"));
     let _ = writeln!(text, "members\t{}", joined(members));
+    let unowned = if unowned.is_empty() {
+        "-".to_owned()
+    } else {
+        unowned.join(" ")
+    };
+    let _ = writeln!(text, "unowned\t{unowned}");
     for Planned { step, action, .. } in planned {
         let (name, units, why) = match action {
             Action::Run { why } => ("run", "-".to_owned(), why.clone()),
@@ -354,11 +553,26 @@ fn origins(carried: &BTreeMap<String, Outcome>) -> String {
     origins.into_iter().collect::<Vec<_>>().join(" ")
 }
 
-/// Appends `step`'s result to the record of the run on HEAD, for the units
-/// its plan ran.
-fn record_run(root: &Path, records: &Path, step: Step, status: Status) -> Result<()> {
-    let head = commit(root, "HEAD")?;
-    let plan_file = runs::plan_file(records, &head);
+/// A step's result, for the head its plan was made for.
+struct Recorded {
+    head: String,
+    now: u64,
+    step: Step,
+    status: Status,
+}
+
+/// Appends a step's result to the record of the run on the planned head,
+/// for the units its plan ran. HEAD must still be that head and the tree
+/// clean, else the result holds for another tree: the plan is dropped, so
+/// nothing more is recorded, and the step fails.
+fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
+    let Recorded {
+        head,
+        now,
+        step,
+        status,
+    } = recorded;
+    let plan_file = runs::plan_file(records, head);
     let Ok(plan) = std::fs::read_to_string(&plan_file) else {
         output::error(&format!(
             "Gate: no plan for {head}, so {} is not recorded",
@@ -366,6 +580,21 @@ fn record_run(root: &Path, records: &Path, step: Step, status: Status) -> Result
         ));
         return Ok(());
     };
+    let checked_out = commit(root, "HEAD")?;
+    let dirty = !git(root, &["status", "--porcelain"])?.is_empty();
+    if &checked_out != head || dirty {
+        std::fs::remove_file(&plan_file)
+            .with_context(|| format!("removing {}", plan_file.display()))?;
+        bail!(
+            "the gate planned {head} on a clean tree, but HEAD is {checked_out}{}: {} is not recorded, and nothing more of this run is",
+            if dirty {
+                " with uncommitted changes"
+            } else {
+                ""
+            },
+            step.name()
+        );
+    }
     let field = |key: &str| -> Option<Vec<&str>> {
         plan.lines()
             .find(|line| line.split('\t').next() == Some(key))
@@ -392,21 +621,22 @@ fn record_run(root: &Path, records: &Path, step: Step, status: Status) -> Result
         };
         members
             .iter()
-            .map(|member| unit(step, Some(member)))
+            .map(|member| unit(*step, Some(member)))
             .collect()
     } else {
-        vec![unit(step, None)]
+        vec![unit(*step, None)]
     };
     let outcome = Outcome {
-        green: status == Status::Pass,
+        green: *status == Status::Pass,
         origin: head.clone(),
         tree: git(root, &["rev-parse", "--verify", "HEAD^{tree}"])?,
+        at: *now,
     };
     let text: String = units
         .iter()
         .map(|unit| runs::line(unit, &outcome))
         .collect();
-    output::append(&runs::file(records, &head), &text)
+    output::append(&runs::file(records, head), &text)
 }
 
 /// The commit `revision` names, in full.

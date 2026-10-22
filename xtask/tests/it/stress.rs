@@ -213,6 +213,21 @@ fn within_members_only_their_new_and_changed_tests_run() {
     assert_eq!(selection, expected);
 }
 
+/// The tests no workspace member owns (the fixture's `web/`, `e2e/` and
+/// `tests/`) are stressed within `:unowned`, which every runner but nextest
+/// lists.
+#[test]
+fn within_the_unowned_tests_their_new_and_changed_tests_run() {
+    let (workspace, base) = base();
+    change(&workspace);
+
+    let selection = select(&workspace, &["--base", &base, "--within", ":unowned"]);
+
+    let mut expected = change_selection();
+    expected.retain(|(_, runner, _)| runner != "nextest");
+    assert_eq!(selection, expected);
+}
+
 /// Every test the change since the earlier gate run changes runs 20 times
 /// too, even one the pull request as a whole leaves as its base had it:
 /// `steady.rs` changed in the earlier run's head and changed back since.

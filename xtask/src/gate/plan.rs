@@ -166,6 +166,15 @@ pub(crate) fn gate_input(paths: &[RepoPath]) -> Option<&RepoPath> {
         .find(|path| GATE_INPUTS.iter().any(|input| path.is_in(input)))
 }
 
+/// The pseudo-member of the tests no workspace member owns, such as
+/// `console/screens.spec.ts`: they rerun whenever a change reaches any
+/// member, or when a runner's own listing since the head says so.
+pub(crate) use crate::affected::UNOWNED;
+
+/// How long a green result stays reusable, in seconds: a day, so a host's
+/// own drift (packages, browsers, an expiring fixture) reaches the gate.
+pub(crate) const MAX_AGE: u64 = 24 * 60 * 60;
+
 /// What a change since a recorded head reaches, as the plan reads it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Touched {
@@ -177,6 +186,10 @@ pub(crate) struct Touched {
     pub(crate) crates: bool,
     /// The members whose tests its selection runs.
     pub(crate) members: BTreeSet<String>,
+    /// The members the evidence of what each one read reaches, each with
+    /// the evidence: Cargo's dep-info, the runners' own listings since the
+    /// head, a string literal naming a changed file.
+    pub(crate) evidence: BTreeMap<String, String>,
 }
 
 impl Touched {
@@ -189,6 +202,7 @@ impl Touched {
                 .collect(),
             crates: selection.reaches_a_crate(),
             members: selection.members(),
+            evidence: BTreeMap::new(),
         }
     }
 }
@@ -201,6 +215,8 @@ pub(crate) struct Outcome {
     /// The head the unit ran on, and its tree.
     pub(crate) origin: String,
     pub(crate) tree: String,
+    /// When it ran, in seconds since the Unix epoch.
+    pub(crate) at: u64,
 }
 
 /// What one gate run recorded: its head, the base its steps compared with,
@@ -209,6 +225,8 @@ pub(crate) struct Outcome {
 pub(crate) struct GateRun {
     pub(crate) head: String,
     pub(crate) base: String,
+    /// The fingerprint of the host and its tools the run ran with.
+    pub(crate) host: String,
     pub(crate) units: BTreeMap<String, Outcome>,
 }
 
@@ -225,8 +243,13 @@ pub(crate) fn unit(step: Step, member: Option<&str>) -> String {
 pub(crate) struct Head<'a> {
     /// The change's base: the merge base with `origin/main`.
     pub(crate) base: &'a str,
-    /// Every member of the head's workspaces.
+    /// Every member of the head's workspaces, and [`UNOWNED`] when some
+    /// test belongs to none.
     pub(crate) members: &'a BTreeSet<String>,
+    /// The fingerprint of this host and its tools.
+    pub(crate) host: &'a str,
+    /// Now, in seconds since the Unix epoch.
+    pub(crate) now: u64,
 }
 
 /// What the run does with a step.
@@ -351,6 +374,15 @@ fn judge(
     if !outcome.green {
         return Err(format!("red on {origin}"));
     }
+    if previous.host != head.host {
+        return Err(format!(
+            "the host or its tools changed since the run on {}",
+            short(&previous.head)
+        ));
+    }
+    if head.now.saturating_sub(outcome.at) > MAX_AGE {
+        return Err(format!("its result on {origin} is older than a day"));
+    }
     if step.reads_the_base() && previous.base != head.base {
         return Err(format!(
             "the base moved from {} to {}",
@@ -368,10 +400,19 @@ fn judge(
         Reach::Always => true,
         Reach::Job(job) => touched.jobs.contains(&job),
         Reach::Crates => touched.crates,
-        Reach::Members => member.is_some_and(|member| touched.members.contains(member)),
+        Reach::Members => member.is_some_and(|member| {
+            touched.members.contains(member)
+                || touched.evidence.contains_key(member)
+                || (member == UNOWNED && !touched.members.is_empty())
+        }),
     };
     if reached {
-        return Err(format!("the change since {origin} reaches it"));
+        return Err(
+            match member.and_then(|member| touched.evidence.get(member)) {
+                Some(evidence) => format!("the change since {origin} reaches it: {evidence}"),
+                None => format!("the change since {origin} reaches it"),
+            },
+        );
     }
     Ok(outcome.clone())
 }

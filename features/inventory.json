@@ -908,6 +908,17 @@
       ]
     },
     {
+      "id": "error:path_not_writable",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:pattern_unsupported",
       "kind": "error",
       "area": 5,

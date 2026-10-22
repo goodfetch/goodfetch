@@ -330,6 +330,15 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
+ * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left, and the file there stays as it was. Choose a path this user can write, then make the same call again.
+ */
+export class PathNotWritableError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "path_not_writable", group: "program", retryable: false });
+  }
+}
+
+/**
  * A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.
  */
 export class PatternUnsupportedError extends ProgramError {
@@ -545,6 +554,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
+  path_not_writable: PathNotWritableError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,

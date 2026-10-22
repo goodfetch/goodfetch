@@ -227,6 +227,16 @@ pub const RUN_STOPPING: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
+/// A path the program chose that cannot be written (ADR 0116).
+pub const PATH_NOT_WRITABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "path_not_writable",
+    description: "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left, and the file there stays as it was. Choose a path this user can write, then make the same call again.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A file the engine could not write where it keeps it (ADR 0116).
 pub const FILE_WRITE_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "file_write_failed",
@@ -335,6 +345,7 @@ pub const ENTRIES: Entries = Entries {
     handler_requests: &[],
     error_codes: &[
         FILE_WRITE_FAILED,
+        PATH_NOT_WRITABLE,
         FORMAT_VERSION_UNSUPPORTED,
         SESSION_BOUND_TO_MACHINE,
     ],

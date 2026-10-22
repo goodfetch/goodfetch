@@ -270,7 +270,7 @@ impl TakeOver {
         let parts = self.parts.clone();
         let ended = state
             .write(move |connection| {
-                let report = report::assemble(connection, facts, &parts)?;
+                let report = report::assemble(connection, &facts, &parts)?;
                 write_end(connection, &report)?;
                 Ok(report)
             })

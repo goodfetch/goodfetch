@@ -63,7 +63,7 @@ pub(super) struct EndFacts {
 /// When the engine's own tables cannot be read.
 pub(super) fn assemble(
     connection: &Connection,
-    facts: EndFacts,
+    facts: &EndFacts,
     parts: &[Arc<dyn ReportPart>],
 ) -> rusqlite::Result<RunReport> {
     let usage = usage(connection, facts.limits.clone())?;
@@ -83,7 +83,8 @@ impl EndFacts {
     /// The report its facts alone give, with nothing read from the Run's
     /// state: what is answered when its end could not be written.
     pub(super) fn bare(&self) -> RunReport {
-        let (completeness, completeness_reasons) = completeness(self.lifecycle, &self.stop_reason);
+        let (completeness, completeness_reasons) =
+            completeness(self.lifecycle, self.stop_reason.as_ref());
         RunReport {
             run_id: self.run_id.clone(),
             lifecycle: self.lifecycle,
@@ -119,7 +120,7 @@ impl EndFacts {
 /// finished Run's is the program's or the Frontier's to lower.
 fn completeness(
     lifecycle: Lifecycle,
-    stop_reason: &Option<StopReason>,
+    stop_reason: Option<&StopReason>,
 ) -> (Completeness, Vec<AxisReason>) {
     match (lifecycle, stop_reason) {
         (Lifecycle::Finished | Lifecycle::Running, _) => (Completeness::Complete, Vec::new()),

@@ -20,6 +20,7 @@ mod layout;
 mod lifecycle;
 mod progress;
 mod refusals;
+mod report;
 mod run;
 mod settings;
 mod takeover;

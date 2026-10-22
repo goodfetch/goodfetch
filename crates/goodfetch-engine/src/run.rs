@@ -38,7 +38,7 @@ use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
-    SettingUnknownDetails, TIMEOUT_CLOSE, TIMEOUT_RUN,
+    SettingUnknownDetails, SettingsLayer, TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
 use crate::composition::{CallContext, CallError, Handler};
@@ -514,7 +514,7 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
     let finishing = context.runs().finish(params.run_id);
     let report = match params.timeout {
         Some(millis) => {
-            Deadline::given(&TIMEOUT_RUN, millis)
+            Deadline::given(&TIMEOUT_RUN, millis, SettingsLayer::Run)
                 .within(&context.runs().clock(), "Run's end", finishing)
                 .await?
         }
@@ -528,7 +528,7 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
 /// `timeout`, and only the wait ends past it (ADR 0102).
 async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
     let deadline = match params.timeout {
-        Some(millis) => Deadline::given(&TIMEOUT_CLOSE, millis),
+        Some(millis) => Deadline::given(&TIMEOUT_CLOSE, millis, SettingsLayer::Run),
         None => close_deadline(&context, &params.run_id).await,
     };
     let stopping = context
@@ -550,7 +550,7 @@ async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
         .and_then(|resolved| Deadline::of(&resolved, &TIMEOUT_CLOSE))
         .unwrap_or_else(|| {
             let default = (TIMEOUT_CLOSE.default)().as_u64().unwrap_or(30_000);
-            Deadline::given(&TIMEOUT_CLOSE, default)
+            Deadline::given(&TIMEOUT_CLOSE, default, SettingsLayer::Default)
         })
 }
 

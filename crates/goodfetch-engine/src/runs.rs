@@ -58,10 +58,10 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    Checkpoint, EndingError, Lifecycle, NotUnderstoodLimit, NothingDone, PointInTime, Presence,
-    ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId,
-    RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, RunUsage, RunWarning,
-    StartInput, StartedAs, StopReason, Tags,
+    AppliedLimit, Checkpoint, EndingError, Lifecycle, NotUnderstoodLimit, NothingDone, PointInTime,
+    Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY, ReachedLimit,
+    RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, RunUsage,
+    RunWarning, StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::settings::WeakenedSetting;
 use goodfetch_protocol::usage::Limit;
@@ -3183,6 +3183,28 @@ impl Taking {
     }
 }
 
+/// Gives back what is left of the Slices `run` holds, under `writer`'s
+/// blocking work, and answers the Limits that then apply to it, with what
+/// is left of each (ADR 0101).
+async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
+    let Some(mut charging) = run.shared.charging.lock().await.take() else {
+        return Vec::new();
+    };
+    let now = run.runs.limits.now();
+    writer
+        .blocking(move || {
+            if let Err(error) = charging.give_back() {
+                tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
+            }
+            charging.applied(now)
+        })
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "the Limits that apply to the Run could not be read; its report goes without them");
+            Vec::new()
+        })
+}
+
 /// Where a stopping Run's Checkpoint goes, and what writes it.
 struct CheckpointTo {
     destination: PathBuf,
@@ -3239,25 +3261,7 @@ impl Closing {
             End::Failed(error) => (None, Some(error)),
             End::Stopped(reason) => (Some(reason), None),
         };
-        let charging = run.shared.charging.lock().await.take();
-        let limits = match charging {
-            Some(mut charging) => {
-                let now = run.runs.limits.now();
-                writer
-                    .blocking(move || {
-                        if let Err(error) = charging.give_back() {
-                            tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
-                        }
-                        charging.applied(now)
-                    })
-                    .await
-                    .unwrap_or_else(|error| {
-                        tracing::warn!(%error, "the Limits that apply to the Run could not be read; its report goes without them");
-                        Vec::new()
-                    })
-            }
-            None => Vec::new(),
-        };
+        let limits = given_back(&run, &writer).await;
         let facts = EndFacts {
             run_id: run.id.clone(),
             lifecycle,
@@ -3280,7 +3284,7 @@ impl Closing {
         let bare = facts.bare();
         let ended = state
             .write(move |connection| {
-                let report = report::assemble(connection, facts, &parts)?;
+                let report = report::assemble(connection, &facts, &parts)?;
                 write_end(connection, &report)?;
                 Ok(report)
             })

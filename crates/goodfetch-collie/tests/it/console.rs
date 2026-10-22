@@ -212,6 +212,37 @@ fn the_console_serves_its_builds_files_as_they_are_stored() {
     daemon.stop(&env).unwrap();
 }
 
+/// A Run on a Daemon that serves the Console names its page there in its
+/// report (ADRs 0031 and 0102).
+/// Covers: story:3-154, command:run.start, command:run.finish
+#[test]
+fn a_runs_report_names_its_page_in_the_console_its_daemon_serves() {
+    let env = TestEnv::new();
+    env.user_configuration("console.address = \"127.0.0.1:0\"\n");
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let started = cli(&env, COLLIE)
+        .args(["daemon", "start", "--json"])
+        .run()
+        .unwrap();
+    assert_eq!(started.exit, Some(0), "{}", started.stderr);
+
+    let run = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "paged", "--daemon"])
+        .run()
+        .unwrap();
+    let finished = cli(&env, COLLIE)
+        .args(["run", "finish", "paged", "--daemon", "--json"])
+        .run()
+        .unwrap();
+
+    assert_eq!(run.exit, Some(0), "{}", run.stderr);
+    let report: Value = serde_json::from_str(&finished.stdout).unwrap();
+    assert_eq!(
+        report["console_url"],
+        Value::from(format!("{}runs/paged", console_url(&env)))
+    );
+}
+
 /// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status
 #[test]
 fn a_daemon_on_port_zero_reports_its_consoles_address() {

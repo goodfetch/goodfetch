@@ -39,14 +39,15 @@ impl Deadline {
         })
     }
 
-    /// The deadline a call's own `timeout` of `millis` gives in place of
-    /// the timeout `setting`: set by the run layer, the call's argument.
-    pub fn given(setting: &Setting, millis: u64) -> Self {
+    /// The deadline of `millis` the timeout `setting` takes from `layer`:
+    /// the run layer for a call's own `timeout`, the default when nothing
+    /// resolved it.
+    pub fn given(setting: &Setting, millis: u64, layer: SettingsLayer) -> Self {
         Self {
             limit: SettingLimit {
                 key: setting.name.to_owned(),
                 value: millis.into(),
-                layer: SettingsLayer::Run,
+                layer,
             },
             duration: Duration::from_millis(millis),
         }

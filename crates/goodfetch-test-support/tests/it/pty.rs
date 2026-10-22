@@ -140,6 +140,23 @@ fn broken(error: &ColourError) -> Option<ColourProperty> {
     }
 }
 
+#[test]
+fn a_command_that_never_colours_fails_the_stripped_colour_property() {
+    let env = unrecorded();
+
+    let checked = ColourProperty::StrippedColourEqualsNoColor.check(
+        &env,
+        this_binary(),
+        &probe_arguments("probe::never_colours"),
+    );
+
+    let error = checked.unwrap_err();
+    assert!(
+        matches!(error, ColourError::NoColourShown { .. }),
+        "{error}"
+    );
+}
+
 #[rstest]
 #[case::stripped_colour_equals_no_color(
     ColourProperty::StrippedColourEqualsNoColor,

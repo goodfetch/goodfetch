@@ -283,6 +283,12 @@ fn lets_no_color_beat_color_always() {
 }
 
 #[test]
+#[ignore = "run as a child by pty::a_command_that_never_colours_fails_the_stripped_colour_property"]
+fn never_colours() {
+    print_and_exit("status: ready", 0);
+}
+
+#[test]
 #[ignore = "run as a child by pty::a_prompt_is_answered_through_a_pseudo_terminal"]
 fn prompts_for_an_answer() {
     use std::io::{BufRead as _, IsTerminal as _};

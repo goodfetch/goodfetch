@@ -10040,7 +10040,7 @@
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",
-      "status": "active",
+      "status": "retired",
       "products": [
         "collie",
         "foxhound"

@@ -157,7 +157,7 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
 /// same call from an attempt that already ended fails with
 /// `attempt_ended`, adding nothing.
 ///
-/// Covers: story:6-208, operation:run.add_seed, error_code:attempt_ended
+/// Covers: story:6-208, operation:run.add_seed, error:attempt_ended
 #[test]
 fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
     let env = TestEnv::new();

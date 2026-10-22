@@ -654,7 +654,12 @@ impl Session<'_> {
                 let (sender, incoming) = mpsc::unbounded_channel();
                 (
                     Some((method, sender)),
-                    Some(CallInput::new(id.clone(), incoming, self.outgoing.clone())),
+                    Some(CallInput::new(
+                        id.clone(),
+                        incoming,
+                        self.outgoing.clone(),
+                        notification_line,
+                    )),
                 )
             }
             None => (None, None),

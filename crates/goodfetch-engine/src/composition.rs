@@ -203,20 +203,24 @@ pub struct CallInput {
     id: RequestId,
     incoming: tokio::sync::Mutex<mpsc::UnboundedReceiver<Value>>,
     outgoing: mpsc::Sender<Vec<u8>>,
+    line: fn(&str, &Value) -> Vec<u8>,
 }
 
 impl CallInput {
     /// The input of the call `id`, whose notifications `incoming` brings,
-    /// answering on the Connection's writer `outgoing`.
+    /// answering on the Connection's writer `outgoing` with the lines
+    /// `line` writes of a notification's method and params.
     pub(crate) fn new(
         id: RequestId,
         incoming: mpsc::UnboundedReceiver<Value>,
         outgoing: mpsc::Sender<Vec<u8>>,
+        line: fn(&str, &Value) -> Vec<u8>,
     ) -> Self {
         Self {
             id,
             incoming: tokio::sync::Mutex::new(incoming),
             outgoing,
+            line,
         }
     }
 
@@ -238,8 +242,10 @@ impl CallInput {
     /// Sends the Client the notification `method` with `params`; `false`
     /// once the Connection's writer is gone.
     pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
+        let params =
+            serde_json::to_value(params).expect("invariant: a notification's params encode");
         self.outgoing
-            .send(crate::rpc::notification_line(method, params))
+            .send((self.line)(method, &params))
             .await
             .is_ok()
     }

@@ -125,7 +125,7 @@ fn with_no_limit_the_allowance_is_half_of_physical_memory() {
 }
 
 #[test]
-fn a_cgroup_v2_limit_is_read_from_the_processs_own_cgroup() {
+fn a_cgroup_v2_limit_is_read_from_the_engines_own_cgroup() {
     let proc = Proc::new();
     let mount = proc.cgroup2();
     proc.file("self/cgroup", "0::/user.slice/run-1.scope\n");
@@ -189,7 +189,7 @@ fn a_limit_changed_since_the_last_sample_is_seen() {
 #[rstest]
 #[case::mounted_at_the_hierarchys_root("/", "docker/abc/memory.limit_in_bytes")]
 #[case::mounted_at_the_containers_own_cgroup("/docker/abc", "memory.limit_in_bytes")]
-fn a_cgroup_v1_memory_limit_is_read_from_the_processs_own_cgroup(
+fn a_cgroup_v1_memory_limit_is_read_from_the_engines_own_cgroup(
     #[case] mount_root: &str,
     #[case] file: &str,
 ) {

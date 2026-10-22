@@ -278,6 +278,97 @@
             },
             "type": "object"
           },
+          "governor": {
+            "additionalProperties": false,
+            "properties": {
+              "browser_page": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most browser pages the engine's Resource governor admits open at once, across its Runs: 32.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest browser pages the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.browser_page.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "critical": {
+                "description": "The share of the Memory allowance in use, in percent, from which the engine's memory is critical: 95.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "http": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most HTTP and discovered-API fetches the engine's Resource governor admits at once, across its Runs: 200.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest HTTP and discovered-API fetches the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.http.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "last_resort_after": {
+                "description": "How long the engine's memory may stay critical with its concurrency at the floor before the Resource governor reaches its last resort, when a Daemon's `/readyz` fails: 60 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "memory_allowance": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Read again at every sample."
+              },
+              "model_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most model calls the engine's Resource governor admits at once, across its Runs: 16.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest model calls the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.model_call.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "pressure": {
+                "description": "The share of the Memory allowance in use, in percent, from which the engine is under pressure and its Resource governor lowers its concurrency; also the CPU and Tokio workers' busy share from which they hold it: 85.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "run_share": {
+                "description": "The share, in percent, of each kind's concurrency one Run may hold at once, at least one: 100. An Operator policy cap bounds every Run's share.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sample_interval": {
+                "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "politeness": {
             "additionalProperties": false,
             "properties": {
@@ -751,6 +842,97 @@
                   "type": "string"
                 },
                 "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "governor": {
+            "additionalProperties": false,
+            "properties": {
+              "browser_page": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most browser pages the engine's Resource governor admits open at once, across its Runs: 32.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest browser pages the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.browser_page.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "critical": {
+                "description": "The share of the Memory allowance in use, in percent, from which the engine's memory is critical: 95.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "http": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most HTTP and discovered-API fetches the engine's Resource governor admits at once, across its Runs: 200.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest HTTP and discovered-API fetches the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.http.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "last_resort_after": {
+                "description": "How long the engine's memory may stay critical with its concurrency at the floor before the Resource governor reaches its last resort, when a Daemon's `/readyz` fails: 60 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "memory_allowance": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Read again at every sample."
+              },
+              "model_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most model calls the engine's Resource governor admits at once, across its Runs: 16.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest model calls the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.model_call.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "pressure": {
+                "description": "The share of the Memory allowance in use, in percent, from which the engine is under pressure and its Resource governor lowers its concurrency; also the CPU and Tokio workers' busy share from which they hold it: 85.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "run_share": {
+                "description": "The share, in percent, of each kind's concurrency one Run may hold at once, at least one: 100. An Operator policy cap bounds every Run's share.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sample_interval": {
+                "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "type": "object"
@@ -1519,6 +1701,97 @@
                   "type": "string"
                 },
                 "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "governor": {
+            "additionalProperties": false,
+            "properties": {
+              "browser_page": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most browser pages the engine's Resource governor admits open at once, across its Runs: 32.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest browser pages the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.browser_page.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "critical": {
+                "description": "The share of the Memory allowance in use, in percent, from which the engine's memory is critical: 95.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "http": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most HTTP and discovered-API fetches the engine's Resource governor admits at once, across its Runs: 200.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest HTTP and discovered-API fetches the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.http.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "last_resort_after": {
+                "description": "How long the engine's memory may stay critical with its concurrency at the floor before the Resource governor reaches its last resort, when a Daemon's `/readyz` fails: 60 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "memory_allowance": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Read again at every sample."
+              },
+              "model_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "ceiling": {
+                    "description": "The most model calls the engine's Resource governor admits at once, across its Runs: 16.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "floor": {
+                    "description": "The fewest model calls the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.model_call.ceiling`, it fixes the concurrency there.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "pressure": {
+                "description": "The share of the Memory allowance in use, in percent, from which the engine is under pressure and its Resource governor lowers its concurrency; also the CPU and Tokio workers' busy share from which they hold it: 85.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "run_share": {
+                "description": "The share, in percent, of each kind's concurrency one Run may hold at once, at least one: 100. An Operator policy cap bounds every Run's share.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sample_interval": {
+                "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "type": "object"

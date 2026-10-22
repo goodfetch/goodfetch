@@ -269,8 +269,9 @@ impl Daemon {
     }
 
     /// Leaves the runtime file and a socket in the home, as a crashed
-    /// Daemon does; only a socket folder outside the home goes, so nothing
-    /// outlives the test's own folder.
+    /// Daemon does; only a socket folder outside the home goes. A killed
+    /// engine runs no destructor, so its `TestEnv` removes that folder at
+    /// teardown.
     fn abandon(self) {
         drop(self.socket_folder);
     }
@@ -299,7 +300,7 @@ impl Listener {
             Ok(listener) => (listener, socket, None),
             Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
                 let own = tempfile::Builder::new()
-                    .prefix("goodfetch é ")
+                    .prefix(goodfetch_test_support::SOCKET_FOLDER_PREFIX)
                     .permissions(std::fs::Permissions::from_mode(0o700))
                     .tempdir_in("/tmp")?;
                 let path = own.path().join(goodfetch_test_support::DAEMON_SOCKET);

@@ -150,7 +150,7 @@ pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{
     ConsoleState, DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
-    RuntimeFileError, SCRIPTED_DAEMON_TOKEN,
+    RuntimeFileError, SCRIPTED_DAEMON_TOKEN, SOCKET_FOLDER_PREFIX,
 };
 pub use script::{
     Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,

@@ -19,7 +19,9 @@ use std::time::{Duration, SystemTime};
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
 use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
-use crate::runtime_file::major_folder;
+use crate::runtime_file::{
+    DaemonEndpoint, RUNTIME_FILE, RuntimeFile, SOCKET_FOLDER_PREFIX, major_folder,
+};
 use crate::variables::{
     COVERAGE_VARIABLE, SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test,
 };
@@ -273,6 +275,7 @@ impl Drop for TestEnv {
         // Children first, so a browser that crashes while it is stopped has
         // finished writing its dump.
         let alive = self.processes.stop_alive();
+        remove_socket_folders_outside(&self.home);
         let panicking = std::thread::panicking();
         let recorded = self.record.as_ref().map_or(Ok(()), |record| {
             record.append_logs(self.folder.path(), &self.home)
@@ -323,6 +326,31 @@ impl Drop for TestEnv {
             std::panic::panic_any(dumps);
         }
         std::panic::panic_any(alive);
+    }
+}
+
+/// Removes each socket folder a Daemon of `home` made under `/tmp`, its
+/// socket's path in the home being too long for the OS, and left behind
+/// when it was killed: a folder named `SOCKET_FOLDER_PREFIX…` that holds the
+/// socket a runtime file of the home names.
+fn remove_socket_folders_outside(home: &Path) {
+    let Ok(majors) = std::fs::read_dir(home) else {
+        return;
+    };
+    for major in majors.flatten() {
+        let Ok(found) = RuntimeFile::read(&major.path().join(RUNTIME_FILE)) else {
+            continue;
+        };
+        if let DaemonEndpoint::Unix(socket) = found.endpoint
+            && !socket.starts_with(home)
+            && let Some(folder) = socket.parent()
+            && folder
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(SOCKET_FOLDER_PREFIX))
+        {
+            // Best effort: a folder another test removed is fine.
+            let _ = std::fs::remove_dir_all(folder);
+        }
     }
 }
 

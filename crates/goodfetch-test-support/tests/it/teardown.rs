@@ -6,7 +6,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
 use goodfetch_test_support::{
-    CRASH_DUMP_VARIABLE, CrashDumps, ProcessesAlive, TOOLS_VARIABLE, TestEnv,
+    CRASH_DUMP_VARIABLE, ConsoleState, CrashDumps, DAEMON_SOCKET, DaemonEndpoint, ProcessesAlive,
+    RuntimeFile, TOOLS_VARIABLE, TestEnv,
 };
 
 use crate::{TEST_ENV, manifest, probe, shell};
@@ -142,4 +143,34 @@ fn a_child_that_exited_passes_teardown() {
     let teardown = catch_unwind(AssertUnwindSafe(|| drop(env)));
 
     assert!(teardown.is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn the_socket_folder_a_killed_daemon_left_outside_the_home_goes_at_teardown() {
+    let outside = tempfile::Builder::new()
+        .prefix("goodfetch é ")
+        .tempdir_in("/tmp")
+        .unwrap()
+        .keep();
+    let env = TestEnv::new();
+    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+    std::fs::create_dir_all(runtime_file.parent().unwrap()).unwrap();
+    RuntimeFile {
+        endpoint: DaemonEndpoint::Unix(outside.join(DAEMON_SOCKET)),
+        token: "a-token".to_owned(),
+        version: "0.0.0".to_owned(),
+        pid: 1,
+        console: ConsoleState::Absent,
+    }
+    .write(&runtime_file)
+    .unwrap();
+
+    drop(env);
+
+    let left = outside.exists();
+    if left {
+        std::fs::remove_dir_all(&outside).unwrap();
+    }
+    assert!(!left, "{}", outside.display());
 }

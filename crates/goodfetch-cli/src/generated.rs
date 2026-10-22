@@ -748,7 +748,7 @@ impl Call {
                 group,
                 retryable: error.data.retryable,
                 message: error.message,
-                operation: self.operation.name.to_owned(),
+                operation: Some(self.operation.name.to_owned()),
                 details: error.data.details,
             },
         };

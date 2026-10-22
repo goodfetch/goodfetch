@@ -991,8 +991,11 @@
         },
         "operation": {
           "arrived_in": "0.1",
-          "description": "The operation the command called, by its canonical name, such as\n`run.finish`.",
-          "type": "string"
+          "description": "The operation the command called, by its canonical name, such as\n`run.finish`; absent when the command failed before it could call\none, as `npx @goodfetch/collie` does when it finds no executable.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "retryable": {
           "arrived_in": "0.1",
@@ -1004,8 +1007,7 @@
         "code",
         "group",
         "retryable",
-        "message",
-        "operation"
+        "message"
       ],
       "type": "object"
     },

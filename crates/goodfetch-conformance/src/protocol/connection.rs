@@ -7,6 +7,7 @@
 use std::fmt;
 use std::time::Duration;
 
+use goodfetch_protocol::catalog::ErrorGroup;
 use serde_json::{Value, json};
 
 use super::target::{
@@ -146,6 +147,20 @@ impl Connection {
     /// Answers the engine's request `id` with `result`.
     pub(crate) fn reply(&mut self, id: &Value, result: &Value) -> Result<(), Gone> {
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
+    }
+
+    /// Answers the engine's request `id` with a failure of the Error code
+    /// `code`, of the `program` group, as a handler that threw does.
+    pub(crate) fn fail(&mut self, id: &Value, code: &str, message: &str) -> Result<(), Gone> {
+        self.send(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": ErrorGroup::Program.json_rpc_class(),
+                "message": message,
+                "data": { "code": code, "retryable": false },
+            },
+        }))
     }
 
     /// Opens a further Connection to the same target, before any `hello`,

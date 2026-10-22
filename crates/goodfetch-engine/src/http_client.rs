@@ -48,7 +48,9 @@ use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
 use crate::egress::{self, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::run_trace::RequestLog;
-use crate::tls::{self, CertificateInvalid, Trust};
+use crate::tls::{
+    self, CertificateChanged, CertificateExceptions, CertificateInvalid, ExceptionUsed, Trust,
+};
 
 #[cfg(test)]
 mod tests;
@@ -82,6 +84,9 @@ pub(crate) struct Network<'a> {
     pub(crate) resolve: &'a Resolve,
     /// What each host's certificate may chain to beside Mozilla's roots.
     pub(crate) trust: &'a Trust,
+    /// The Session's certificate exceptions; none for an
+    /// Operator-configured endpoint, which never takes one.
+    pub(crate) exceptions: Option<&'a CertificateExceptions>,
     /// What the race waits on.
     pub(crate) clock: Clock,
     /// The race's delays.
@@ -223,10 +228,27 @@ pub struct PageTraffic {
     /// What each host's certificate may chain to beside Mozilla's roots:
     /// the certificate authorities `tls.trusted_cas` lists for its domain.
     pub trust: Trust,
+    /// The exceptions `tls.accept_invalid_certs` makes, and where they pin.
+    pub exceptions: CertificateExceptions,
+    /// The Session's cookies, which go to no host reached through an
+    /// exception.
+    pub cookies: Vec<SessionCookie>,
     /// What the Happy Eyeballs race waits on (ADR 0118).
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
     pub delays: Delays,
+}
+
+/// One cookie of a Session, sent to its domain and the domain's
+/// subdomains.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionCookie {
+    /// The domain it is sent to, with its subdomains.
+    pub domain: String,
+    /// Its name.
+    pub name: String,
+    /// Its value.
+    pub value: String,
 }
 
 /// Who waits for a request: a call, which a refusal fails, or nobody, when
@@ -316,6 +338,7 @@ impl PageTraffic {
         let network = Network {
             resolve: &self.resolve,
             trust: &self.trust,
+            exceptions: Some(&self.exceptions),
             clock: self.clock,
             delays: self.delays,
         };
@@ -333,7 +356,7 @@ impl PageTraffic {
             }
             return Err(FetchError::Refused(refused));
         }
-        send_to(&server, &found, request, &network)
+        send_to(&server, &found, request, &self.cookies, &network)
             .await
             .map_err(FetchError::Failed)
     }
@@ -362,6 +385,9 @@ pub enum Failure {
     /// The host's certificate failed verification, so nothing was sent:
     /// `certificate_invalid`.
     CertificateInvalid(CertificateInvalid),
+    /// The host is pinned to another key than it presented, or its pin row
+    /// cannot be read, so nothing was sent (ADR 0042).
+    CertificateChanged(CertificateChanged),
 }
 
 /// The task that drives one connection, plain or over TLS, until it ends.
@@ -382,6 +408,7 @@ pub struct Response {
     body: Incoming,
     connection: Connection,
     connection_done: bool,
+    exception: Option<ExceptionUsed>,
 }
 
 impl std::fmt::Debug for Response {
@@ -398,6 +425,12 @@ impl Response {
     /// Its status code.
     pub fn status(&self) -> u16 {
         self.status.as_u16()
+    }
+
+    /// The invalid-certificate exception it was fetched under, which its
+    /// Provenance carries: the kind and the certificate's hash.
+    pub fn exception(&self) -> Option<&ExceptionUsed> {
+        self.exception.as_ref()
     }
 
     /// The body's next bytes; `None` once it ended.
@@ -446,11 +479,36 @@ pub(crate) async fn send(
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
     let found = addresses(server, network.resolve).await?;
-    send_to(server, &found, request, network).await
+    send_to(server, &found, request, &[], network).await
+}
+
+/// The `Cookie` header of `cookies` for `host`: those whose domain is the
+/// host or one it is a subdomain of; none when no cookie is for it.
+fn cookie_header(cookies: &[SessionCookie], host: &str) -> Option<hyper::header::HeaderValue> {
+    let host = host.to_ascii_lowercase();
+    let line = cookies
+        .iter()
+        .filter(|cookie| {
+            let domain = cookie.domain.to_ascii_lowercase();
+            host == domain
+                || host
+                    .strip_suffix(domain.as_str())
+                    .is_some_and(|start| start.ends_with('.'))
+        })
+        .map(|cookie| format!("{}={}", cookie.name, cookie.value))
+        .collect::<Vec<_>>()
+        .join("; ");
+    if line.is_empty() {
+        return None;
+    }
+    hyper::header::HeaderValue::from_str(&line).ok()
 }
 
 /// Sends `request` to `server` at one of `found`, its addresses, over
-/// HTTPS unless the server is plain, and answers its head.
+/// HTTPS unless the server is plain, and answers its head. A host listed
+/// for trust on first use is let through or stopped by the Session's
+/// exceptions once its handshake is done, before the request is written;
+/// `cookies` go to the host unless it was reached through an exception.
 ///
 /// # Cancel safety
 ///
@@ -458,9 +516,11 @@ pub(crate) async fn send(
 async fn send_to(
     server: &Server<'_>,
     found: &[SocketAddr],
-    request: Request<Empty<Bytes>>,
+    mut request: Request<Empty<Bytes>>,
+    cookies: &[SessionCookie],
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
+    let mut exception = None;
     let (mut sender, mut connection) = if server.plain {
         let tcp = race_to(server, found, network).await?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
@@ -470,19 +530,39 @@ async fn send_to(
     } else {
         let server_name =
             ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
+        let listed = network
+            .exceptions
+            .filter(|exceptions| exceptions.covers(server.host));
+        let seen = listed.map(|_| Arc::new(tls::Seen::default()));
+        let config = match &seen {
+            Some(seen) => network.trust.client_config_presenting(Arc::clone(seen)),
+            None => network.trust.client_config(),
+        };
         let tcp = race_to(server, found, network).await?;
-        let tls = tokio_rustls::TlsConnector::from(Arc::new(network.trust.client_config()))
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(config))
             .connect(server_name, tcp)
             .await
             .map_err(|error| {
                 tls::certificate_invalid(&error, server.host)
                     .map_or(Failure::Network, Failure::CertificateInvalid)
             })?;
+        if let (Some(exceptions), Some(seen)) = (listed, &seen) {
+            let presented = seen.take().ok_or(Failure::Network)?;
+            exception = exceptions
+                .admit(server.host, presented)
+                .await
+                .map_err(Failure::CertificateChanged)?;
+        }
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
             .await
             .map_err(|_| Failure::Network)?;
         (sender, Box::pin(connection) as Connection)
     };
+    if exception.is_none()
+        && let Some(cookie) = cookie_header(cookies, server.host)
+    {
+        request.headers_mut().insert(hyper::header::COOKIE, cookie);
+    }
     let mut connection_done = false;
     let head = {
         let sent = sender.send_request(request);
@@ -510,6 +590,7 @@ async fn send_to(
         body: head.into_body(),
         connection,
         connection_done,
+        exception,
     })
 }
 

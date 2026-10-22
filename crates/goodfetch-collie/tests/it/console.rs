@@ -110,6 +110,13 @@ enum Route {
     Some("text/html; charset=utf-8"),
     "no-cache"
 )]
+#[case::a_route_of_the_build(
+    "GET",
+    Route::Path("/settings"),
+    200,
+    Some("text/html; charset=utf-8"),
+    "no-cache"
+)]
 #[case::its_icon(
     "GET",
     Route::Path("/favicon.svg"),

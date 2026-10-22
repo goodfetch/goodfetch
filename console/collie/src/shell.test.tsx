@@ -20,7 +20,7 @@ test("the shell's first screen names the Product, then Collie, and the engine it
 
   await render(
     <ConsoleI18n>
-      <Shell client={client} />
+      <Shell client={client} route="/" />
     </ConsoleI18n>,
   );
 
@@ -36,7 +36,7 @@ test("the shell's first screen names the Product, then Collie, and the engine it
 test("the shell says when the page is not signed in", async () => {
   await render(
     <ConsoleI18n>
-      <Shell client={undefined} />
+      <Shell client={undefined} route="/" />
     </ConsoleI18n>,
   );
 

@@ -3,8 +3,9 @@
 driver = ["errors", "launch", "trace"]
 errors = []
 guard = ["driver"]
+interception = ["driver", "url_pattern"]
 launch = []
-pages = ["driver", "guard"]
+pages = ["driver", "guard", "interception"]
 robots_txt = []
 trace = []
 url_pattern = []
@@ -14,6 +15,13 @@ url_pattern = []
 identity = []
 navigation = []
 world = []
+
+# Which of `interception`'s own modules may import which.
+[submodules.interception]
+answers = ["steps"]
+pipeline = ["answers", "routes", "steps"]
+routes = []
+steps = []
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]

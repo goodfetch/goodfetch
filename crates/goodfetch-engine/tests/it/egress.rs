@@ -18,7 +18,7 @@ use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{FetchError, PageTraffic, Resolve, Waiter};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_engine::tls::Trust;
+use goodfetch_engine::tls::{CertificateExceptions, Trust};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
     Answer, CaseDomains, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
@@ -53,6 +53,8 @@ fn traffic(proving_ground: &ProvingGround, allowed: &[&str], blocked: &[&str]) -
                 vec![CertificateDer::from_pem_file(&description.ca).unwrap()],
             )
             .unwrap(),
+        exceptions: CertificateExceptions::default(),
+        cookies: Vec::new(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,
     }
@@ -280,6 +282,8 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
             .unwrap(),
         resolve,
         trust: Trust::default_roots(),
+        exceptions: CertificateExceptions::default(),
+        cookies: Vec::new(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,
     };

@@ -60,3 +60,16 @@ fn the_audit_log_sits_in_the_home_outside_every_per_major_folder() {
         )
     );
 }
+
+/// The known-certificates store sits beside the Usage ledger, outside the
+/// per-major folders, so every engine major reads the same pins (ADR 0042).
+/// Covers: story:4-43
+#[test]
+fn the_known_certificates_store_sits_beside_the_usage_ledger() {
+    let home = Home::new(PathBuf::from("home"));
+
+    assert_eq!(
+        home.known_certificates(),
+        PathBuf::from("home").join("known-certificates.sqlite")
+    );
+}

@@ -11,6 +11,7 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+data-encoding.workspace = true
 goodfetch-cdp.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true

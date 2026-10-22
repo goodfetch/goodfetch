@@ -6,7 +6,8 @@
 //! `locator.click`, `locator.fill` and `locator.press` act on the one
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
-//! patterns its calls pass fail with.
+//! patterns its calls pass fail with. Its `route` module holds the page's
+//! and the Session's routes.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -30,6 +31,13 @@ use crate::catalog::{
 use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
 use crate::settings::SettingLimit;
+
+pub mod route;
+
+use self::route::{
+    PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
+    ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -947,9 +955,16 @@ pub const ENTRIES: Entries = Entries {
         LOCATOR_CLICK,
         LOCATOR_FILL,
         LOCATOR_PRESS,
+        PAGE_ROUTE,
+        SESSION_ROUTE,
+        ROUTE_CONTINUE,
+        ROUTE_FALLBACK,
+        ROUTE_FULFILL,
+        ROUTE_ABORT,
+        ROUTE_FETCH,
     ],
     events: &[PAGE_DOWNLOAD, PAGE_REQUEST_FAILED],
-    handler_requests: &[],
+    handler_requests: &[ROUTE_HANDLE],
     error_codes: &[
         BODY_NOT_FOUND,
         NAVIGATION_FAILED,
@@ -961,6 +976,8 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_HOST_OUTDATED,
         TARGET_NOT_UNIQUE,
         PATTERN_UNSUPPORTED,
+        PAGE_HANDLER_FAILED,
+        ROUTE_ALREADY_HANDLED,
     ],
     plugin_kinds: &[],
     metrics: &[],

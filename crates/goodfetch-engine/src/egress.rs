@@ -203,6 +203,9 @@ fn without_root(name: &str) -> &str {
 pub enum RequestKind {
     /// A request the engine's own HTTP client sends for the run.
     Fetch,
+    /// A request of a page that the page's interception holds, a route's
+    /// overrides applied (spec #577's step 3).
+    Page,
     /// A request whose kind the interception that holds it cannot see.
     Unseen,
 }

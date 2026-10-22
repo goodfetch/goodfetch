@@ -1,5 +1,5 @@
-//! The page suite (spec #577, tickets #695, #696, #698 and #699; spec #580, ticket
-//! #783) against an Attached engine of Collie's executable, given by path, on
+//! The page suite (spec #577, tickets #695, #696, #698, #699 and #702; spec #580,
+//! ticket #783) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
 #![expect(
@@ -16,7 +16,7 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, Tool, browser_cach
 
 use crate::proving_ground::LocalCopy;
 
-/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, story:5-56, story:5-11, story:5-2, story:5-3, story:5-10, story:5-18, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:locator.click, operation:locator.fill, operation:locator.press, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download, story:6-1, story:6-8, story:6-12, operation:page.formats
+/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, story:5-56, story:5-11, story:5-2, story:5-3, story:5-10, story:5-18, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:locator.click, operation:locator.fill, operation:locator.press, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download, story:6-1, story:6-8, story:6-12, operation:page.formats, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused
 #[test]
 fn the_page_suite_is_proved_against_collies_attached_engine() {
     let env = TestEnv::new();
@@ -66,6 +66,8 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
                 ("launch", Outcome::Proved),
                 ("locators.guard", Outcome::Proved),
                 ("locators.input", Outcome::Proved),
+                ("routes", Outcome::Proved),
+                ("routes.interception_order", Outcome::Proved),
             ],
             Some(Product::Collie),
         ),

@@ -101,6 +101,7 @@ use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::governor::{Governor, RunShare};
 use crate::home::{Home, RunStateLocation, major_name};
+use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, Refusal, Reservation};
 use crate::metrics::Metrics;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
@@ -1300,6 +1301,7 @@ impl Runs {
             home: setup.home.clone(),
             owner: Arc::clone(&readers),
             ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
+            known_certificates: KnownCertificates::of(&setup.home, setup.ledger_vfs.clone()),
             clock: setup.clock,
             product: setup.product,
             instance: setup.events.instance().as_str().to_owned(),

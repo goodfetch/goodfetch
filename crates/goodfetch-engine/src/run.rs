@@ -36,8 +36,8 @@ use goodfetch_protocol::usage::{
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::secrets::{
-    SECRET_DOMAIN_NOT_ALLOWED, SECRET_UNAVAILABLE, SecretDomainNotAllowedDetails,
-    SecretUnavailableDetails,
+    SECRET_DOMAIN_NOT_ALLOWED, SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE,
+    SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails,
 };
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
@@ -246,6 +246,21 @@ pub fn secret_error(error: &SecretError) -> CallError {
                 reference: reference.to_string(),
                 domain: domain.clone(),
                 domains: domains.clone(),
+            },
+        ),
+        SecretError::InputRefused {
+            placeholder,
+            reference,
+            domain,
+            reason,
+        } => CallError::new(
+            &SECRET_INPUT_REFUSED,
+            message,
+            &SecretInputRefusedDetails {
+                placeholder: placeholder.clone(),
+                reference: reference.to_string(),
+                domain: domain.clone(),
+                reason: *reason,
             },
         ),
         SecretError::Unrecorded { .. } => {

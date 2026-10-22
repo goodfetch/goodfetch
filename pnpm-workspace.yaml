@@ -41,3 +41,10 @@ catalog:
 patchedDependencies:
   "@lingui/cli@6.10.0": patches/@lingui__cli@6.10.0.patch
   eslint-plugin-lingui@0.16.0: patches/eslint-plugin-lingui@0.16.0.patch
+
+# Install scripts that never run (STYLE.md, Dependencies: nothing a build
+# downloads). esbuild, which Storybook's builder brings (ADR 0068), only
+# checks there its platform binary, which pnpm installs as its optional
+# dependency for the host.
+allowBuilds:
+  esbuild: false

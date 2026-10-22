@@ -1,12 +1,18 @@
-//! The page crate's benchmark scenario (ADR 0071), shared by its Callgrind
-//! and DHAT targets: the guard's check-and-arm round trip as the engine
+//! The page crate's benchmark scenarios (ADR 0071), shared by its Callgrind
+//! and DHAT targets. The guard's check-and-arm round trip as the engine
 //! does it, a fixed number of times. Each round trip builds the guard's
 //! very command (its script, its argument and the call into its world, the
 //! crate's own modules compiled in here), sends it over a real CDP
 //! connection to a browser end in the same process, which answers every
 //! command with a ready target, and reads the answer as the guard reads
-//! it. Only the browser's own work is left out. Inputs are literals; no
-//! network, no sleep, no work whose amount depends on timing.
+//! it. Only the browser's own work is left out. And the interception's
+//! per-request pipeline: a browser end in the same process pauses a fixed
+//! list of requests, and each is read as the pipeline reads it, matched
+//! against a page's routes, none of which answers it, judged by steps 3 to
+//! 7 under a domain policy of a hundred entries (the pipeline's `steps`,
+//! compiled in here) and sent on, or failed when refused, with the
+//! browser's answer read. Inputs are literals; no network, no sleep, no
+//! work whose amount depends on timing.
 
 #[path = "../src/guard/check.rs"]
 #[expect(
@@ -14,12 +20,21 @@
     reason = "the scenario reads only a ready target's answer, never a waiting one's details"
 )]
 mod check;
+#[path = "../src/interception/steps.rs"]
+#[expect(
+    dead_code,
+    reason = "no route of the scenario answers, so no override is merged"
+)]
+mod steps;
 #[path = "../src/driver/world.rs"]
 mod world;
 
 use std::time::Duration;
 
+use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_cdp::{Connection, Framer};
+use goodfetch_engine::egress::Policy;
+use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
@@ -97,5 +112,152 @@ pub(crate) fn check_and_arm(count: usize) -> usize {
             browser(end)
         );
         ready
+    })
+}
+
+/// The page routes of the interception scenario: globs a program arms,
+/// none matching the scenario's requests.
+const ROUTES: [&str; 8] = [
+    "**/api/**",
+    "**/*.{png,jpg,webp}",
+    "**/analytics.js",
+    "https://cdn.example.test/**",
+    "**/login*",
+    "**/graphql",
+    "**/*.woff2",
+    "**/ads/**",
+];
+
+/// The `index`th request the browser end pauses: a page's documents, every
+/// tenth to a host the policy does not list.
+fn paused(index: usize) -> Vec<u8> {
+    let host = if index.is_multiple_of(10) {
+        "tracker.example.test".to_owned()
+    } else {
+        format!("site-{}.example.test", index % 100)
+    };
+    let mut bytes = serde_json::to_vec(&json!({
+        "method": "Fetch.requestPaused",
+        "params": {
+            "requestId": format!("interception-job-{index}.0"),
+            "request": {
+                "url": format!("https://{host}/shelf/{index}/items?page=2"),
+                "method": "GET",
+                "headers": {
+                    "Accept": "text/html,application/xhtml+xml",
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/156.0.0.0",
+                    "Upgrade-Insecure-Requests": "1",
+                },
+                "initialPriority": "VeryHigh",
+                "referrerPolicy": "strict-origin-when-cross-origin",
+            },
+            "frameId": "8D5B4C2A9E1F",
+            "resourceType": "Document",
+        },
+    }))
+    .expect("invariant: an event encodes");
+    bytes.push(0);
+    bytes
+}
+
+/// A browser end that answers every command with an empty result and,
+/// after each, pauses the next of `count` requests, as a page's requests
+/// come while the engine answers the earlier ones, until the client closes
+/// its end.
+async fn pausing_browser(mut stream: DuplexStream, count: usize) {
+    let mut paused_so_far = 0;
+    let mut framer = Framer::default();
+    let mut buffer = vec![0; 1 << 16];
+    loop {
+        while let Some(frame) = framer.next_frame().expect("invariant: the client frames") {
+            let command: Value =
+                serde_json::from_slice(&frame).expect("invariant: a command is JSON");
+            let mut answer = serde_json::to_vec(&json!({ "id": command["id"], "result": {} }))
+                .expect("invariant: an answer encodes");
+            answer.push(0);
+            if stream.write_all(&answer).await.is_err() {
+                return;
+            }
+            if paused_so_far < count {
+                if stream.write_all(&paused(paused_so_far)).await.is_err() {
+                    return;
+                }
+                paused_so_far += 1;
+            }
+        }
+        match stream.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(count) => framer.push(&buffer[..count]),
+        }
+    }
+}
+
+/// The domain policy of the interception scenario: a hundred hosts
+/// allowed.
+fn policy() -> Policy {
+    let allowed: Vec<String> = (0..100)
+        .map(|entry| format!("site-{entry}.example.test"))
+        .collect();
+    Policy::new(&allowed, &[] as &[&str]).expect("invariant: every entry is a host")
+}
+
+/// Sends `command` and reads the browser end's answer.
+async fn sent<C: goodfetch_cdp::Command>(connection: &Connection, command: &C) {
+    connection
+        .send(None, command, Duration::from_secs(30))
+        .await
+        .expect("invariant: the browser end answers every command");
+}
+
+/// `count` paused requests through the pipeline; returns how many it sent
+/// on.
+pub(crate) fn intercept(count: usize) -> usize {
+    let routes: Vec<UrlPattern> = ROUTES
+        .iter()
+        .map(|glob| UrlPattern::glob(glob).expect("invariant: the globs read"))
+        .collect();
+    let policy = policy();
+    runtime().block_on(async {
+        let (client, end) = tokio::io::duplex(1 << 16);
+        let (reader, writer) = tokio::io::split(client);
+        let (connection, driver) = Connection::new(reader, writer);
+        let (_, sent_on, ()) = tokio::join!(
+            driver.run(),
+            async {
+                let mut events = connection.subscribe(None).await;
+                sent(&connection, &fetch::EnableParams::default()).await;
+                let mut sent_on = 0;
+                for _ in 0..count {
+                    let event = events
+                        .next()
+                        .await
+                        .expect("invariant: the browser end pauses every request");
+                    let paused = event
+                        .read::<fetch::RequestPausedEvent>()
+                        .expect("invariant: the browser end pauses requests");
+                    let url = &paused.request.url;
+                    if routes.iter().any(|route| route.matches(url)) {
+                        continue;
+                    }
+                    let overrides = steps::Overrides::default();
+                    if let Ok(command) =
+                        steps::send_on(&paused.request_id, url, &overrides, &policy, false)
+                    {
+                        sent(&connection, &command).await;
+                        sent_on += 1;
+                    } else {
+                        let failed = fetch::FailRequestParams {
+                            request_id: paused.request_id.clone(),
+                            error_reason: network::ErrorReason::BlockedByClient,
+                        };
+                        sent(&connection, &failed).await;
+                    }
+                }
+                drop(connection);
+                sent_on
+            },
+            pausing_browser(end, count)
+        );
+        sent_on
     })
 }

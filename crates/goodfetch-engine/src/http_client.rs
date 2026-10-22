@@ -1,7 +1,7 @@
 //! The engine's own HTTP client (ADRs 0017, 0043 and 0060): the one place
 //! the engine opens an outbound connection on the OS's network, which the
-//! Simulation never carries. It sends one HTTPS request over HTTP/1.1 and
-//! streams the answer's body, the `resolve` setting applied before any
+//! Simulation never carries. It sends one HTTP or HTTPS request over
+//! HTTP/1.1 and streams the answer's body, the `resolve` setting applied before any
 //! lookup (ADR 0059), Mozilla's roots trusted beside the certificate
 //! authorities its caller adds. It adds no header of its own.
 //!
@@ -11,10 +11,17 @@
 //! the Session's local addresses hold, to its proxy's addresses when it has
 //! one, forgetting a name whose every address failed.
 //!
-//! ADR 0043 allows only two kinds of caller: `pinned_download`, the one path
-//! for every connection nobody configured, and the module of each kind of
-//! Operator-configured endpoint. Which modules call it is `modules.toml`'s
-//! list, which a test holds to those kinds.
+//! A request of the run, an address a page can reach, goes through
+//! [`PageTraffic`], which the Session's egress policy judges before any
+//! lookup or connection (ADRs 0014 and 0017): a refusal ends the call that
+//! waited for it with `egress_refused`, or, when no call waits, is a
+//! `page.request_failed` event in the Run trace.
+//!
+//! ADR 0043 allows only two kinds of caller beside a run's own requests:
+//! `pinned_download`, the one path for every connection nobody configured,
+//! and the module of each kind of Operator-configured endpoint. Which
+//! modules call it is `modules.toml`'s list, which a test holds to those
+//! kinds.
 
 use std::collections::BTreeMap;
 use std::future::ready;
@@ -23,15 +30,19 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 
+use goodfetch_protocol::page::RequestFailed;
 use http_body_util::{BodyExt as _, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, ServerName};
+use url::Host;
 
 use crate::clock::Clock;
 use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
+use crate::egress::{self, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
+use crate::run_trace::RequestLog;
 
 #[cfg(test)]
 mod tests;
@@ -191,18 +202,148 @@ pub(crate) struct Server<'a> {
     pub(crate) host: &'a str,
     /// Its port.
     pub(crate) port: u16,
+    /// Whether it speaks plain HTTP rather than HTTPS.
+    pub(crate) plain: bool,
+}
+
+/// What a request of the run may reach, from the engine's own HTTP client:
+/// the Session's egress policy, which judges each request before any
+/// lookup, and the network it then uses.
+#[derive(Clone, Debug)]
+pub struct PageTraffic {
+    /// The Session's egress policy.
+    pub egress: egress::Policy,
+    /// The `resolve` setting (ADR 0059).
+    pub resolve: Resolve,
+    /// Certificate authorities trusted beside Mozilla's roots, such as those
+    /// of `tls.trusted_cas`.
+    pub trusted_certificates: Vec<CertificateDer<'static>>,
+    /// What the Happy Eyeballs race waits on (ADR 0118).
+    pub clock: Clock,
+    /// `resolver.resolution_delay` and `resolver.attempt_delay`.
+    pub delays: Delays,
+}
+
+/// Who waits for a request: a call, which a refusal fails, or nobody, when
+/// the refusal is recorded in the Run trace instead.
+#[derive(Clone, Copy, Debug)]
+pub enum Waiter<'a> {
+    /// A call, which answers the refusal as `egress_refused`.
+    Call,
+    /// No call: a refusal is a `page.request_failed` event in this Run's
+    /// request log.
+    Nobody(&'a RequestLog),
+}
+
+/// Why a request of the run got no answer.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum FetchError {
+    /// The egress policy refused it before any lookup or connection.
+    Refused(Refused),
+    /// The policy allows its scheme, but the engine's client speaks only
+    /// HTTP and HTTPS, such as for `ws:`.
+    UnsupportedScheme(String),
+    /// It was sent and got no answer.
+    Failed(Failure),
+}
+
+impl PageTraffic {
+    /// Sends a GET for `url` once the egress policy allows it, and answers
+    /// its head; its body arrives through [`Response::chunk`]. A refusal
+    /// opens no connection and makes no lookup; when nobody waits for the
+    /// request, it is also recorded in the Run trace.
+    ///
+    /// # Errors
+    ///
+    /// [`FetchError::Refused`] when the policy refuses it, whose
+    /// [`Refused::error`] is `egress_refused`;
+    /// [`FetchError::UnsupportedScheme`] for an allowed scheme other than
+    /// `http` and `https`; [`FetchError::Failed`] when it got no answer.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes any connection it opened.
+    pub async fn get(&self, url: &str, waiter: Waiter<'_>) -> Result<Response, FetchError> {
+        let request = egress::Request {
+            url,
+            kind: egress::RequestKind::Fetch,
+        };
+        let url = match egress::judge(&request, &self.egress) {
+            Judgment::Allowed(url) => url,
+            Judgment::Refused(refused) => {
+                if let Waiter::Nobody(log) = waiter {
+                    record_unwaited(log, &refused).await;
+                }
+                return Err(FetchError::Refused(refused));
+            }
+        };
+        let plain = match url.scheme() {
+            "http" => true,
+            "https" => false,
+            scheme => return Err(FetchError::UnsupportedScheme(scheme.to_owned())),
+        };
+        let host = match url.host() {
+            Some(Host::Ipv6(address)) => address.to_string(),
+            Some(host) => host.to_string(),
+            None => return Err(FetchError::Failed(Failure::ServerName)),
+        };
+        let port = url
+            .port_or_known_default()
+            .ok_or(FetchError::Failed(Failure::ServerName))?;
+        let authority = match url.port() {
+            Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
+            None => url.host_str().unwrap_or_default().to_owned(),
+        };
+        let path = match url.query() {
+            Some(query) => format!("{}?{query}", url.path()),
+            None => url.path().to_owned(),
+        };
+        let request = Request::get(path)
+            .header(hyper::header::HOST, authority)
+            .body(Empty::<Bytes>::new())
+            .map_err(|_| FetchError::Failed(Failure::ServerName))?;
+        let network = Network {
+            resolve: &self.resolve,
+            trusted_certificates: &self.trusted_certificates,
+            clock: self.clock,
+            delays: self.delays,
+        };
+        let server = Server {
+            host: &host,
+            port,
+            plain,
+        };
+        send(&server, request, &network)
+            .await
+            .map_err(FetchError::Failed)
+    }
+}
+
+/// Records `refused` as a `page.request_failed` event in the Run trace,
+/// for a request no call waited for.
+async fn record_unwaited(log: &RequestLog, refused: &Refused) {
+    let failed = RequestFailed {
+        url: refused.url.clone(),
+        method: "GET".to_owned(),
+        failure: refused.failure(),
+    };
+    if let Err(error) = log.request_failed(&failed).await {
+        tracing::warn!(%error, "the Run trace cannot record a refused request");
+    }
 }
 
 /// Why a request got no answer.
 #[derive(Debug)]
-pub(crate) enum Failure {
+pub enum Failure {
     /// The host is no name TLS can verify.
     ServerName,
     /// No answer, or a connection that broke.
     Network,
 }
 
-type Connection = hyper::client::conn::http1::Connection<TokioIo<TlsStream>, Empty<Bytes>>;
+/// The task that drives one connection, plain or over TLS, until it ends.
+type Connection = Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>;
 
 #[expect(
     clippy::disallowed_types,
@@ -210,26 +351,43 @@ type Connection = hyper::client::conn::http1::Connection<TokioIo<TlsStream>, Emp
 )]
 type TcpStream = tokio::net::TcpStream;
 
-type TlsStream = tokio_rustls::client::TlsStream<TcpStream>;
-
 /// An answer whose body is still arriving.
-pub(crate) struct Response {
+pub struct Response {
     /// Its status.
     pub(crate) status: StatusCode,
     /// Its `Content-Length`, when it gave a number.
     pub(crate) content_length: Option<u64>,
     body: Incoming,
-    connection: Pin<Box<Connection>>,
+    connection: Connection,
     connection_done: bool,
 }
 
+impl std::fmt::Debug for Response {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Response")
+            .field("status", &self.status)
+            .field("content_length", &self.content_length)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Response {
+    /// Its status code.
+    pub fn status(&self) -> u16 {
+        self.status.as_u16()
+    }
+
     /// The body's next bytes; `None` once it ended.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::Network`] when the connection broke.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses no bytes already received.
-    pub(crate) async fn chunk(&mut self) -> Result<Option<Bytes>, Failure> {
+    pub async fn chunk(&mut self) -> Result<Option<Bytes>, Failure> {
         loop {
             tokio::select! {
                 frame = self.body.frame() => {
@@ -254,8 +412,8 @@ impl Response {
     }
 }
 
-/// Sends `request` to `server` over HTTPS and answers its head; its body
-/// arrives through [`Response::chunk`].
+/// Sends `request` to `server`, over HTTPS unless the server is plain, and
+/// answers its head; its body arrives through [`Response::chunk`].
 ///
 /// # Cancel safety
 ///
@@ -265,17 +423,25 @@ pub(crate) async fn send(
     request: Request<Empty<Bytes>>,
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
-    let server_name =
-        ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
-    let tcp = race_to(server, network).await?;
-    let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(network)))
-        .connect(server_name, tcp)
-        .await
-        .map_err(|_| Failure::Network)?;
-    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
-        .await
-        .map_err(|_| Failure::Network)?;
-    let mut connection = Box::pin(connection);
+    let (mut sender, mut connection) = if server.plain {
+        let tcp = race_to(server, network).await?;
+        let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
+            .await
+            .map_err(|_| Failure::Network)?;
+        (sender, Box::pin(connection) as Connection)
+    } else {
+        let server_name =
+            ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
+        let tcp = race_to(server, network).await?;
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(network)))
+            .connect(server_name, tcp)
+            .await
+            .map_err(|_| Failure::Network)?;
+        let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
+            .await
+            .map_err(|_| Failure::Network)?;
+        (sender, Box::pin(connection) as Connection)
+    };
     let mut connection_done = false;
     let head = {
         let sent = sender.send_request(request);

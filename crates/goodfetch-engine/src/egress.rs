@@ -21,6 +21,8 @@ use goodfetch_protocol::egress::{
     EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_REFUSED, EVERY_HOST,
     EgressRefusedDetails, EgressRule,
 };
+use goodfetch_protocol::jsonrpc::ErrorData;
+use serde_json::{Map, Value};
 use url::{Host, Url};
 
 use crate::composition::CallError;
@@ -221,6 +223,20 @@ impl Refused {
     /// The failure the call that waited for the request answers with.
     pub fn error(&self) -> CallError {
         CallError::new(&EGRESS_REFUSED, self.to_string(), &self.details())
+    }
+
+    /// The failure as an event carries it, for a request no call waited
+    /// for: `egress_refused` and its details.
+    pub fn failure(&self) -> ErrorData {
+        let details = match serde_json::to_value(self.details()) {
+            Ok(Value::Object(details)) => details,
+            _ => Map::new(),
+        };
+        ErrorData {
+            code: EGRESS_REFUSED.name.to_owned(),
+            retryable: EGRESS_REFUSED.retryable,
+            details,
+        }
     }
 }
 

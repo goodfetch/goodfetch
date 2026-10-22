@@ -298,6 +298,7 @@ pub(crate) async fn download(
     let server = Server {
         host: &url.host,
         port: url.port,
+        plain: false,
     };
     let mut response = http_client::send(&server, request, &network)
         .await

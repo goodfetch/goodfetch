@@ -49,6 +49,7 @@ pub mod rpc;
 pub mod run;
 mod run_index;
 pub mod run_state;
+pub mod run_trace;
 pub mod runs;
 pub mod secrets;
 pub mod settings;

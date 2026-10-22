@@ -1,7 +1,8 @@
 //! A Run's pages (ADRs 0085, 0092 and 0099): `run.new_page` opens a page in
 //! the Run's default Session, which the first call opens and every later
 //! one shares; `page.goto`, `page.reload`, `page.go_back` and
-//! `page.go_forward` navigate a page and answer the document's `Response`;
+//! `page.go_forward` navigate a page and answer the document's `Response`,
+//! or none for a file the browser downloads, which `page.download` reports;
 //! `locator.click`, `locator.fill` and `locator.press` act on the one
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
@@ -22,8 +23,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
+    OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind,
+    schema_of,
 };
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
@@ -164,7 +166,8 @@ pub struct PageOpened {
     pub session_id: SessionId,
 }
 
-/// What `page.goto` takes: the page, and the URL it goes to.
+/// What `page.goto` takes: the page, the URL it goes to, and when it
+/// answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GotoParams {
@@ -174,6 +177,25 @@ pub struct GotoParams {
     /// The URL.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
+    /// When the navigation answers; `load` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub wait_until: Option<WaitUntil>,
+}
+
+/// When a navigation answers, by the state its document reached
+/// (Playwright's `waitUntil`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum WaitUntil {
+    /// Once the browser committed the document, its response received: a
+    /// body cut after that is left to the body's read.
+    Commit,
+    /// Once the document fired `DOMContentLoaded`.
+    DomContentLoaded,
+    /// Once the document fired `load`.
+    #[default]
+    Load,
 }
 
 /// What `page.reload`, `page.go_back` and `page.go_forward` take: the page.
@@ -200,12 +222,20 @@ pub struct PageResponse {
     /// Its headers, their names lower-cased, as the browser received them.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub headers: BTreeMap<String, String>,
+    /// For a navigation's document, the encoding the browser decoded it
+    /// with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
+    /// 0119); none for another response, and for a navigation that answered
+    /// at `commit`, before its document was decoded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub encoding: Option<String>,
 }
 
 /// What a navigation answers: the document's response, or none for a
 /// navigation within the same document, to a URL no server answers, such as
-/// `about:blank`, or back or forward from the last entry of the page's
-/// history. A 404 or a 500 is a response, a value.
+/// `about:blank`, to a file the browser downloads instead of showing, which
+/// `page.download` reports, or back or forward from the last entry of the
+/// page's history. A 404 or a 500 is a response, a value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Navigated {
     /// The document's response.
@@ -232,6 +262,82 @@ pub struct NavigationInterruptedDetails {
     /// The URL of the navigation that was superseded.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
+}
+
+/// The count of redirects a fetch follows at most, and what set it (ADR
+/// 0118).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RedirectLimit {
+    /// The browser's own count, 20 requests in a navigation's chain, its
+    /// first included, which a navigation cannot change.
+    Browser {
+        /// The count.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        count: u32,
+    },
+    /// A setting, such as `fetch.redirect.max`, at its resolved value.
+    Setting {
+        /// The setting's key.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        name: String,
+        /// The count.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        count: u32,
+    },
+    /// A call's option, such as `page.request`'s `maxRedirects`.
+    Option {
+        /// The option's name.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        name: String,
+        /// The count.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        count: u32,
+    },
+}
+
+/// What `too_many_redirects` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TooManyRedirectsDetails {
+    /// The first URL of the chain.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The URL each redirect followed led to, in order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub hops: Vec<String>,
+    /// The count it went past, and what set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: RedirectLimit,
+}
+
+/// What `response_truncated` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseTruncatedDetails {
+    /// The URL of the response that was cut.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The bytes of its body that arrived, as the browser decoded them.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub received: u64,
+    /// The bytes its `Content-Length` declared, as sent; none when it
+    /// declared no length, as a chunked body does not.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub expected: Option<u64>,
+}
+
+/// What `page.download` reports: a navigation of a page that the browser
+/// turned into a download.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PageDownload {
+    /// The page whose navigation it was.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub page_id: PageId,
+    /// The file's URL.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The file name the browser suggests for it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub suggested_filename: String,
 }
 
 /// How a browser process ended (ADR 0113).
@@ -281,6 +387,26 @@ pub const NAVIGATION_INTERRUPTED: ErrorCodeDefinition = ErrorCodeDefinition {
     description: "Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.",
     group: ErrorGroup::Page,
     retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A navigation past the count of redirects it may follow (ADR 0118).
+pub const TOO_MANY_REDIRECTS: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "too_many_redirects",
+    description: "The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A response whose body broke off before its end (ADR 0118).
+pub const RESPONSE_TRUNCATED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_truncated",
+    description: "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
+    group: ErrorGroup::Page,
+    retryable: true,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
@@ -445,6 +571,17 @@ pub const PATTERN_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A navigation the browser turned into a download (ADR 0119).
+pub const PAGE_DOWNLOAD: Event = Event {
+    name: "page.download",
+    description: "A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.",
+    class: EventClass::Lossless,
+    payload: schema_of::<PageDownload>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `locator.click`.
 pub const LOCATOR_CLICK: Operation = Operation {
     name: "locator.click",
@@ -512,13 +649,13 @@ pub const RUN_NEW_PAGE: Operation = Operation {
 /// `page.goto`.
 pub const PAGE_GOTO: Operation = Operation {
     name: "page.goto",
-    description: "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
+    description: "Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
     params: schema_of::<GotoParams>,
     result: schema_of::<Navigated>,
-    events: &[],
+    events: &[&PAGE_DOWNLOAD],
     cancellable: true,
     stability: Stability::Experimental,
     deprecated: None,
@@ -772,12 +909,14 @@ pub const ENTRIES: Entries = Entries {
         LOCATOR_FILL,
         LOCATOR_PRESS,
     ],
-    events: &[],
+    events: &[PAGE_DOWNLOAD],
     handler_requests: &[],
     error_codes: &[
         BODY_NOT_FOUND,
         NAVIGATION_FAILED,
         NAVIGATION_INTERRUPTED,
+        TOO_MANY_REDIRECTS,
+        RESPONSE_TRUNCATED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
         TARGET_NOT_UNIQUE,

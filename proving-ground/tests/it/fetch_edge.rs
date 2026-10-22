@@ -1,5 +1,7 @@
-//! The fetch edge pages (ADR 0118), each served on demand over TLS and
-//! judged from the Proving ground's own observations: cut bodies against
+//! The fetch edge pages (ADR 0118), each served on demand over TLS, and
+//! over plain HTTP/1.1 for a browser that does not trust the Proving
+//! ground's authority, and judged from the Proving ground's own
+//! observations: cut bodies against
 //! the length their head declared, requests a site never processed with the
 //! connection and protocol each attempt came on and whether it repeats one,
 //! the time from an answer to the next request, refresh stubs, redirects, and
@@ -11,6 +13,7 @@ use std::time::Duration;
 use regex::Regex;
 use serde_json::{Value, json};
 
+use crate::clients;
 use crate::proving_ground::ProvingGround;
 use crate::raw_clients::{self, Http2Outcome};
 
@@ -116,6 +119,26 @@ fn a_gzip_body_stops_before_its_stream_ends() {
     assert!(decoding.is_err(), "the stream decoded whole");
     let delivery = &request_for(&proving_ground.observations(), HTTP1, "/cut/gzip")["delivery"];
     assert_eq!(delivery["declared_length"], delivery["body_sent"]);
+}
+
+#[test]
+fn a_gzip_body_ending_before_its_content_length_is_recorded_against_it() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let arrived = raw_clients::get(&proving_ground, HTTP1, "/cut/gzip-content-length", &[]);
+
+    let declared: usize = arrived
+        .header("content-length")
+        .and_then(|length| length.parse().ok())
+        .expect("a declared length");
+    assert_eq!(arrived.header("content-encoding").as_deref(), Some("gzip"));
+    assert!(arrived.body().len() < declared, "{}", arrived.body().len());
+    let delivery = &request_for(
+        &proving_ground.observations(),
+        HTTP1,
+        "/cut/gzip-content-length",
+    )["delivery"];
+    assert_eq!(delivery["end"], json!({ "kind": "connection_closed" }));
 }
 
 #[test]
@@ -491,12 +514,24 @@ fn ipv6_loopback() -> bool {
     std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, 0)).is_ok()
 }
 
+/// Covers: story:2-40
 #[test]
-fn a_plain_text_request_to_a_raw_host_is_misdirected() {
+fn a_plain_text_request_to_a_raw_host_is_answered_over_http1() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground.get(&proving_ground.url(HOST, "/target"));
+    let arrived = clients::raw(
+        proving_ground.address(),
+        format!("GET /cut/content-length HTTP/1.1\r\nHost: {HOST}\r\nConnection: close\r\n\r\n")
+            .as_bytes(),
+    );
 
-    assert_eq!(answer.status, 421);
-    assert_eq!(answer.json(), json!({ "error": "tls_required" }));
+    let declared: usize = arrived
+        .header("content-length")
+        .and_then(|length| length.parse().ok())
+        .expect("a declared length");
+    assert_eq!(arrived.status(), 200);
+    assert!(arrived.body().len() < declared, "{}", arrived.body().len());
+    let delivery =
+        &request_for(&proving_ground.observations(), HOST, "/cut/content-length")["delivery"];
+    assert_eq!(delivery["end"], json!({ "kind": "connection_closed" }));
 }

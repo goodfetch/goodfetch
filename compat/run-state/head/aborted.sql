@@ -24,6 +24,18 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
+CREATE TABLE pool_sessions (
+            position INTEGER NOT NULL PRIMARY KEY,
+            proxy_tier TEXT NOT NULL,
+            opened_at INTEGER NOT NULL,
+            uses INTEGER NOT NULL,
+            error_score REAL NOT NULL,
+            retired_because TEXT
+        ) STRICT;
+CREATE TABLE pool_tiers (
+            domain_key TEXT NOT NULL PRIMARY KEY,
+            proxy_tier TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -49,9 +61,10 @@ CREATE TABLE run (
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
-        uncapped INTEGER NOT NULL DEFAULT 0
+        uncapped INTEGER NOT NULL DEFAULT 0,
+        progress_message TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]',3,NULL,NULL,0);
+INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]',3,NULL,NULL,0,NULL);
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -86,6 +99,8 @@ CREATE TABLE work_items (
             forefront INTEGER
         ) STRICT;
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
+CREATE INDEX pool_sessions_open ON pool_sessions (position)
+            WHERE retired_because IS NULL;
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);

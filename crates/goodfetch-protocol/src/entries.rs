@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 25] = [
+pub const MODULES: [&Entries; 26] = [
     &connection::ENTRIES,
     &console::ENTRIES,
     &daemon::ENTRIES,
@@ -33,6 +33,7 @@ pub const MODULES: [&Entries; 25] = [
     &foxhound::crawl::ENTRIES,
     &foxhound::frontier::ENTRIES,
     &foxhound::outcomes::ENTRIES,
+    &foxhound::session_pool::ENTRIES,
     &foxhound::settings::ENTRIES,
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,
@@ -90,6 +91,7 @@ mod tests {
                 "run.start",
                 "run.finish",
                 "run.abort",
+                "run.set_progress_message",
                 "run.checkpoint",
                 "run.pause",
                 "run.migrate",
@@ -125,6 +127,7 @@ mod tests {
                 "run.start",
                 "run.finish",
                 "run.abort",
+                "run.set_progress_message",
                 "run.checkpoint",
                 "run.pause",
                 "run.migrate",

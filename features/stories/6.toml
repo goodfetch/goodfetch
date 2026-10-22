@@ -604,3 +604,27 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 250
+title = "As a crawl developer, I want the pool to score each Session on its successes and blocks, rotate requests across Sessions, and retire one past `session.pool.max_error_score`, `session.pool.max_uses` or `session.pool.max_age`, so that a crawl keeps healthy identities (CO-12, ADRs 0006 and 0035; the keys **(shape)**)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 251
+title = "As a crawl developer, I want a retired Session replaced by a new one at the next proxy tier when a block escalates (ADR 0021's step), so that a blocked domain moves up the ladder (ADRs 0021, 0035)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 255
+title = "As a user, I want the pool's Sessions persisted in run state and revalidated on the first page after a resume, so that a resumed crawl keeps its logins (ADRs 0002, 0006)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

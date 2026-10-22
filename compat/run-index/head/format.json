@@ -200,6 +200,13 @@
             "$ref": "#/$defs/Presence",
             "description": "Whether its state is at its location."
           },
+          "progress_message": {
+            "description": "The program's own status line, once it set one (RT-15).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "run_id": {
             "$ref": "#/$defs/RunId",
             "description": "The Run's ID."

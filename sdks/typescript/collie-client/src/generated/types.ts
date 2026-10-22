@@ -93,6 +93,14 @@ export type Product = "collie" | "foxhound";
  */
 export type MarkdownFormat = true | MarkdownOptions;
 /**
+ * When a navigation answers, by the state its document reached
+ * (Playwright's `waitUntil`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitUntil".
+ */
+export type WaitUntil = "commit" | "domcontentloaded" | "load";
+/**
  * Where a Run is (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -155,6 +163,13 @@ export type PeriodLength = "day" | "week" | "month";
  * via the `definition` "ProductVersion".
  */
 export type ProductVersion = string;
+/**
+ * A program's own status line about its Run (RT-15).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProgressMessage".
+ */
+export type ProgressMessage = string;
 /**
  * A version `major.minor` (ADR 0030).
  *
@@ -826,7 +841,8 @@ export interface FormatsRequest1 {
   markdown?: MarkdownFormat | null;
 }
 /**
- * What `page.goto` takes: the page, and the URL it goes to.
+ * What `page.goto` takes: the page, the URL it goes to, and when it
+ * answers.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "GotoParams".
@@ -840,6 +856,10 @@ export interface GotoParams {
    * The URL.
    */
   url: string;
+  /**
+   * When the navigation answers; `load` when absent.
+   */
+  wait_until?: WaitUntil | null;
 }
 /**
  * What a `hello` says.
@@ -1239,8 +1259,9 @@ export interface MarkdownOptions1 {
 /**
  * What a navigation answers: the document's response, or none for a
  * navigation within the same document, to a URL no server answers, such as
- * `about:blank`, or back or forward from the last entry of the page's
- * history. A 404 or a 500 is a response, a value.
+ * `about:blank`, to a file the browser downloads instead of showing, which
+ * `page.download` reports, or back or forward from the last entry of the
+ * page's history. A 404 or a 500 is a response, a value.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Navigated".
@@ -1258,6 +1279,13 @@ export interface Navigated {
  * via the `definition` "PageResponse".
  */
 export interface PageResponse {
+  /**
+   * For a navigation's document, the encoding the browser decoded it
+   * with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
+   * 0119); none for another response, and for a navigation that answered
+   * at `commit`, before its document was decoded.
+   */
+  encoding?: string | null;
   /**
    * Its headers, their names lower-cased, as the browser received them.
    */
@@ -1354,6 +1382,27 @@ export interface PageBodyRead {
    * The body's size in bytes.
    */
   size: number;
+}
+/**
+ * What `page.download` reports: a navigation of a page that the browser
+ * turned into a download.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageDownload".
+ */
+export interface PageDownload {
+  /**
+   * The page whose navigation it was.
+   */
+  page_id: string;
+  /**
+   * The file name the browser suggests for it.
+   */
+  suggested_filename: string;
+  /**
+   * The file's URL.
+   */
+  url: string;
 }
 /**
  * What `page.formats` answers: the formats the request asked for, and
@@ -1610,6 +1659,26 @@ export interface RunParams {
   run_id: string;
 }
 /**
+ * A Run's progress as it is now (ADR 0102): what `run.progress` reports.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunProgress".
+ */
+export interface RunProgress {
+  /**
+   * Where it is.
+   */
+  lifecycle: "running" | "stopped" | "finished" | "failed";
+  /**
+   * The program's own status line, once it set one.
+   */
+  message?: ProgressMessage | null;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
  * What a Run states about itself when it ends (ADR 0102): its three axes
  * (ADR 0029) and when it ran.
  *
@@ -1735,6 +1804,22 @@ export interface RunResumeParams {
   settings?: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `run.set_progress_message` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunSetProgressMessageParams".
+ */
+export interface RunSetProgressMessageParams {
+  /**
+   * A program's own status line about its Run (RT-15).
+   */
+  message: string;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
 }
 /**
  * What `run.start` takes.

@@ -435,3 +435,103 @@ fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
         )
     );
 }
+
+/// The handler of the keep-alive crawls: one Record naming each page.
+fn record_the_page(params: &Value) -> Value {
+    json!({ "result": { "records": [{ "dataset": "pages", "data": { "url": params["crawl_request"]["url"] } }] } })
+}
+
+/// Starts the keep-alive crawl `run_id` of one seed with `timeout.run`
+/// when given.
+fn start_keep_alive(engine: &mut Attached, run_id: &str, timeout: Option<u64>) {
+    let mut settings = json!({ "crawl": { "keep_alive": true } });
+    if let Some(timeout) = timeout {
+        settings["timeout"] = json!({ "run": timeout });
+    }
+    engine.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": run_id,
+            "seeds": [{ "url": "https://shop.test/a", "label": "page" }],
+            "settings": settings,
+        }),
+        &mut |_| None,
+    );
+}
+
+/// A keep-alive crawl on Foxhound's executable (RT-12): once its one seed
+/// is handled, it waits for new work. `crawl.serve` waits for its end
+/// without letting it finish, so its short `timeout.run` stops it; a crawl
+/// without `crawl.keep_alive` would have finished at once.
+///
+/// Covers: story:3-128, setting:crawl.keep_alive, operation:crawl.serve
+#[test]
+fn a_keep_alive_crawl_on_foxhounds_executable_waits_for_new_work_until_its_run_timeout() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    start_keep_alive(&mut engine, "waiting", Some(1_000));
+
+    let report = engine.call(
+        "serve",
+        "crawl.serve",
+        &json!({ "run_id": "waiting" }),
+        &mut |params| Some(record_the_page(params)),
+    );
+    let exited = engine.finish();
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            &report["result"]["completeness"],
+            &report["result"]["stop_reason"],
+            exited,
+        ),
+        (
+            &json!("stopped"),
+            &json!("incomplete"),
+            &json!({ "kind": "timeout" }),
+            true,
+        )
+    );
+}
+
+/// `run.finish` lets an idle keep-alive crawl on Foxhound's executable
+/// end, `finished` and `complete`.
+///
+/// Covers: story:3-128, setting:crawl.keep_alive, operation:run.finish
+#[test]
+fn run_finish_ends_a_keep_alive_crawl_on_foxhounds_executable_once_drained() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    start_keep_alive(&mut engine, "served", None);
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "served" }),
+        &mut |params| Some(record_the_page(params)),
+    );
+
+    let report = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "served" }),
+        &mut |params| Some(record_the_page(params)),
+    );
+    let exited = engine.finish();
+
+    assert_eq!(
+        (
+            &outcomes["result"]["outcomes"][0]["kind"],
+            &report["result"]["lifecycle"],
+            &report["result"]["completeness"],
+            exited,
+        ),
+        (
+            &json!("succeeded"),
+            &json!("finished"),
+            &json!("complete"),
+            true
+        )
+    );
+}

@@ -1,9 +1,11 @@
 //! The host names the raw server answers (#162, ADRs 0118 and 0119): the
 //! lab's HTTP incidents, access-policy and identity sites, ported, the
-//! fetch edge pages and the content-coding pages. Each is served over TLS
-//! only, since the raw server reads a connection's server name to know its
-//! host before its first request: a plain-text request to one of them is
-//! refused with `421`.
+//! fetch edge pages and the content-coding pages. Each is served over TLS,
+//! where the raw server reads a connection's server name to know its host
+//! before its first request, and over plain HTTP/1.1, where the first
+//! request's `Host` names it, for a client such as a browser that does not
+//! trust the Proving ground's authority; a plain HTTP/2 connection to one
+//! of them is refused with `421`.
 //!
 //! A request to these hosts carrying a Web Bot Auth signature is checked as
 //! it arrives against the key directory its `Signature-Agent` names, and the

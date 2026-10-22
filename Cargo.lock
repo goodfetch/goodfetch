@@ -1316,6 +1316,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-frontier",
  "goodfetch-protocol",
+ "goodfetch-session-pool",
  "goodfetch-test-support",
  "proptest",
  "proptest-state-machine",
@@ -1396,6 +1397,7 @@ dependencies = [
  "goodfetch-foxhound",
  "goodfetch-frontier",
  "goodfetch-protocol",
+ "goodfetch-session-pool",
  "goodfetch-test-support",
  "gungraun",
  "insta",
@@ -1511,6 +1513,16 @@ dependencies = [
  "ureq",
  "url",
  "web-bot-auth",
+]
+
+[[package]]
+name = "goodfetch-session-pool"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "rstest",
+ "rusqlite",
 ]
 
 [[package]]

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -142,7 +142,7 @@ class AsyncCollieOperations:
         return Navigated.model_construct(**_fields(await self._caller.call("page.go_forward", params)))
 
     async def page_goto(self, params: GotoParams) -> Navigated:
-        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+        """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -170,7 +170,7 @@ class AsyncCollieOperations:
         return Checkpoint.model_construct(**_fields(await self._caller.call("run.checkpoint", params)))
 
     async def run_finish(self, params: RunParams) -> RunReport:
-        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -203,6 +203,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunStarted.model_construct(**_fields(await self._caller.call("run.resume", params)))
+
+    async def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
+        """Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(await self._caller.call("run.set_progress_message", params)))
 
     async def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
@@ -344,7 +351,7 @@ class CollieOperations:
         return Navigated.model_construct(**_fields(self._caller.call("page.go_forward", params)))
 
     def page_goto(self, params: GotoParams) -> Navigated:
-        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+        """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -372,7 +379,7 @@ class CollieOperations:
         return Checkpoint.model_construct(**_fields(self._caller.call("run.checkpoint", params)))
 
     def run_finish(self, params: RunParams) -> RunReport:
-        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -405,6 +412,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunStarted.model_construct(**_fields(self._caller.call("run.resume", params)))
+
+    def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
+        """Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(self._caller.call("run.set_progress_message", params)))
 
     def run_start(self, params: RunStartParams) -> RunStarted:
         """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.

@@ -352,6 +352,13 @@ class PageResponse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    encoding: str | None = None
+    """
+    For a navigation's document, the encoding the browser decoded it
+    with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
+    0119); none for another response, and for a navigation that answered
+    at `commit`, before its document was decoded.
+    """
     headers: dict[str, str]
     """Its headers, their names lower-cased, as the browser received them."""
     status: Annotated[int, Field(ge=0, le=65535)]
@@ -422,6 +429,11 @@ class ProductVersion(RootModel[str]):
     """A Product version, `major.minor.patch` with an optional pre-release (ADR 0090)."""
 
 
+class ProgressMessage(RootModel[str]):
+    root: Annotated[str, Field(max_length=512)]
+    """A program's own status line about its Run (RT-15)."""
+
+
 class ProjectSettings(BaseModel):
     """
     A project configuration's values, which a Client reads where it runs and
@@ -485,6 +497,20 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
+class RunProgress(BaseModel):
+    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lifecycle: Lifecycle
+    """Where it is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunResumeParams(BaseModel):
     """What `run.resume` takes."""
 
@@ -506,6 +532,18 @@ class RunResumeParams(BaseModel):
     The Run's settings from the resume on, nested by key: the run layer
     (ADRs 0083 and 0102).
     """
+
+
+class RunSetProgressMessageParams(BaseModel):
+    """What `run.set_progress_message` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: ProgressMessage
+    """The program's status line, which replaces the one before."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class SampleEchoParams(BaseModel):
@@ -731,6 +769,23 @@ class Verdict(StrEnum):
     """A declared Success check failed."""
     needs_review = "needs_review"
     """Everything else: a person reviews it."""
+
+
+class WaitUntil(StrEnum):
+    """
+    When a navigation answers, by the state its document reached
+    (Playwright's `waitUntil`).
+    """
+
+    commit = "commit"
+    """
+    Once the browser committed the document, its response received: a
+    body cut after that is left to the body's read.
+    """
+    domcontentloaded = "domcontentloaded"
+    """Once the document fired `DOMContentLoaded`."""
+    load = "load"
+    """Once the document fired `load`."""
 
 
 class ArtifactId(BaseModel):
@@ -975,7 +1030,10 @@ class ExplainedSetting(BaseModel):
 
 
 class GotoParams(BaseModel):
-    """What `page.goto` takes: the page, and the URL it goes to."""
+    """
+    What `page.goto` takes: the page, the URL it goes to, and when it
+    answers.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -984,6 +1042,8 @@ class GotoParams(BaseModel):
     """The page."""
     url: str
     """The URL."""
+    wait_until: WaitUntil | None = None
+    """When the navigation answers; `load` when absent."""
 
 
 class HelloParams(BaseModel):
@@ -1111,8 +1171,9 @@ class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
     navigation within the same document, to a URL no server answers, such as
-    `about:blank`, or back or forward from the last entry of the page's
-    history. A 404 or a 500 is a response, a value.
+    `about:blank`, to a file the browser downloads instead of showing, which
+    `page.download` reports, or back or forward from the last entry of the
+    page's history. A 404 or a 500 is a response, a value.
     """
 
     model_config = ConfigDict(
@@ -1142,6 +1203,23 @@ class PageBodyParams(BaseModel):
     """Its ID."""
     run_id: RunId
     """The Run whose folder holds it."""
+
+
+class PageDownload(BaseModel):
+    """
+    What `page.download` reports: a navigation of a page that the browser
+    turned into a download.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page whose navigation it was."""
+    suggested_filename: str
+    """The file name the browser suggests for it."""
+    url: str
+    """The file's URL."""
 
 
 class PageOpened(BaseModel):

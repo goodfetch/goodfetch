@@ -17,6 +17,7 @@ use crate::catalog::{
     OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::session_pool::ServingSession;
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
@@ -173,6 +174,9 @@ pub struct CrawlRequestHandleParams {
     /// The lease's epoch, which only goes up (ADR 0003).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lease_epoch: u64,
+    /// The Session of the crawl's Session pool that serves the attempt.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub session: ServingSession,
 }
 
 /// One Record a handler pushed into a Dataset (ADR 0103).
@@ -215,7 +219,7 @@ pub struct CrawlRequestHandled {
 /// `crawl.start`.
 pub const CRAWL_START: Operation = Operation {
     name: "crawl.start",
-    description: "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
+    description: "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
     reach: Reach::AllSurfaces,
@@ -353,6 +357,18 @@ pub const CRAWL_HANDLER_CONCURRENCY: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.keep_alive` (ADRs 0037's RT-12 and 0102).
+pub const CRAWL_KEEP_ALIVE: Setting = Setting {
+    name: "crawl.keep_alive",
+    description: "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `crawl.domain_keys` (ADR 0004).
 pub const CRAWL_DOMAIN_KEYS: Setting = Setting {
     name: "crawl.domain_keys",
@@ -406,6 +422,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_RETRY_HANDLER_FAILED,
         CRAWL_HANDLER_CONCURRENCY,
         CRAWL_DOMAIN_KEYS,
+        CRAWL_KEEP_ALIVE,
     ],
     hook_stages: &[],
     shared_type_values: &[],

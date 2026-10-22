@@ -14,7 +14,7 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
 
 import json
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping
 from pathlib import Path
 from typing import cast
 
@@ -31,10 +31,10 @@ _FAILED = pytest.StashKey[bool]()
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(
     item: pytest.Item, call: pytest.CallInfo[None]
-) -> Iterator[None]:
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     """Records whether a test's call failed, for its `test_env` teardown."""
     del call
-    report = cast("pytest.TestReport", (yield))
+    report = yield
     if report.when == "call" and report.failed:
         item.stash[_FAILED] = True
     return report

@@ -46,7 +46,7 @@ use std::ffi::{OsStr, OsString};
 use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
-use goodfetch_cli::generated::{Call, Generated};
+use goodfetch_cli::generated::{Call, Generated, Joined, Joining};
 use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
 use goodfetch_engine::age_notice::AgeNotice;
@@ -172,8 +172,19 @@ enum Command {
     },
 }
 
+// The `usage` group's commands: the catalog's `usage` commands, listed
+// first, then its own. No doc comment: clap would make it the group's help.
 #[derive(Subcommand)]
 enum UsageCommand {
+    #[command(flatten)]
+    Generated(Joining<OwnUsageCommand>),
+    #[command(flatten)]
+    Own(OwnUsageCommand),
+}
+
+// The `usage` group's hand-written commands; no doc comment either.
+#[derive(Subcommand)]
+enum OwnUsageCommand {
     /// Raises a Limit, in place of the ones of its scope, Usage kind,
     /// currency and period but a managed Operator policy's: a person's
     /// answer, asked at the terminal, and refused with `person_required`
@@ -201,6 +212,10 @@ enum UsageCommand {
         #[arg(long)]
         amount: u64,
     },
+}
+
+impl Joined for OwnUsageCommand {
+    const NAMESPACE: &'static str = "usage";
 }
 
 #[derive(Subcommand)]
@@ -596,12 +611,7 @@ fn run(
         machine.record();
     }
     let command = match parsed {
-        Parsed::Generated(call) => {
-            if call.operation().name.starts_with("usage.") {
-                warn_of_a_temporary_ledger(&home, human);
-            }
-            return call.run(engine, dependencies, human);
-        }
+        Parsed::Generated(call) => return call.run(engine, dependencies, human),
         Parsed::HandWritten(command) => command,
     };
     match command {
@@ -678,14 +688,20 @@ fn run(
     }
 }
 
-/// Runs the hand-written `usage` command `command`.
+/// Runs the `usage` command `command`.
 fn usage_command(
     command: UsageCommand,
     engine: &Engine,
     dependencies: Dependencies,
     human: &Human,
 ) -> ExitCode {
-    let UsageCommand::Raise {
+    let command = match command {
+        UsageCommand::Generated(joining) => {
+            return joining.call().run(engine, dependencies, human);
+        }
+        UsageCommand::Own(command) => command,
+    };
+    let OwnUsageCommand::Raise {
         scope,
         scope_id,
         usage_kind,

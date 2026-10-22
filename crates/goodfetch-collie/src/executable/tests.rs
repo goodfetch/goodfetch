@@ -43,6 +43,31 @@ fn the_command_line_holds_no_clap_misconfiguration(#[case] product: Product) {
     command(product).debug_assert();
 }
 
+/// A start builds no group's commands, hand-written or generated: clap
+/// builds them only for the group it parses or shows help for, so
+/// `--version` and every command skip building the rest of the tree (ADR
+/// 0071's startup figure).
+#[rstest]
+#[case::collie(Product::Collie)]
+#[case::foxhound(Product::Foxhound)]
+fn a_start_builds_no_command_of_any_group(#[case] product: Product) {
+    let (command_line, _) = command_line(product);
+
+    let built: Vec<(&str, Vec<&str>)> = command_line
+        .get_subcommands()
+        .map(|group| {
+            let commands: Vec<&str> = group
+                .get_subcommands()
+                .map(clap::Command::get_name)
+                .collect();
+            (group.get_name(), commands)
+        })
+        .filter(|(_, commands)| !commands.is_empty())
+        .collect();
+
+    assert_eq!(built, Vec::<(&str, Vec<&str>)>::new());
+}
+
 #[test]
 fn the_help_of_every_command_is_rendered_from_the_command_line() {
     let command = command(Product::Collie);

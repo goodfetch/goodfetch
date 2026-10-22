@@ -886,6 +886,9 @@ pub(super) fn health(machine: &Machine<'_>, live: bool, json: bool) -> ExitCode 
                         Unready::Draining => "it drains",
                         Unready::RunStateNotWritable => "its run state cannot be written",
                         Unready::BrowsersMissing => "a browser it uses is not installed",
+                        Unready::GovernorLastResort => {
+                            "its memory stayed critical at the governor's floor"
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(", ")

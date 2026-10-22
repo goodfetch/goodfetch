@@ -52,6 +52,7 @@ export type EventClass = "lossless" | "telemetry";
 /** The class of each of Collie's events. */
 export const eventClasses: Readonly<Record<keyof CollieEventPayloads, EventClass>> = {
   "browser_cache.download_progress": "telemetry",
+  "engine.system_info": "telemetry",
   "events.resync": "lossless",
   "page.download": "lossless",
   "page.request_failed": "lossless",

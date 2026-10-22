@@ -133,18 +133,6 @@ pub const DAEMON_DRAINING: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
-/// `goodfetch.governor.saturation`: how much of its concurrency target the
-/// resource governor uses, on which the Helm chart autoscales (ADR 0055).
-pub const GOVERNOR_SATURATION: Metric = Metric {
-    name: "goodfetch.governor.saturation",
-    description: "The share of the resource governor's concurrency target in use, from 0 to 1, on which the Helm chart's autoscaler scales the Daemons (ADRs 0040 and 0055). Reported once the governor runs.",
-    instrument: Instrument::Gauge,
-    unit: "1",
-    labels: &[],
-    stability: Stability::Experimental,
-    arrived_in: ARRIVED_IN,
-};
-
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -159,7 +147,6 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_RUNNING,
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
-        GOVERNOR_SATURATION,
     ],
     settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],
     hook_stages: &[],

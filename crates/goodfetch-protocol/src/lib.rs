@@ -29,6 +29,7 @@ pub mod executables;
 pub mod formats;
 pub mod foxhound;
 pub mod foxhound_names;
+pub mod governor;
 pub mod journey;
 pub mod jsonrpc;
 pub mod key_value_store;

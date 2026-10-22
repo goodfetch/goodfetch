@@ -112,9 +112,14 @@ fn a_torn_write_leaves_a_wal_database_passing_its_integrity_check() {
 
     let crash = vfs.crash(CrashKind::PowerCut);
 
+    // Torn mid-write: some but not all of one write's bytes landed, which
+    // a VFS that only drops whole writes never gives.
     assert!(
-        matches!(landed(&crash, "run.sqlite-wal"), Some(Landed::Torn { .. })),
-        "the seed tears the WAL: {crash:?}"
+        matches!(
+            landed(&crash, "run.sqlite-wal"),
+            Some(Landed::Torn { bytes, .. }) if *bytes > 0
+        ),
+        "the seed tears a WAL write mid-way: {crash:?}"
     );
     after_crash(&vfs, DATABASE).unwrap();
 }

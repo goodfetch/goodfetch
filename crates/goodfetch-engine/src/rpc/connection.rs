@@ -20,9 +20,8 @@
 //! listener and its reason, until the Audit log records it (area 4). An
 //! Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
-//! Only
-//! the Client of an Attached engine's stdio is told its private endpoint,
-//! in the reply to its `hello`.
+//! Only the Client of an Attached engine's stdio is told its private
+//! endpoint, in the reply to its `hello`.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};

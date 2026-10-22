@@ -4,8 +4,8 @@
 //! `daemon.address`, a loopback address until the Daemon terminates TLS
 //! (area 4), with newline-delimited JSON-RPC and the protocol over
 //! WebSocket, whose handshake must name that address or `localhost` with
-//! its port as its `Host` and `Origin`; Clients open with the persistent token of the major's
-//! `daemon.token`; it reads `daemon.address` and `daemon.drain_grace` from
+//! its port as its `Host` and `Origin`; Clients open with the persistent
+//! token of the major's `daemon.token`; it reads `daemon.address` and `daemon.drain_grace` from
 //! user configuration and the Operator policy, which
 //! `GOODFETCH_DAEMON_ADDRESS` and `GOODFETCH_DAEMON_DRAIN_GRACE` override
 //! unless the policy locks them; and its logs are JSON lines on stdout,

@@ -1,7 +1,7 @@
 //! The protocol server (ADRs 0024 and 0038) over each Connection
 //! `transport` gives it: newline-delimited JSON-RPC 2.0, or on an Exposed
-//! Daemon's address the same messages over WebSocket (ADR 0049), opened by `hello`,
-//! with `$/cancel`, dispatch to the composition's handlers, and the one
+//! Daemon's address the same messages over WebSocket (ADR 0049), opened by
+//! `hello`, with `$/cancel`, dispatch to the composition's handlers, and the one
 //! place where a [`CallError`](crate::CallError) becomes the wire's
 //! `{code, message, data: {code, retryable, …}}`. Dispatch emits one
 //! `tracing` record per request, at `trace` under the target

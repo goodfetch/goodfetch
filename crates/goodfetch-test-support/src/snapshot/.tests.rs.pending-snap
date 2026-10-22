@@ -1,6 +1,0 @@
-{"run_id":"51ac7205-d174-44aa-be25-dbcfa2fb8572","line":143,"new":{"module_name":"goodfetch_test_support__snapshot__tests","snapshot_name":"a_lowercase_run_id_redacts_under_the_shared_settings","metadata":{"source":"crates/goodfetch-test-support/src/snapshot/tests.rs","assertion_line":143,"expression":"\"run 01ke6p4ym0kwx1ravx9sfp18dj finished\""},"snapshot":"run 01ke6p4ym0kwx1ravx9sfp18dj finished"},"old":{"module_name":"goodfetch_test_support__snapshot__tests","metadata":{},"snapshot":"run [ULID] finished"}}
-{"run_id":"51ac7205-d174-44aa-be25-dbcfa2fb8572","line":100,"new":null,"old":null}
-{"run_id":"4b589489-010d-4f6a-b260-2cd7536ff154","line":116,"new":null,"old":null}
-{"run_id":"4b589489-010d-4f6a-b260-2cd7536ff154","line":143,"new":null,"old":null}
-{"run_id":"4b589489-010d-4f6a-b260-2cd7536ff154","line":92,"new":null,"old":null}
-{"run_id":"4b589489-010d-4f6a-b260-2cd7536ff154","line":100,"new":null,"old":null}

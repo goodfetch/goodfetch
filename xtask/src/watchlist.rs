@@ -74,12 +74,21 @@ impl Watchlist {
         })
     }
 
-    /// The vendor names a checkout of the list at `folder` lists.
+    /// The vendor names a checkout of the list at `folder` lists; an error
+    /// when it lists none, which means its layout changed, never that every
+    /// vendor went away.
     fn read(self, folder: &Path) -> Result<Vec<String>> {
-        match self {
-            Self::WebAppAnalyzer => read_webappanalyzer(folder),
-            Self::AntibotDetector => read_antibot_detector(folder),
-        }
+        let names = match self {
+            Self::WebAppAnalyzer => read_webappanalyzer(folder)?,
+            Self::AntibotDetector => read_antibot_detector(folder)?,
+        };
+        anyhow::ensure!(
+            !names.is_empty(),
+            "{} at {} lists no bot-protection vendor: its layout may have changed",
+            self.name(),
+            folder.display()
+        );
+        Ok(names)
     }
 }
 
@@ -103,6 +112,11 @@ fn read_webappanalyzer(folder: &Path) -> Result<Vec<String>> {
         .filter(|(_, category)| category.name == "Security")
         .map(|(number, _)| number)
         .collect();
+    anyhow::ensure!(
+        !security.is_empty(),
+        "{} has no \"Security\" category: its layout may have changed",
+        source.join("categories.json").display()
+    );
     let technologies = source.join("technologies");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&technologies)
         .with_context(|| format!("reading {}", technologies.display()))?
@@ -276,6 +290,15 @@ pub(crate) fn missing(listed: &[Listed], coverage: &Coverage) -> Vec<Missing> {
         .collect()
 }
 
+/// The listings of `listed` whose name has no letter or digit, which no key
+/// compares.
+pub(crate) fn unkeyed(listed: &[Listed]) -> Vec<&Listed> {
+    listed
+        .iter()
+        .filter(|listing| key(&listing.name).is_empty())
+        .collect()
+}
+
 /// A vendor's name as compared: its lowercase ASCII letters and digits, so
 /// `DataDome` and `datadome` are one vendor.
 fn key(name: &str) -> String {
@@ -331,6 +354,13 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     }
     for action in issues.actions() {
         output::line(action);
+    }
+    for listing in unkeyed(&listed) {
+        output::line(&format!(
+            "{} lists a name with no letter or digit, which the job cannot compare: {:?}",
+            listing.watchlist.name(),
+            listing.name
+        ));
     }
     if waiting > 0 {
         output::line(&format!(

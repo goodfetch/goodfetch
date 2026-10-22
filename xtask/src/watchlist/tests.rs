@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 
-use super::{Coverage, Listed, Missing, Watchlist, describes_bot_protection, missing, read_listed};
+use super::{
+    Coverage, Listed, Missing, Watchlist, describes_bot_protection, missing, read_listed, unkeyed,
+};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/watchlist/fixtures")
@@ -118,6 +120,60 @@ fn a_technology_that_says_none_of_these_is_no_bot_protection_vendor(
     #[case] description: Option<&str>,
 ) {
     assert!(!describes_bot_protection(name, description));
+}
+
+/// Writes `files`, each a path and its text, under a new folder.
+fn checkout(files: &[(&str, &str)]) -> tempfile::TempDir {
+    let folder = tempfile::tempdir().unwrap();
+    for (path, text) in files {
+        let path = folder.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    folder
+}
+
+/// A layout change upstream fails the job instead of finding nothing: a
+/// webappanalyzer with no Security category, and either list naming no
+/// vendor at all.
+#[rstest]
+#[case::no_security_category(
+    Watchlist::WebAppAnalyzer,
+    &[
+        ("src/categories.json", r#"{ "1": { "name": "CMS" } }"#),
+        ("src/technologies/a.json", r#"{ "Acme": { "cats": [1], "description": "Stops bots." } }"#),
+    ]
+)]
+#[case::no_bot_vendor_in_the_security_category(
+    Watchlist::WebAppAnalyzer,
+    &[
+        ("src/categories.json", r#"{ "16": { "name": "Security" } }"#),
+        ("src/technologies/h.json", r#"{ "HSTS": { "cats": [16], "description": "HTTPS only." } }"#),
+    ]
+)]
+#[case::no_antibot_or_captcha_detector(
+    Watchlist::AntibotDetector,
+    &[("detectors/index.json", r#"{ "antibot": { "detectors": [] }, "captcha": { "detectors": [] } }"#)]
+)]
+fn a_watchlist_that_names_no_vendor_fails(
+    #[case] watchlist: Watchlist,
+    #[case] files: &[(&str, &str)],
+) {
+    let folder = checkout(files);
+
+    assert!(read_listed(&[(watchlist, folder.path())]).is_err());
+}
+
+/// A listed name with no letter or digit, which no key can compare, is
+/// reported rather than dropped.
+#[test]
+fn a_listed_name_with_no_letter_or_digit_is_reported() {
+    let listings = [
+        listed(Watchlist::AntibotDetector, "datadome"),
+        listed(Watchlist::AntibotDetector, "--"),
+    ];
+
+    assert_eq!(unkeyed(&listings), vec![&listings[1]]);
 }
 
 /// A vendor no rule covers yet that the lists spell differently is missing

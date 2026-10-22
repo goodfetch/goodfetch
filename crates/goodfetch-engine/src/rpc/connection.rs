@@ -60,7 +60,7 @@ use crate::composition::{
     CallContext, CallError, CallInput, CallStream, ConnectionContext, DaemonSide, Handler,
 };
 use crate::events::{Credits, Events};
-use crate::log::LogEvents;
+use crate::log::{ConnectionLog, LogEvents};
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -91,8 +91,9 @@ pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
     /// The process's log events, which each Connection receives at its
-    /// own level.
-    pub(crate) log_events: LogEvents,
+    /// own level; `None` when the engine was given none, so no layer feeds
+    /// them and no buffer is kept for them.
+    pub(crate) log_events: Option<LogEvents>,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -346,7 +347,10 @@ async fn serve_carried(
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
     let (client, requests) = Client::new();
     let daemon = access.daemon();
-    let log = dispatch.log_events.connection();
+    let log = dispatch
+        .log_events
+        .as_ref()
+        .map_or_else(ConnectionLog::none, LogEvents::connection);
     let logging = CancellationToken::new();
     let forwarding = log.forward(outgoing.clone());
     let stop_logging = logging.clone();

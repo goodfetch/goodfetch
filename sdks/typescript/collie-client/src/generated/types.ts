@@ -2154,6 +2154,27 @@ export interface SettingsFile {
  */
 export interface SubscriptionEnded {}
 /**
+ * A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
+ * and `tracestate`, which its runtime writes and never a program, with no
+ * Baggage. The schema checks only that each is a string: a receiver drops
+ * a value it cannot use, and never fails the call for it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TraceContext".
+ */
+export interface TraceContext {
+  /**
+   * The caller's span, as W3C Trace Context's `traceparent` header
+   * holds it.
+   */
+  traceparent?: string | null;
+  /**
+   * Its vendors' values, as W3C Trace Context's `tracestate` header
+   * holds them.
+   */
+  tracestate?: string | null;
+}
+/**
  * What `usage.list` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

@@ -318,6 +318,12 @@
     "AuditVerifyParams": {
       "additionalProperties": false,
       "description": "What `audit.verify` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
       "type": "object"
     },
     "BlockCause": {
@@ -817,6 +823,10 @@
       "additionalProperties": false,
       "description": "What `locator.click` takes: the locator whose element it clicks.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "locator": {
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
@@ -930,6 +940,10 @@
       "additionalProperties": false,
       "description": "What `config.explain` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "keys": {
           "arrived_in": "0.1",
           "description": "The keys to explain, each a key or a prefix of keys, such as\n`timeout`; every key when empty.",
@@ -1132,6 +1146,10 @@
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "body": {
           "anyOf": [
             {
@@ -1226,6 +1244,10 @@
     "CrawlRequestHandleParams": {
       "description": "What `crawl_request.handle` gives the handler: one attempt of one work\nitem, under its lease.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "attempt": {
           "arrived_in": "0.1",
           "description": "Which attempt this is, from 1.",
@@ -1474,6 +1496,10 @@
       "additionalProperties": false,
       "description": "What `crawl.start` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "project": {
           "anyOf": [
             {
@@ -1600,6 +1626,12 @@
     "DaemonParams": {
       "additionalProperties": false,
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
       "type": "object"
     },
     "DaemonRotateTokenOutput": {
@@ -1921,6 +1953,12 @@
     "EngineInfoParams": {
       "additionalProperties": false,
       "description": "What `engine.info` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
       "type": "object"
     },
     "EngineInstance": {
@@ -2181,6 +2219,10 @@
       "additionalProperties": false,
       "description": "What `events.subscribe` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "after": {
           "anyOf": [
             {
@@ -2354,6 +2396,10 @@
       "additionalProperties": false,
       "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "locator": {
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
@@ -2380,6 +2426,10 @@
       "additionalProperties": false,
       "description": "What `page.formats` takes: the page, and the formats it asks for.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "formats": {
           "$ref": "#/$defs/FormatsRequest",
           "arrived_in": "0.1",
@@ -2420,6 +2470,10 @@
       "additionalProperties": false,
       "description": "What `page.goto` takes: the page, the URL it goes to, and when it\nanswers.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "page_id": {
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
@@ -2468,6 +2522,10 @@
       "additionalProperties": false,
       "description": "What a `hello` says.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "log_level": {
           "anyOf": [
             {
@@ -3020,6 +3078,10 @@
       "additionalProperties": false,
       "description": "What `key_value_store.get` and `key_value_store.delete` take: the Run\nand the key.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "The key.",
@@ -3057,6 +3119,10 @@
       "additionalProperties": false,
       "description": "What `key_value_store.keys` takes: the Run, and the prefix every key it\nsends starts with.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "prefix": {
           "arrived_in": "0.1",
           "description": "The prefix of the keys it sends; every key when left out.",
@@ -3084,6 +3150,10 @@
       "additionalProperties": false,
       "description": "What `key_value_store.set` takes: the Run, the key and its value.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "The key.",
@@ -3641,6 +3711,10 @@
       "additionalProperties": false,
       "description": "What `run.new_page` takes: the Run whose default Session opens the page.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -3946,6 +4020,10 @@
       "additionalProperties": false,
       "description": "What `page.body` takes: the body to read.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "body": {
           "arrived_in": "0.1",
           "description": "Its ID.",
@@ -4065,6 +4143,10 @@
       "additionalProperties": false,
       "description": "What `page.reload`, `page.go_back` and `page.go_forward` take: the page.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "page_id": {
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
@@ -4288,6 +4370,10 @@
       "additionalProperties": false,
       "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by\nPlaywright's key names.",
@@ -4757,6 +4843,10 @@
       "additionalProperties": false,
       "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "forwarded": {
           "arrived_in": "0.1",
           "description": "Set by an engine that forwards the abort to the owner the Run index\nnames (ADR 0031): an engine that does not own the Run then answers\n`run_not_owned` instead of taking its writer role.",
@@ -4841,6 +4931,10 @@
       "additionalProperties": false,
       "description": "What `run.checkpoint` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "location": {
           "arrived_in": "0.1",
           "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
@@ -4886,6 +4980,10 @@
       "additionalProperties": false,
       "description": "What `run.failed_requests` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "blocked": {
           "arrived_in": "0.1",
           "default": false,
@@ -5065,6 +5163,10 @@
       "additionalProperties": false,
       "description": "What `run.outcomes` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "after": {
           "anyOf": [
             {
@@ -5145,6 +5247,10 @@
       "additionalProperties": false,
       "description": "What `run.finish` and `run.abort` take: the Run.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -5281,6 +5387,10 @@
       "additionalProperties": false,
       "description": "What `run.resume` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "checkpoint": {
           "arrived_in": "0.1",
           "description": "A Checkpoint to resume from, a path on the engine's machine, which\nbecomes the Run's state in this engine's run folder; by default the\nRun resumes from its run file on this machine.",
@@ -5339,6 +5449,10 @@
       "additionalProperties": false,
       "description": "What `run.seeds` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -5354,6 +5468,10 @@
       "additionalProperties": false,
       "description": "What `run.set_progress_message` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "message": {
           "$ref": "#/$defs/ProgressMessage",
           "arrived_in": "0.1",
@@ -5375,6 +5493,10 @@
       "additionalProperties": false,
       "description": "What `run.start` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "project": {
           "anyOf": [
             {
@@ -5638,9 +5760,13 @@
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "echo": {
-          "$ref": "#/$defs/SampleEchoParams",
-          "description": "The text each page repeats, a type Collie's catalog defines."
+          "$ref": "#/$defs/SampleEchoed",
+          "description": "The text each page repeats, a type Collie's catalog defines. No\nrequest's params type, which holds `_meta` (ADR 0132), is another\ntype's member."
         },
         "pages": {
           "description": "How many pages to visit.",
@@ -5689,6 +5815,10 @@
       "additionalProperties": false,
       "description": "What `sample.echo` repeats.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "text": {
           "description": "The text to repeat.",
           "type": "string"
@@ -5728,6 +5858,10 @@
     "SamplePageFilterAdmitParams": {
       "description": "What a sample page filter is asked about a page.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "url": {
           "description": "The page's URL.",
           "type": "string"
@@ -5755,6 +5889,10 @@
     "SampleStorePutParams": {
       "description": "What a sample store keeps.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "key": {
           "description": "The key to keep the value under.",
           "type": "string"
@@ -5902,6 +6040,10 @@
       "additionalProperties": false,
       "description": "What `connection.set_log_level` takes.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "log_level": {
           "$ref": "#/$defs/LogLevel",
           "arrived_in": "0.1",
@@ -6538,6 +6680,29 @@
       ],
       "type": "object"
     },
+    "TraceContext": {
+      "additionalProperties": false,
+      "description": "A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`\nand `tracestate`, which its runtime writes and never a program, with no\nBaggage. The schema checks only that each is a string: a receiver drops\na value it cannot use, and never fails the call for it.",
+      "properties": {
+        "traceparent": {
+          "arrived_in": "0.1",
+          "description": "The caller's span, as W3C Trace Context's `traceparent` header\nholds it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tracestate": {
+          "arrived_in": "0.1",
+          "description": "Its vendors' values, as W3C Trace Context's `tracestate` header\nholds them.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "UpgradeFilesOutput": {
       "description": "What `upgrade-files --json` prints: the major it upgraded from and to,\nand the files of the new major's copy, by their path in Goodfetch home.",
       "properties": {
@@ -6590,6 +6755,12 @@
     "UsageListParams": {
       "additionalProperties": false,
       "description": "What `usage.list` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
       "type": "object"
     },
     "UsageListResult": {
@@ -6613,6 +6784,10 @@
       "additionalProperties": false,
       "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "amount": {
           "arrived_in": "0.1",
           "description": "How much it allows per period from now on: a count of the Usage\nkind, or millionths of the currency.",
@@ -6670,6 +6845,10 @@
       "additionalProperties": false,
       "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
       "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
         "amount": {
           "arrived_in": "0.1",
           "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
@@ -6806,6 +6985,9 @@
       "params": {
         "$ref": "#/$defs/LogEvent"
       }
+    },
+    "meta": {
+      "$ref": "#/$defs/TraceContext"
     }
   },
   "documents": {

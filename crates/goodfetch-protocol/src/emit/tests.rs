@@ -345,3 +345,94 @@ fn the_catalog_lists_the_exit_code_tables_rows(#[case] name: &str, #[case] code:
 
     assert_eq!(row, Some((json!(code), json!("collie"))));
 }
+
+/// The name of each type the params of a request take: every operation's,
+/// handler request's and Plugin method's, and `hello`'s.
+fn request_params(emitted: &super::Emitted) -> Vec<String> {
+    let name = |params: &serde_json::Value| {
+        params["$ref"]
+            .as_str()
+            .and_then(|reference| reference.strip_prefix("#/$defs/"))
+            .unwrap()
+            .to_owned()
+    };
+    let catalog = &emitted.catalog;
+    let entries = ["operations", "handler_requests"]
+        .into_iter()
+        .flat_map(|section| catalog[section].as_array().unwrap())
+        .map(|entry| name(&entry["params"]));
+    let methods = catalog["plugin_kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|kind| kind["methods"].as_array().unwrap())
+        .map(|method| name(&method["params"]));
+    let hello = name(&emitted.bundle["connection"]["hello"]["params"]);
+    entries.chain(methods).chain([hello]).collect()
+}
+
+/// Covers: story:3-146
+#[test]
+fn every_requests_params_may_hold_its_trace_context_in_meta() {
+    let emitted = emit();
+    let definitions = &emitted.bundle["$defs"];
+
+    for params in request_params(&emitted) {
+        assert_eq!(
+            definitions[&params]["properties"]["_meta"],
+            json!({ "$ref": "#/$defs/TraceContext", "arrived_in": "0.1" }),
+            "{params}"
+        );
+    }
+    assert_eq!(
+        emitted.bundle["connection"]["meta"],
+        json!({ "$ref": "#/$defs/TraceContext" })
+    );
+    let trace_context = &definitions["TraceContext"];
+    assert_eq!(trace_context["additionalProperties"], json!(false));
+    let mut keys: Vec<&String> = trace_context["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    keys.sort();
+    assert_eq!(keys, ["traceparent", "tracestate"]);
+    assert_eq!(trace_context.get("required"), None);
+}
+
+/// `_meta` joins a request's params type in place, so no params type may
+/// be another type's member, where it would take `_meta` too.
+#[test]
+fn no_requests_params_type_is_a_member_of_another_type() {
+    let emitted = emit();
+    let params = request_params(&emitted);
+    let definitions = serde_json::to_string(&emitted.bundle["$defs"]).unwrap();
+    let outputs = serde_json::to_string(&json!([
+        emitted.bundle["outputs"],
+        emitted.bundle["documents"],
+        emitted.bundle["files"],
+        emitted.bundle["formats"],
+    ]))
+    .unwrap();
+
+    for name in params {
+        let reference = format!("\"#/$defs/{name}\"");
+        assert!(
+            !definitions.contains(&reference) && !outputs.contains(&reference),
+            "{name} is a member of another type"
+        );
+    }
+}
+
+/// Covers: story:3-146
+#[rstest]
+#[case::both(r#"{ "traceparent": "a", "tracestate": "b" }"#, true)]
+#[case::neither("{}", true)]
+#[case::baggage(r#"{ "baggage": "a=b" }"#, false)]
+#[case::a_number(r#"{ "traceparent": 1 }"#, false)]
+fn a_trace_context_reads_only_its_two_strings(#[case] meta: &str, #[case] reads: bool) {
+    assert_eq!(
+        serde_json::from_str::<crate::jsonrpc::TraceContext>(meta).is_ok(),
+        reads
+    );
+}

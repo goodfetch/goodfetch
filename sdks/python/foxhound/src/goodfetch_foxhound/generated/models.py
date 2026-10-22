@@ -12,7 +12,7 @@ from goodfetch_collie_client.generated.models import (
     PointInTime,
     ProjectSettings,
     RunId,
-    SampleEchoParams,
+    SampleEchoed,
     Tags,
 )
 from pydantic import BaseModel, ConfigDict, Field, RootModel
@@ -265,8 +265,12 @@ class SampleCrawlParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
-    echo: SampleEchoParams
-    """The text each page repeats, a type Collie's catalog defines."""
+    echo: SampleEchoed
+    """
+    The text each page repeats, a type Collie's catalog defines. No
+    request's params type, which holds `_meta` (ADR 0132), is another
+    type's member.
+    """
     pages: Annotated[int, Field(ge=0)]
     """How many pages to visit."""
 

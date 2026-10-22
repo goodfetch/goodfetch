@@ -232,12 +232,14 @@ journeys *arguments:
       "$just" test pre-merge
     fi
 
-# What the changed packages declare, then the Feature check's verdict (ADR
-# 0072): the Features each crate `xtask affected` selects declares, one
-# `<feature> <level> <source> <test>` line each, and the check's findings over
-# the workspace, which are the Features missing a test, an exception or an
-# area. It reads no runner listing, so it notes rather than fails a generated
-# Feature only a Vitest, Playwright or pytest test might declare; `just
+# What the changed packages declare and miss (ADR 0072): the Features each
+# crate, npm package and Python package `xtask affected` selects declares,
+# one `<feature> <level> <source> <test>` line each, then the Feature check's
+# findings for those packages: the Features their tests declare that the
+# inventory lacks, and the generated Features their sources define with no
+# test, exception or area, with any finding on the `features/` files. It
+# reads no runner listing, so it notes rather than fails a generated Feature
+# only a Vitest, Playwright or pytest test might declare; `just
 # features-tests` reads those too. Takes `xtask affected`'s change, `--local`
 # by default.
 features *change:
@@ -246,15 +248,19 @@ features *change:
     change=({{ change }})
     [[ ${#change[@]} -gt 0 ]] || change=(--local)
     selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
-    read -ra crates <<< "$(sed -n 's/^crates=//p' <<< "$selection")"
-    if [[ ${#crates[@]} -gt 0 ]]; then
-      echo "Declared by ${crates[*]}:"
-      cargo run --quiet -p xtask -- features scan "${crates[@]/#/--package=}"
-    else
-      echo "The change reaches no crate."
+    selected() { sed -n "s/^$1=//p" <<< "$selection"; }
+    read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "The change reaches no package."
+      exit 0
     fi
+    echo "Declared by ${packages[*]}:"
+    cargo run --quiet -p xtask -- features scan "${packages[@]/#/--package=}"
     echo "Missing:"
-    cargo run --quiet -p xtask -- features check && echo "nothing"
+    status=0
+    missing=$(cargo run --quiet -p xtask -- features check "${packages[@]/#/--package=}") || status=$?
+    if [[ -n "$missing" ]]; then echo "$missing"; else echo "nothing"; fi
+    exit "$status"
 
 # ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
 # Pre-merge suite's tests of what changed, or of the whole workspace with

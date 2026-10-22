@@ -301,6 +301,37 @@ fn check_passes_on_a_clean_workspace() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
+/// `just features` asks the check about the changed packages alone: a
+/// package's findings are those of the Features its tests declare and of
+/// the generated Features its sources define, the package named or given
+/// by its folder; repository-wide findings are not any package's.
+#[rstest]
+#[case::the_declaring_crate(&["--package", "sample"], vec![finding("unknown-feature", "operation:sample.unlisted")])]
+#[case::the_declaring_crates_folder(&["--package", "crates/sample"], vec![finding("unknown-feature", "operation:sample.unlisted")])]
+#[case::the_defining_crate(&["--package", "goodfetch-protocol"], vec![finding("untested", "operation:sample.crawl")])]
+#[case::another_package(&["--package", "@sample/web"], vec![])]
+fn check_of_some_packages_reports_their_findings_alone(
+    #[case] packages: &[&str],
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("features");
+    workspace.edit(
+        "crates/sample/src/lib.rs",
+        "/// Covers: operation:sample.echo",
+        "/// Covers: operation:sample.echo, operation:sample.unlisted",
+    );
+    workspace.edit(
+        "crates/sample/tests/unit/main.rs",
+        "/// Covers: operation:sample.crawl",
+        "/// Covers: story:1-1",
+    );
+
+    let outcome =
+        workspace.xtask(&[&["features", "check", "--listings", LISTINGS], packages].concat());
+
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+}
+
 #[test]
 fn check_without_listings_notes_a_feature_only_a_runner_listing_declares() {
     let workspace = Workspace::from_fixture("features");

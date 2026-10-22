@@ -277,3 +277,59 @@ fn stories(root: &Path, findings: &mut Vec<Finding>) -> Result<()> {
     }
     Ok(())
 }
+
+/// The findings and notes of `packages`, each a package's name or folder:
+/// those on a Feature a test of theirs declares, or on a generated Feature
+/// their sources define (the protocol crate's registries and catalog, the
+/// executable crates' command lines, the Console's routes). Findings on the
+/// `features/` files themselves belong to no package and stay.
+pub(crate) fn of_packages(
+    verdict: Verdict,
+    declarations: &[Declaration],
+    packages: &[String],
+) -> Verdict {
+    let declared: BTreeSet<&str> = declarations
+        .iter()
+        .filter(|declaration| selected(packages, declaration.package.as_deref(), &declaration.path))
+        .map(|declaration| declaration.feature.as_str())
+        .collect();
+    let keep = |finding: &Finding| match finding.kind {
+        "unknown-feature" | "retired-feature" => declared.contains(finding.subject.as_str()),
+        "untested" | "no-area" | "two-areas" => defines(packages, &finding.subject),
+        _ => true,
+    };
+    Verdict {
+        findings: verdict.findings.into_iter().filter(&keep).collect(),
+        notes: verdict.notes.into_iter().filter(&keep).collect(),
+    }
+}
+
+/// Whether a package named `name`, holding `path`, is one of `packages`,
+/// each a name or a folder.
+pub(crate) fn selected(packages: &[String], name: Option<&str>, path: &str) -> bool {
+    packages.iter().any(|package| {
+        name == Some(package.as_str())
+            || path.starts_with(&format!("{}/", package.trim_end_matches('/')))
+    })
+}
+
+/// Whether `packages` hold the source of the generated Feature `id`.
+fn defines(packages: &[String], id: &str) -> bool {
+    let crate_ = |name: &str, folder: &str| selected(packages, Some(name), &format!("{folder}/"));
+    match id.split_once(':').map_or(id, |(kind, _)| kind) {
+        "operation" | "error" | "event" | "setting" | "exit" | "format" | "block-cause" => {
+            crate_("goodfetch-protocol", "crates/goodfetch-protocol")
+        }
+        "command" => {
+            crate_("goodfetch-collie", "crates/goodfetch-collie")
+                || crate_("goodfetch-foxhound", "crates/foxhound/goodfetch-foxhound")
+                || crate_("goodfetch-cli", "crates/goodfetch-cli")
+        }
+        "screen" => packages.iter().any(|package| {
+            package == "console"
+                || package.starts_with("console/")
+                || package.starts_with("@goodfetch/console")
+        }),
+        _ => false,
+    }
+}

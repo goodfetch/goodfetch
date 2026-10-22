@@ -474,6 +474,8 @@ fn a_collie_journeys_cli_steps_run_on_foxhounds_executable_as_its_foxhound_cli_v
     );
 }
 
+/// Each case runs on Collie's executable unless its surface is
+/// `foxhound-cli`, which runs on Foxhound's (ADR 0094).
 #[rstest]
 #[case::a_surface_the_journey_does_not_list("J-901", "sdk-python", false)]
 #[case::foxhound_cli_of_a_foxhound_journey("J-902", "foxhound-cli", false)]
@@ -484,12 +486,13 @@ fn a_run_starts_only_on_a_surface_its_journey_lists(
     #[case] surface: &str,
     #[case] starts: bool,
 ) {
-    let started = JourneyRun::start_file(
-        &journey(id),
-        surface,
-        &executable(Tool::Foxhound),
-        stub("failed"),
-    );
+    let tool = if surface == "foxhound-cli" {
+        Tool::Foxhound
+    } else {
+        Tool::Collie
+    };
+
+    let started = JourneyRun::start_file(&journey(id), surface, &executable(tool), stub("failed"));
 
     match started {
         Ok(run) => {

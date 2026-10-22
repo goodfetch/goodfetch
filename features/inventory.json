@@ -244,7 +244,7 @@
     {
       "id": "command:key-value-store.delete",
       "kind": "command",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -255,7 +255,7 @@
     {
       "id": "command:key-value-store.get",
       "kind": "command",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -266,7 +266,7 @@
     {
       "id": "command:key-value-store.keys",
       "kind": "command",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -277,7 +277,7 @@
     {
       "id": "command:key-value-store.set",
       "kind": "command",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

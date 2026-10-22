@@ -127,7 +127,9 @@ impl Variables {
             None | Some("quick") => Ok(Suite::Quick),
             Some("pre-merge") => Ok(Suite::PreMerge),
             Some("release") => Ok(Suite::Release),
-            Some(other) => Err(SuiteError(other.to_owned())),
+            Some(other) => Err(SuiteError {
+                value: other.to_owned(),
+            }),
         }
     }
 }
@@ -196,8 +198,12 @@ pub enum SeedError {
 
 /// `GOODFETCH_TEST_SUITE` names no suite.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("{SUITE_VARIABLE} is `{0}`, not quick, pre-merge or release")]
-pub struct SuiteError(pub String);
+#[error("{SUITE_VARIABLE} is `{value}`, not quick, pre-merge or release")]
+#[non_exhaustive]
+pub struct SuiteError {
+    /// The value it holds.
+    pub value: String,
+}
 
 #[cfg(test)]
 mod tests;

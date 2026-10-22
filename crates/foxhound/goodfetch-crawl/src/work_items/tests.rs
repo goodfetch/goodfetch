@@ -13,10 +13,6 @@
     clippy::disallowed_methods,
     reason = "the queues' readings may start from any moment (ADR 0059)"
 )]
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use std::collections::BTreeMap;
 

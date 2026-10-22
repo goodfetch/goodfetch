@@ -180,7 +180,7 @@ pub(crate) fn add(
         .query_row(
             "INSERT INTO work_items
                  (id, position, url, identity, label, depth, payload, status, attempts, lease_epoch, priority, forefront)
-             SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, 'pending', 0, 0, ?6, iif(?7, next, NULL)
+             SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, 'pending', 0, 0, ?6, CASE WHEN ?7 THEN next END
              FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items) WHERE true
              ON CONFLICT (identity) DO NOTHING
              RETURNING id",

@@ -23,13 +23,11 @@ set -euo pipefail
 browsers=${1:-chromium,firefox,webkit}
 cd "$(dirname "$0")/../.."
 
-engine=
-for candidate in docker podman; do
-  if command -v "$candidate" >/dev/null; then
-    engine=$candidate
-    break
-  fi
-done
+# shellcheck source=ci/container.sh
+source ci/container.sh
+# The engine that answers, as `just visual` takes it: an installed Docker
+# whose daemon this user cannot reach is passed over for Podman.
+engine=$(container_engine)
 if [[ -z "$engine" ]]; then
   echo "error: the measurement runs the pinned Playwright image through Docker or Podman; install one of them" >&2
   exit 2

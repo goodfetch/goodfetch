@@ -9,7 +9,7 @@
 //! | `Start` | — | — | — | — |
 //! | `Resume` | `running` | `running` | — | `running` |
 //! | `Checkpoint` | — | — | — | — |
-//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `ResourcesExhausted`, `EngineLost`, `Drain` | `stopped` | — | — | — |
+//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `LimitNotUnderstood`, `ResourcesExhausted`, `EngineLost`, `Drain` | `stopped` | — | — | — |
 //! | `Finish` | `finished` | — | — | — |
 //! | `Fail` | `failed` | — | — | — |
 //! | `RetryFailed` | — | `running` | `running` | `running` |
@@ -53,6 +53,10 @@ pub enum RunEvent {
     Timeout,
     /// A Limit that covers it has nothing left (ADR 0041).
     Limit,
+    /// A Limit flagged *must understand* that its engine cannot evaluate
+    /// came to cover it (ADR 0041): stopped, to be resumed by an engine
+    /// that can.
+    LimitNotUnderstood,
     /// The resource governor ran out of resources for it (ADR 0040).
     ResourcesExhausted,
     /// Its engine is gone: its state says `running` and no writer holds it.
@@ -100,6 +104,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Abort
             | RunEvent::Timeout
             | RunEvent::Limit
+            | RunEvent::LimitNotUnderstood
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
             | RunEvent::Drain => Ok(Next::To(Lifecycle::Stopped)),
@@ -116,6 +121,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Abort
             | RunEvent::Timeout
             | RunEvent::Limit
+            | RunEvent::LimitNotUnderstood
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
             | RunEvent::Drain
@@ -133,6 +139,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Abort
             | RunEvent::Timeout
             | RunEvent::Limit
+            | RunEvent::LimitNotUnderstood
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
             | RunEvent::Drain

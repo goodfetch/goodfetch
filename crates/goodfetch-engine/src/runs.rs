@@ -560,6 +560,7 @@ impl End {
                 StopReason::Migrate => RunEvent::Migrate,
                 StopReason::Timeout => RunEvent::Timeout,
                 StopReason::Limit(_) => RunEvent::Limit,
+                StopReason::LimitNotUnderstood(_) => RunEvent::LimitNotUnderstood,
                 StopReason::Drain => RunEvent::Drain,
             },
         }

@@ -166,7 +166,8 @@ schemars = { version = "1.2.3", default-features = false, features = ["std", "de
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
-# RFC 8785, which a Proving ground task's digest serializes in (ADR 0063).
+# RFC 8785, which a Proving ground task's digest and each Audit log entry's
+# hash serialize in (ADRs 0063 and 0016).
 serde_json_canonicalizer = { version = "0.3.2", default-features = false }
 sha1 = { version = "0.10.6", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }

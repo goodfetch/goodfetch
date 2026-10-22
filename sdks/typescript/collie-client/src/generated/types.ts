@@ -298,6 +298,36 @@ export interface ArtifactId {
   name: string;
 }
 /**
+ * What `audit.verify` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AuditVerified".
+ */
+export interface AuditVerified {
+  /**
+   * How many entries the log holds.
+   */
+  entries: number;
+  /**
+   * The first sequence that does not verify: an entry edited, missing
+   * or out of its place, or, past the last entry, a tail the head file
+   * says was there; none when intact.
+   */
+  first_broken?: number | null;
+  /**
+   * Whether every entry chains to the one before it and the head file
+   * agrees with the last one.
+   */
+  intact: boolean;
+}
+/**
+ * What `audit.verify` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AuditVerifyParams".
+ */
+export interface AuditVerifyParams {}
+/**
  * What `$/cancel` names: the call to stop.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

@@ -21,6 +21,12 @@ const USAGE_LEDGER: &str = "usage-ledger.sqlite";
 /// The per-user Politeness file, outside the per-major folders.
 const POLITENESS_FILE: &str = "politeness.sqlite";
 
+/// The Audit log's store, outside the per-major folders (ADR 0016).
+const AUDIT_LOG: &str = "audit-log.sqlite";
+
+/// The Audit log's head file, beside its store.
+const AUDIT_LOG_HEAD: &str = "audit-log-head.json";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +91,19 @@ impl Home {
     /// every major and both Products share (ADRs 0053 and 0098).
     pub fn politeness_file(&self) -> PathBuf {
         self.root.join(POLITENESS_FILE)
+    }
+
+    /// The per-user Audit log's store, outside the per-major folders, to
+    /// which every engine of every major and of both Products appends
+    /// (ADR 0016).
+    pub fn audit_log(&self) -> PathBuf {
+        self.root.join(AUDIT_LOG)
+    }
+
+    /// The Audit log's head file, beside its store, which names the last
+    /// entry so that a truncated tail shows.
+    pub fn audit_log_head(&self) -> PathBuf {
+        self.root.join(AUDIT_LOG_HEAD)
     }
 }
 

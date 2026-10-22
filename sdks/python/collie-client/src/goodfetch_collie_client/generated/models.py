@@ -56,6 +56,35 @@ class Asked(RootModel[Literal[True]]):
     """The format, with its default options."""
 
 
+class AuditVerified(BaseModel):
+    """What `audit.verify` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    entries: Annotated[int, Field(ge=0)]
+    """How many entries the log holds."""
+    first_broken: Annotated[int | None, Field(ge=0)] = None
+    """
+    The first sequence that does not verify: an entry edited, missing
+    or out of its place, or, past the last entry, a tail the head file
+    says was there; none when intact.
+    """
+    intact: bool
+    """
+    Whether every entry chains to the one before it and the head file
+    agrees with the last one.
+    """
+
+
+class AuditVerifyParams(BaseModel):
+    """What `audit.verify` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class Completeness(StrEnum):
     """
     Whether a Run's results cover everything in its scope (ADRs 0005 and

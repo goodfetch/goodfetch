@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, AuditVerified, AuditVerifyParams, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -40,6 +40,13 @@ class AsyncCollieOperations:
     def __init__(self, caller: AsyncCaller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    async def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
+        """Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return AuditVerified.model_construct(**_fields(await self._caller.call("audit.verify", params)))
 
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
@@ -242,6 +249,13 @@ class CollieOperations:
     def __init__(self, caller: Caller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
+        """Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return AuditVerified.model_construct(**_fields(self._caller.call("audit.verify", params)))
 
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""

@@ -9,6 +9,7 @@
 //! defines its own contracts.
 #![warn(missing_docs)]
 
+pub mod audit;
 pub mod block;
 pub mod browser_cache;
 pub mod case_log;

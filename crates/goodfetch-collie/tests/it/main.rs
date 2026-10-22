@@ -8,6 +8,7 @@
 )]
 
 mod attached;
+mod audit;
 mod browsers;
 #[cfg(target_os = "macos")]
 mod checkpoint;

@@ -140,6 +140,15 @@ describe("a Collie Connection", () => {
     },
   );
 
+  test("aborts a Run once when two closes run at once", async () => {
+    const { collie, played } = await collieOn("run/closed-while-running.json");
+    await collie.start({ runId: "nightly", tags: ["shop"] });
+
+    await Promise.all([collie.close(), collie.close()]);
+
+    expect(played.done()).toEqual({ kind: "finished" });
+  });
+
   test(
     "closes a Run still running by aborting it, and refuses every later call with closed",
     { tags: ["error:closed"] },

@@ -198,6 +198,49 @@ fn runner_with_no_test_lists_none() {
     assert_eq!(selection, expected);
 }
 
+/// The incremental gate (ADR 0135) stresses only the members the change
+/// since an earlier gate run reaches: the crate `stressed` here, so only
+/// nextest lists and only its new and changed tests run.
+#[test]
+fn within_members_only_their_new_and_changed_tests_run() {
+    let (workspace, base) = base();
+    change(&workspace);
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    let mut expected = change_selection();
+    expected.retain(|(_, runner, _)| runner == "nextest");
+    assert_eq!(selection, expected);
+}
+
+/// Every test the change since the earlier gate run changes runs 20 times
+/// too, even one the pull request as a whole leaves as its base had it:
+/// `steady.rs` changed in the earlier run's head and changed back since.
+#[test]
+fn a_test_the_change_since_the_earlier_run_changes_runs_20_times() {
+    let (workspace, base) = base();
+    change(&workspace);
+    workspace.append("src/steady.rs", "// Changed.\n");
+    let earlier = workspace.commit_all();
+    workspace.edit("src/steady.rs", "// Changed.\n", "");
+    workspace.commit_all();
+
+    let selection = select(
+        &workspace,
+        &["--base", &base, "--within", "stressed", "--since", &earlier],
+    );
+
+    let mut expected = change_selection();
+    expected.retain(|(_, runner, _)| runner == "nextest");
+    expected.push(selected(
+        CHANGED,
+        "nextest",
+        "stressed steady::tests::unchanged",
+    ));
+    expected.sort();
+    assert_eq!(selection, expected);
+}
+
 /// A branch behind its base, as one that has not merged its target lately:
 /// the base's Vitest config imports an entry of a workspace package that the
 /// head does not have. The base is listed with its own packages, so its

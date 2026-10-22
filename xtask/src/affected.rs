@@ -18,7 +18,8 @@ use crate::environment::Environment;
 use crate::output;
 
 pub(crate) use git::Range;
-pub(crate) use selection::{Selection, selectable_job_ids};
+pub(crate) use selection::{Job, Selection, selectable_job_ids};
+use workspace::{Ecosystem, Workspace};
 
 /// A path relative to the repository root, with `/` separators and no
 /// trailing one: a changed file or a package's folder.
@@ -48,9 +49,68 @@ impl RepoPath {
 
 /// The selection for `range` in the repository at `root`.
 pub(crate) fn select(cargo: &OsStr, root: &Path, range: &Range) -> Result<Selection> {
-    let paths = git::changed_paths(root, range)?;
+    let paths = changed_paths(root, range)?;
     let workspace = workspace::read(cargo, root)?;
     Ok(selection::select(&workspace, &paths))
+}
+
+/// The paths `range` changes in the repository at `root`.
+pub(crate) fn changed_paths(root: &Path, range: &Range) -> Result<Vec<RepoPath>> {
+    git::changed_paths(root, range)
+}
+
+/// Which runners test a member of the workspaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// A crate, tested by nextest.
+    Crate,
+    /// A pnpm package, tested by Vitest and Playwright.
+    TypeScript,
+    /// A uv package, tested by pytest.
+    Python,
+}
+
+/// The members of the repository's three workspaces, each named as `just
+/// test` takes it and as the selection lists it: a crate by its name, a
+/// pnpm or uv package by its folder.
+pub(crate) struct Members {
+    workspace: Workspace,
+}
+
+impl Members {
+    pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Self> {
+        Ok(Self {
+            workspace: workspace::read(cargo, root)?,
+        })
+    }
+
+    /// Every member's name and kind.
+    pub(crate) fn all(&self) -> impl Iterator<Item = (String, Kind)> + '_ {
+        let crates = self
+            .workspace
+            .crates
+            .iter()
+            .map(|krate| (krate.name.clone(), Kind::Crate));
+        let packages = self.workspace.packages.iter().map(|package| {
+            let kind = match package.ecosystem {
+                Ecosystem::TypeScript => Kind::TypeScript,
+                Ecosystem::Python => Kind::Python,
+            };
+            (package.folder.as_str().to_owned(), kind)
+        });
+        crates.chain(packages)
+    }
+
+    /// The member that owns `path`, a repository path: the one whose folder
+    /// holds it most closely.
+    pub(crate) fn owner(&self, path: &str) -> Option<String> {
+        selection::owner_name(&self.workspace, &RepoPath::new(path))
+    }
+
+    /// The selection for a change to `paths`.
+    pub(crate) fn select(&self, paths: &[RepoPath]) -> Selection {
+        selection::select(&self.workspace, paths)
+    }
 }
 
 /// `xtask affected`'s arguments: a base and a head, or `--local`.

@@ -47,7 +47,7 @@ impl Job {
         Self::Tlc,
     ];
 
-    const fn id(self) -> &'static str {
+    pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::PreMerge => "pre-merge",
             Self::Sinks => "sinks",
@@ -188,6 +188,15 @@ fn owner<'a>(workspace: &'a Workspace, path: &RepoPath) -> Option<Owner<'a>> {
         .filter(|(folder, _)| path.is_in(folder))
         .max_by_key(|(folder, _)| folder.len())
         .map(|(_, owner)| owner)
+}
+
+/// The name of the member that owns `path`, as the selection lists it: a
+/// crate's name, a package's folder.
+pub(crate) fn owner_name(workspace: &Workspace, path: &RepoPath) -> Option<String> {
+    owner(workspace, path).map(|owner| match owner {
+        Owner::Crate(krate) => krate.name.clone(),
+        Owner::Package(package) => package.folder.as_str().to_owned(),
+    })
 }
 
 /// `roots` and every member that depends on one of them, directly or not.
@@ -452,6 +461,31 @@ impl Selection {
     /// Each selected job's ID, as the workflow's `if:` reads them.
     pub(crate) fn job_ids(&self) -> impl Iterator<Item = &'static str> {
         self.jobs.iter().map(|job| job.id())
+    }
+
+    /// Whether the selection runs `job`.
+    pub(crate) fn selects(&self, job: Job) -> bool {
+        self.jobs.contains(&job)
+    }
+
+    /// Every member whose tests the selection runs, as `just test` takes
+    /// them: the crates by name, the pnpm and uv packages by folder.
+    pub(crate) fn members(&self) -> BTreeSet<String> {
+        self.crates
+            .iter()
+            .cloned()
+            .chain(
+                self.vitest_packages
+                    .iter()
+                    .chain(&self.pytest_packages)
+                    .map(|folder| folder.as_str().to_owned()),
+            )
+            .collect()
+    }
+
+    /// Whether the selection reaches any crate.
+    pub(crate) fn reaches_a_crate(&self) -> bool {
+        !self.crates.is_empty()
     }
 
     /// What the local gate runs (ADR 0135): `quick` when the change selects

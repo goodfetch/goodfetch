@@ -64,7 +64,7 @@ fn a_listed_host_and_its_subdomains_are_allowed(#[case] url: &str, #[case] parse
 #[rstest]
 #[case::another_host("https://elsewhere.test/offsite")]
 #[case::a_name_ending_in_the_entry_without_a_dot("https://notscope.test/")]
-#[case::the_entrys_parent("https://test/")]
+#[case::the_parent_of_the_entry("https://test/")]
 #[case::a_sister_name("https://scope-sister.test/sister")]
 fn a_host_the_allowed_domains_do_not_list_is_refused_naming_the_setting(#[case] url: &str) {
     let session = policy(&["scope.test"], &[]);

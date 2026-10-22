@@ -1186,6 +1186,29 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class TraceContext(BaseModel):
+    """
+    A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
+    and `tracestate`, which its runtime writes and never a program, with no
+    Baggage. The schema checks only that each is a string: a receiver drops
+    a value it cannot use, and never fails the call for it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    traceparent: str | None = None
+    """
+    The caller's span, as W3C Trace Context's `traceparent` header
+    holds it.
+    """
+    tracestate: str | None = None
+    """
+    Its vendors' values, as W3C Trace Context's `tracestate` header
+    holds them.
+    """
+
+
 class UncertainEffect(BaseModel):
     """An Effect a Run left uncertain (ADR 0106), until a person reconciles it."""
 

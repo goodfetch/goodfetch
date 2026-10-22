@@ -100,6 +100,15 @@ impl CallError {
         }
     }
 
+    /// Its numeric code on the wire: a predefined JSON-RPC code or its
+    /// group's class.
+    pub(crate) fn wire_code(&self) -> i32 {
+        match &*self.0 {
+            Failure::Code { definition, .. } => definition.group.json_rpc_class(),
+            Failure::Protocol { failure, .. } => failure.code(),
+        }
+    }
+
     /// Its numeric class on the wire, whether a retry may succeed and its
     /// details, for the RPC layer.
     pub(crate) fn wire_parts(&self) -> (i32, bool, Map<String, Value>) {

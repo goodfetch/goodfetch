@@ -90,6 +90,14 @@ class BodyNotFoundError(ProgramError):
         super().__init__(message, code="body_not_found", group="program", retryable=False)
 
 
+class BrowserHostOutdatedError(UnavailableError):
+    """The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_host_outdated", group="unavailable", retryable=False)
+
+
 class BrowserLaunchFailedError(UnavailableError):
     """The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended."""
 
@@ -258,6 +266,14 @@ class PageCrashedError(UnavailableError):
         super().__init__(message, code="page_crashed", group="unavailable", retryable=True)
 
 
+class PathNotWritableError(ProgramError):
+    """The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="path_not_writable", group="program", retryable=False)
+
+
 class PatternUnsupportedError(ProgramError):
     """A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program."""
 
@@ -280,6 +296,14 @@ class ProtocolVersionUnsupportedError(UnavailableError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
+
+
+class ResourcesExhaustedError(UnavailableError):
+    """The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="resources_exhausted", group="unavailable", retryable=False)
 
 
 class ResponseTruncatedError(PageError):
@@ -431,6 +455,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
     "body_not_found": BodyNotFoundError,
+    "browser_host_outdated": BrowserHostOutdatedError,
     "browser_launch_failed": BrowserLaunchFailedError,
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
@@ -452,9 +477,11 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,
+    "path_not_writable": PathNotWritableError,
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "resources_exhausted": ResourcesExhaustedError,
     "response_truncated": ResponseTruncatedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,

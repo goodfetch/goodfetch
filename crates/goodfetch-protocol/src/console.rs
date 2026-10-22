@@ -67,7 +67,7 @@ pub const CONSOLE_PORT_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     description: "The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.",
     group: ErrorGroup::Unavailable,
     retryable: false,
-    exit_code: Some(12),
+    exit_code: None,
     arrived_in: ARRIVED_IN,
 };
 

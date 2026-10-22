@@ -141,6 +141,15 @@ export class BodyNotFoundError extends ProgramError {
 }
 
 /**
+ * The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.
+ */
+export class BrowserHostOutdatedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_host_outdated", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.
  */
 export class BrowserLaunchFailedError extends UnavailableError {
@@ -330,6 +339,15 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
+ * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.
+ */
+export class PathNotWritableError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "path_not_writable", group: "program", retryable: false });
+  }
+}
+
+/**
  * A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.
  */
 export class PatternUnsupportedError extends ProgramError {
@@ -353,6 +371,15 @@ export class PersonRequiredError extends RefusedError {
 export class ProtocolVersionUnsupportedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.
+ */
+export class ResourcesExhaustedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "resources_exhausted", group: "unavailable", retryable: false });
   }
 }
 
@@ -524,6 +551,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
   body_not_found: BodyNotFoundError,
+  browser_host_outdated: BrowserHostOutdatedError,
   browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
@@ -545,9 +573,11 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
+  path_not_writable: PathNotWritableError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  resources_exhausted: ResourcesExhaustedError,
   response_truncated: ResponseTruncatedError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,

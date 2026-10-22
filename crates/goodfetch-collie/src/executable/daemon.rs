@@ -47,11 +47,10 @@ use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
+use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{
-    HelloParams, NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, Surface,
-};
-use goodfetch_protocol::console::{CONSOLE_PORT_IN_USE, ConsoleState};
+use goodfetch_protocol::connection::{HelloParams, Surface};
+use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonRuntimeFile, DaemonStartOutput, DaemonStatus, DaemonStatusOutput,
     DaemonStopOutput, DaemonStopping,
@@ -64,7 +63,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, Lines};
 
-use goodfetch_cli::output;
+use goodfetch_cli::{exit_codes, generated, output};
 
 use super::browsers;
 
@@ -128,6 +127,7 @@ pub(super) enum Failure {
     /// The Daemon refused this Client, with an Error code.
     Refused {
         code: String,
+        group: ErrorGroup,
         message: String,
         fix: String,
     },
@@ -139,14 +139,14 @@ impl Failure {
     /// Logs it and answers its exit code.
     pub(super) fn report(&self) -> ExitCode {
         match self {
-            Self::Refused { code, message, fix } => {
+            Self::Refused {
+                code,
+                group,
+                message,
+                fix,
+            } => {
                 tracing::error!(code = code.as_str(), "{message} {fix}");
-                let exit = [&NOT_IN_PRODUCT, &PROTOCOL_VERSION_UNSUPPORTED]
-                    .into_iter()
-                    .find(|definition| definition.name == code)
-                    .and_then(|definition| definition.exit_code)
-                    .unwrap_or(1);
-                ExitCode::from(exit)
+                ExitCode::from(exit_codes::of_error(code, *group))
             }
             Self::Unavailable(problem) => {
                 tracing::error!("{problem}");
@@ -470,6 +470,7 @@ impl Machine<'_> {
         });
         Failure::Refused {
             code: error.data.code.clone(),
+            group: generated::group(error),
             message: error.message.clone(),
             fix: format!("{given} {ours}").trim().to_owned(),
         }
@@ -601,6 +602,7 @@ impl Connected {
             ))),
             Err(Some(error)) => Err(Failure::Refused {
                 code: error.data.code.clone(),
+                group: generated::group(&error),
                 message: error.message,
                 fix: error
                     .data
@@ -708,12 +710,7 @@ fn console_exit(console: &ConsoleState) -> ExitCode {
         failure.message,
         failure.fix
     );
-    ExitCode::from(
-        Some(&CONSOLE_PORT_IN_USE)
-            .filter(|definition| definition.name == failure.code)
-            .and_then(|definition| definition.exit_code)
-            .unwrap_or(1),
-    )
+    ExitCode::from(exit_codes::of_code(&failure.code))
 }
 
 /// `daemon stop`.

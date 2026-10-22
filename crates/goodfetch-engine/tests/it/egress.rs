@@ -5,7 +5,10 @@
 //! shows; a refused request no call waits on is a `page.request_failed`
 //! event in the Run trace. The `resolve` setting maps every host name to
 //! the Proving ground's loopback address, whose certificate authority the
-//! client trusts: no test reaches the internet.
+//! client trusts for `scope.test`, as `tls.trusted_cas` would, and which
+//! the Session's private ranges list, as every test that reaches loopback
+//! does with the resolved-address check on (spec #564): no test reaches
+//! the internet.
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -15,6 +18,7 @@ use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{FetchError, PageTraffic, Resolve, Waiter};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_engine::tls::Trust;
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
     Answer, CaseDomains, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
@@ -38,9 +42,17 @@ fn traffic(proving_ground: &ProvingGround, allowed: &[&str], blocked: &[&str]) -
             resolve.with(host.clone(), vec![address.parse::<IpAddr>().unwrap()])
         });
     PageTraffic {
-        egress: Policy::new(allowed, blocked).unwrap(),
+        egress: Policy::new(allowed, blocked)
+            .unwrap()
+            .with_private_ranges(&[proving_ground.address().ip().to_string()])
+            .unwrap(),
         resolve,
-        trusted_certificates: vec![CertificateDer::from_pem_file(&description.ca).unwrap()],
+        trust: Trust::default_roots()
+            .with_trusted_cas(
+                "scope.test",
+                vec![CertificateDer::from_pem_file(&description.ca).unwrap()],
+            )
+            .unwrap(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,
     }
@@ -75,7 +87,7 @@ fn requests(observations: &Value) -> Vec<Value> {
 }
 
 /// How many connections reached the watched target.
-fn target_connections(observations: &Value) -> usize {
+pub(crate) fn target_connections(observations: &Value) -> usize {
     observations["connections"]
         .as_array()
         .unwrap()
@@ -158,7 +170,7 @@ fn a_fetch_reaches_a_listed_host_and_its_subdomain_and_another_host_is_refused_b
     clippy::disallowed_methods,
     reason = "the test reads the Run trace the engine wrote, outside any async worker"
 )]
-fn request_log_lines(run_folder: &std::path::Path) -> Vec<Value> {
+pub(crate) fn request_log_lines(run_folder: &std::path::Path) -> Vec<Value> {
     match std::fs::read_to_string(run_folder.join("trace/requests.jsonl")) {
         Ok(text) => text
             .lines()
@@ -219,7 +231,7 @@ fn a_refused_request_no_call_waits_on_is_a_request_failed_event_in_the_run_trace
 
 /// `url` with `port` written after its host, keeping the host's spelling,
 /// so each case reaches the watched target, which serves any path.
-fn at_port(url: &str, port: u16) -> String {
+pub(crate) fn at_port(url: &str, port: u16) -> String {
     let Some((scheme, rest)) = url.split_once("://") else {
         return url.to_owned();
     };
@@ -228,7 +240,7 @@ fn at_port(url: &str, port: u16) -> String {
 }
 
 /// The table's form of the rule a refusal names.
-fn table_rule(rule: EgressRule) -> goodfetch_test_support::EgressRule {
+pub(crate) fn table_rule(rule: EgressRule) -> goodfetch_test_support::EgressRule {
     match rule {
         EgressRule::DomainPolicy => goodfetch_test_support::EgressRule::DomainPolicy,
         EgressRule::PrivateAddress => goodfetch_test_support::EgressRule::PrivateAddress,
@@ -262,9 +274,12 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
         resolve.with(lookup.name.clone(), addresses)
     });
     let traffic = PageTraffic {
-        egress: Policy::new(&domains.allowed, &domains.blocked).unwrap(),
+        egress: Policy::new(&domains.allowed, &domains.blocked)
+            .unwrap()
+            .with_private_ranges(&[target.ip().to_string()])
+            .unwrap(),
         resolve,
-        trusted_certificates: Vec::new(),
+        trust: Trust::default_roots(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,
     };

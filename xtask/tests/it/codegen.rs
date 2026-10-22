@@ -917,3 +917,41 @@ fn check_fails_on_a_stale_license_list() {
     );
     assert_eq!(outcome.code, 1);
 }
+
+/// IANA's IPv4 special-purpose registry and the classification table
+/// `xtask codegen` writes from it into `goodfetch-protocol` (ADR 0067).
+const IPV4_REGISTRY: &str = "crates/goodfetch-protocol/iana/iana-ipv4-special-registry-1.csv";
+const IPV4_REGISTRY_SOURCE: &str =
+    "crates/goodfetch-protocol/iana/iana-ipv4-special-registry-1.source.toml";
+const SPECIAL_PURPOSE_TABLE: &str = "crates/goodfetch-protocol/generated/special_purpose.rs";
+
+/// Covers: story:4-8
+#[rstest]
+#[case::a_block_no_longer_globally_reachable(
+    IPV4_REGISTRY,
+    "192.31.196.0/24,AS112-v4,[RFC 7535],2014-12,N/A,True,True,True,True,False",
+    "192.31.196.0/24,AS112-v4,[RFC 7535],2014-12,N/A,True,True,True,False,False"
+)]
+#[case::a_new_registry_date(
+    IPV4_REGISTRY_SOURCE,
+    "registry_updated = \"2025-10-09\"",
+    "registry_updated = \"2026-10-01\""
+)]
+fn check_fails_when_the_special_purpose_registries_change_and_the_table_was_not_regenerated(
+    #[case] path: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(path, from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", SPECIAL_PURPOSE_TABLE)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}

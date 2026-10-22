@@ -20,5 +20,11 @@ paths = [
 ]
 
 [[allowlists]]
+description = "The certificate_file fuzz target's seeds (ADR 0067): keys made once for the seeds, which sign nothing and guard nothing"
+paths = [
+  '''(^|/)crates/goodfetch-engine/fuzz/certificate_file/seeds/''',
+]
+
+[[allowlists]]
 description = "RFC 6455's sample Sec-WebSocket-Key, which the Proving ground's WebSocket tests send"
 regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']

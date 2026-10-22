@@ -405,6 +405,9 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
 #[case::trusted_cas_from_the_run(
     "tls.trusted_cas", json!({}), SettingsLayer::Run, json!({ "intranet.example": ["ca.pem"] })
 )]
+#[case::trusted_cas_from_a_recipe(
+    "tls.trusted_cas", json!({}), SettingsLayer::Recipe, json!({ "intranet.example": ["ca.pem"] })
+)]
 #[case::a_pin_from_the_run(
     "tls.accept_invalid_certs", json!({}), SettingsLayer::Run, json!({ "intranet.example": "sha256/AAAA" })
 )]

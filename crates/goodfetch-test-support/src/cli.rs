@@ -235,11 +235,20 @@ impl Cli<'_> {
 
     /// Runs the executable as [`Cli::run`] does, then checks that each
     /// line of its stdout is one JSON document valid against `schema`, the
-    /// command's declared event type, and nothing else is: JSON Lines. No
-    /// line at all is a stream of no event.
+    /// command's declared event type, and nothing else is: JSON Lines. A
+    /// stdout with no line fails too, since a stream command that prints
+    /// nothing, its output gone elsewhere, would otherwise pass; a test that
+    /// expects no event checks [`Cli::run`]'s empty stdout instead.
     pub fn json_lines(self, schema: &str) -> Result<CliJson, CliError> {
         let validator = validator(schema)?;
         let output = self.run()?;
+        if output.stdout.is_empty() {
+            return Err(CliError::NotJson {
+                line: None,
+                reason: "stdout holds no line".to_owned(),
+                stdout: output.stdout,
+            });
+        }
         let mut documents = Vec::new();
         for (index, line) in output.stdout.lines().enumerate() {
             let number = Some(index + 1);

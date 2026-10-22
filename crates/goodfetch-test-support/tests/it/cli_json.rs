@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use goodfetch_test_support::{
-    Cli, CliError, Mode, RuntimeFile, TestEnv, Tool, assert_cli_snapshot, cli, tools,
+    Cli, CliError, Mode, RUNTIME_FILE, TestEnv, Tool, assert_cli_snapshot, cli, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -167,6 +167,19 @@ fn json_lines_rejects_a_line_of_another_type() {
     );
 }
 
+#[test]
+fn json_lines_rejects_a_stdout_with_no_line() {
+    let env = unrecorded();
+
+    let checked = printing(&env, "").json_lines("EventEnvelope");
+
+    let error = checked.unwrap_err();
+    assert!(
+        matches!(&error, CliError::NotJson { line: None, .. }),
+        "{error}"
+    );
+}
+
 #[rstest]
 #[case::a_stray_line(format!("{EVENTS}Done.\n"))]
 #[case::two_documents_on_one_line(EVENTS.replace('\n', " ") + "\n")]
@@ -178,6 +191,16 @@ fn json_lines_rejects_a_line_that_is_not_one_document(#[case] stdout: String) {
 
     let error = checked.unwrap_err();
     assert!(matches!(error, CliError::NotJson { .. }), "{error}");
+}
+
+/// Whether the home holds a Daemon's runtime file of any version, so the
+/// check holds whatever the workspace's version is.
+fn any_runtime_file(home: &Path) -> bool {
+    std::fs::read_dir(home).is_ok_and(|majors| {
+        majors
+            .flatten()
+            .any(|major| major.path().join(RUNTIME_FILE).exists())
+    })
 }
 
 /// Whether one of the home's log files records the engine dispatching
@@ -230,7 +253,7 @@ fn a_command_run_in_each_mode_matches_one_snapshot_and_leaves_no_daemon(#[case] 
     assert_eq!(
         (
             dispatched(env.home(), "config.explain"),
-            RuntimeFile::path(env.home(), "0.0.0").exists(),
+            any_runtime_file(env.home()),
         ),
         (mode == Mode::Daemon, false)
     );
@@ -247,7 +270,7 @@ fn a_daemon_mode_run_whose_daemon_leaves_its_runtime_file_fails() {
         .mode(Mode::Daemon)
         .run();
 
-    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+    let runtime_file = goodfetch_test_support::RuntimeFile::path(env.home(), "0.0.0");
     assert!(
         matches!(&run, Err(CliError::Daemon(goodfetch_test_support::DaemonError::RuntimeFileLeft(path))) if *path == runtime_file),
         "{run:?}"

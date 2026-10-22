@@ -357,7 +357,11 @@ class JourneyDocument(BaseModel):
     Console's build, an adapter).
     """
     tasks: list[TaskResult]
-    """Each Proving ground task the Journey names."""
+    """
+    Each Proving ground task the Journey names, in its order: once per
+    check naming it, each with the answer to that check's submission in
+    the checks' order, or once when no check names it.
+    """
 
 
 class ResultDocument2(BaseModel):
@@ -393,7 +397,11 @@ class ResultDocument2(BaseModel):
     Console's build, an adapter).
     """
     tasks: list[TaskResult]
-    """Each Proving ground task the Journey names."""
+    """
+    Each Proving ground task the Journey names, in its order: once per
+    check naming it, each with the answer to that check's submission in
+    the checks' order, or once when no check names it.
+    """
     kind: Literal["journey"]
 
 

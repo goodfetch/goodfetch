@@ -19,7 +19,8 @@ use serde_json::{Value, json};
 use crate::probe;
 
 /// The folder of the fixture Journeys: J-901, a Collie Journey that touches
-/// no page, and J-902, a Foxhound Journey on seed 902 naming `catalog/1`.
+/// no page, J-902, a Foxhound Journey on seed 902 naming `catalog/1`, and
+/// J-903, one on seed 903 whose two checks name `catalog/1`.
 fn journey(id: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/it/fixtures/journey-run")
@@ -278,7 +279,10 @@ fn the_oracles_answer_to_a_submission_is_its_tasks_answer() {
 
     run.step("Read the catalog from its first listing page", |_| ());
     let answer = run
-        .expect_task("catalog/1", &json!({ "status": "failure", "records": [] }))
+        .expect_task(
+            "The oracle verifies the catalog's Records",
+            &json!({ "status": "failure", "records": [] }),
+        )
         .cloned();
     let finished = run.finish().unwrap();
 
@@ -289,6 +293,88 @@ fn the_oracles_answer_to_a_submission_is_its_tasks_answer() {
     assert_eq!(
         outcomes(&document, "checks"),
         [r#"failed "The oracle verifies the catalog's Records""#]
+    );
+}
+
+/// Each check naming a task is judged on its own submission, so two
+/// checks naming one task take two answers, written in the checks' order;
+/// after the first answer that is not `verified`, nothing more goes to the
+/// oracle.
+#[test]
+fn each_check_naming_a_task_is_judged_on_its_own_submission() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-903"),
+        "cli",
+        &executable(Tool::Foxhound),
+        stub("failed"),
+    )
+    .unwrap();
+    let failure = json!({ "status": "failure", "records": [] });
+
+    run.step(
+        "Read the catalog from its first listing page, twice",
+        |_| (),
+    );
+    let first = run
+        .expect_task("The oracle verifies the first read's Records", &failure)
+        .cloned();
+    let second = run
+        .expect_task("The oracle verifies the second read's Records", &failure)
+        .cloned();
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    let first = first.unwrap();
+    assert_eq!(first["outcome"], json!("failed"));
+    assert_eq!(second, None);
+    assert_eq!(
+        outcomes(&document, "checks"),
+        [
+            r#"failed "The oracle verifies the first read's Records""#,
+            r#"not_reached "The oracle verifies the second read's Records""#,
+        ]
+    );
+    assert_eq!(
+        document["tasks"],
+        json!([{ "id": "catalog/1", "answer": first }, { "id": "catalog/1" }])
+    );
+}
+
+#[rstest]
+#[case::a_check_naming_no_task("The oracle verifies nothing", 1)]
+#[case::a_check_judged_twice("The oracle verifies the first read's Records", 2)]
+fn a_submission_for_a_check_that_names_no_task_or_was_judged_fails_the_run(
+    #[case] check: &str,
+    #[case] calls: usize,
+) {
+    let mut run = JourneyRun::start_file(
+        &journey("J-903"),
+        "cli",
+        &executable(Tool::Foxhound),
+        stub("failed"),
+    )
+    .unwrap();
+
+    run.step(
+        "Read the catalog from its first listing page, twice",
+        |_| (),
+    );
+    for _ in 1..calls {
+        run.expect_task(check, &json!({ "status": "failure", "records": [] }));
+    }
+    let answer = run
+        .expect_task(check, &json!({ "status": "success", "records": [] }))
+        .cloned();
+    let finished = run.finish().unwrap();
+
+    // The last call adds its own failure: the first call, when there is
+    // one, failed on the oracle's answer.
+    assert_eq!(answer, None);
+    assert_eq!(
+        finished.failures().len(),
+        calls,
+        "{:?}",
+        finished.failures()
     );
 }
 

@@ -435,7 +435,9 @@ export interface JourneyDocument {
    */
   surface_package?: SurfacePackage | null;
   /**
-   * Each Proving ground task the Journey names.
+   * Each Proving ground task the Journey names, in its order: once per
+   * check naming it, each with the answer to that check's submission in
+   * the checks' order, or once when no check names it.
    */
   tasks: TaskResult[];
 }

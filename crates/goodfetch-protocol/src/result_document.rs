@@ -103,7 +103,10 @@ impl UncomparedJourneyDocument {
 /// Compares a loaded `journey` document with its Journey (ADR 0063). The
 /// document must name the Journey and hold exactly its steps, its checks
 /// and the Proving ground tasks it names, each in the Journey's order, with
-/// a step recorded `manual` exactly when the Journey marks it manual. A
+/// a step recorded `manual` exactly when the Journey marks it manual. Each
+/// check naming a task is judged on its own submission, so a task is held
+/// once per check that names it, the answers in the checks' order, and
+/// once when no check names it. A
 /// helper that leaves a failed or unreached step out of its document
 /// therefore writes one every reader refuses.
 ///
@@ -163,10 +166,20 @@ pub fn read_journey_document(
             .collect::<Vec<_>>(),
         |(text, _)| (*text).to_owned(),
     )?;
+    // Each check naming a task is judged on its own submission, so a task
+    // two checks name is held once per check; a task no check names, once.
     let named: Vec<&TaskId> = journey
         .proving_ground
         .iter()
         .flat_map(|proving_ground| proving_ground.tasks.iter().map(|task| &task.id))
+        .flat_map(|id| {
+            let checks = journey
+                .expect
+                .iter()
+                .filter(|check| check.task.as_ref() == Some(id))
+                .count();
+            std::iter::repeat_n(id, checks.max(1))
+        })
         .collect();
     compare(
         JourneyPart::Task,
@@ -715,7 +728,9 @@ pub struct JourneyFacts {
     pub steps: Vec<StepResult>,
     /// Each check of the Journey's outcome, in its order.
     pub checks: Vec<CheckResult>,
-    /// Each Proving ground task the Journey names.
+    /// Each Proving ground task the Journey names, in its order: once per
+    /// check naming it, each with the answer to that check's submission in
+    /// the checks' order, or once when no check names it.
     pub tasks: Vec<TaskResult>,
 }
 

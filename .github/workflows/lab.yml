@@ -38,6 +38,9 @@ jobs:
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()

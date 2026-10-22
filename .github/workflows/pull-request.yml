@@ -332,6 +332,9 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
@@ -471,6 +474,9 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

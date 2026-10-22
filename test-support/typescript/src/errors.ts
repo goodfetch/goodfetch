@@ -65,6 +65,8 @@ export type TestSupportErrorCode =
   | "bypass_csp_refused"
   /** A served test's page logged an error, threw, broke its CSP or had a same-origin request fail (ADR 0068). */
   | "page_errors"
+  /** A known issue of a test tool was tolerated while another one was (ADR 0068). */
+  | "known_issue_nested"
   /** `features/inventory.json` cannot be read, or fails its committed schema (ADR 0072). */
   | "inventory_invalid"
   /** A suite's case list cannot be read, is no TOML, or lacks its suite's name and version, a capability's name, or a case's ID or `covers` (ADRs 0033 and 0069). */

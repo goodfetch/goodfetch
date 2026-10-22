@@ -403,6 +403,8 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Tests run in random order, seed printed:** pytest-randomly (`-p randomly --randomly-seed`), Vitest `sequence.shuffle.tests` with `sequence.seed`, Playwright `--shuffle` with `fullyParallel`; nextest runs each test in its own process. The seed is the first 8 bytes of the tree hash under test, read as an unsigned integer (`xtask stress seed`, or `ci/order-seed.sh` where no Cargo runs), in every run but the constrained test-health run, which takes a fresh one; Vitest takes its low 53 bits, the most its shuffle can count up from. Pass it back as `GOODFETCH_ORDER_SEED` to reproduce an order.
 - **Vitest resets shared state:** `restoreMocks`, `unstubEnvs` and `unstubGlobals` are on, only as a safety net: `vi.stubEnv` and `vi.stubGlobal` stay banned ([Writing a test](#writing-a-test)).
 - **Leaks and hangs fail:** nextest's leaky result is `fail`, every test has its suite's hang timeout, and the constrained test-health run runs Vitest with `detectAsyncLeaks`.
+  - **`just` runs nextest with `NEXTEST_DOUBLE_SPAWN=0`;** export it too when you run `cargo nextest` yourself on macOS.
+    _Why:_ on macOS under load, a test that started no process failed as leaky when nextest started it through its double-spawn stub: its output pipes stayed open past the 200 ms leak timeout after it exited, even with one test at a time. Started directly, it never did. On Linux the stub made no difference: there, such tests failed as leaky only with many tests at once on a CPU-starved host, as often with the stub as without, and never with one test at a time. The stub only guards against a hang when Ctrl-Z stops the runner, so the setting costs nothing on either platform.
 
 ### After merge
 

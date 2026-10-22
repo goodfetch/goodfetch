@@ -23,6 +23,7 @@ mod human_output;
 mod invalid_calls;
 mod journeys;
 mod launch;
+mod layout;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod locator;

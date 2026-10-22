@@ -13,8 +13,10 @@
 
 mod checkpoint;
 mod daemon;
+mod durability;
 mod events;
 mod key_value_store;
+mod layout;
 mod refusals;
 mod run;
 mod settings;

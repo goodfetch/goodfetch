@@ -52,9 +52,9 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, ReachedLimit, RunAxes, RunId,
-    RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags,
-    Verdict,
+    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RUN_STATE_DURABILITY, ReachedLimit,
+    RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs,
+    StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
 use goodfetch_protocol::usage::Limit;
@@ -63,6 +63,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+pub use self::import::fuzz_run_state_import;
 pub use self::reader::RunReader;
 pub use self::reindex::{Reindexed, reindex};
 pub use self::writer::{Writer, test_writer};
@@ -86,7 +87,10 @@ use crate::home::{Home, RunStateLocation, major_name};
 use crate::ledger::{Charging, Ledger, Refusal};
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
-use crate::run_state::{self, RunState, RunStateError, RunStateOptions, RunStateTables};
+use crate::run_state::install::InstallDatabase;
+use crate::run_state::{
+    self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
+};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
 
@@ -114,6 +118,16 @@ pub(crate) struct RunsSetup {
     pub(crate) location: RunStateLocation,
     /// How run files open.
     pub(crate) run_state: RunStateOptions,
+    /// The VFS the Usage ledger opens through: the run state's own, never
+    /// the install database's, which serves only the run folders.
+    pub(crate) ledger_vfs: Option<String>,
+    /// The install database `run_state`'s VFS serves the run files from,
+    /// in the per-install layout, kept open while the registry lives.
+    #[expect(
+        dead_code,
+        reason = "held, never read: its VFS serves the run files while it is open"
+    )]
+    pub(crate) install: Option<Arc<InstallDatabase>>,
     /// The tables the composition adds to every run file.
     pub(crate) tables: Vec<RunStateTables>,
     /// The gate in admission the composition passes in, if any.
@@ -879,7 +893,7 @@ impl Runs {
         let limits = Limits {
             home: setup.home.clone(),
             owner: Arc::clone(&readers),
-            ledger: Ledger::at(setup.home.usage_ledger(), setup.run_state.vfs.clone()),
+            ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
             clock: setup.clock,
             product: setup.product,
             instance: format!("{:016x}", setup.entropy.next_u64()),
@@ -1520,12 +1534,23 @@ impl Registry {
         )
     }
 
+    /// How a Run's run file opens under its `settings`: in the durability
+    /// `run_state.durability` names, `full` when it has none.
+    fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
+        let durability = settings.map_or(Durability::Full, |settings| {
+            Durability::named(settings.resolved().value(RUN_STATE_DURABILITY.name))
+        });
+        RunStateOptions {
+            durability,
+            ..self.setup.run_state.clone()
+        }
+    }
+
     fn folder(&self, run_id: &RunId) -> PathBuf {
-        let runs = match &self.setup.location {
-            RunStateLocation::PerMajor => self.setup.home.runs(&self.setup.version),
-            RunStateLocation::Folder(folder) => folder.clone(),
-        };
-        runs.join(run_id.as_str())
+        self.setup
+            .location
+            .folder(&self.setup.home, &self.setup.version)
+            .join(run_id.as_str())
     }
 
     /// The Run's folder as the Run index records it: relative to the
@@ -1686,7 +1711,7 @@ impl Registry {
         let writer = Arc::new(self.owner.child());
         let state = RunState::open(
             folder.join(RUN_FILE),
-            &self.setup.run_state,
+            &self.opened_with(start.settings.as_ref()),
             self.setup.tables.clone(),
             1,
             &writer,
@@ -2201,7 +2226,8 @@ impl Registry {
                 needs: held.needs,
             }));
         }
-        let (lock, writer, state) = self.reopen(&run_id, checkpoint).await?;
+        let options = self.opened_with(settings.as_ref());
+        let (lock, writer, state) = self.reopen(&run_id, checkpoint, &options).await?;
         let folder = self.folder(&run_id);
         let (read, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
         let recorded = self
@@ -2307,6 +2333,7 @@ impl Registry {
         &mut self,
         run_id: &RunId,
         checkpoint: Option<PathBuf>,
+        options: &RunStateOptions,
     ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
         let folder = self.folder(run_id);
         let file = folder.join(RUN_FILE);
@@ -2357,14 +2384,10 @@ impl Registry {
                 .await
                 .map_err(|error| RunError::of_write(run_id, &folder, error))?;
         }
-        let (options, tables, next) = (
-            self.setup.run_state.clone(),
-            self.setup.tables.clone(),
-            file.clone(),
-        );
+        let (taking, tables, next) = (options.clone(), self.setup.tables.clone(), file.clone());
         let epoch = self
             .owner
-            .blocking(move || run_state::next_epoch(&next, &options, &tables, after))
+            .blocking(move || run_state::next_epoch(&next, &taking, &tables, after))
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         tracing::info!(
@@ -2375,15 +2398,9 @@ impl Registry {
             "took the Run's writer role to resume it"
         );
         let writer = Arc::new(self.owner.child());
-        let state = RunState::open(
-            file,
-            &self.setup.run_state,
-            self.setup.tables.clone(),
-            epoch,
-            &writer,
-        )
-        .await
-        .map_err(|error| RunError::of_state(run_id, &folder, error))?;
+        let state = RunState::open(file, options, self.setup.tables.clone(), epoch, &writer)
+            .await
+            .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         state
             .write(|connection| {
                 connection
@@ -2619,6 +2636,7 @@ impl Closing {
 }
 
 mod folder;
+mod import;
 pub mod outcome;
 mod reader;
 mod reindex;

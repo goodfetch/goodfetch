@@ -1331,6 +1331,7 @@ dependencies = [
 name = "goodfetch-engine"
 version = "0.0.0"
 dependencies = [
+ "bindgen",
  "chacha20",
  "data-encoding",
  "flate2",
@@ -1355,6 +1356,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sqlite-plugin",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -1409,14 +1411,18 @@ dependencies = [
 name = "goodfetch-frontier"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
+ "goodfetch-test-support",
  "gungraun",
  "proptest",
+ "proptest-state-machine",
  "psl",
  "rstest",
  "rusqlite",
  "serde_json",
+ "sha2",
  "tokio",
  "url",
 ]
@@ -1450,6 +1456,7 @@ dependencies = [
 name = "goodfetch-protocol"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "jiff",
  "jsonschema",
  "proptest",

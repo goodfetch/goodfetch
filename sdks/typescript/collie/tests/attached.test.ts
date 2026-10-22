@@ -158,11 +158,17 @@ describe("a worker_threads worker", () => {
       const worker = new Worker(join(import.meta.dirname, "fixtures", "worker.ts"), {
         workerData: env,
       });
+      // The messages are collected from the start and the exit alone is
+      // awaited: when the worker has posted and exited by the time this
+      // thread looks, Node delivers the message and emits `exit` in one
+      // turn, so an `exit` listener added once the message arrived would
+      // wait forever. A worker that throws fails the wait with its error.
+      const messages: unknown[] = [];
+      worker.on("message", (message: unknown) => messages.push(message));
 
-      const [lifecycle] = await once(worker, "message");
-      await once(worker, "exit");
+      const [exitCode] = await once(worker, "exit");
 
-      expect(lifecycle).toBe("finished");
+      expect({ messages, exitCode }).toEqual({ messages: ["finished"], exitCode: 0 });
     },
   );
 });

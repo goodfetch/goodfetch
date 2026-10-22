@@ -1,8 +1,13 @@
 //! `xtask test-tools` (ADRs 0062 and 0094): builds the commit's executables
 //! that tests run, each one the workspace has, with the tests' own Cargo
-//! profile and in one invocation, so one test build per target serves both
-//! Products; then writes the test tool manifest of their absolute paths,
-//! which `goodfetch-test-support`'s `tools()` and `goodfetch-test-env` read.
+//! profile and in one invocation of their own, so both Products' executables
+//! share one resolution of features; then writes the test tool manifest of
+//! their absolute paths, which `goodfetch-test-support`'s `tools()` and
+//! `goodfetch-test-env` read. It is not the test build's invocation: there,
+//! the dev-dependencies' features (test support's Tokio `test-util` among
+//! them) would reach the executables, which tests then would not run as they
+//! ship, so the crates whose features differ compile twice per suite (ADR
+//! 0094's note).
 //! Collie's executable embeds its Console build, which it builds first
 //! (`xtask console build`, ADR 0057). `just test` runs it before any runner
 //! starts.

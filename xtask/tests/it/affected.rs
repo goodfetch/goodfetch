@@ -95,6 +95,102 @@ fn change_to_an_executable_selects_the_crates_whose_tests_run_it() {
     );
 }
 
+/// The fixture with a TypeScript and a Python package whose tests run the
+/// Proving ground's executable, and the Proving ground depending on the
+/// engine through `table`, committed and tagged `with-runs`.
+fn with_packages_running_the_proving_ground(workspace: &Workspace, table: &str) {
+    workspace.write(
+        "sdks/typescript/foxhound/package.json",
+        br#"{
+  "name": "@goodfetch/foxhound",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": { "@goodfetch/collie-client": "workspace:*" },
+  "goodfetch": { "runs": ["goodfetch-proving-ground"] }
+}
+"#,
+    );
+    workspace.write(
+        "sdks/python/foxhound/pyproject.toml",
+        br#"[project]
+name = "goodfetch-foxhound"
+version = "0.0.0"
+dependencies = ["goodfetch_collie_client>=0.0.0"]
+
+[tool.goodfetch]
+runs = ["goodfetch-proving-ground"]
+"#,
+    );
+    workspace.write(
+        "proving-ground/Cargo.toml",
+        format!(
+            r#"[package]
+name = "goodfetch-proving-ground"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[{table}]
+goodfetch-engine = {{ path = "../crates/goodfetch-engine" }}
+"#
+        )
+        .as_bytes(),
+    );
+    commit_all(workspace, "Run the Proving ground from the packages' tests");
+    workspace.git(&["tag", "with-runs"]);
+}
+
+#[test]
+fn change_to_an_executable_selects_the_packages_whose_tests_run_it() {
+    let workspace = repository();
+    with_packages_running_the_proving_ground(&workspace, "dependencies");
+    workspace.write("proving-ground/src/main.rs", b"fn main() { }\n");
+    commit_all(&workspace, "Change the Proving ground");
+
+    let outcome = workspace.xtask(&["affected", "--base", "with-runs", "--head", "change"]);
+
+    assert_eq!(
+        (
+            value(&outcome, "vitest-packages"),
+            value(&outcome, "pytest-packages")
+        ),
+        (
+            "sdks/typescript/foxhound".to_owned(),
+            "sdks/python/foxhound".to_owned()
+        )
+    );
+}
+
+/// What an executable is built from changes it, and so the tests that run
+/// it; a dev-dependency is no part of its build.
+#[rstest]
+#[case::through_a_dependency(
+    "dependencies",
+    "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-engine)",
+    "sdks/typescript/foxhound"
+)]
+#[case::not_through_a_dev_dependency("dev-dependencies", "rdeps(=goodfetch-engine)", "")]
+fn change_to_what_an_executable_is_built_from_selects_the_tests_that_run_it(
+    #[case] table: &str,
+    #[case] nextest_filter: &str,
+    #[case] vitest_packages: &str,
+) {
+    let workspace = repository();
+    with_packages_running_the_proving_ground(&workspace, table);
+    workspace.write("crates/goodfetch-engine/src/lib.rs", b"//! Changed.\n");
+    commit_all(&workspace, "Change the engine");
+
+    let outcome = workspace.xtask(&["affected", "--base", "with-runs", "--head", "change"]);
+
+    assert_eq!(
+        (
+            value(&outcome, "nextest-filter"),
+            value(&outcome, "vitest-packages")
+        ),
+        (nextest_filter.to_owned(), vitest_packages.to_owned())
+    );
+}
+
 #[test]
 fn base_and_head_mode_ignores_what_the_base_changed_since_the_merge_base() {
     let workspace = repository();

@@ -43,5 +43,14 @@
     "typescript": "catalog:",
     "vitest": "catalog:",
     "ws": "8.22.0"
+  },
+  "goodfetch": {
+    "runs": [
+      "goodfetch-collie",
+      "goodfetch-conformance",
+      "goodfetch-foxhound",
+      "goodfetch-proving-ground",
+      "goodfetch-test-support"
+    ]
   }
 }

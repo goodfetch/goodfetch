@@ -262,14 +262,6 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             None => everything = true,
         }
     }
-    // A crate whose tests run a changed crate's executable is reached by it.
-    let running: Vec<String> = workspace
-        .crates
-        .iter()
-        .filter(|krate| krate.runs.iter().any(|run| changed.crates.contains(run)))
-        .map(|krate| krate.name.clone())
-        .collect();
-    changed.crates.extend(running);
     if everything {
         // A path no member owns, such as a lockfile, a tool's settings or a
         // workflow, may change any test: every one of the Products' runs.
@@ -291,6 +283,31 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             .filter(|package| in_scope(&package.folder))
             .collect();
     }
+    // A crate's executable changes with it and with what its build depends
+    // on, not with its dev-dependencies; a crate or package whose tests run
+    // a changed executable through the test tool manifest is reached by it.
+    let members: Vec<&Crate> = workspace.crates.iter().collect();
+    let built = names(&with_dependants(
+        &members,
+        &changed.crates,
+        |krate| &krate.name,
+        |krate| &krate.built_from,
+    ));
+    let runs_a_built_executable =
+        |runs: &BTreeSet<String>| runs.iter().any(|run| built.contains(run));
+    changed.crates.extend(
+        workspace
+            .crates
+            .iter()
+            .filter(|krate| runs_a_built_executable(&krate.runs))
+            .map(|krate| krate.name.clone()),
+    );
+    changed.packages.extend(
+        workspace
+            .packages
+            .iter()
+            .filter(|package| runs_a_built_executable(&package.runs)),
+    );
     changed
 }
 

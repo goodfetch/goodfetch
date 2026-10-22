@@ -1,0 +1,6 @@
+---
+source: crates/goodfetch-engine/src/settings/tests/versions.rs
+assertion_line: 68
+expression: read.unwrap_err()
+---
+format_version_unsupported: this operator-policy file is 0.2, newer than this engine reads; upgrade Goodfetch to read it

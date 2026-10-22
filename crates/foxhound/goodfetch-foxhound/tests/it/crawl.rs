@@ -94,11 +94,10 @@ impl Attached {
         self.stdout.is_quiet_for(quiet)
     }
 
-    /// Kills the engine at once, as a crash does, and waits for it.
+    /// Kills the engine (`kill -9`, `TerminateProcess` on Windows) and
+    /// waits for it to exit.
     pub(crate) fn kill(self) {
-        let mut child = self.process.child();
-        child.kill().unwrap();
-        child.wait().unwrap();
+        self.process.stop().unwrap();
     }
 
     /// Ends the input and waits for the engine to exit.

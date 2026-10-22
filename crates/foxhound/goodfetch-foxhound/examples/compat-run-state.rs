@@ -1,9 +1,11 @@
 //! Run state's writer for the Compatibility corpus (ADR 0066): runs fixed
 //! scenarios against Foxhound's engine, whose run files hold every table
 //! both Products' compositions add, over the in-memory network, on the test
-//! `Clock` and a fixed `Entropy` seed, in a home of its own: a tagged crawl
-//! of four seeds, one with a Payload and one the Frontier answers
-//! `duplicate`, whose handler pushes Records for the first and fails on the
+//! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
+//! install Limit, whose Slices its run state journals, a tagged crawl of
+//! five seeds, one with a Payload, one the Frontier answers `duplicate`
+//! and one sent as a `POST` with a body under a declared key, whose
+//! handler pushes Records for the first and the `POST` and fails on the
 //! second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it, and whose last site
 //! blocks its address, so its Session pool holds a Session retired by the
@@ -56,6 +58,11 @@ fn scenario() -> Vec<Value> {
             json!({ "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "0.0.0" }),
         ),
         call(
+            10,
+            "usage.set",
+            json!({ "scope": "install", "usage_kind": "requests", "amount": 1_000 }),
+        ),
+        call(
             1,
             "crawl.start",
             json!({
@@ -65,6 +72,7 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },
                     { "url": "https://SHOP.test:443/", "label": "home" },
+                    { "url": "https://api.test/search", "label": "home", "method": "POST", "body": "eyJwYWdlIjoxfQ==", "key": "search-1" },
                     { "url": "https://guarded.test/", "label": "guarded" },
                 ],
             }),
@@ -187,6 +195,7 @@ fn dependencies(home: &Path) -> Dependencies {
         blocking: BlockingPolicy::Inline,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     }
 }
 

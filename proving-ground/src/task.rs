@@ -114,6 +114,10 @@ pub(crate) struct Expected {
     /// (`false`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) signed: Option<bool>,
+    /// The site of a task whose Records' `markdown` fields are Markdown,
+    /// judged by structure, each link on it by its path (ADR 0007).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) markdown_site: Option<&'static str>,
 }
 
 /// The error a refusal must report: its Error code and, for a navigation

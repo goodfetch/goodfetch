@@ -1,11 +1,537 @@
-# Area 6's user stories (spec #581 and #582, Collection, Foxhound: stories
-# from 201), the declared `story:6-<id>` Features of ADR 0072. Each story's
-# milestone is that of the ticket that finishes it; a story without a
-# Journey carries ADR 0075's reason (`actor`, `part` or `reach`). The spec's
-# issue keeps the full text; this copy is the one the Feature check reads.
-# It holds the stories a test declares so far; the others join with the
-# tickets that declare them. Never renumber or reuse an ID: a removed story
-# stays with `status = "retired"` and a `reason`.
+# Area 6's user stories, the declared `story:6-<id>` Features of ADR 0072:
+# spec #580 (Collection, Collie's part) numbers its stories from 1, all 66
+# of them here; specs #581 and #582 (Foxhound's part) number theirs from
+# 201, those a test declares so far, the others joining with the tickets
+# that declare them. Each story's milestone is that of the last ticket that
+# makes it tested; Collie's stories 13, 50 and 65, which no ticket of its
+# spec names, take their surface's milestone. A story without a Journey
+# carries ADR 0075's reason (`actor`, `part` or `reach`). The specs' issues
+# keep the full text; this copy is the one the Feature check reads. Never
+# renumber or reuse an ID: a removed story stays with `status = "retired"`
+# and a `reason`.
+
+[[story]]
+id = 1
+title = "As a developer, I want `page.formats({ markdown: true })` to return the page's main content as Markdown, through dom-smoothie and htmd, so that I can hand a page to a model or a store without writing a converter (CO-18, pain 14)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want the Markdown's content chosen as `main` (the default), `full` (the whole cleaned body) or `fit` (main content with navigation, link lists and images removed), so that I pick how much of the page a model reads (CO-18, #71's \"fit-markdown\")."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 3
+title = "As a developer, I want `html` as `raw` (the document as served or as the DOM stands), `cleaned` (after the Clean-up rules) or `main` (the extracted main content), and `text` as the main content's text, so that every form #71 names comes from one call (CO-18)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a developer, I want `links`, `images` and `media`, each URL resolved against the document's base URL as the HTML standard resolves it, with its text, `rel` or `alt`, so that I read a page's outgoing references without a selector (#71; pitfall U08)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a developer, I want `tables` as caption, header rows and body rows, row headers kept as the first cell, so that a table is data without a parser of my own (#71)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer, I want `metadata` holding the title, description, canonical URL, language, Open Graph and Twitter tags, every JSON-LD block as JSON and microdata items, so that structured data comes as values (CO-19)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a developer, I want `contacts` holding the e-mail addresses, telephone numbers and social profile URLs the page shows, each with the text it was read from, so that contact collection needs no regular expression of mine (CO-19)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer, I want each format I did not name left out of the result and typed out of it in TypeScript and Rust, so that the call costs only what I asked for and its type says what I hold (S2, G3)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a developer, I want the formats read from the document the page holds now, after its scripts ran, open and closed shadow roots included on Chromium, so that what I read is what a person sees (ADR 0121)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer, I want ADR 0047's cosmetic Clean-up rules applied before the extractor and the Markdown converter, never to `html.raw`, links or my own selectors, so that ads and consent leftovers never reach my text while raw HTML stays untouched (ADR 0047)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a developer, I want the main-content extractor chosen by the setting `content.extractor` (`dom_smoothie`, the default, `trafilatura`, or a registered or installed Extractor Plugin), so that I can switch extractor without code (ADRs 0007, 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a developer, I want a page with no main content to answer an empty `markdown` and `text` with `mainContent: \"none\"` in the result, never an error and never the whole page in its place, so that \"nothing found\" is a value I can test (G1)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As an agent using the MCP server, I want the same formats as a tool on the page I hold, so that I read a page as Markdown without a second tool (ADR 0011)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a developer, I want the Run trace to record each `formats` call with the Clean-up rules version and what they removed, so that I can see why a paragraph is missing (ADR 0047; G6)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer, I want `page.screenshot()` with its full-page, clip and mask options and `page.pdf()` to keep Playwright's meaning, with print media applied by `pdf()` and the screen by `screenshot()`, so that print styles never leak into a screenshot (CO-20, CO-21; pitfall B27)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer, I want `page.mhtml({ path? })` to return the page as one MHTML file on Chromium, and `capability_unavailable` on Firefox and WebKit, so that I can archive a page as one file (CO-21)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer, I want a Download the page starts to be kept by the engine with its Run, wherever the engine runs, until I save it, so that a Download never dies with its browser context (CO-22, ADR 0085)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 18
+title = "As a developer, I want `download.saveAs(path)` to leave my path holding the whole file or what it held before, with `path_not_writable` or `file_write_failed` naming the cause, so that a half-written file never looks like a download (ADR 0116; pitfall D06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a developer, I want `download.saveAs(path)` to stream the file to my machine under the connection's credits, and `download.cancel()` to stop one I no longer need, so that a large file never sits in memory and never fills the engine's disk for nothing (CO-22, ADR 0085)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a developer on a Daemon or a remote engine, I want a Download kept in the Run's folder and copied to my machine only on request, so that a path on the engine's machine never matters (ADR 0001)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a developer, I want the Downloads a Lent page's library starts to stay the Run's, so that a Playwright program on a lent page loses none (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a developer, I want a Run's Downloads deleted with the Run when it is discarded or reset, so that files never outlive their Run (ADR 0001)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a developer, I want `locator.scrollCollect(pageFunction)` over the rows of a list to scroll the last row into view, read each rendered row through my page function, keep each row once by the key it returns, and stop when no new key appears, so that infinite and virtualized lists are read whole (CO-17, ADR 0121, P34)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 24
+title = "As a developer, I want the result to say how it ended (`end_of_list` or `max_rows`) and, when the list declares its row count through `aria-rowcount` or `aria-setsize`, how many rows it declares, so that a short read is never silent (G1)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a developer, I want each scroll to go through the guard as any gesture does, so that the helper never acts where a person could not (ADR 0019)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a developer, I want a call that outlives its timeout to fail with `deadline_exceeded` naming how many rows it had read, so that a slow list says where it stopped (ADR 0080; G6)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a developer, I want no other read to scroll, so that `extract`, `observe` and the getters keep reading the DOM as it is (ADR 0121)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a developer, I want `run.keyValueStore.get(key)` to return JSON or null, and `get(key, schema)` my schema's type, so that state I saved comes back typed (CO-26, RT-09)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a developer, I want `set(key, value)` to refuse null with `value_invalid` naming `delete`, so that a null from `get` always means \"absent\" (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a developer, I want `getBytes` and `setBytes` with a content type for files and blobs, and `get` on bytes to fail naming `getBytes`, so that one method never returns two types (S2)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a developer, I want `delete(key)` to say whether the key existed and `keys({ prefix })` to iterate keys, so that I can manage what I stored (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a developer, I want the store kept in the run file and checkpointed with it, so that a Run resumed by its ID, here or on another machine, finds its state (ADR 0002)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a Code mode program or a Script Hook author, I want the same store through the catalog, so that lasting state has one home in every language (ADRs 0051, 0088)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a developer, I want a key refused with `value_invalid`, naming the key, when it is empty, longer than 512 characters or holds a control character, so that keys stay printable everywhere **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a developer, I want a view opened with `openRun(id)` to read the store without resuming the Run, so that another program can read what a Run kept (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 36
+title = "As a developer, I want `cache.mode: \"replay\"` to store every response my runs see, POST included, and serve it again with no request, so that my development loop stops fetching the site (ADR 0046)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 37
+title = "As a developer, I want `cache.mode: \"revalidate\"` to store GET and HEAD responses, reuse a fresh one and revalidate a stale one with `ETag` and `Last-Modified` under RFC 9111, so that re-runs send conditional requests instead of full fetches (CO-31; pitfall H19)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a user, I want the cache off by default, so that a production run never serves a stale page silently (ADR 0046; G5)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a user, I want a response sent with or setting a cookie or credential, or marked `private`, kept only in the partition of its Session's Saved identity, or for the life of its Session when it has none, and nothing shared across persons, proxy countries, languages or devices, so that a logged-in or geo-dependent page never leaks into another run (ADR 0046)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a user, I want Block causes, failed Page checks, cut bodies, Effects, requests sent inside an Effect's body, Paid fetches, responses carrying a resolved secret and responses fetched under a certificate exception never stored, and requests inside an Effect's body and Paid fetches never served from the cache either, so that the cache never replays what must be fetched (ADRs 0045, 0046, 0106, 0118)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a user, I want the cache to act in browsers through the engine's interception as on HTTP, so that every tier reuses one cache (ADR 0046)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a user, I want `cache.max_size` (10 GB) and `cache.max_age_ceiling` (30 days) to bound it, with least-recently-used eviction, so that it never fills my disk (ADR 0046)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a user, I want the cache to store nothing new while its filesystem is at the `low` or `critical` storage level, and to evict nothing beyond its own cap, so that `replay` keeps working while the disk is short (ADR 0122)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a user, I want `cache stats`, `cache clear` (everything, or by domain, Run or partition) and `cache verify`, from the CLI and the Console, so that I can see and empty it (ADR 0046)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a user, I want discarding or resetting a Run to delete what it cached, deleting a Saved identity to delete its partition, and the erasure operation to remove matching entries, so that the cache keeps ADR 0001's rule (ADRs 0016, 0046)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a user, I want a cache hit recorded in Provenance with its original fetch time and Run, counted as a fetch for Completeness but in Usage apart from fetches, and a Run that used `replay` marked in its report, the Console and the CLI, so that I know what was not fetched (ADR 0046)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a user, I want entries fetched under a Wall allowance tagged with their domain and served only to Runs whose `wall_domains` cover it, and a refetch never reading the cache, so that what a person approved for one Run is not served to another (ADR 0052)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a user, I want saving an identity to drop the entries fetched under a consent acceptance its Run's `consent_domains` did not cover, so that an acceptance never travels with the identity (ADR 0048)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a user, I want an engine that finds a cache format newer than it reads to run without the cache, reading and writing nothing, so that two minors never wipe each other's entries (ADRs 0046, 0066)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a scheduled-run author, I want a Schedule whose target sets `replay` refused with `replay_not_allowed`, and Watches never using the cache, so that replayed pages never hide a change (ADRs 0036, 0046)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a user, I want the docs of the cache to say that a page request a site's service worker answers never reaches it, and to set `browser.service_workers: block` where that matters, so that a miss is explained (ADR 0121)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want a Run started with `recording: { mode: \"replay\", path }` to answer every request it would send to a site from that WARC file, crawl requests, navigations, subresources, `page.request`, discovered-API calls and robots.txt alike, so that my test reaches no site (ADR 0105, P55, K07)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 53
+title = "As a developer, I want a request the recording lacks refused, never sent: `response_not_recorded` naming the method, the URL and the nearest recorded URLs for a call I made, a failed page subresource otherwise, and every miss listed in the Run report, so that a missing response is never silent (ADR 0105; G1, G6)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a developer, I want matching on the method, the URL without its fragment, the canonical body's hash taken after Secret values are masked and the headers the response names in `Vary`, a key recorded several times answered in recorded order, so that a login form and repeated calls replay (ADR 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 55
+title = "As a developer, I want `mode: \"record\"` to replace the file atomically when the Run ends with every response it received, after a `warcinfo` record naming the engine and the Run, and a resumed Run's file to hold both halves, so that one file is one capture (ADR 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a developer, I want a recording to keep no `Cookie`, `Authorization` or `Proxy-Authorization` header, no `Set-Cookie` value and no Secret value, so that I can commit it (ADR 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a developer, I want a cut response recorded with `WARC-Truncated: disconnect` and replayed as `response_truncated`, so that a test meets the failure the live Run met (ADR 0118)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a developer, I want a replayed page's `Date` to start at its recorded time and its `Math.random` seeded from the recording, so that a page that renders \"today\" renders as recorded (ADR 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a developer, I want a host `resolve` maps to loopback reached live and every other address answered from the file before any DNS lookup, so that my own test server works while nothing else leaks (ADRs 0059, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a developer, I want the report's `recording` to give the mode, the file, the responses used, `recordedFrom` and `recordedTo`, the engine that wrote them and every miss, and Provenance to mark what came from a recording, so that a recording's age is visible and never a failure (ADR 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a developer, I want an unreadable file, one that is not WARC or one of a WARC version the engine does not read to fail the start with `recording_invalid`, so that a broken recording is named (ADRs 0030, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a site owner, I want a Collie program's own navigation to read my robots.txt and record in Provenance whether its pages were allowed, so that what a program read is attributable (ADR 0086; SC-01)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a developer, I want that reading never to gate, count, delay or refuse my program's own `goto`, so that a Playwright-shaped program opens two tabs on one site as Playwright does (ADR 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a user of both Products, I want a Collie Run to read robots.txt into a copy of its own and never write or read the copy Foxhound shares, so that Collie leaves Foxhound's state alone (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As Foxhound's crawl, I want the same `formats`, `scrollCollect`, Key-value store, Response cache, recording and WARC writer on a handler's page and Run, so that a capability behaves the same in both Products (ADR 0088)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 66
+title = "As Foxhound's code-free crawl, I want the formats request to be one value a Record can carry and a Dataset's schema can be generated from, so that a CLI crawl to Markdown needs no handler (ADR 0103; J-002)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
 
 [[story]]
 id = 201
@@ -26,6 +552,38 @@ status = "active"
 [[story]]
 id = 211
 title = "As a crawl developer, I want every URL a crawl meets (seeds, enqueues, `href`s, sitemap entries, `Location`s, Hook rewrites) parsed once by the WHATWG URL Standard on every tier, so that the crawl sees the links a browser sees (ADR 0120; pitfall U07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 212
+title = "As a crawl developer, I want a request's identity to be its method, its URL's key and its body's hash, so that a POST to one URL with two bodies is two requests (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 213
+title = "As a crawl developer, I want the key made by RFC 3986's safe rules, the fragment dropped, `utm_*`, `gclid` and `fbclid` dropped, the parameters sorted stably, empty pairs dropped and `;jsessionid=` dropped, while the request is fetched at its own URL, so that tracking parameters never split a page and the server sees the URL the page linked (ADRs 0005, 0120; pitfalls U04, U06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 214
+title = "As a crawl developer, I want `key` on an enqueue to replace the identity, so that my own canonicalization always wins (ADR 0005)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 220
+title = "As a crawl developer, I want a redirect reaching a key admitted for another request to end `skipped` with `duplicate` and run no handler, so that one page is never handled twice (ADR 0120)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

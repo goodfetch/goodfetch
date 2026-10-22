@@ -2,22 +2,28 @@
 //! through the crash VFS (spec #213's Seam 4): durability pragmas, grouped
 //! commits under the run epoch, format refusals, and a model-based test of
 //! crashes, power cuts and reopening against a reference model (ADR 0060).
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 mod model;
 
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 
-use super::{RunState, RunStateError, RunStateOptions, RunStateTables};
+use super::{Durability, RunState, RunStateError, RunStateOptions, RunStateTables};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// A contributed table the tests write through the writer.
-const ITEMS: RunStateTables = RunStateTables {
+pub(super) const ITEMS: RunStateTables = RunStateTables {
     name: "test",
     statements: &["CREATE TABLE IF NOT EXISTS items (value INTEGER NOT NULL) STRICT"],
 };
 
-fn insert(value: i64) -> impl FnOnce(&Connection) -> rusqlite::Result<()> + Send + 'static {
+pub(super) fn insert(
+    value: i64,
+) -> impl FnOnce(&Connection) -> rusqlite::Result<()> + Send + 'static {
     move |connection| {
         connection
             .execute("INSERT INTO items (value) VALUES (?1)", [value])
@@ -25,7 +31,7 @@ fn insert(value: i64) -> impl FnOnce(&Connection) -> rusqlite::Result<()> + Send
     }
 }
 
-fn items(connection: &Connection) -> rusqlite::Result<Vec<i64>> {
+pub(super) fn items(connection: &Connection) -> rusqlite::Result<Vec<i64>> {
     let mut statement = connection.prepare("SELECT value FROM items ORDER BY value")?;
     statement
         .query_map([], |row| row.get(0))?
@@ -48,18 +54,30 @@ fn pragma(name: &'static str) -> impl FnOnce(&Connection) -> rusqlite::Result<St
 /// Opens `file` in the test's folder, runs `test` on its writer, then
 /// stops the writer.
 fn with_writer<T>(env: &TestEnv, epoch: u64, test: impl AsyncFnOnce(&RunState) -> T) -> T {
+    with_writer_at(env, &RunStateOptions::default(), epoch, test)
+}
+
+/// As [`with_writer`], the file opened with `options` at run epoch 1.
+fn with_writer_options<T>(
+    env: &TestEnv,
+    options: &RunStateOptions,
+    test: impl AsyncFnOnce(&RunState) -> T,
+) -> T {
+    with_writer_at(env, options, 1, test)
+}
+
+fn with_writer_at<T>(
+    env: &TestEnv,
+    options: &RunStateOptions,
+    epoch: u64,
+    test: impl AsyncFnOnce(&RunState) -> T,
+) -> T {
     let path = env.folder().join("run.sqlite");
     goodfetch_test_support::runtime().block_on(async {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
-        let state = RunState::open(
-            path,
-            &RunStateOptions::default(),
-            vec![ITEMS],
-            epoch,
-            &owner,
-        )
-        .await
-        .unwrap();
+        let state = RunState::open(path, options, vec![ITEMS], epoch, &owner)
+            .await
+            .unwrap();
         let answer = test(&state).await;
         drop(state);
         owner.wait().await;
@@ -80,6 +98,28 @@ fn a_run_file_opens_in_wal_mode_with_full_synchronous_commits() {
     });
 
     assert_eq!(pragmas, ("wal".to_owned(), "2".to_owned()));
+}
+
+/// `run_state.durability = fast` trades the power-cut guarantee for speed:
+/// the file commits with `synchronous=NORMAL`, still in WAL mode.
+///
+/// Covers: story:3-27, setting:run_state.durability
+#[test]
+fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
+    let env = TestEnv::new();
+    let options = RunStateOptions {
+        durability: Durability::Fast,
+        ..RunStateOptions::default()
+    };
+
+    let pragmas = with_writer_options(&env, &options, async |state| {
+        (
+            state.read(pragma("journal_mode")).await.unwrap(),
+            state.read(pragma("synchronous")).await.unwrap(),
+        )
+    });
+
+    assert_eq!(pragmas, ("wal".to_owned(), "1".to_owned()));
 }
 
 /// Covers: story:3-26
@@ -164,16 +204,30 @@ fn a_writer_of_an_older_run_epoch_commits_nothing() {
     assert_eq!(refused, Err(RunStateError::Fenced { held: 1, found: 2 }));
 }
 
-/// A run file of a newer minor than this engine reads is refused, never
-/// misread (ADR 0030).
-#[test]
-fn a_run_file_of_a_newer_minor_is_refused() {
+/// Each generated refusal case of run state (ADR 0066): a run file whose
+/// header holds the fabricated version is refused, never misread, under
+/// ADR 0030's default rule, each refusal's Error code and message
+/// snapshotted.
+///
+/// Covers: story:3-95, format:run-state, error:format_version_unsupported
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[rstest::rstest]
+fn each_generated_refusal_of_a_run_file_is_refused(
+    #[files("../goodfetch-protocol/generated/refusals/run-state/*.json")]
+    #[mode = str]
+    case: &str,
+) {
+    let case: goodfetch_protocol::refusals::RefusalCase = serde_json::from_str(case).unwrap();
     let env = TestEnv::new();
+    let found = case.found.to_string();
     with_writer(&env, 1, async |state| {
         state
-            .write(|connection| {
+            .write(move |connection| {
                 connection
-                    .execute("UPDATE format SET version = '0.2'", [])
+                    .execute("UPDATE format SET version = ?1", [found])
                     .map(drop)
             })
             .await
@@ -195,10 +249,25 @@ fn a_run_file_of_a_newer_minor_is_refused() {
         opened
     });
 
-    assert!(matches!(
-        reopened,
-        Err(RunStateError::Format { found, .. }) if found == "0.2"
-    ));
+    let Err(RunStateError::Format {
+        format,
+        found,
+        compatibility,
+        install: None,
+    }) = reopened
+    else {
+        panic!("{case:#?} was not refused: {reopened:?}");
+    };
+    assert_eq!(compatibility, case.compatibility, "{case:#?}");
+    let refusal = crate::run::format_refusal(
+        &goodfetch_protocol::formats::RUN_STATE,
+        &found,
+        compatibility,
+    );
+    insta::assert_snapshot!(
+        format!("{format}_{found}"),
+        format!("{}: {}", refusal.code(), refusal.message())
+    );
 }
 
 /// What a writer acknowledged is there when the file opens again.

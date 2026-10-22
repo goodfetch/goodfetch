@@ -1,5 +1,9 @@
 {
   "$defs": {
+    "Acted": {
+      "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
+      "type": "object"
+    },
     "Artifact": {
       "additionalProperties": false,
       "description": "A published file or package.",
@@ -89,6 +93,10 @@
           "type": "string"
         }
       ]
+    },
+    "Asked": {
+      "const": true,
+      "description": "The format, with its default options."
     },
     "AttemptError": {
       "description": "The error an attempt failed with.",
@@ -630,6 +638,21 @@
       ],
       "type": "object"
     },
+    "ClickParams": {
+      "additionalProperties": false,
+      "description": "What `locator.click` takes: the locator whose element it clicks.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator"
+      ],
+      "type": "object"
+    },
     "ClientPackages": {
       "additionalProperties": false,
       "description": "The Collie client packages, one per language (ADR 0095).",
@@ -885,6 +908,18 @@
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "id": {
           "arrived_in": "0.1",
           "description": "Its ID within the Run.",
@@ -894,6 +929,11 @@
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -908,7 +948,8 @@
       "required": [
         "id",
         "url",
-        "label"
+        "label",
+        "method"
       ],
       "type": "object"
     },
@@ -916,6 +957,18 @@
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "crawl_request_id": {
           "arrived_in": "0.1",
           "description": "The ID of the crawl request whose attempt enqueues.",
@@ -933,6 +986,14 @@
           "arrived_in": "0.1",
           "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
         },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
@@ -944,6 +1005,11 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -2098,10 +2164,71 @@
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[^:\\s]+$",
       "type": "string"
     },
+    "FillParams": {
+      "additionalProperties": false,
+      "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The text the field holds afterwards; an empty text clears it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator",
+        "value"
+      ],
+      "type": "object"
+    },
     "FormatVersion": {
       "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
+    },
+    "FormatsParams": {
+      "additionalProperties": false,
+      "description": "What `page.formats` takes: the page, and the formats it asks for.",
+      "properties": {
+        "formats": {
+          "$ref": "#/$defs/FormatsRequest",
+          "arrived_in": "0.1",
+          "description": "The formats."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "formats"
+      ],
+      "type": "object"
+    },
+    "FormatsRequest": {
+      "additionalProperties": false,
+      "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
+      "properties": {
+        "markdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarkdownFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's content as Markdown, with GFM's tables."
+        }
+      },
+      "type": "object"
     },
     "GotoParams": {
       "additionalProperties": false,
@@ -2223,6 +2350,16 @@
         "product_version"
       ],
       "type": "object"
+    },
+    "HttpBody": {
+      "contentEncoding": "base64",
+      "description": "The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
+    "HttpMethod": {
+      "description": "The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.",
+      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+      "type": "string"
     },
     "HttpsUrl": {
       "description": "An https:// URL with a host.",
@@ -2653,6 +2790,268 @@
         }
       ]
     },
+    "Limit": {
+      "description": "One Limit of the Usage ledger: a generic row, which a newer engine may\nwrite with a scope kind, a Usage kind, a currency or a period this one\ndoes not know (ADR 0041).",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the Usage kind's price in, an ISO 4217 code;\nnone for a Limit on the Usage itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "must_understand": {
+          "arrived_in": "0.1",
+          "description": "Whether an engine that cannot evaluate it must refuse the runs it\ncannot place outside it, with `limit_not_understood`.",
+          "type": "boolean"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again,\nsuch as a Client connection's."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "What it is on."
+        },
+        "set_by": {
+          "$ref": "#/$defs/LimitSetter",
+          "arrived_in": "0.1",
+          "description": "Who set it."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps, a value of a type both Products share.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount",
+        "must_understand",
+        "set_by"
+      ],
+      "type": "object"
+    },
+    "LimitScope": {
+      "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind: the major's name for a Daemon, the person's\nname, the token's name or the Client connection's ID; empty for the\ninstall.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    "LimitSetter": {
+      "description": "Who set a Limit, which decides whether it allows paying (ADR 0045).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, in the Console or an interactive CLI prompt.",
+          "type": "string"
+        },
+        {
+          "const": "managed_policy",
+          "description": "A managed Operator policy.",
+          "type": "string"
+        },
+        {
+          "const": "client",
+          "description": "A Client, which only adds a Limit of its own.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitStanding": {
+      "description": "What the engine that read a Limit makes of it.",
+      "oneOf": [
+        {
+          "const": "held",
+          "description": "It holds its runs to it.",
+          "type": "string"
+        },
+        {
+          "const": "foxhound",
+          "description": "It is on a value only Foxhound carries, such as `paid_fetch`, which\na Collie engine keeps untouched (ADR 0098).",
+          "type": "string"
+        },
+        {
+          "const": "not_understood",
+          "description": "It cannot evaluate it: a newer engine wrote it.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitUsage": {
+      "description": "One Limit with the Usage counted against it in its current period.",
+      "properties": {
+        "charged": {
+          "arrived_in": "0.1",
+          "description": "The Usage charged in the current period: what ended runs used, and\nwhat was reclaimed from dead engines' Slices.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held": {
+          "arrived_in": "0.1",
+          "description": "The Usage live runs hold in Slices they have not returned yet.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "left": {
+          "arrived_in": "0.1",
+          "description": "What is left of the amount in the current period.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "$ref": "#/$defs/Limit",
+          "arrived_in": "0.1",
+          "description": "The Limit."
+        },
+        "period_started_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the current period started; none for a Limit without one."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the next period starts; none for a Limit without one."
+        },
+        "standing": {
+          "$ref": "#/$defs/LimitStanding",
+          "arrived_in": "0.1",
+          "description": "What the engine that read it makes of it."
+        }
+      },
+      "required": [
+        "limit",
+        "standing",
+        "charged",
+        "held",
+        "left"
+      ],
+      "type": "object"
+    },
+    "Locator": {
+      "additionalProperties": false,
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page it looks on."
+        },
+        "selector": {
+          "arrived_in": "0.1",
+          "description": "A CSS selector, which also matches inside open shadow roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "selector"
+      ],
+      "type": "object"
+    },
+    "MainContent": {
+      "description": "Whether the extractor found the document's main content.",
+      "oneOf": [
+        {
+          "const": "found",
+          "description": "It found it.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "The document has none: the formats read from it are empty, a value\nand never the whole page in its place.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownContent": {
+      "description": "How much of the page a Markdown format holds.",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownFormat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Asked",
+          "description": "With its default options."
+        },
+        {
+          "$ref": "#/$defs/MarkdownOptions",
+          "description": "With these options."
+        }
+      ],
+      "description": "The `markdown` format of a request: `true`, or its options."
+    },
+    "MarkdownOptions": {
+      "additionalProperties": false,
+      "description": "The options of the `markdown` format.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/MarkdownContent",
+          "arrived_in": "0.1",
+          "description": "How much of the page it holds."
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
     "Message": {
       "anyOf": [
         {
@@ -2737,7 +3136,7 @@
       "oneOf": [
         {
           "const": "duplicate",
-          "description": "The Frontier already admitted a request of the same identity.",
+          "description": "The Frontier already admitted a request of the same identity: its\nmethod, its URL's key and its body's hash, or its declared `key`.",
           "type": "string"
         },
         {
@@ -3020,6 +3419,37 @@
       ],
       "type": "object"
     },
+    "PageFormats": {
+      "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
+      "properties": {
+        "base_url": {
+          "arrived_in": "0.1",
+          "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
+          "type": "string"
+        },
+        "main_content": {
+          "$ref": "#/$defs/MainContent",
+          "arrived_in": "0.1",
+          "description": "Whether it has main content."
+        },
+        "markdown": {
+          "arrived_in": "0.1",
+          "description": "Its content as Markdown, when the request asked for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The document's URL, after redirects.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "base_url",
+        "main_content"
+      ],
+      "type": "object"
+    },
     "PageId": {
       "description": "A page of a Run, named by the engine when it opens it.",
       "type": "string"
@@ -3097,6 +3527,100 @@
       ],
       "type": "object"
     },
+    "Period": {
+      "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
+      "properties": {
+        "every": {
+          "$ref": "#/$defs/PeriodLength",
+          "arrived_in": "0.1",
+          "description": "How long it counts."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its midnights are in, such as `Europe/Paris`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "every",
+        "time_zone"
+      ],
+      "type": "object"
+    },
+    "PeriodLength": {
+      "description": "How long a period Limit counts before it starts again (ADR 0041).",
+      "oneOf": [
+        {
+          "const": "day",
+          "description": "From one midnight to the next.",
+          "type": "string"
+        },
+        {
+          "const": "week",
+          "description": "From Monday's midnight to the next Monday's.",
+          "type": "string"
+        },
+        {
+          "const": "month",
+          "description": "From the first day's midnight to the next month's.",
+          "type": "string"
+        }
+      ]
+    },
+    "PermitRow": {
+      "description": "One Permit in the per-user Politeness file (ADR 0053): a request in\nflight under one key, such as a domain key, with the Run and run epoch\nthat hold it, so an engine reclaims the Permits of a Run whose writer\nlock is free or held at a later epoch.",
+      "properties": {
+        "engine": {
+          "arrived_in": "0.1",
+          "description": "The engine that took it, which gives it back itself.",
+          "type": "string"
+        },
+        "epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch it was taken under (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key it counts under, such as a domain key.",
+          "type": "string"
+        },
+        "permit_id": {
+          "arrived_in": "0.1",
+          "description": "Its number in the file.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "run_folder": {
+          "arrived_in": "0.1",
+          "description": "The Run's folder, whose writer lock tells whether the Run is live.",
+          "type": "string"
+        },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run that holds it.",
+          "type": "string"
+        },
+        "taken_at": {
+          "arrived_in": "0.1",
+          "description": "When it was taken, in milliseconds since the Unix epoch.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "permit_id",
+        "key",
+        "run_id",
+        "epoch",
+        "run_folder",
+        "engine",
+        "taken_at"
+      ],
+      "type": "object"
+    },
     "PinnedTask": {
       "additionalProperties": false,
       "description": "A Proving ground task a Journey names.",
@@ -3164,6 +3688,27 @@
           "type": "string"
         }
       ]
+    },
+    "PressParams": {
+      "additionalProperties": false,
+      "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by\nPlaywright's key names.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator",
+        "key"
+      ],
+      "type": "object"
     },
     "PrivateEndpoint": {
       "additionalProperties": false,
@@ -3376,6 +3921,58 @@
       "required": [
         "dataset",
         "data"
+      ],
+      "type": "object"
+    },
+    "ReachedLimit": {
+      "description": "The Limit a Run cannot take more of: what `limit_reached` details, and\nwhat a Run stopped for it names (ADR 0041).",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When its period starts again; none for a Limit without one."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
       ],
       "type": "object"
     },
@@ -4517,12 +5114,37 @@
     },
     "Seed": {
       "additionalProperties": false,
-      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload.",
+      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload, and how it is sent and identified.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -4951,6 +5573,33 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+          "properties": {
+            "kind": {
+              "const": "drain",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ReachedLimit",
+          "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
+          "properties": {
+            "kind": {
+              "const": "limit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -5188,6 +5837,134 @@
       ],
       "type": "object"
     },
+    "UpgradeFilesOutput": {
+      "description": "What `upgrade-files --json` prints: the major it upgraded from and to,\nand the files of the new major's copy, by their path in Goodfetch home.",
+      "properties": {
+        "copied": {
+          "arrived_in": "0.1",
+          "description": "The files it gave the new major.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "from": {
+          "arrived_in": "0.1",
+          "description": "The older major whose files it copied, such as `1` or `0.4`; none\nwhen Goodfetch home holds no older major's files.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kept": {
+          "arrived_in": "0.1",
+          "description": "The files the new major already held otherwise, which it kept.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "to": {
+          "arrived_in": "0.1",
+          "description": "The executable's own major.",
+          "type": "string"
+        },
+        "unchanged": {
+          "arrived_in": "0.1",
+          "description": "The files the new major already held as the older major has them,\nas after an earlier run.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "to",
+        "copied",
+        "unchanged",
+        "kept"
+      ],
+      "type": "object"
+    },
+    "UsageListParams": {
+      "additionalProperties": false,
+      "description": "What `usage.list` takes.",
+      "type": "object"
+    },
+    "UsageListResult": {
+      "description": "What `usage.list` answers, and what `usage --json` prints.",
+      "properties": {
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "Every Limit of the Usage ledger, by scope, with its Usage.",
+          "items": {
+            "$ref": "#/$defs/LimitUsage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "limits"
+      ],
+      "type": "object"
+    },
+    "UsageSetParams": {
+      "additionalProperties": false,
+      "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the caller's own when absent (its Client\nconnection, its person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
+    },
     "Verdict": {
       "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
       "oneOf": [
@@ -5318,6 +6095,26 @@
     },
     {
       "hello_from": [],
+      "name": "usage-ledger",
+      "rule": "frozen_major",
+      "schema": {
+        "$ref": "#/$defs/Limit"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "politeness-file",
+      "rule": "frozen_major",
+      "schema": {
+        "$ref": "#/$defs/PermitRow"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "operator-policy",
       "rule": "shared_store",
       "schema": {
@@ -5420,10 +6217,52 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "politeness": {
+                "additionalProperties": false,
+                "properties": {
+                  "domain": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                      },
+                      "delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -5490,6 +6329,11 @@
               "timeout": {
                 "additionalProperties": false,
                 "properties": {
+                  "action": {
+                    "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "first_byte": {
                     "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -5547,6 +6391,16 @@
                 },
                 "type": "object"
               },
+              "browser": {
+                "additionalProperties": false,
+                "properties": {
+                  "headless": {
+                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
               "browser_cache": {
                 "additionalProperties": false,
                 "properties": {
@@ -5655,6 +6509,15 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "address": {
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "type": "string"
+                  },
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
@@ -5756,6 +6619,51 @@
                 },
                 "type": "object"
               },
+              "politeness": {
+                "additionalProperties": false,
+                "properties": {
+                  "domain": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                      },
+                      "delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "sharing": {
+                    "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                    "enum": [
+                      "shared",
+                      "per_daemon",
+                      "run"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "resolver": {
                 "additionalProperties": false,
                 "properties": {
@@ -5775,6 +6683,20 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "durability": {
+                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                    "enum": [
+                      "full",
+                      "fast"
+                    ]
+                  },
+                  "layout": {
+                    "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                    "enum": [
+                      "per_run",
+                      "per_install"
+                    ]
+                  },
                   "location": {
                     "anyOf": [
                       {
@@ -5856,6 +6778,11 @@
               "timeout": {
                 "additionalProperties": false,
                 "properties": {
+                  "action": {
+                    "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "first_byte": {
                     "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -5913,6 +6840,16 @@
                     },
                     "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "age_notice": {
+                    "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -5957,6 +6894,13 @@
             },
             "type": "object"
           },
+          "lowest_minor": {
+            "arrived_in": "0.1",
+            "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
           "settings": {
             "additionalProperties": false,
             "arrived_in": "0.1",
@@ -5976,6 +6920,16 @@
                       }
                     ],
                     "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                  }
+                },
+                "type": "object"
+              },
+              "browser": {
+                "additionalProperties": false,
+                "properties": {
+                  "headless": {
+                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -6088,6 +7042,15 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "address": {
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "type": "string"
+                  },
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
@@ -6189,6 +7152,51 @@
                 },
                 "type": "object"
               },
+              "politeness": {
+                "additionalProperties": false,
+                "properties": {
+                  "domain": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                      },
+                      "delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "sharing": {
+                    "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                    "enum": [
+                      "shared",
+                      "per_daemon",
+                      "run"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "resolver": {
                 "additionalProperties": false,
                 "properties": {
@@ -6208,6 +7216,20 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "durability": {
+                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                    "enum": [
+                      "full",
+                      "fast"
+                    ]
+                  },
+                  "layout": {
+                    "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                    "enum": [
+                      "per_run",
+                      "per_install"
+                    ]
+                  },
                   "location": {
                     "anyOf": [
                       {
@@ -6289,6 +7311,11 @@
               "timeout": {
                 "additionalProperties": false,
                 "properties": {
+                  "action": {
+                    "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "first_byte": {
                     "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -6346,6 +7373,16 @@
                     },
                     "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "age_notice": {
+                    "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -6415,6 +7452,13 @@
       "schema": {
         "additionalProperties": false,
         "properties": {
+          "lowest_minor": {
+            "arrived_in": "0.1",
+            "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
           "settings": {
             "additionalProperties": false,
             "arrived_in": "0.1",
@@ -6434,6 +7478,16 @@
                       }
                     ],
                     "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                  }
+                },
+                "type": "object"
+              },
+              "browser": {
+                "additionalProperties": false,
+                "properties": {
+                  "headless": {
+                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -6546,6 +7600,15 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "address": {
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "type": "string"
+                  },
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
@@ -6647,6 +7710,51 @@
                 },
                 "type": "object"
               },
+              "politeness": {
+                "additionalProperties": false,
+                "properties": {
+                  "domain": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                      },
+                      "delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "sharing": {
+                    "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                    "enum": [
+                      "shared",
+                      "per_daemon",
+                      "run"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "resolver": {
                 "additionalProperties": false,
                 "properties": {
@@ -6666,6 +7774,20 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "durability": {
+                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                    "enum": [
+                      "full",
+                      "fast"
+                    ]
+                  },
+                  "layout": {
+                    "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                    "enum": [
+                      "per_run",
+                      "per_install"
+                    ]
+                  },
                   "location": {
                     "anyOf": [
                       {
@@ -6747,6 +7869,11 @@
               "timeout": {
                 "additionalProperties": false,
                 "properties": {
+                  "action": {
+                    "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "first_byte": {
                     "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -6804,6 +7931,16 @@
                     },
                     "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "age_notice": {
+                    "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -6900,6 +8037,9 @@
     },
     "runs.reindex": {
       "$ref": "#/$defs/RunsReindexOutput"
+    },
+    "upgrade-files": {
+      "$ref": "#/$defs/UpgradeFilesOutput"
     }
   },
   "protocol_version": "0.1",

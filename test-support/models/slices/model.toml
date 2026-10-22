@@ -1,0 +1,9 @@
+# Slices and reclaim (ADRs 0041 and 0060): the Usage ledger's Slices taken,
+# charged, given back and reclaimed from dead engines' runs, whose
+# transitions `ledger` traces under `goodfetch::ledger`.
+spec = "Slices.tla"
+traces = [
+  "crates/goodfetch-engine/src/ledger.rs",
+  "crates/goodfetch-engine/src/ledger/",
+  "crates/goodfetch-engine/src/runs/slices.rs",
+]

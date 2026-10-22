@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 use goodfetch_engine::settings::{OPERATOR_POLICY_FILE, operator_policy};
 use goodfetch_protocol::catalog::{Product, Setting, ValueKind};
+use goodfetch_protocol::connection::ProductVersion;
 
 fn any_key(_: &Setting) -> bool {
     true
@@ -35,7 +36,10 @@ fn main() {
         ("lock", any_key),
         ("cap", bounded_key),
     ]);
-    operator_policy(&text, Product::Foxhound).expect("invariant: the engine reads what it wrote");
+    let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+        .expect("invariant: the crate's version is a Product version");
+    operator_policy(&text, Product::Foxhound, &version)
+        .expect("invariant: the engine reads what it wrote");
     std::fs::write(output.join(OPERATOR_POLICY_FILE), text)
         .expect("invariant: the output folder is writable");
 }

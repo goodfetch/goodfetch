@@ -242,3 +242,62 @@ fn a_domain_whose_first_byte_timed_out_backs_off_while_the_others_go() {
         ]
     );
 }
+
+/// A handler that met the site's 429, failing with `blocked` for a
+/// `rate_limit`, backs its domain off in the Politeness every run of the
+/// user shares: the domain's next request waits 2 s while the others go
+/// (ADRs 0021 and 0053).
+///
+/// Covers: story:3-80
+#[test]
+fn a_429_a_handler_met_backs_its_domain_off_while_the_others_go() {
+    let env = TestEnv::new();
+    let seeds = json!([
+        seed("https://heavy.test/1"),
+        seed("https://heavy.test/2"),
+        seed("https://a.test/1"),
+    ]);
+
+    let handled = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "refused", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| {
+                if page_of(params) == "https://heavy.test/1" {
+                    return Reply::Blocked("rate_limit");
+                }
+                Reply::Records(vec![json!({ "page": page_of(params) })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "refused" }), &mut handler)
+                .await;
+            let first = client.arrivals.first().map(|(_, at)| *at);
+            client
+                .arrivals
+                .iter()
+                .filter(|(message, _)| message["method"] == "crawl_request.handle")
+                .map(|(message, at)| {
+                    (
+                        page_of(&message["params"]),
+                        *at - first.expect("a request came"),
+                    )
+                })
+                .collect::<Vec<_>>()
+        },
+    );
+
+    assert_eq!(
+        handled,
+        [
+            ("https://heavy.test/1".to_owned(), Duration::ZERO),
+            ("https://a.test/1".to_owned(), Duration::ZERO),
+            ("https://heavy.test/2".to_owned(), Duration::from_secs(2)),
+        ]
+    );
+}

@@ -23,12 +23,16 @@ use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::run::{Checkpoint, Lifecycle};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
-    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_START, RUN_STATE_UNAVAILABLE, RunAbortParams,
+    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_START, RUN_STATE_UNAVAILABLE, ReachedLimit, RunAbortParams,
     RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails, RunKind, RunParams, RunReport,
     RunStartParams, RunStarted, StartedAs, StopReason,
 };
+use goodfetch_protocol::usage::{
+    LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
+};
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
+use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
@@ -95,6 +99,25 @@ pub fn format_refusal(format: &Format, found: &str, compatibility: Compatibility
     )
 }
 
+/// The refusal of a shared store of `format` at the version `found` whose
+/// lowest minor is newer than this engine (ADR 0098): the Product version
+/// `install` and newer can use it.
+pub fn store_refusal(format: &Format, found: &str, install: &str) -> CallError {
+    CallError::new(
+        &FORMAT_VERSION_UNSUPPORTED,
+        format!(
+            "The {} ({found}) was last written by a newer engine and can be used from Goodfetch {install} on, newer than this engine; install Goodfetch {install} or newer to use it.",
+            format.name
+        ),
+        &FormatVersionUnsupportedDetails {
+            format: format.name.to_owned(),
+            found: found.to_owned(),
+            supported: format.version.to_string(),
+            fix: format!("Install Goodfetch {install} or newer, then try again."),
+        },
+    )
+}
+
 /// Reads a start's Run ID, refusing one that is not with `run_id_invalid`.
 ///
 /// # Errors
@@ -152,8 +175,67 @@ pub fn start_error(error: StartError) -> CallError {
                 path: Some(folder.display().to_string()),
             },
         ),
+        StartError::LimitReached(reached) => limit_reached(&reached),
+        StartError::LimitNotUnderstood(limit) => limit_not_understood(*limit),
+        StartError::Format {
+            format,
+            found,
+            compatibility,
+            install,
+        } => {
+            let format = goodfetch_protocol::formats::FORMATS
+                .iter()
+                .find(|known| known.name == format)
+                .copied()
+                .unwrap_or(&goodfetch_protocol::formats::RUN_INDEX);
+            match install {
+                Some(install) => store_refusal(format, &found, &install),
+                None => format_refusal(format, &found, compatibility),
+            }
+        }
+        StartError::Draining { run_id } => draining(run_id),
         StartError::Stopped => stopped(),
     }
+}
+
+/// `limit_reached`, naming the Limit's scope, Usage kind and period.
+pub fn limit_reached(reached: &ReachedLimit) -> CallError {
+    let period = reached
+        .period
+        .as_ref()
+        .map(|period| format!(" this {} ({})", period.every.as_str(), period.time_zone))
+        .unwrap_or_default();
+    CallError::new(
+        &LIMIT_REACHED,
+        format!(
+            "The {} Limit on {} has nothing left{period}; wait for its next period, or ask a person to raise it.",
+            reached.scope.kind, reached.usage_kind
+        ),
+        reached,
+    )
+}
+
+/// `limit_not_understood`, naming the Limit.
+pub fn limit_not_understood(limit: Limit) -> CallError {
+    CallError::new(
+        &LIMIT_NOT_UNDERSTOOD,
+        format!(
+            "A newer engine set a {} Limit on {} that this engine cannot evaluate; upgrade it.",
+            limit.scope.kind, limit.usage_kind
+        ),
+        &LimitNotUnderstoodDetails { limit },
+    )
+}
+
+/// A run a draining Daemon refuses to start or resume (ADR 0049).
+fn draining(run_id: Option<RunId>) -> CallError {
+    CallError::new(
+        &DAEMON_DRAINING,
+        "The Daemon is draining on `SIGTERM` and takes no run; start or resume it on the Daemon that replaces this one.",
+        &DaemonDrainingDetails {
+            run_id: run_id.map(|run_id| run_id.to_string()),
+        },
+    )
 }
 
 /// The failure a call answers with for a refused setting, on an engine
@@ -212,7 +294,51 @@ pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
             let (message, details) = identity.not_in_product(Requested::Name(key), *needs, false);
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
+        SettingsError::Format {
+            format,
+            found,
+            supported,
+            install,
+            ..
+        } => CallError::new(
+            &FORMAT_VERSION_UNSUPPORTED,
+            message,
+            &FormatVersionUnsupportedDetails {
+                format: (*format).to_owned(),
+                found: found.clone(),
+                supported: supported.clone(),
+                fix: match install {
+                    Some(install) => {
+                        format!("Install Goodfetch {install} or newer, then try again.")
+                    }
+                    None if error_is_older_major(error) => {
+                        "Run `upgrade-files`, then try again.".to_owned()
+                    }
+                    None => format!("Upgrade Goodfetch to a version that reads {format} {found}."),
+                },
+            },
+        ),
+        SettingsError::OlderMajorPolicy { major, current, .. } => CallError::new(
+            &FORMAT_VERSION_UNSUPPORTED,
+            message,
+            &FormatVersionUnsupportedDetails {
+                format: goodfetch_protocol::formats::OPERATOR_POLICY.name.to_owned(),
+                found: major.clone(),
+                supported: current.clone(),
+                fix: "Run `upgrade-files` with this Goodfetch, then try again.".to_owned(),
+            },
+        ),
     }
+}
+
+fn error_is_older_major(error: &SettingsError) -> bool {
+    matches!(
+        error,
+        SettingsError::Format {
+            compatibility: Compatibility::OlderMajor,
+            ..
+        }
+    )
 }
 
 fn stopped() -> CallError {
@@ -267,6 +393,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
             format,
             found,
             compatibility,
+            install,
             ..
         } => {
             let format = goodfetch_protocol::formats::FORMATS
@@ -274,7 +401,10 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
                 .find(|known| known.name == format)
                 .copied()
                 .unwrap_or(&goodfetch_protocol::formats::RUN_STATE);
-            format_refusal(format, &found, compatibility)
+            match install {
+                Some(install) => store_refusal(format, &found, &install),
+                None => format_refusal(format, &found, compatibility),
+            }
         }
         RunError::BoundToMachine(run_id) => CallError::new(
             &SESSION_BOUND_TO_MACHINE,
@@ -313,6 +443,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
                 path: Some(folder.display().to_string()),
             },
         ),
+        RunError::Draining(run_id) => draining(Some(run_id)),
         RunError::Stopped => stopped(),
     }
 }

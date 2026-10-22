@@ -4,8 +4,11 @@
 //! connection has, so no script sends what the engine could never send. `raw` steps are skipped.
 //! The check is shown refusing the fixtures beside it.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use jsonschema::{Registry, Validator};
 use serde_json::{Value, json};
 
 use super::{ENGINE_SCRIPTS, Reply, Script, Sent, Step};
@@ -19,6 +22,10 @@ const CATALOG: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../goodfetch-protocol/generated/catalog.json"
 );
+
+/// The URI the bundle is registered under, which its `#/$defs/…`
+/// references resolve against.
+const BUNDLE_URI: &str = "urn:goodfetch:bundle";
 
 /// The check's own fixtures: scripts it must refuse.
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/script/fixtures");
@@ -59,8 +66,14 @@ struct Method {
 }
 
 /// The committed contract a script is checked against.
+///
+/// The bundle is checked against the JSON Schema meta-schema and indexed
+/// once; each schema a message is checked against is compiled once, on first
+/// use, so the check's time grows with the schemas the corpus uses, not with
+/// its messages.
 struct Contract {
-    defs: Value,
+    registry: Registry<'static>,
+    validators: RefCell<HashMap<String, Validator>>,
     connection: Value,
     catalog: Value,
 }
@@ -69,9 +82,19 @@ impl Contract {
     fn committed() -> Self {
         let bundle: Value = serde_json::from_slice(&std::fs::read(BUNDLE).unwrap()).unwrap();
         let catalog: Value = serde_json::from_slice(&std::fs::read(CATALOG).unwrap()).unwrap();
+        if let Err(error) = jsonschema::meta::validate(&bundle) {
+            panic!("the committed bundle is no valid JSON Schema: {error}");
+        }
+        let connection = bundle["connection"].clone();
+        let registry = Registry::new()
+            .add(BUNDLE_URI, bundle)
+            .unwrap()
+            .prepare()
+            .unwrap();
         Self {
-            defs: bundle["$defs"].clone(),
-            connection: bundle["connection"].clone(),
+            registry,
+            validators: RefCell::default(),
+            connection,
             catalog,
         }
     }
@@ -129,16 +152,26 @@ impl Contract {
             .map(|entry| &entry["json_rpc_class"])
     }
 
-    /// What `schema`, whose references point into the bundle, finds wrong
-    /// with `instance`.
+    /// What `schema`, a reference into the bundle as the catalog and the
+    /// connection give every schema, finds wrong with `instance`.
     fn errors(&self, schema: &Value, instance: &Value) -> Vec<String> {
-        let schema = json!({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$defs": self.defs,
-            "allOf": [schema],
+        let reference = match schema.as_object() {
+            Some(object) if object.len() == 1 => object["$ref"].as_str(),
+            _ => None,
+        }
+        .filter(|reference| reference.starts_with("#/"))
+        .unwrap_or_else(|| panic!("a schema that is no reference into the bundle: {schema}"));
+        let mut validators = self.validators.borrow_mut();
+        let validator = validators.entry(reference.to_owned()).or_insert_with(|| {
+            jsonschema::options()
+                .with_registry(&self.registry)
+                .build(&json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "$ref": format!("{BUNDLE_URI}{reference}"),
+                }))
+                .unwrap()
         });
-        jsonschema::validator_for(&schema)
-            .unwrap()
+        validator
             .iter_errors(instance)
             .map(|error| format!("{}: {error}", error.instance_path()))
             .collect()

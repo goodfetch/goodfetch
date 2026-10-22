@@ -32,14 +32,14 @@ goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true
-# The run-state corpus writer (examples/compat-run-state.rs): its runtime,
-# in-memory Client, home and SQL dump.
+# The run-state and Politeness file corpus writers (examples/compat-*.rs):
+# their runtime, in-memory Client, home and SQL dump.
 # The multi-process writer-lock test's named seed cases (tests/it/writer_lock.rs).
 rstest.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["rt", "io-util", "macros"] }
+tokio = { workspace = true, features = ["rt", "io-util", "macros", "time"] }
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

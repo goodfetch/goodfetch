@@ -329,22 +329,29 @@ fn dependency_without_a_license_fails() {
 }
 
 /// A block-detection rule's source that states no license, or no place its
-/// source is, fails the check, so the inventory names every rule's source
-/// and license (story 60).
+/// source is, or an empty one, fails the check, so the inventory names
+/// every rule's source and license (story 60).
 ///
 /// Covers: story:8-60
 #[rstest]
-#[case::no_license("license = \"BSD-3-Clause\"\n", "license-unknown")]
+#[case::no_license("license = \"BSD-3-Clause\"\n", "", "license-unknown")]
 #[case::no_source(
     "source = \"https://github.com/EnableSecurity/wafw00f/tree/69fbe39/wafw00f/plugins\"\n",
+    "",
+    "source-unknown"
+)]
+#[case::empty_source(
+    "source = \"https://github.com/EnableSecurity/wafw00f/tree/69fbe39/wafw00f/plugins\"\n",
+    "source = \" \"\n",
     "source-unknown"
 )]
 fn block_detection_rule_source_without_a_license_or_a_source_fails(
     #[case] line: &str,
+    #[case] replacement: &str,
     #[case] kind: &str,
 ) {
     let workspace = installed_workspace();
-    workspace.edit("block-detection/third-party.toml", line, "");
+    workspace.edit("block-detection/third-party.toml", line, replacement);
 
     let outcome = workspace.xtask(&["notices"]);
 

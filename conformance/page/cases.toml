@@ -79,6 +79,7 @@ covers = ["story:5-56", "operation:run.new_page", "operation:page.goto"]
 id = "a-page-behind-another-keeps-its-timer-and-its-focus"
 covers = ["story:5-11", "operation:run.new_page", "operation:page.goto"]
 
+[[capability]]
 name = "locators.guard"
 
 [[capability.case]]

@@ -37,7 +37,7 @@ const client = signedIn
 createRoot(root).render(
   <StrictMode>
     <ConsoleI18n>
-      <Shell client={client} />
+      <Shell client={client} route={window.location.pathname} />
     </ConsoleI18n>
   </StrictMode>,
 );

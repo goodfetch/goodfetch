@@ -4295,6 +4295,17 @@
       ]
     },
     {
+      "id": "screen:/settings",
+      "kind": "screen",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:admission.max_requests_per_minute",
       "kind": "setting",
       "area": 3,
@@ -9852,6 +9863,17 @@
       ]
     },
     {
+      "id": "story:12-102",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-109",
       "kind": "story",
       "area": 12,
@@ -9908,6 +9930,17 @@
     },
     {
       "id": "story:12-5",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-94",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

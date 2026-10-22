@@ -545,21 +545,29 @@ impl ConsoleFile {
 }
 
 /// A Product's Console build, as its executable embeds it: brotli files
-/// only, `xtask console build`'s output (ADR 0057).
+/// only, `xtask console build`'s output (ADR 0057), and the routes of its
+/// screens, which its package commits as plain data (ADR 0072).
 #[derive(Debug)]
 pub struct ConsoleBuild {
     files: &'static [ConsoleFile],
+    routes: &'static [&'static str],
 }
 
 impl ConsoleBuild {
-    /// The build made of `files`.
-    pub const fn new(files: &'static [ConsoleFile]) -> Self {
-        Self { files }
+    /// The build made of `files`, whose page shows each of `routes`, such
+    /// as `/settings`.
+    pub const fn new(files: &'static [ConsoleFile], routes: &'static [&'static str]) -> Self {
+        Self { files, routes }
     }
 
-    /// The file a request's path names: `/` names the page itself.
+    /// The file a request's path names: `/` and each route of the build
+    /// name the page itself, which shows the route's screen.
     pub(crate) fn file(&self, path: &str) -> Option<&ConsoleFile> {
-        let path = if path == "/" { "/index.html" } else { path };
+        let path = if path == "/" || self.routes.contains(&path) {
+            "/index.html"
+        } else {
+            path
+        };
         self.files.iter().find(|file| file.path == path)
     }
 }

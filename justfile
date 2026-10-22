@@ -1110,6 +1110,11 @@ _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
 
+# Starts and checks the real OS services the tests use (ci/os-services.sh),
+# which `just pre-merge` runs first on a Linux host.
+_os-services:
+    ci/os-services.sh setup
+
 _skips-report:
     #!/usr/bin/env bash
     if [[ -s target/skipped.txt ]]; then

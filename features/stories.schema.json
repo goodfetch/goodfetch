@@ -20,6 +20,13 @@
         }
       ]
     },
+    "OnlyProduct": {
+      "description": "The one Product that carries a story or a matrix row: only Foxhound can\nbe, since Foxhound contains Collie (ADR 0084).",
+      "enum": [
+        "foxhound"
+      ],
+      "type": "string"
+    },
     "Status": {
       "description": "Whether a Feature is still promised.",
       "oneOf": [
@@ -63,6 +70,17 @@
             }
           ],
           "description": "The first of ADR 0075's three tests it fails; required exactly when\n`journey` is false."
+        },
+        "product": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnlyProduct"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The one Product that carries it, for a story of Foxhound's part;\nboth Products, since Foxhound contains Collie, when absent (ADR\n0094)."
         },
         "reason": {
           "description": "Why it was retired; required exactly when it is.",

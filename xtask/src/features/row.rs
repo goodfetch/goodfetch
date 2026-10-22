@@ -6,13 +6,13 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
 use super::entry::{Carriers, Entry, unreadable};
-use super::files::{self, Kind, RowsFile, Status};
+use super::files::{self, Kind, OnlyProduct, RowsFile, Status};
 
 pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
     let rows: RowsFile = files::read_optional_toml(root, files::ROWS)
@@ -21,6 +21,12 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
         .row
         .iter()
         .map(|row| (row.id.as_str(), row.milestone.as_str()))
+        .collect();
+    let foxhound_only: BTreeSet<&str> = rows
+        .row
+        .iter()
+        .filter(|row| row.product == Some(OnlyProduct::Foxhound))
+        .map(|row| row.id.as_str())
         .collect();
     let path = root.join(files::MATRIX);
     let text =
@@ -33,10 +39,14 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
             milestone: milestones
                 .get(row.id.as_str())
                 .map(|&milestone| milestone.to_owned()),
+            carriers: if foxhound_only.contains(row.id.as_str()) {
+                Carriers::Foxhound
+            } else {
+                Carriers::Both
+            },
             name: row.id,
             area: row.area,
             status: Status::Active,
-            carriers: Carriers::Both,
         })
         .collect())
 }

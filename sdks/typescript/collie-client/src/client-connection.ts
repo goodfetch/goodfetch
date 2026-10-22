@@ -9,6 +9,7 @@ import {
   CallCancelledError,
   ClosedError,
   CollieOperations,
+  DeadlineExceededError,
   EngineExitedError,
   EngineOutputInvalidError,
   PROTOCOL_VERSION,
@@ -218,7 +219,42 @@ export class ClientConnection implements AsyncDisposable {
     };
   }
 
+  /**
+   * Closes the Runs, cancels the calls in flight and ends the engine, all
+   * within `timeout.close`. Past it, whatever is still waiting is cancelled,
+   * an Attached engine is killed, and the close fails with
+   * `deadline_exceeded`.
+   */
   async #close(): Promise<void> {
+    const startedAt = Date.now();
+    const closed = await within(this.#closeInOrder(), CLOSE_TIMEOUT);
+    if (closed === "late") {
+      this.#channel.cancelAll(cancelledByClose());
+      this.#engine?.kill();
+      await this.#channel.close();
+      await this.#engine?.exited;
+      throw new DeadlineExceededError(
+        `the Connection did not close within timeout.close (${CLOSE_TIMEOUT} ms), so its engine was stopped`,
+        {
+          code: "deadline_exceeded",
+          group: "deadline_exceeded",
+          retryable: true,
+          fix: "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
+          details: {
+            limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
+            elapsed: Date.now() - startedAt,
+            waited_for: "close",
+          },
+        },
+      );
+    }
+    if (closed.failure !== undefined) {
+      throw closed.failure;
+    }
+  }
+
+  /** Closes each Run, then cancels the calls in flight and ends the engine; answers the first Run's failure. */
+  async #closeInOrder(): Promise<{ readonly failure: unknown }> {
     let failure: unknown;
     for (const run of this.#runs) {
       try {
@@ -227,15 +263,12 @@ export class ClientConnection implements AsyncDisposable {
         failure ??= error;
       }
     }
-    this.#channel.cancelAll(
-      new CallCancelledError("the call's Connection was closed", {
-        details: { closed: "connection" },
-      }),
-    );
-    await this.#end();
-    if (failure !== undefined) {
-      throw failure;
-    }
+    this.#channel.cancelAll(cancelledByClose());
+    await this.#channel.close();
+    // An Attached engine stops at the end of its input.
+    await this.#engine?.exited;
+    await this.#channel.ended;
+    return { failure };
   }
 
   /** Ends the Client's side and waits for the engine to stop. */
@@ -278,16 +311,29 @@ export class ClientConnection implements AsyncDisposable {
     if (this.#engine === undefined) {
       return unknown;
     }
-    let timer: NodeJS.Timeout | undefined;
-    const late = new Promise<EngineExit>((resolve) => {
-      timer = setTimeout(() => resolve(unknown), EXIT_GRACE);
-    });
-    try {
-      return await Promise.race([this.#engine.exited, late]);
-    } finally {
-      clearTimeout(timer);
-    }
+    const exit = await within(this.#engine.exited, EXIT_GRACE);
+    return exit === "late" ? unknown : exit;
   }
+}
+
+/** What `promise` settles to, or `"late"` when it has not within `timeout` milliseconds. */
+async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "late"> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), timeout);
+  });
+  try {
+    return await Promise.race([promise, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The error a call in flight fails with when its Connection closes: cancelled by its Client. */
+function cancelledByClose(): CallCancelledError {
+  return new CallCancelledError("the call's Connection was closed", {
+    details: { closed: "connection" },
+  });
 }
 
 /** Whether an engine of `version` takes this Client: the same major, the same or a newer minor (ADR 0030). */

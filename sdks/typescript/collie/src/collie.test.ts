@@ -5,7 +5,7 @@
 // `hello` included, and on a step left unused.
 import { MessageChannel } from "node:worker_threads";
 import { playScript, test } from "@goodfetch/test-support";
-import { describe, expect } from "vitest";
+import { describe, expect, vi } from "vitest";
 import { startAndFinish } from "../tests/programs/tracer.ts";
 import { NotInProductError } from "@goodfetch/collie-client";
 import { Collie, connectOver } from "./collie.ts";
@@ -152,6 +152,35 @@ describe("a Collie Connection", () => {
       await clientCase.check("the close aborted the Run once", () =>
         expect(played.done()).toEqual({ kind: "finished" }),
       );
+    },
+  );
+
+  test(
+    "gives up waiting for a Run's abort once timeout.close passes, failing the close with deadline_exceeded",
+    { tags: ["story:11-2", "error:deadline_exceeded"] },
+    async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      try {
+        const { collie, played } = await collieOn("run/abort-never-answered.json");
+        await collie.start({ runId: "nightly" });
+
+        const closed = failure(collie.close());
+        await vi.advanceTimersByTimeAsync(30_000);
+        const error = await closed;
+
+        expect(error).toMatchObject({
+          code: "deadline_exceeded",
+          group: "deadline_exceeded",
+          details: {
+            limit: { key: "timeout.close", value: 30_000, layer: "default" },
+            elapsed: 30_000,
+            waited_for: "close",
+          },
+        });
+        expect(played.done()).toEqual({ kind: "finished" });
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
 

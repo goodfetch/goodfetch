@@ -3,8 +3,8 @@
 //! answering as the case's public stand-in does and refused with the case's
 //! typed error; a redirect to the Proving ground's own loopback address,
 //! whose landing records that it was reached; and, around ADR 0118's limit
-//! of 20 redirects, a chain of 20 a correct tool follows, a chain of 21 and a
-//! loop it refuses with `too_many_redirects`.
+//! of 19 redirects (20 requests), a chain of 19 a correct tool follows, a
+//! chain of 20 and a loop it refuses with `too_many_redirects`.
 
 use std::sync::OnceLock;
 
@@ -45,15 +45,16 @@ const CASES: [&str; 15] = [
 /// The task whose page redirects to the Proving ground's own loopback
 /// address.
 const OWN_LOOPBACK: u32 = 16;
-/// The tasks of the chain of 20 redirects, the chain of 21 and the loop.
-const CHAIN_OF_20: u32 = 17;
-const CHAIN_OF_21: u32 = 18;
+/// The tasks of the chain of 19 redirects, the chain of 20 and the loop.
+const CHAIN_OF_19: u32 = 17;
+const CHAIN_OF_20: u32 = 18;
 const LOOP: u32 = 19;
 
 pub(super) const TASKS: u32 = 19;
 
-/// ADR 0118's limit: a fetch follows at most 20 redirects.
-const REDIRECT_LIMIT: u32 = 20;
+/// ADR 0118's limit: a fetch follows at most 19 redirects, so a chain holds
+/// at most 20 requests, its first included, as the pinned browser's does.
+const REDIRECT_LIMIT: u32 = 19;
 
 /// The path of the own-loopback page, and of the landing it redirects to on
 /// the site's loopback address.
@@ -144,7 +145,7 @@ pub(super) fn respond(seed: u64, port: u16, request: &Request<'_>) -> Reply {
         "/loop/b" => Reply::found("/loop/a"),
         "/hops/0" => Reply::html(record_page(
             LANDED_ID,
-            &word(seed, FAMILY_NUMBER, u64::from(CHAIN_OF_20)),
+            &word(seed, FAMILY_NUMBER, u64::from(CHAIN_OF_19)),
         )),
         _ => match path
             .strip_prefix("/hops/")
@@ -261,20 +262,20 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
             })),
         ),
         task(
-            CHAIN_OF_20,
-            "/hops/20",
+            CHAIN_OF_19,
+            "/hops/19",
             "Extract the page the start URL leads to as one Record with `id` and `word`, \
-             through a chain of 20 redirects, as many as a fetch follows (ADR 0118).",
+             through a chain of 19 redirects, as many as a fetch follows (ADR 0118).",
             Expected::records(vec![record(
                 LANDED_ID,
-                &word(seed, FAMILY_NUMBER, u64::from(CHAIN_OF_20)),
+                &word(seed, FAMILY_NUMBER, u64::from(CHAIN_OF_19)),
             )]),
         ),
         task(
-            CHAIN_OF_21,
-            "/hops/21",
+            CHAIN_OF_20,
+            "/hops/20",
             "Extract the page the start URL leads to as one Record with `id` and `word`, \
-             through a chain of 21 redirects, one more than a fetch follows: a correct tool \
+             through a chain of 20 redirects, one more than a fetch follows: a correct tool \
              refuses it with `too_many_redirects` (ADR 0118).",
             too_many(),
         ),
@@ -283,7 +284,7 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
             "/loop/a",
             "Extract the page the start URL leads to as one Record with `id` and `word`. The \
              start page redirects in a loop of two pages: a correct tool refuses it with \
-             `too_many_redirects` after 20 redirects (ADR 0118).",
+             `too_many_redirects` at its 20th request, after 19 redirects (ADR 0118).",
             too_many(),
         ),
     ]);

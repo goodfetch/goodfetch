@@ -80,7 +80,7 @@ The Crawl families (ADR 0025's Crawl cases, and ADR 0005's parameter that looks 
 
 ADR 0067's hostile input beside SSRF, each page served with its expected result, which names what a correct tool refuses, with which typed error where one is decided, or keeps (a kept page shows one Record, `id` and `word`):
 
-- `redirects.test` (`redirects/1` to `redirects/19`): tasks 1 to 15 answer as the redirect cases of `test-support/fixtures/ssrf/cases.toml` do, one per case in the table's order (a status redirect, a `Refresh` header, a `<meta>` refresh or a script, to a private address or a scheme other than HTTP), each refused with the case's typed error; `/to_own_loopback` (task 16) redirects to the Proving ground's own loopback address, whose `/redirects/landing` records `private_address_reached` for the task when a tool follows it; `/hops/20` is a chain of 20 redirects a fetch follows, `/hops/21` one more and `/loop/a` a loop, both refused with `too_many_redirects` (ADR 0118).
+- `redirects.test` (`redirects/1` to `redirects/19`): tasks 1 to 15 answer as the redirect cases of `test-support/fixtures/ssrf/cases.toml` do, one per case in the table's order (a status redirect, a `Refresh` header, a `<meta>` refresh or a script, to a private address or a scheme other than HTTP), each refused with the case's typed error; `/to_own_loopback` (task 16) redirects to the Proving ground's own loopback address, whose `/redirects/landing` records `private_address_reached` for the task when a tool follows it; `/hops/19` is a chain of 19 redirects (20 requests) a fetch follows, `/hops/20` one more and `/loop/a` a loop, both refused with `too_many_redirects`, the loop at its 20th request (ADR 0118).
 - `headers.test` (`headers/1` to `headers/10`): a 300 KiB header, two different `Content-Length` values, two `Location` values, a NUL, a bare CR and a line without a colon are refused; a `Content-Length` repeated with one value, a folded line, a cookie and a `Location` that hold a percent-encoded CRLF are kept, the cookie sent back as set (sending another value records `header_injection`). The heads hyper cannot write are sent as their own bytes on the first request of an HTTP/1.1 connection, then the connection closes; TLS on these host names offers HTTP/1.1 alone, and a later request of a connection answers `505` with `served_over_http1_only`.
 - `downloads.test` (`downloads/1` to `downloads/18`): `/download` serves a CSV whose `Content-Disposition` suggests a name that tries to leave the download folder (`..`, absolute and Windows paths, `\\?\` and UNC paths, reserved names, a trailing dot or space, an alternate data stream, `filename*` encodings, control characters, a decomposed name, 300 bytes), kept under any one safe file name; a plain name and an ISO-8859-1 one are kept exactly.
 
@@ -191,8 +191,8 @@ On any other host name, such as the bound address itself:
 | `identity/1` and `identity/2` | `crawl` | `/catalog/1` | every Record, every request signed (1) or none (2) |
 | `content-coding/1` to `content-coding/7` | `extract` | `/page` | the page's text, or its decoding failure |
 | `redirects/1` to `redirects/16` | `extract` | the case's page | a refusal with the case's typed error |
-| `redirects/17` | `extract` | `/hops/20` | the Record the chain ends on |
-| `redirects/18`, `redirects/19` | `extract` | `/hops/21`, `/loop/a` | a refusal with `too_many_redirects` |
+| `redirects/17` | `extract` | `/hops/19` | the Record the chain ends on |
+| `redirects/18`, `redirects/19` | `extract` | `/hops/20`, `/loop/a` | a refusal with `too_many_redirects` |
 | `headers/1` to `headers/10` | `extract` | the header page | a refusal, or the page's Record when kept |
 | `downloads/1` to `downloads/18` | `download` | `/download` | the file, under its name or one safe name |
 | `canaries/1` to `canaries/4` | `crawl` | `/login`, or `/api/record` for the token | the account's Record, and no leak |

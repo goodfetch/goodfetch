@@ -232,7 +232,7 @@ status = "active"
 
 [[story]]
 id = 29
-title = "As a developer, I want a navigation past the browser's 20 redirects to raise `too_many_redirects`, and one waiting for `domcontentloaded` or `load` whose main document was cut to raise `response_truncated` (one that returned at `commit` leaving it to the body's read), so that a loop and a cut page are typed (ADR 0118; pitfalls U12, H15)."
+title = "As a developer, I want a navigation past the browser's 19 redirects to raise `too_many_redirects`, and one waiting for `domcontentloaded` or `load` whose main document was cut to raise `response_truncated` (one that returned at `commit` leaving it to the body's read), so that a loop and a cut page are typed (ADR 0118; pitfalls U12, H15)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -360,7 +360,7 @@ status = "active"
 
 [[story]]
 id = 45
-title = "As a developer, I want `page.request`'s `maxRedirects` to take at most 20 and raise `too_many_redirects` past its count, and a cut body to raise `response_truncated`, so that the request API follows the browser's rules (ADR 0118)."
+title = "As a developer, I want `page.request`'s `maxRedirects` to take at most 19 and raise `too_many_redirects` past its count, and a cut body to raise `response_truncated`, so that the request API follows the browser's rules (ADR 0118)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

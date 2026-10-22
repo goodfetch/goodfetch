@@ -29,6 +29,12 @@ hyper-util = { workspace = true, features = ["tokio"] }
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
+# The Trace context each request carries, the request spans' parents and
+# links, and trace and span IDs drawn from the Entropy (ADR 0132):
+# OpenTelemetry's API, its SDK's ID generator and the bridge from `tracing`.
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+tracing-opentelemetry.workspace = true
 rusqlite.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 # Every resolved Secret reference's value, zeroized when dropped (ADR 0015).

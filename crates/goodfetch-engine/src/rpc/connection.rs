@@ -34,12 +34,13 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{
-    ErrorObject, Notification, ProtocolFailure, Request, RequestId, Version,
+    ErrorObject, META, Notification, ProtocolFailure, Request, RequestId, TraceContext, Version,
 };
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::websocket::{
@@ -58,6 +59,7 @@ use crate::log::LogEvents;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
+use crate::trace;
 use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
 };
@@ -635,7 +637,15 @@ impl Session<'_> {
     /// on a private endpoint.
     async fn open(&mut self, request: Request) -> Flow {
         let daemon = self.connection.daemon.clone();
-        let hello = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null));
+        let (hello, meta) = match trace_context(request.params) {
+            Ok((params, meta)) => (
+                serde_json::from_value::<HelloParams>(params.unwrap_or(Value::Null)).map_err(
+                    |error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()),
+                ),
+                meta,
+            ),
+            Err(error) => (Err(error), None),
+        };
         if let Some(expected) = self.access.token() {
             let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
             match token {
@@ -650,6 +660,9 @@ impl Session<'_> {
                 Some(_) => {}
             }
         }
+        // Opened once the token is checked: a stranger's `hello` has no
+        // span, and its Trace context is not read.
+        let span = trace::server_span(HELLO, &request.id, None, meta.as_ref());
         let answered = match hello {
             Ok(hello) => handshake::answer(
                 &self.dispatch.identity,
@@ -657,10 +670,7 @@ impl Session<'_> {
                 &hello,
             )
             .map(|accepted| (accepted, hello.surface, hello.log_level)),
-            Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                error.to_string(),
-            ))),
+            Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
             Ok(accepted) => Ok(accepted),
@@ -692,6 +702,7 @@ impl Session<'_> {
                 }
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
+                drop(span);
                 if self.send(success_line(request.id, result)).await {
                     Flow::Continue
                 } else {
@@ -700,6 +711,8 @@ impl Session<'_> {
             }
             Err(error) => {
                 record(HELLO, Some(error.code()));
+                trace::record_failure(&span, error.code(), error.wire_code());
+                drop(span);
                 self.send(failure_line(Some(request.id), &error)).await;
                 self.rejected()
             }
@@ -738,8 +751,13 @@ impl Session<'_> {
                 Some(person_required(&method))
             } else {
                 let handler = handler.clone();
-                self.call(id, &handler, params);
-                return Flow::Continue;
+                match trace_context(params) {
+                    Ok((params, meta)) => {
+                        self.call(id, &handler, params, meta.as_ref());
+                        return Flow::Continue;
+                    }
+                    Err(error) => Some(error),
+                }
             }
         } else if !self.dispatch.identity.product.contains(Product::Foxhound)
             && foxhound_names::OPERATIONS.contains(&method.as_str())
@@ -767,10 +785,18 @@ impl Session<'_> {
         }
     }
 
-    /// Starts `handler` on `params` as a task of the Connection.
-    fn call(&mut self, id: RequestId, handler: &Handler, params: Option<Value>) {
+    /// Starts `handler` on `params` as a task of the Connection, in the
+    /// request's span, the child of the span the Trace context `meta` names.
+    fn call(
+        &mut self,
+        id: RequestId,
+        handler: &Handler,
+        params: Option<Value>,
+        meta: Option<&TraceContext>,
+    ) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
+        let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
         let credits = handler.streams().then(Credits::new);
         let stream = credits.clone().map(|credits| CallStream {
             id: id.clone(),
@@ -778,7 +804,9 @@ impl Session<'_> {
             outgoing: self.outgoing.clone(),
         });
         let context = CallContext::new(Arc::clone(&self.connection), token.clone(), stream);
-        let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
+        let answer = handler
+            .call(params.unwrap_or(Value::Object(Map::new())), context)
+            .instrument(span.clone());
         self.in_flight.insert(
             id.clone(),
             InFlight {
@@ -809,9 +837,11 @@ impl Session<'_> {
                 }
                 Err(error) => {
                     record(operation.name, Some(error.code()));
+                    trace::record_failure(&span, error.code(), error.wire_code());
                     failure_line(Some(id.clone()), &error)
                 }
             };
+            drop(span);
             let _ = outgoing.send(line).await;
             let _ = completed.send(id).await;
         });
@@ -894,6 +924,30 @@ fn same_token(given: &str, expected: &str) -> bool {
                 difference | (left ^ right)
             })
             == 0
+}
+
+/// Takes the Trace context out of a request's `params`, which then go to
+/// its handler without it: none when they hold no `_meta`, and
+/// `invalid_params` when their `_meta` holds a key other than
+/// `traceparent` and `tracestate` or a value that is no string (ADRs 0077
+/// and 0132).
+fn trace_context(
+    params: Option<Value>,
+) -> Result<(Option<Value>, Option<TraceContext>), CallError> {
+    let mut members = match params {
+        Some(Value::Object(members)) => members,
+        params => return Ok((params, None)),
+    };
+    let Some(meta) = members.remove(META) else {
+        return Ok((Some(Value::Object(members)), None));
+    };
+    let meta = serde_json::from_value::<TraceContext>(meta).map_err(|error| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`{META}` holds only `traceparent` and `tracestate`, each a string: {error}"),
+        )
+    })?;
+    Ok((Some(Value::Object(members)), Some(meta)))
 }
 
 /// `person_required`: `method` is a person's answer, which only the Console

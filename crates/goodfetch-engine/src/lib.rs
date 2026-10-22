@@ -52,6 +52,7 @@ pub mod runs;
 pub mod secrets;
 pub mod settings;
 pub mod tasks;
+pub mod trace;
 pub mod transition;
 pub mod transport;
 pub mod upgrade;

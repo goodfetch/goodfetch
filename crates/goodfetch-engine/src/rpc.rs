@@ -12,6 +12,11 @@
 //! events and chunks as the credits the Client grants with `$/credit` allow.
 //! Each Connection receives the engine's log events as `$/log` at the level
 //! its `hello` names, which `connection.set_log_level` changes.
+//! Dispatch takes each request's Trace context out of its params' `_meta`,
+//! refusing one with another key with `invalid_params`, and runs its
+//! handler in the request's `SERVER` span, which it alone opens; a handler
+//! request the engine sends has its `CLIENT` span, whose Trace context its
+//! `_meta` carries ([`crate::trace`], ADR 0132).
 
 pub mod framing;
 

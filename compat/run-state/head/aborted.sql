@@ -8,6 +8,22 @@ CREATE TABLE attempt_errors (
             details TEXT,
             PRIMARY KEY (work_item, attempt)
         ) STRICT;
+CREATE TABLE bounds (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            max_depth INTEGER,
+            max_requests INTEGER,
+            max_url_length INTEGER,
+            max_path_segments INTEGER,
+            max_segment_repeats INTEGER
+        ) STRICT;
+CREATE TABLE bounds_admitted (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            count INTEGER NOT NULL
+        ) STRICT;
+CREATE TABLE bounds_refusals (
+            setting TEXT NOT NULL PRIMARY KEY,
+            count INTEGER NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,

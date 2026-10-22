@@ -6,12 +6,18 @@ use url::Url;
 
 use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, url_key};
 use crate::admit::{Candidate, admit};
+use crate::bounds;
 use crate::scope::{self, Patterns, Scope, Strategy as ScopeStrategy};
 
 /// A run file holding the visited set and the scope, in memory.
 fn run_file() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    for statement in TABLES.statements.iter().chain(scope::TABLES.statements) {
+    for statement in TABLES
+        .statements
+        .iter()
+        .chain(scope::TABLES.statements)
+        .chain(bounds::TABLES.statements)
+    {
         connection.execute(statement, []).unwrap();
     }
     connection

@@ -9,6 +9,10 @@
 // - awaits `document.fonts.ready`;
 // - compares with animations disabled and the caret hidden, masking only the
 //   Live view's frames (`<goodfetch-live-view>`), pixels Goodfetch does not own;
+// - tolerates, during the comparison alone, the known issue of its browser
+//   and Playwright version (`known-issues.ts`): on WebKit, the inline style
+//   Playwright inserts before each screenshot, which the production CSP
+//   refuses;
 // - records the Reference screenshot it reads, so the orphan check
 //   (`xtask screenshots orphans`) knows which references a run used. A
 //   reference compared without this helper is reported as an orphan.
@@ -18,6 +22,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { dirname } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { TestSupportError } from "./errors.ts";
+import { toleratingToolIssues } from "./known-issues.ts";
 import { FIXED_SETTINGS, recordReference } from "./visual-config.ts";
 
 /** A Reference screenshot's name: a PNG file, without the platform. */
@@ -77,11 +82,13 @@ export async function screenshot(page: Page, name: ScreenshotName): Promise<void
     info.snapshotPath(name, { kind: "screenshot" }),
     "playwright",
   );
-  await expect(page).toHaveScreenshot(name, {
-    animations: "disabled",
-    caret: "hide",
-    mask: [page.locator(LIVE_VIEW)],
-  });
+  await toleratingToolIssues(page, () =>
+    expect(page).toHaveScreenshot(name, {
+      animations: "disabled",
+      caret: "hide",
+      mask: [page.locator(LIVE_VIEW)],
+    }),
+  );
 }
 
 /** Each fixed setting the page lacks, in `FixedSetting`'s order. */

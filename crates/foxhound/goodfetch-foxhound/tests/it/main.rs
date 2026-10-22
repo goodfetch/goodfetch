@@ -9,6 +9,7 @@
 
 mod admission;
 mod attached;
+mod bounds;
 mod crawl;
 mod daemon;
 mod frontier;

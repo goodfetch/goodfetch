@@ -349,6 +349,21 @@ describe("Collie.connect()", () => {
   );
 
   test(
+    "fails when its engine-path variable is set but empty, naming the variable",
+    { tags: ["story:11-2", "error:setting_invalid"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_COLLIE_ENGINE_PATH: "" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_invalid",
+        group: "program",
+        details: { key: "GOODFETCH_COLLIE_ENGINE_PATH" },
+      });
+    },
+  );
+
+  test(
     "reads only Collie's engine-path variable, never Foxhound's",
     { tags: ["story:11-2"] },
     async () => {

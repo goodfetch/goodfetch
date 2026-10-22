@@ -344,14 +344,13 @@ impl Reader<'_> {
                 paths.iter().map(|path| path.as_str().to_owned()).collect();
             found.extend(rust.reached(self.members, &changed));
         }
-        for (member, why) in evidence::listed_since(self.root, self.cargo, origin, self.members) {
-            found.entry(member).or_insert(why);
-        }
         for (member, why) in evidence::literal_readers(self.root, self.members, &paths)? {
             found.entry(member).or_insert(why);
         }
-        // A member the evidence reaches reaches its dependants as a change
-        // to its own files would.
+        // A member whose build or files read a changed file reaches its
+        // dependants as a change to its own files would. The runners'
+        // listings name every test they reach, in whichever member, so
+        // their members are added as they are.
         let mut widened = paths.clone();
         widened.extend(
             found
@@ -359,6 +358,9 @@ impl Reader<'_> {
                 .filter_map(|member| self.members.folder(member))
                 .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
         );
+        for (member, why) in evidence::listed_since(self.root, self.cargo, origin, self.members) {
+            found.entry(member).or_insert(why);
+        }
         let selected = selection.members();
         let missed = found
             .iter()

@@ -182,18 +182,24 @@ fn run(arguments: &Arguments) -> Result<Ending, Failure> {
             Ok(play(&script, stdin, stdout, record)?)
         }
         Mode::Tcp => {
-            let listener = Listener::Tcp(TcpListener::bind("127.0.0.1:0")?);
+            let listener = Listener::Tcp(
+                TcpListener::bind("127.0.0.1:0")
+                    .map_err(|error| format!("listen_failed: {error}"))?,
+            );
             announce(&json!({ "address": listener.endpoint()?.to_string() }))?;
             listener.play(&script, record)
         }
         Mode::Socket => {
-            let daemon = Daemon::publish(&home()?, arguments, ready)?;
+            let daemon = Daemon::publish(&home()?, arguments, ready)
+                .map_err(|error| format!("publish_failed: {error}"))?;
             let ending = daemon.listener.play(&script, record);
-            match ending {
-                Ok(Ending::Exit(_)) => daemon.abandon(),
-                _ => daemon.withdraw()?,
+            if let Ok(Ending::Exit(_)) = ending {
+                daemon.abandon();
+                return ending;
             }
-            ending
+            // The play's own failure comes first: a test matches on its code.
+            let withdrawn = daemon.withdraw();
+            ending.and_then(|ending| withdrawn.map(|()| ending))
         }
     }
 }

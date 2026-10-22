@@ -325,6 +325,58 @@ fn a_hello_without_the_scripts_token_fails_the_play_with_unexpected_message() {
     assert!(!runtime_file(env.home()).exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_failed_play_keeps_its_code_when_removing_the_runtime_file_also_fails() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    let (process, _) = start(
+        &env,
+        "socket",
+        "daemon/hello-refused-protocol-version-unsupported.json",
+        &[],
+    );
+    let found = RuntimeFile::read(&runtime_file(env.home())).unwrap();
+    let folder = env.home().join("0.0");
+    let mode = |bits| std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(bits));
+    mode(0o500).unwrap();
+    let mut client = TinyClient::found_through(&found);
+
+    client.hello("0.2", "a-stranger's-token");
+
+    assert_eq!(client.next(), None);
+    let (status, stderr) = finish(&process);
+    mode(0o700).unwrap();
+    assert_eq!(status.code(), Some(1));
+    assert_eq!(failure(&stderr), "unexpected_message", "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_daemon_that_cannot_publish_fails_with_publish_failed() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    let folder = env.home().join("0.0");
+    std::fs::create_dir_all(&folder).unwrap();
+    let mode = |bits| std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(bits));
+    mode(0o500).unwrap();
+    let mut command = env.process_command(SCRIPTED_ENGINE);
+    command
+        .arg("--script")
+        .arg(engine_script(
+            "daemon/hello-refused-protocol-version-unsupported.json",
+        ))
+        .args(["--mode", "socket"])
+        .stderr(Stdio::piped());
+    let process = env.spawn(&mut command).unwrap();
+
+    let (status, stderr) = finish(&process);
+
+    mode(0o700).unwrap();
+    assert_eq!(status.code(), Some(1));
+    assert_eq!(failure(&stderr), "publish_failed", "{stderr}");
+}
+
 #[test]
 fn the_dead_pid_script_leaves_a_runtime_file_whose_pid_no_longer_runs() {
     let env = TestEnv::new();

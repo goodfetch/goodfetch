@@ -2,7 +2,9 @@
 //! process on a run file in memory (spec #581: pure rules and run state in
 //! process).
 
-use goodfetch_frontier::{Patterns, SCOPE_TABLES, Scope, ScopeStrategy, VISITED_TABLES};
+use goodfetch_frontier::{
+    BOUNDS_TABLES, Patterns, SCOPE_TABLES, Scope, ScopeStrategy, VISITED_TABLES,
+};
 use goodfetch_protocol::foxhound::crawl::Seed;
 use goodfetch_protocol::foxhound::frontier::{CrawlRequestEnqueueParams, Enqueued, NotAddedReason};
 use rusqlite::Connection;
@@ -25,6 +27,7 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
         .iter()
         .chain(VISITED_TABLES.statements)
         .chain(SCOPE_TABLES.statements)
+        .chain(BOUNDS_TABLES.statements)
     {
         connection.execute(statement, []).unwrap();
     }

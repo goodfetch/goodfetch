@@ -60,10 +60,11 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    AppliedLimit, AxisReason, Checkpoint, EndingError, Lifecycle, NotUnderstoodLimit, NothingDone,
-    PointInTime, Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY,
-    ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunProgress, RunReport,
-    RunStarted, RunUsage, RunWarning, StartInput, StartedAs, StopReason, Tags,
+    AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, Lifecycle, NotUnderstoodLimit,
+    NothingDone, PointInTime, Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS,
+    RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner,
+    RunProgress, RunReport, RunStarted, RunUsage, RunWarning, StartInput, StartedAs, StopReason,
+    Tags,
 };
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
 use goodfetch_protocol::settings::WeakenedSetting;
@@ -554,13 +555,12 @@ enum Waiting {
 /// How a Run's driver ends it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {
-    /// Its work is done: `finished`.
-    Finished,
-    /// Its work is done, but part of it could not be, such as requests a
-    /// site held unsent further away than the Run waits (ADR 0118):
-    /// `finished` and `incomplete` (ADR 0029), for the reason the driver
-    /// gives.
-    FinishedIncomplete(AxisReason),
+    /// Its work is done: `finished`, `complete` unless the driver gives
+    /// reasons part of it was not, such as requests a site held unsent
+    /// further away than the Run waits (ADR 0118) or URLs a bound or a cap
+    /// refused (ADRs 0093 and 0120): the Run then takes the worst
+    /// Completeness they give (ADR 0029), each listed in its report.
+    Finished(Vec<CompletenessReason>),
     /// An error in the engine ended it: `failed`, the calls that end it
     /// raising `error` (ADR 0102).
     Failed(EndingError),
@@ -569,11 +569,31 @@ pub enum Ending {
     Stopped(StopReason),
 }
 
+/// A reason a finished Run's results do not cover its scope (ADRs 0029
+/// and 0102): the Completeness it gives the Run, `incomplete` or
+/// `unverified`, and the reason its report lists.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompletenessReason {
+    /// What it makes the Run.
+    pub completeness: Completeness,
+    /// Why, as the Run's report states it.
+    pub reason: AxisReason,
+}
+
+impl CompletenessReason {
+    /// `reason`, which leaves the Run `incomplete`.
+    pub fn incomplete(reason: AxisReason) -> Self {
+        Self {
+            completeness: Completeness::Incomplete,
+            reason,
+        }
+    }
+}
+
 /// Why a Run ends.
 #[derive(Clone, Debug)]
 enum End {
-    Finished,
-    FinishedIncomplete(AxisReason),
+    Finished(Vec<CompletenessReason>),
     Failed(EndingError),
     Stopped(StopReason),
 }
@@ -582,7 +602,7 @@ impl End {
     /// The event of the Run's table it is.
     fn event(&self) -> RunEvent {
         match self {
-            Self::Finished | Self::FinishedIncomplete(_) => RunEvent::Finish,
+            Self::Finished(_) => RunEvent::Finish,
             Self::Failed(_) => RunEvent::Fail,
             Self::Stopped(reason) => match reason {
                 StopReason::Abort { .. } => RunEvent::Abort,
@@ -1026,8 +1046,7 @@ impl Run {
     /// Dropping the future after the end was sent still ends the Run.
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
-            Ending::Finished => End::Finished,
-            Ending::FinishedIncomplete(reason) => End::FinishedIncomplete(reason),
+            Ending::Finished(reasons) => End::Finished(reasons),
             Ending::Failed(error) => End::Failed(error),
             Ending::Stopped(reason) => End::Stopped(reason),
         };
@@ -2487,7 +2506,9 @@ impl Registry {
             return self.ended_report(run_id).await;
         };
         match (live.ended_by, letting) {
-            (EndedBy::Finish, Letting::Finish) => self.end_or_report(run_id, End::Finished).await,
+            (EndedBy::Finish, Letting::Finish) => {
+                self.end_or_report(run_id, End::Finished(Vec::new())).await
+            }
             (EndedBy::Driver, Letting::Finish) => {
                 if let Some(run) = &live.run {
                     run.shared.finish.send_replace(true);
@@ -2632,7 +2653,7 @@ impl Registry {
         };
         let stopping = match &end {
             End::Stopped(cause) => Some(cause.clone()),
-            End::Finished | End::FinishedIncomplete(_) | End::Failed(_) => None,
+            End::Finished(_) | End::Failed(_) => None,
         };
         if let Some(cause) = &stopping {
             announce_stop(&events, run_id, cause).await;
@@ -3395,11 +3416,10 @@ impl Closing {
             console_url,
         } = self;
         run.owner.stop().await;
-        let (stop_reason, error, incomplete) = match end {
-            End::Finished => (None, None, None),
-            End::FinishedIncomplete(reason) => (None, None, Some(reason)),
-            End::Failed(error) => (None, Some(error), None),
-            End::Stopped(reason) => (Some(reason), None, None),
+        let (stop_reason, error, finished) = match end {
+            End::Finished(reasons) => (None, None, reasons),
+            End::Failed(error) => (None, Some(error), Vec::new()),
+            End::Stopped(reason) => (Some(reason), None, Vec::new()),
         };
         let limits = given_back(&run, &writer).await;
         let facts = EndFacts {
@@ -3417,7 +3437,7 @@ impl Closing {
             console_url,
             limits,
             error,
-            incomplete,
+            finished,
         };
         let state = run.state.clone();
         let (run_id, folder) = (run.id.clone(), run.folder.clone());

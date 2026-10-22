@@ -8,8 +8,8 @@
 use goodfetch_engine::admission::{Ended, Gate, Waiting};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_frontier::{
-    Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, Url, VISITED_TABLES, admit,
-    url_key,
+    BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, Url,
+    VISITED_TABLES, admit, url_key,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rusqlite::Connection;
@@ -104,6 +104,7 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
         .statements
         .iter()
         .chain(SCOPE_TABLES.statements)
+        .chain(BOUNDS_TABLES.statements)
     {
         connection
             .execute(statement, [])

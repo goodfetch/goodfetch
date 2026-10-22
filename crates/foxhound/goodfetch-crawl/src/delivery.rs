@@ -55,8 +55,9 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::{ChargeError, Ending, Run};
+use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_frontier::{Bounds, completeness_reasons};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
@@ -69,6 +70,7 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
+use rusqlite::Connection;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -317,7 +319,8 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
     }
 }
 
-/// Drives a resumed crawl (ADRs 0002 and 0102): each attempt its committed
+/// Drives a resumed crawl (ADRs 0002 and 0102), its bounds recorded again
+/// from its settings: each attempt its committed
 /// state shows in flight, whose engine stopped without settling it, counts
 /// as `handler_lost` against `crawl.retry.max` and is retried or failed,
 /// then delivery goes on from the committed state, so the work since that
@@ -329,9 +332,11 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, crawls: Crawls) {
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
+    let bounds = Bounds::of_settings(settings.resolved());
     let left = run
         .state()
         .write(move |connection| {
+            bounds.record(connection)?;
             work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
             work_items::left(connection)
         })
@@ -424,7 +429,8 @@ enum Waited {
     Again,
 }
 
-/// Finishes a crawl with no work item left, unless `crawl.keep_alive`,
+/// Finishes a crawl with no work item left, with what its bounds and caps
+/// cut as its Completeness reasons, unless `crawl.keep_alive`,
 /// read at each admission point as its policy is, holds it until
 /// `run.finish` lets it finish: until then it waits for new work, as the
 /// Run's own timeout and a stop still end it (RT-12).
@@ -439,22 +445,30 @@ async fn drained(
         .boolean(CRAWL_KEEP_ALIVE.name)
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
-        let unavailable = run
-            .state()
-            .read(|connection| work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name))
-            .await;
-        let ending = match unavailable {
-            Ok(false) => Ending::Finished,
-            Ok(true) => Ending::FinishedIncomplete(unavailable_reason()),
+        let ending = match run.state().read(short_of_scope).await {
+            Ok(reasons) => Ending::Finished(reasons),
             Err(error) => {
-                tracing::warn!(%error, run_id = %run.id(), "the crawl's failed requests were not read; it finishes incomplete");
-                Ending::FinishedIncomplete(unavailable_reason())
+                tracing::error!(%error, run_id = %run.id(), "what cut the crawl could not be read");
+                failed(run, &error)
             }
         };
         end(run, admission, ending).await;
         return Waited::Ended;
     }
     waited(run, admission, servers, arrivals, true).await
+}
+
+/// Why the finished crawl of the run file `connection` holds does not
+/// cover its scope: what its bounds and caps refused (ADRs 0093 and 0120)
+/// and, when requests `failed` with `response_unavailable`, that (ADR
+/// 0118), in the order of their codes.
+fn short_of_scope(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
+    let mut reasons = completeness_reasons(connection)?;
+    if work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name)? {
+        reasons.push(CompletenessReason::incomplete(unavailable_reason()));
+    }
+    reasons.sort_by(|one, other| one.reason.code.cmp(&other.reason.code));
+    Ok(reasons)
 }
 
 /// Why a crawl that ends with requests `failed` with

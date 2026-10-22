@@ -26,6 +26,7 @@ use rusqlite::Connection;
 use tokio::runtime::Runtime;
 use url::Url;
 
+use crate::bounds;
 use crate::identity::{self, Declared, Hop};
 use crate::scope::{self, Scope};
 use crate::{Candidate, admit};
@@ -261,7 +262,7 @@ impl Subject {
         let state = self.runtime.block_on(RunState::open(
             path,
             &options,
-            vec![identity::TABLES, scope::TABLES, REQUESTS],
+            vec![identity::TABLES, scope::TABLES, bounds::TABLES, REQUESTS],
             1,
             &self.owner,
         ));

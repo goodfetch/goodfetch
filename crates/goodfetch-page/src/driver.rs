@@ -397,13 +397,7 @@ impl Turn<'_> {
         function: &str,
         argument: serde_json::Value,
     ) -> Result<serde_json::Value, Unanswered> {
-        let context = if let Some(context) = *self.world {
-            context
-        } else {
-            let made = self.send(&isolated_world(self.page.frame.clone())).await?;
-            *self.world = Some(made.execution_context_id);
-            made.execution_context_id
-        };
+        let context = self.world().await?;
         let called = self.send(&world::call(function, argument, context)).await?;
         if let Some(thrown) = called.exception_details {
             return Err(Unanswered::Failed(CallError::protocol(
@@ -482,6 +476,25 @@ impl Turn<'_> {
             )
             .await
             .map(|_| ())
+    }
+
+    /// The context of the guard's isolated world in the page's main frame,
+    /// made on first use in each document.
+    async fn world(&mut self) -> Result<runtime::ExecutionContextId, Unanswered> {
+        if let Some(context) = *self.world {
+            return Ok(context);
+        }
+        let made = self.send(&isolated_world(self.page.frame.clone())).await?;
+        *self.world = Some(made.execution_context_id);
+        Ok(made.execution_context_id)
+    }
+
+    /// The encoding the main frame's document was decoded with, read in
+    /// the guard's world.
+    async fn document_encoding(&mut self) -> Result<Option<String>, Unanswered> {
+        let context = self.world().await?;
+        let evaluated = self.send(&encoding_read(context)).await?;
+        Ok(encoding_of(evaluated))
     }
 
     /// Sends a command of the guard's world, a lost document being
@@ -654,25 +667,43 @@ impl PageDriver {
 
     /// The encoding the main frame's document was decoded with, read in
     /// the guard's world; none when the frame holds no document that names
-    /// one.
+    /// one. The world is the one the page's turn keeps when no gesture
+    /// holds the turn, so that the next gesture finds it made; otherwise
+    /// the browser gives the read the same world by its name.
     async fn document_encoding(&self, call: &Call) -> Result<Option<String>, CallError> {
-        let made = self
-            .browser
-            .send(
-                Some(&self.session),
-                &isolated_world(self.frame.clone()),
-                call,
-            )
-            .await?;
-        let evaluated = self
-            .browser
-            .send(
-                Some(&self.session),
-                &encoding_read(made.execution_context_id),
-                call,
-            )
-            .await?;
-        Ok(encoding_of(evaluated))
+        let Ok(world) = self.turn.try_lock() else {
+            let made = self
+                .browser
+                .send(
+                    Some(&self.session),
+                    &isolated_world(self.frame.clone()),
+                    call,
+                )
+                .await?;
+            let evaluated = self
+                .browser
+                .send(
+                    Some(&self.session),
+                    &encoding_read(made.execution_context_id),
+                    call,
+                )
+                .await?;
+            return Ok(encoding_of(evaluated));
+        };
+        let mut turn = Turn {
+            page: self,
+            world,
+            call: call.clone(),
+        };
+        // A world kept from the document before is gone: made again once.
+        for _ in 0..2 {
+            match turn.document_encoding().await {
+                Ok(encoding) => return Ok(encoding),
+                Err(Unanswered::WorldGone) => {}
+                Err(Unanswered::Failed(error)) => return Err(error),
+            }
+        }
+        Ok(None)
     }
 
     /// The URL `destination` names and the command that goes there; none

@@ -40,10 +40,15 @@ fn usage_lists_a_limit_set_in_the_ledger_of_the_goodfetch_home() {
         .run()
         .unwrap();
 
-    let listed: Value = serde_json::from_str(&listed.stdout).unwrap();
+    let limits: Value = serde_json::from_str(&listed.stdout).unwrap();
     assert_eq!(
-        (listed, env.home().join("usage-ledger.sqlite").is_file()),
         (
+            listed.exit,
+            limits,
+            env.home().join("usage-ledger.sqlite").is_file()
+        ),
+        (
+            Some(0),
             json!({ "limits": [{
                 "limit": {
                     "scope": { "kind": "install", "id": "" },

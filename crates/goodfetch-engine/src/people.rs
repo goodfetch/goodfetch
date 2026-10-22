@@ -521,7 +521,7 @@ impl Inner {
     /// `touch`, its last use is now. A sign-in past its idle expiry is
     /// removed.
     fn live(&self, cookie: &str, touch: bool) -> Option<SignInRow> {
-        let (id, _) = cookie.split_once('.')?;
+        let id = sign_in_id(cookie)?;
         let key = match self.key.read_or_create() {
             Ok(key) => key,
             Err(error) => {
@@ -594,6 +594,12 @@ pub fn os_user(environment: &BTreeMap<OsString, OsString>) -> String {
         })
         .unwrap_or("os_user")
         .to_owned()
+}
+
+/// The identifier of the sign-in a cookie's value carries: its part before
+/// the first `.`; none for a value with no `.`.
+pub fn sign_in_id(cookie: &str) -> Option<&str> {
+    cookie.split_once('.').map(|(id, _)| id)
 }
 
 /// HMAC-SHA-256 of `purpose` and `value` under `key`, in hex.

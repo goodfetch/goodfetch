@@ -34,7 +34,7 @@ use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use tokio_util::sync::CancellationToken;
 
 use crate::composition::ConsoleBuild;
-use crate::people::{SignInDriver, SignInFailure, SignInRefused};
+use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleSocket, REFUSAL_TARGET, Refusal};
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, ConsoleStream};
@@ -443,6 +443,50 @@ fn sign_in_token(body: &[u8]) -> &str {
     std::str::from_utf8(body).unwrap_or_default().trim()
 }
 
+/// The fuzz target `console_sign_in`'s body (ADR 0067): the inputs of the
+/// Console's sign-in endpoints, which any page or program may send, split
+/// at NUL bytes into a `Cookie` header, a `POST /sign-in` body and an
+/// `X-CSRF-Token` header. Each is read as the endpoints read it: a cookie's
+/// value is one of the header's pairs and its sign-in's identifier its
+/// first part, a body's token is trimmed text, and a CSRF token is header
+/// text. It panics only on a bug.
+pub fn fuzz_sign_in_endpoints(data: &[u8]) {
+    const NAME: &str = "goodfetch_console_0.0";
+    let mut parts = data.splitn(3, |byte| *byte == 0);
+    let (cookies, body, csrf) = (
+        parts.next().unwrap_or_default(),
+        parts.next().unwrap_or_default(),
+        parts.next().unwrap_or_default(),
+    );
+    let mut headers = HeaderMap::new();
+    if let Ok(value) = HeaderValue::from_bytes(cookies) {
+        headers.insert(header::COOKIE, value);
+    }
+    if let Ok(value) = HeaderValue::from_bytes(csrf) {
+        headers.insert(CSRF_HEADER, value);
+    }
+    if let Some(value) = cookie_named(&headers, NAME) {
+        assert!(!value.contains(';'), "a cookie's value spans two pairs");
+        let text = headers
+            .get(header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert!(
+            text.contains(&format!("{NAME}={value}")),
+            "a cookie's value is no pair of its header"
+        );
+        if let Some(id) = sign_in_id(value) {
+            assert!(
+                value.starts_with(id) && !id.contains('.'),
+                "a sign-in's identifier is not its cookie's first part"
+            );
+        }
+    }
+    let token = sign_in_token(body);
+    assert_eq!(token, token.trim(), "a sign-in token keeps its blanks");
+    let _ = headers.get(CSRF_HEADER).map(HeaderValue::to_str);
+}
+
 /// A refusal by the endpoint table's rule `reason`, logged, answered with
 /// `status` and no body.
 fn refused(reason: &'static str, status: StatusCode) -> Response<Full<Bytes>> {
@@ -547,4 +591,12 @@ fn content_type(path: &str) -> &'static str {
         Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }
+}
+
+#[cfg(test)]
+mod sign_in_endpoints {
+    goodfetch_test_support::fuzz_replay!(
+        crate::console::fuzz_sign_in_endpoints,
+        "fuzz/console_sign_in"
+    );
 }

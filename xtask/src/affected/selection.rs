@@ -47,7 +47,7 @@ impl Job {
         Self::Tlc,
     ];
 
-    pub(crate) const fn id(self) -> &'static str {
+    const fn id(self) -> &'static str {
         match self {
             Self::PreMerge => "pre-merge",
             Self::Sinks => "sinks",

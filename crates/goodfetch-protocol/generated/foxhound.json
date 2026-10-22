@@ -340,6 +340,18 @@
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "id": {
           "arrived_in": "0.1",
           "description": "Its ID within the Run.",
@@ -349,6 +361,11 @@
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -363,7 +380,8 @@
       "required": [
         "id",
         "url",
-        "label"
+        "label",
+        "method"
       ],
       "type": "object"
     },
@@ -371,6 +389,18 @@
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "crawl_request_id": {
           "arrived_in": "0.1",
           "description": "The ID of the crawl request whose attempt enqueues.",
@@ -388,6 +418,14 @@
           "arrived_in": "0.1",
           "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
         },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
@@ -399,6 +437,11 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -1241,6 +1284,16 @@
       ],
       "type": "object"
     },
+    "HttpBody": {
+      "contentEncoding": "base64",
+      "description": "The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
+    "HttpMethod": {
+      "description": "The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.",
+      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+      "type": "string"
+    },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
       "oneOf": [
@@ -1566,7 +1619,7 @@
       "oneOf": [
         {
           "const": "duplicate",
-          "description": "The Frontier already admitted a request of the same identity.",
+          "description": "The Frontier already admitted a request of the same identity: its\nmethod, its URL's key and its body's hash, or its declared `key`.",
           "type": "string"
         },
         {
@@ -2726,12 +2779,37 @@
     },
     "Seed": {
       "additionalProperties": false,
-      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload.",
+      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload, and how it is sent and identified.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -3938,7 +4016,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
       "events": [],
       "kind": "round_trip",
       "name": "crawl_request.enqueue",

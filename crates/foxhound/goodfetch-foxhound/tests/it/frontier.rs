@@ -4,7 +4,10 @@
 //! reason, `run.seeds` lists the answers, so a crawl of nothing says why,
 //! and a handler's `crawl_request.enqueue` resolves a relative URL against
 //! its document's base URL, after a `<base href>` and after a redirect, on
-//! the Proving ground's `links` family.
+//! the Proving ground's `links` family. A request's identity is its method,
+//! its URL's key and its body's hash, or its declared `key`: tracking
+//! parameters, parameter order, `;jsessionid=` and the fragment never split
+//! a page, which is fetched at its own URL.
 #![expect(
     clippy::disallowed_types,
     reason = "the test's handler fetches the Proving ground's pages from outside the engine (ADR 0060)"
@@ -34,10 +37,11 @@ struct Fetched {
 }
 
 /// Fetches `url`, a page of the Proving ground, following its redirects,
-/// as the crawl's handler does.
+/// as the crawl's handler does: its fragment never sent.
 fn fetch(proving_ground: &ProvingGround, url: &str) -> Fetched {
     let authority_and_path = url.strip_prefix("http://").unwrap();
     let (authority, path) = authority_and_path.split_at(authority_and_path.find('/').unwrap());
+    let path = path.split('#').next().unwrap();
     let mut stream = std::net::TcpStream::connect(proving_ground.address()).unwrap();
     write!(
         stream,
@@ -389,5 +393,138 @@ fn an_enqueue_from_an_attempt_that_ended_fails_with_attempt_ended() {
     assert_eq!(
         (answers, &after["error"]["data"]["code"]),
         (vec![json!("attempt_ended")], &json!("attempt_ended"))
+    );
+}
+
+/// The URL identity conformance cases of this slice (ADR 0120): tracking
+/// parameters, parameters in another order, `;jsessionid=` and the
+/// fragment make one request, seeded or enqueued, while the request is
+/// fetched at its own URL: the Proving ground receives it with its
+/// parameters in their order and its tracking parameters kept (pitfalls
+/// U04, U06).
+///
+/// Covers: story:6-213, operation:run.seeds, operation:crawl.start, operation:crawl_request.enqueue
+#[test]
+fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_at_its_own_url() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let guide = proving_ground.url("1.links.test", "/guide/");
+    let given = [
+        format!("{guide}?utm_source=news&b=2&a=1#top"),
+        format!("{guide}?a=1&b=2"),
+        format!("{guide};JSESSIONID=0A1B?b=2&gclid=x&a=1&&"),
+        format!("{guide}?a=2&b=1"),
+    ];
+    let seeds: Vec<Value> = given
+        .iter()
+        .map(|url| json!({ "url": url, "label": "guide" }))
+        .collect();
+    let linked = format!("{guide}?fbclid=y&a=1&b=2#reviews");
+    let mut engine = Attached::start(&env);
+
+    let mut enqueued = Vec::new();
+    let report = crawl(&mut engine, "keys", &seeds, &mut |inside, handle| {
+        fetch(
+            &proving_ground,
+            handle["crawl_request"]["url"].as_str().unwrap(),
+        );
+        enqueued.push(inside.enqueue(handle, &linked, "guide", None));
+        json!({ "result": { "records": [] } })
+    });
+    let answers = engine.call(
+        "seeds",
+        "run.seeds",
+        &json!({ "run_id": "keys" }),
+        &mut |_| None,
+    );
+    let received: Vec<Value> = proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|request| json!([request["host"], request["target"]]))
+        .collect();
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            &answers["result"]["seeds"],
+            Value::Array(enqueued),
+            received
+        ),
+        (
+            &json!("finished"),
+            &json!([
+                added("1", &given[0]),
+                not_added("duplicate", &given[1]),
+                not_added("duplicate", &given[2]),
+                added("2", &given[3]),
+            ]),
+            json!([
+                not_added("duplicate", &linked),
+                not_added("duplicate", &linked)
+            ]),
+            vec![
+                json!(["1.links.test", "/guide/?utm_source=news&b=2&a=1"]),
+                json!(["1.links.test", "/guide/?a=2&b=1"]),
+            ]
+        )
+    );
+}
+
+/// A request's identity is its method, its URL's key and its body's hash
+/// (ADR 0093): a POST to one URL with two bodies is two requests, the same
+/// body twice is one, and a GET of that URL another; a declared `key`
+/// replaces the identity (ADR 0005). Each request reaches its handler with
+/// the method and body it is sent with.
+///
+/// Covers: story:6-212, story:6-214, operation:run.seeds, operation:crawl.start
+#[test]
+fn a_post_with_two_bodies_is_two_requests_and_a_declared_key_replaces_the_identity() {
+    let env = TestEnv::new();
+    let search = "https://api.test/search";
+    let (first, second) = ("eyJwYWdlIjoxfQ==", "eyJwYWdlIjoyfQ==");
+    let seeds = [
+        json!({ "url": search, "label": "search", "method": "POST", "body": first }),
+        json!({ "url": search, "label": "search", "method": "post", "body": second }),
+        json!({ "url": search, "label": "search", "method": "POST", "body": first }),
+        json!({ "url": search, "label": "search" }),
+        json!({ "url": "https://api.test/item/1?ref=home", "label": "item", "key": "item-1" }),
+        json!({ "url": "https://api.test/item/1?ref=search", "label": "item", "key": "item-1" }),
+    ];
+    let mut engine = Attached::start(&env);
+
+    let mut handled = Vec::new();
+    crawl(&mut engine, "bodies", &seeds, &mut |_, handle| {
+        let request = &handle["crawl_request"];
+        handled.push(json!([request["url"], request["method"], request["body"]]));
+        json!({ "result": { "records": [] } })
+    });
+    let answers = engine.call(
+        "seeds",
+        "run.seeds",
+        &json!({ "run_id": "bodies" }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (&answers["result"]["seeds"], handled),
+        (
+            &json!([
+                added("1", search),
+                added("2", search),
+                not_added("duplicate", search),
+                added("3", search),
+                added("4", "https://api.test/item/1?ref=home"),
+                not_added("duplicate", "https://api.test/item/1?ref=search"),
+            ]),
+            vec![
+                json!([search, "POST", first]),
+                json!([search, "POST", second]),
+                json!([search, "GET", null]),
+                json!(["https://api.test/item/1?ref=home", "GET", null]),
+            ]
+        )
     );
 }

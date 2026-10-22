@@ -1411,14 +1411,18 @@ dependencies = [
 name = "goodfetch-frontier"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
+ "goodfetch-test-support",
  "gungraun",
  "proptest",
+ "proptest-state-machine",
  "psl",
  "rstest",
  "rusqlite",
  "serde_json",
+ "sha2",
  "tokio",
  "url",
 ]
@@ -1452,6 +1456,7 @@ dependencies = [
 name = "goodfetch-protocol"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "jiff",
  "jsonschema",
  "proptest",

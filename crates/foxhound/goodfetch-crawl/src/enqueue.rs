@@ -7,10 +7,10 @@
 //! domain once the attempt settles.
 
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_frontier::{Candidate, admit, document_base};
+use goodfetch_frontier::{Candidate, Declared, admit, document_base};
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
-    CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued,
+    CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpBody,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails};
@@ -94,23 +94,28 @@ fn add(
     let Some(base) = document.cloned().or_else(|| document_base(&url, None)) else {
         return Ok(None);
     };
-    admit(
-        Candidate::Enqueue {
-            url: &params.url,
-            base: &base,
+    let candidate = Candidate::Enqueue {
+        url: &params.url,
+        base: &base,
+        declared: Declared {
+            method: &params.method,
+            body: params.body.as_ref().map(HttpBody::bytes),
+            key: params.key.as_deref(),
         },
-        |request| {
-            work_items::add(
-                connection,
-                request,
-                Adding {
-                    label: &params.label,
-                    payload: params.payload.as_ref(),
-                    priority: params.priority,
-                    depth: depth + 1,
-                },
-            )
-        },
-    )
+    };
+    admit(connection, candidate, |url| {
+        work_items::add(
+            connection,
+            url,
+            Adding {
+                method: &params.method,
+                body: params.body.as_ref(),
+                label: &params.label,
+                payload: params.payload.as_ref(),
+                priority: params.priority,
+                depth: depth + 1,
+            },
+        )
+    })
     .map(Some)
 }

@@ -495,6 +495,18 @@ const STANDALONE: &str = "crates/sample/tests/standalone.rs";
     "",
     vec![finding("retired-without-reason", "story:1-3")],
 )]
+#[case::story_with_an_unknown_milestone(
+    STORIES,
+    "milestone = \"M2 Next\"",
+    "milestone = \"M5 Later\"",
+    vec![finding("milestone-unknown", "story:1-2")],
+)]
+#[case::active_story_with_a_reason(
+    STORIES,
+    "journey = true\nstatus = \"active\"",
+    "journey = true\nstatus = \"active\"\nreason = \"Merged into story 2.\"",
+    vec![finding("active-with-reason", "story:1-1")],
+)]
 #[case::stories_file_with_an_unknown_field(
     STORIES,
     "milestone = \"M2 Next\"",
@@ -552,5 +564,26 @@ fn check_fails_on_each_cause(
     let outcome = workspace.xtask(&["features", "check", "--listings", LISTINGS]);
 
     assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}
+
+/// A matrix row's milestone must be one the report judges, as a story's
+/// must: else the Quick check passes and the report then refuses it.
+#[test]
+fn check_fails_on_a_row_with_an_unknown_milestone() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.write(
+        "features/rows.toml",
+        b"[[row]]\nid = \"CO-09\"\nmilestone = \"M5 Later\"\n",
+    );
+
+    let outcome = workspace.xtask(&["features", "check", "--listings", LISTINGS]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("milestone-unknown", "row:CO-09")],
+        "{}",
+        outcome.stderr
+    );
     assert_eq!(outcome.code, 1);
 }

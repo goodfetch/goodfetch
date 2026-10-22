@@ -22,8 +22,10 @@ use std::path::Path;
 use anyhow::{Result, bail};
 
 use super::files::{
-    self, AreasFile, ExceptionsFile, Feature, Inventory, Kind, Status, StoryFile, Unreadable,
+    self, AreasFile, ExceptionsFile, Feature, Inventory, Kind, RowsFile, Status, StoryFile,
+    Unreadable,
 };
+use super::report;
 use super::scan::Declaration;
 use crate::check::Finding;
 
@@ -63,6 +65,7 @@ pub(crate) fn check(
         &mut findings,
     )?;
     stories(root, &mut findings)?;
+    rows(root, &mut findings)?;
     let Some(inventory) = inventory else {
         return Ok(Verdict {
             findings,
@@ -273,9 +276,49 @@ fn stories(root: &Path, findings: &mut Vec<Finding>) -> Result<()> {
                     "a retired story says why in `reason`",
                 ));
             }
+            if story.status == Status::Active && story.reason.is_some() {
+                findings.push(Finding::new(
+                    "active-with-reason",
+                    &id,
+                    "an active story has no `reason`; only a retired one says why it went",
+                ));
+            }
+            if report::milestone_of(&story.milestone).is_none() {
+                findings.push(unknown_milestone(&id, &story.milestone));
+            }
         }
     }
     Ok(())
+}
+
+/// Each matrix row's milestone is one the report judges.
+fn rows(root: &Path, findings: &mut Vec<Finding>) -> Result<()> {
+    let Some(rows): Option<RowsFile> = readable(
+        files::read_optional_toml(root, files::ROWS),
+        files::ROWS,
+        findings,
+    )?
+    else {
+        return Ok(());
+    };
+    for row in &rows.row {
+        if report::milestone_of(&row.milestone).is_none() {
+            findings.push(unknown_milestone(
+                &format!("{}:{}", Kind::Row, row.id),
+                &row.milestone,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A milestone outside M1 to M4, which the report refuses.
+fn unknown_milestone(id: &str, milestone: &str) -> Finding {
+    Finding::new(
+        "milestone-unknown",
+        id,
+        format!("`{milestone}` is not a milestone M1 to M4, which the report judges"),
+    )
 }
 
 /// The findings and notes of `packages`, each a package's name or folder:

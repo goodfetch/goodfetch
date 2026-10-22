@@ -13,6 +13,7 @@ mod bounds;
 mod crawl;
 mod daemon;
 mod frontier;
+mod governor;
 mod journeys;
 mod limits;
 mod outcomes;

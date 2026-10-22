@@ -6,6 +6,26 @@
       "redacted": "run [ULID] finished"
     },
     {
+      "description": "A lowercase Run ID alone",
+      "output": "01ke6p4ym0kwx1ravx9sfp18dj",
+      "redacted": "[ULID]"
+    },
+    {
+      "description": "A lowercase Run ID in a URL and in a path",
+      "output": "http://127.0.0.1:8080/runs/01ke6p4ym0kwx1ravx9sfp18dj/events wrote runs/01ke6p4ym0kwx1ravx9sfp18dj.json",
+      "redacted": "http://127.0.0.1:[PORT]/runs/[ULID]/events wrote runs/[ULID].json"
+    },
+    {
+      "description": "A ULID matches only as a whole word: a Daemon token, 64 hex digits whose last 26 read as a lowercase ULID, stays whole",
+      "output": "http://127.0.0.1:8080/#token=9f3ab7c2e1d4f6a8b0c9d2e5f7a1b3c4d6e8f04b6d8f0a2c4e6f8a1b3c5d7e9f",
+      "redacted": "http://127.0.0.1:[PORT]/#token=9f3ab7c2e1d4f6a8b0c9d2e5f7a1b3c4d6e8f04b6d8f0a2c4e6f8a1b3c5d7e9f"
+    },
+    {
+      "description": "A ULID matches only as a whole word: a base64url token whose tail is a 26-character base32 run stays whole",
+      "output": "cookie Tq9_w01ke6p4ym0kwx1ravx9sfp18dj",
+      "redacted": "cookie Tq9_w01ke6p4ym0kwx1ravx9sfp18dj"
+    },
+    {
       "description": "A ULID in uppercase, as a Schedule ID may be written",
       "output": "Schedule 01KE6P4YM0KWX1RAVX9SFP18DJ is due",
       "redacted": "Schedule [ULID] is due"

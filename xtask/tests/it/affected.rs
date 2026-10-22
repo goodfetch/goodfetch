@@ -286,3 +286,101 @@ fn change_reaching_a_package_with_a_visual_test_selects_the_visual_job(
     assert_eq!(outcome.code, 0);
     assert_eq!(value(&outcome, "jobs"), jobs);
 }
+
+/// A TypeScript and a Python package that declare no other member, beside
+/// the fixture's, committed and tagged `with-other`; `setup` adds what the
+/// case reads first.
+fn with_other_packages(workspace: &Workspace, setup: impl FnOnce(&Workspace)) {
+    workspace.write(
+        "sdks/typescript/other/package.json",
+        br#"{ "name": "@goodfetch/other", "version": "0.0.0", "private": true }"#,
+    );
+    workspace.write(
+        "sdks/python/other/pyproject.toml",
+        b"[project]\nname = \"goodfetch-other\"\nversion = \"0.0.0\"\n",
+    );
+    setup(workspace);
+    commit_all(workspace, "Add the other packages");
+    workspace.git(&["tag", "with-other"]);
+}
+
+/// The packages a change reaches, by `xtask affected --base with-other`.
+fn reached_packages(workspace: &Workspace) -> (String, String) {
+    let outcome = workspace.xtask(&["affected", "--base", "with-other", "--head", "change"]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    (
+        value(&outcome, "vitest-packages"),
+        value(&outcome, "pytest-packages"),
+    )
+}
+
+/// What the root runner configs import, and a pytest plugin, run in every
+/// package's tests, whatever the package declares (the incremental gate's
+/// review, F1).
+#[test]
+fn a_package_every_run_of_its_runner_loads_reaches_every_package_of_its_ecosystem() {
+    let workspace = repository();
+    with_other_packages(&workspace, |workspace| {
+        workspace.write(
+            "vitest.config.ts",
+            b"import { CaseLogReporter } from \"@goodfetch/collie-client/case-log\";\nexport default {};\n",
+        );
+        workspace.write(
+            "sdks/python/collie-client/pyproject.toml",
+            b"[project]\nname = \"goodfetch-collie-client\"\nversion = \"0.0.0\"\n\n[project.entry-points.pytest11]\nplugin = \"goodfetch_collie_client.plugin\"\n",
+        );
+    });
+    workspace.write(
+        "sdks/typescript/collie-client/src/index.ts",
+        b"export {};\n",
+    );
+    workspace.write(
+        "sdks/python/collie-client/src/goodfetch_collie_client/plugin.py",
+        b"",
+    );
+    commit_all(&workspace, "Change the loaded packages");
+
+    assert_eq!(
+        reached_packages(&workspace),
+        (
+            "sdks/typescript/collie-client sdks/typescript/foxhound sdks/typescript/other"
+                .to_owned(),
+            "sdks/python/collie-client sdks/python/foxhound sdks/python/other".to_owned()
+        )
+    );
+}
+
+/// A package that imports a member it does not declare, through the root
+/// package's hoisted dependency, is reached by it as by a declared one.
+#[test]
+fn an_undeclared_import_of_a_member_reaches_the_importer() {
+    let workspace = repository();
+    with_other_packages(&workspace, |workspace| {
+        workspace.write(
+            "sdks/typescript/other/tests/frames.spec.ts",
+            b"import { frames } from '@goodfetch/collie-client/frames';\n",
+        );
+        workspace.write(
+            "sdks/python/other/tests/test_frames.py",
+            b"\"\"\"Frames.\"\"\"\n\nfrom goodfetch_collie_client.frames import frames\n",
+        );
+    });
+    workspace.write(
+        "sdks/typescript/collie-client/src/frames.ts",
+        b"export {};\n",
+    );
+    workspace.write(
+        "sdks/python/collie-client/src/goodfetch_collie_client/frames.py",
+        b"",
+    );
+    commit_all(&workspace, "Change the frames");
+
+    assert_eq!(
+        reached_packages(&workspace),
+        (
+            "sdks/typescript/collie-client sdks/typescript/foxhound sdks/typescript/other"
+                .to_owned(),
+            "sdks/python/collie-client sdks/python/foxhound sdks/python/other".to_owned()
+        )
+    );
+}

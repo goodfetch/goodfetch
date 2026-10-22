@@ -1,7 +1,8 @@
 //! The Daemon's health and its ops listener (ADR 0050). A Daemon is live
 //! while its runtime and its Runs' registry, which writes their run state,
 //! respond; it is ready while it is live, its run state is writable, the
-//! browsers its configuration uses are installed and it does not drain. In
+//! browsers its configuration uses are installed, it does not drain and its
+//! Resource governor is not at its last resort (ADR 0040). In
 //! a Daemon group, readiness ignores the Lead Daemon's reachability.
 //! `daemon.health` answers both with the reasons, and the ops listener's
 //! `/livez` and `/readyz` with a status alone: 200, or 503, and no body,
@@ -110,6 +111,7 @@ impl Health {
             (registry.draining, Unready::Draining),
             (!writable, Unready::RunStateNotWritable),
             (!installed, Unready::BrowsersMissing),
+            (registry.governor_last_resort, Unready::GovernorLastResort),
         ]
         .into_iter()
         .filter_map(|(holds, reason)| holds.then_some(reason))

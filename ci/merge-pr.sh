@@ -72,9 +72,11 @@ for entry in "$worktree"/target/*; do
   case ${entry##*/} in
     # Cargo's build folders (the profiles', the MSRV's and the stress run's
     # base listing's), the tests' temporary folder with its fixture builds,
-    # the TLA+ tools, each checked against its pinned SHA-256 when used, and
-    # the listings saved for the base of the next gate (below).
-    CACHEDIR.TAG | debug | release | ci-test | msrv | stress-base | tmp | tla-tools | stress-listings) ;;
+    # the TLA+ tools, each checked against its pinned SHA-256 when used,
+    # the listings saved for the base of the next gate (below), and the
+    # results each gate run recorded, which the next run on a descendant
+    # head reuses where the change since does not reach them (ADR 0135).
+    CACHEDIR.TAG | debug | release | ci-test | msrv | stress-base | tmp | tla-tools | stress-listings | gate-runs) ;;
     *) rm -rf "$entry" ;;
   esac
 done
@@ -111,6 +113,13 @@ echo "Running the local gate ($gate) on #$number at $head in $worktree"
     GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
   fi
 )
+# The incremental gate's verdict combines this run with the green results it
+# reused from earlier runs on ancestor heads (ADR 0135); the plan names the
+# nearest such run.
+reused=$(awk -F'\t' '$1 == "previous" { print $2 }' "$worktree/target/gate-runs/$head.plan" 2>/dev/null || true)
+if [[ -n "$reused" && "$reused" != none ]]; then
+  ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"
+fi
 
 gh pr merge "$number" --merge --match-head-commit "$head" \
   --subject "$title (#$number)" \

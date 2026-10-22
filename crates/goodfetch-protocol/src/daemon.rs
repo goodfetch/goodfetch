@@ -252,6 +252,9 @@ pub enum Unready {
     RunStateNotWritable,
     /// A browser its configuration uses is not installed.
     BrowsersMissing,
+    /// Its Resource governor is at its last resort: memory stayed critical
+    /// at the floor past `governor.last_resort_after` (ADR 0040).
+    GovernorLastResort,
 }
 
 /// What `daemon.health` answers: what the ops listener's `/livez` and

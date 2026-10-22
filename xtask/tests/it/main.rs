@@ -38,6 +38,7 @@ mod feature_generators;
 mod features;
 mod features_report;
 mod fixture_size;
+mod gate;
 mod image_pins;
 mod ingest;
 mod journey_selection;

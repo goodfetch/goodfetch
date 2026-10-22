@@ -302,6 +302,27 @@ fn a_limit_a_newer_engine_wrote_refuses_runs_with_limit_not_understood() {
     );
 }
 
+/// An engine's start reclaims nothing from a ledger no engine created, and
+/// leaves it uncreated: a Run call is answered only once the reclaim ended.
+#[test]
+fn an_engine_that_starts_in_a_new_home_creates_no_usage_ledger() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[("run.finish", json!({ "run_id": "absent" }))],
+    );
+
+    assert_eq!(
+        (
+            &replies[0]["error"]["data"]["code"],
+            env.home().join("usage-ledger.sqlite").exists()
+        ),
+        (&json!("run_not_found"), false)
+    );
+}
+
 /// Runs a Collie engine in `env` that makes `calls`, then dies with its
 /// Runs live: its runtime is dropped, as a killed process's would be.
 fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {

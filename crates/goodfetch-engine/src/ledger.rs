@@ -259,22 +259,52 @@ impl Ledger {
     /// Opens the file, creating it and its tables when it does not exist,
     /// and refuses one of another major.
     fn open(&self) -> Result<Connection, LedgerError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
         if let Some(folder) = self.path.parent() {
             #[expect(
                 clippy::disallowed_methods,
                 reason = "the ledger's calls run under their caller's blocking policy"
             )]
-            std::fs::create_dir_all(folder).map_err(|error| failed(&error))?;
+            std::fs::create_dir_all(folder).map_err(|error| self.failed(&error))?;
         }
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let mut connection = match &self.vfs {
+        let connection = self
+            .connect(OpenFlags::SQLITE_OPEN_CREATE)
+            .map_err(|error| self.failed(&error))?;
+        self.prepared(connection)
+    }
+
+    /// Opens the file as [`Ledger::open`] does when it exists; none when no
+    /// engine created it yet, so it holds no Slice.
+    fn open_existing(&self) -> Result<Option<Connection>, LedgerError> {
+        match self.connect(OpenFlags::empty()) {
+            Ok(connection) => self.prepared(connection).map(Some),
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::CannotOpen && self.absent() =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(self.failed(&error)),
+        }
+    }
+
+    /// Whether the file is missing, as far as it can tell: through a VFS of
+    /// a test's, SQLite's refusal to open it without creating it says so.
+    fn absent(&self) -> bool {
+        self.vfs.is_some() || matches!(self.path.try_exists(), Ok(false))
+    }
+
+    /// Connects to the file read-write, with `extra` flags.
+    fn connect(&self, extra: OpenFlags) -> rusqlite::Result<Connection> {
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX | extra;
+        match &self.vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
             None => Connection::open_with_flags(&self.path, flags),
         }
-        .map_err(|error| failed(&error))?;
+    }
+
+    /// Sets up `connection`, creating the tables it lacks, and refuses a
+    /// ledger of another major.
+    fn prepared(&self, mut connection: Connection) -> Result<Connection, LedgerError> {
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
@@ -511,12 +541,15 @@ impl Ledger {
     /// Reclaims every held Slice whose run `probe` finds gone: charges what
     /// the run journaled under the Slice's epoch, at most the Slice, or the
     /// whole Slice, marked for review, when its run state cannot be read.
+    /// A ledger no engine created yet holds no Slice, and stays uncreated.
     ///
     /// # Errors
     ///
     /// When the ledger cannot be read or written.
     pub fn reclaim(&self, probe: &dyn Fn(&Holder) -> Probed) -> Result<Reclaimed, LedgerError> {
-        let mut connection = self.open()?;
+        let Some(mut connection) = self.open_existing()? else {
+            return Ok(Reclaimed::default());
+        };
         let held = held_slices(&connection).map_err(|error| self.failed(&error))?;
         let mut reclaimed = Reclaimed::default();
         for (holder, slices) in held {

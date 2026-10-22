@@ -138,7 +138,7 @@ impl DomainQueues {
             idle: BTreeSet::new(),
             ids: BTreeSet::new(),
             changed: BTreeSet::new(),
-            entropy: Arc::new(tokio::sync::Mutex::new(entropy)),
+            entropy: SharedEntropy::new(entropy.into()),
         }
     }
 

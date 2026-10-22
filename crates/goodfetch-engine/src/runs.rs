@@ -536,6 +536,10 @@ enum Waiting {
 pub enum Ending {
     /// Its work is done: `finished`.
     Finished,
+    /// Its work is done, but part of it could not be, such as requests a
+    /// site held unsent further away than the Run waits (ADR 0118):
+    /// `finished` and `incomplete` (ADR 0029).
+    FinishedIncomplete,
     /// An error in the engine ended it: `failed`.
     Failed,
     /// It reached the safe point a stop asked for: `stopped`, for the
@@ -547,6 +551,7 @@ pub enum Ending {
 #[derive(Clone, Debug)]
 enum End {
     Finished,
+    FinishedIncomplete,
     Failed,
     Stopped(StopReason),
 }
@@ -555,7 +560,7 @@ impl End {
     /// The event of the Run's table it is.
     fn event(&self) -> RunEvent {
         match self {
-            Self::Finished => RunEvent::Finish,
+            Self::Finished | Self::FinishedIncomplete => RunEvent::Finish,
             Self::Failed => RunEvent::Fail,
             Self::Stopped(reason) => match reason {
                 StopReason::Abort { .. } => RunEvent::Abort,
@@ -905,6 +910,7 @@ impl Run {
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
             Ending::Finished => End::Finished,
+            Ending::FinishedIncomplete => End::FinishedIncomplete,
             Ending::Failed => End::Failed,
             Ending::Stopped(reason) => End::Stopped(reason),
         };
@@ -2357,7 +2363,7 @@ impl Registry {
         };
         let stopping = match &end {
             End::Stopped(cause) => Some(cause.clone()),
-            End::Finished | End::Failed => None,
+            End::Finished | End::FinishedIncomplete | End::Failed => None,
         };
         if let Some(cause) = &stopping {
             announce_stop(&events, run_id, cause).await;
@@ -3033,7 +3039,7 @@ impl Closing {
         run.owner.stop().await;
         let (stop_reason, completeness) = match end {
             End::Finished => (None, Completeness::Complete),
-            End::Failed => (None, Completeness::Incomplete),
+            End::FinishedIncomplete | End::Failed => (None, Completeness::Incomplete),
             End::Stopped(reason) => (Some(reason), Completeness::Incomplete),
         };
         let charging = run.shared.charging.lock().await.take();

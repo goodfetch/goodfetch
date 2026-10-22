@@ -28,7 +28,7 @@ use goodfetch_protocol::foxhound::outcomes::{
 };
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// The tables of a crawl's work items, Records and outcomes.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
@@ -68,6 +68,7 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             attempt INTEGER NOT NULL,
             code TEXT NOT NULL,
             message TEXT NOT NULL,
+            details TEXT,
             PRIMARY KEY (work_item, attempt)
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS outcomes (
@@ -109,6 +110,29 @@ pub(crate) struct Failure {
     pub(crate) code: String,
     /// What it said.
     pub(crate) message: String,
+    /// The error's own details, such as the time a site's `Retry-After`
+    /// asked for.
+    pub(crate) details: Map<String, Value>,
+}
+
+impl Failure {
+    /// A failure with the Error code `code` that says `message`, with no
+    /// details.
+    pub(crate) fn new(code: &str, message: &str) -> Self {
+        Self {
+            code: code.to_owned(),
+            message: message.to_owned(),
+            details: Map::new(),
+        }
+    }
+
+    /// The same failure, its details naming `fix`.
+    #[must_use]
+    pub(crate) fn with_fix(mut self, fix: &str) -> Self {
+        self.details
+            .insert("fix".to_owned(), Value::String(fix.to_owned()));
+        self
+    }
 }
 
 /// How an attempt that committed no Record ends its work item.
@@ -464,13 +488,22 @@ fn keep_error(
         |row| row.get(0),
     )?;
     connection.execute(
-        "INSERT INTO attempt_errors (work_item, attempt, code, message) VALUES (?1, ?2, ?3, ?4)",
-        (id, attempt, &failure.code, &failure.message),
+        "INSERT INTO attempt_errors (work_item, attempt, code, message, details)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        (
+            id,
+            attempt,
+            &failure.code,
+            &failure.message,
+            (!failure.details.is_empty())
+                .then(|| Value::Object(failure.details.clone()).to_string()),
+        ),
     )?;
     Ok(AttemptError {
         attempt,
         code: failure.code.clone(),
         message: failure.message.clone(),
+        details: failure.details.clone(),
     })
 }
 
@@ -491,7 +524,7 @@ fn write_outcome(
     )?;
     let errors = connection
         .prepare(
-            "SELECT attempt, code, message FROM attempt_errors
+            "SELECT attempt, code, message, details FROM attempt_errors
              WHERE work_item = ?1
                AND attempt > (SELECT coalesce(max(attempts), 0) FROM outcomes WHERE work_item = ?1)
              ORDER BY attempt",
@@ -501,6 +534,10 @@ fn write_outcome(
                 attempt: row.get(0)?,
                 code: row.get(1)?,
                 message: row.get(2)?,
+                details: row
+                    .get::<_, Option<String>>(3)?
+                    .and_then(|details| serde_json::from_str(&details).ok())
+                    .unwrap_or_default(),
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -595,6 +632,17 @@ pub(crate) fn recover_leases(
         (error_code, i64::from(retry_max), PENDING, FAILED, LEASED),
     )?;
     Ok(())
+}
+
+/// Whether any work item failed with the Error code `code`, such as
+/// `response_unavailable` for a site that was failing or held its requests
+/// unsent, which leaves a finished crawl `incomplete` (ADR 0118).
+pub(crate) fn any_failed_with(connection: &Connection, code: &str) -> rusqlite::Result<bool> {
+    connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM work_items WHERE status = ?1 AND error_code = ?2)",
+        (FAILED, code),
+        |row| row.get(0),
+    )
 }
 
 /// Whether any work item is still pending.

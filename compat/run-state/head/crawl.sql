@@ -5,15 +5,16 @@ CREATE TABLE attempt_errors (
             attempt INTEGER NOT NULL,
             code TEXT NOT NULL,
             message TEXT NOT NULL,
+            details TEXT,
             PRIMARY KEY (work_item, attempt)
         ) STRICT;
-INSERT INTO "attempt_errors" VALUES('2',1,'deadline_exceeded','no first byte');
+INSERT INTO "attempt_errors" VALUES('2',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "domains" VALUES('shop.test',1767603602000,0);
+INSERT INTO "domains" VALUES('shop.test',1767603605299,0);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL) STRICT;
@@ -27,7 +28,7 @@ CREATE TABLE outcomes (
         ) STRICT;
 INSERT INTO "outcomes" VALUES(1,'3','succeeded','home',1,'{"position":1,"request":{"id":"3","url":"https://api.test/search","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 INSERT INTO "outcomes" VALUES(2,'4','blocked','guarded',1,'{"position":2,"request":{"id":"4","url":"https://guarded.test/","label":"guarded","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"blocked","cause":"ip_block"}');
-INSERT INTO "outcomes" VALUES(3,'2','failed','product',1,'{"position":3,"request":{"id":"2","url":"https://shop.test/broken","label":"product","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte"}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte"}}');
+INSERT INTO "outcomes" VALUES(3,'2','failed','product',1,'{"position":3,"request":{"id":"2","url":"https://shop.test/broken","label":"product","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
 INSERT INTO "outcomes" VALUES(4,'1','succeeded','home',1,'{"position":4,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 INSERT INTO "outcomes" VALUES(5,'5','succeeded','home',1,'{"position":5,"request":{"id":"5","url":"https://outlet.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 CREATE TABLE pool_sessions (
@@ -82,7 +83,7 @@ CREATE TABLE run (
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',41,NULL,NULL,0,NULL);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',42,NULL,NULL,0,NULL);
 CREATE TABLE scope (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             strategy TEXT NOT NULL,

@@ -24,7 +24,6 @@ use proptest::prelude::*;
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
-use tokio::sync::Mutex;
 
 use super::{Backoff, DomainRule, TABLES};
 
@@ -48,7 +47,7 @@ fn rule(run: Value) -> DomainRule {
     };
     DomainRule::of(
         &resolve(&layers, Product::Foxhound, Product::Foxhound).unwrap(),
-        Arc::new(Mutex::new(entropy(7))),
+        Arc::new(entropy(7).into()),
     )
 }
 

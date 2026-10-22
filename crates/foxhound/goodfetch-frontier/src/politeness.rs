@@ -23,7 +23,12 @@
 //! The per-domain state lives in the `domain_limits` table Foxhound adds to
 //! the file; a Collie engine adds none and touches none (ADR 0098).
 
-use std::sync::Arc;
+#![expect(
+    clippy::disallowed_types,
+    reason = "the rule runs inside the Politeness file's transaction, a blocking call that may run inline on a runtime thread: one Mutex guards a gate's Entropy for one draw, never held with another lock or across an await, so there is no lock order to test under loom"
+)]
+
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::entropy::Entropy;
@@ -36,7 +41,6 @@ use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_CONCURRENCY, POLITENESS_DOMAIN_DELAY, POLITENESS_RETRY_AFTER_MAX,
 };
 use rusqlite::{Connection, OptionalExtension as _};
-use tokio::sync::Mutex;
 
 /// How long a lowered ceiling stays quiet before it grows back by one.
 pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
@@ -158,10 +162,9 @@ impl Limits {
     /// Whether one more request may start at `now` with `in_flight` in
     /// flight, under a run's own rule.
     fn admit(&self, in_flight: u64, now: i64, rule: &DomainRule) -> Verdict {
-        if let Some(backoff) = &rule.backoff
+        if let Some(longest) = rule.waits.longest()
             && let Some(ready_at) = self.ready_at.filter(|ready_at| *ready_at > now)
         {
-            let longest = rule.retry_after_max.max(backoff.max());
             return if ready_at.saturating_sub(now) > duration_milliseconds(longest) {
                 Verdict::Refused(moment(ready_at))
             } else {
@@ -215,7 +218,7 @@ impl Limits {
                 (true, asked)
             }
         };
-        let Some(backoff) = &rule.backoff else {
+        let Some(backoff) = &rule.waits.backoff else {
             return self;
         };
         let mut until = asked.map(milliseconds);
@@ -239,14 +242,49 @@ fn duration_milliseconds(duration: Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
 
+/// The longest a crawl under `settings` waits for its domain: the longer of
+/// `politeness.retry_after.max` and `politeness.backoff.max`; `None` when
+/// `politeness.backoff.enabled` is off, which waits for nothing. A site
+/// that asks for a time further away gets its requests refused unsent
+/// (ADR 0118).
+pub fn longest_wait(settings: &Resolved) -> Option<Duration> {
+    Waits::of(settings).longest()
+}
+
+/// What a crawl waits for under its own settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Waits {
+    /// `None` when `politeness.backoff.enabled` is off.
+    backoff: Option<Backoff>,
+    /// `politeness.retry_after.max`.
+    retry_after_max: Duration,
+}
+
+impl Waits {
+    fn of(settings: &Resolved) -> Self {
+        let duration = |name| settings.duration(name).unwrap_or_default();
+        Self {
+            backoff: (settings.value(POLITENESS_BACKOFF_ENABLED.name).as_bool() != Some(false))
+                .then(|| Backoff {
+                    initial: duration(POLITENESS_BACKOFF_INITIAL.name),
+                    max: duration(POLITENESS_BACKOFF_MAX.name),
+                }),
+            retry_after_max: duration(POLITENESS_RETRY_AFTER_MAX.name),
+        }
+    }
+
+    fn longest(&self) -> Option<Duration> {
+        let backoff = self.backoff?;
+        Some(self.retry_after_max.max(backoff.max()))
+    }
+}
+
 /// A crawl's per-domain rule under its own settings.
 #[derive(Clone, Debug)]
 pub(crate) struct DomainRule {
     concurrency: Option<u64>,
     delay: Option<Duration>,
-    /// `None` when `politeness.backoff.enabled` is off.
-    backoff: Option<Backoff>,
-    retry_after_max: Duration,
+    waits: Waits,
     entropy: SharedEntropy,
 }
 
@@ -254,18 +292,12 @@ impl DomainRule {
     /// The rule `settings` give a crawl, drawing its backoffs from
     /// `entropy`.
     pub(crate) fn of(settings: &Resolved, entropy: SharedEntropy) -> Self {
-        let duration = |name| settings.duration(name).unwrap_or_default();
         Self {
             concurrency: settings.count(POLITENESS_DOMAIN_CONCURRENCY.name),
             delay: settings
                 .duration(POLITENESS_DOMAIN_DELAY.name)
                 .filter(|delay| !delay.is_zero()),
-            backoff: (settings.value(POLITENESS_BACKOFF_ENABLED.name).as_bool() != Some(false))
-                .then(|| Backoff {
-                    initial: duration(POLITENESS_BACKOFF_INITIAL.name),
-                    max: duration(POLITENESS_BACKOFF_MAX.name),
-                }),
-            retry_after_max: duration(POLITENESS_RETRY_AFTER_MAX.name),
+            waits: Waits::of(settings),
             entropy,
         }
     }
@@ -298,13 +330,17 @@ impl PermitRule for DomainRule {
     ) -> rusqlite::Result<Option<SystemTime>> {
         let now = milliseconds(now);
         let limits = {
-            let mut entropy = self.entropy.blocking_lock();
+            let mut entropy = self.entropy.lock().unwrap_or_else(PoisonError::into_inner);
             Limits::read(connection, key)?.ended(in_flight, ending, now, self, &mut entropy)
         };
         limits.write(connection, key)?;
+        let longest = self.waits.longest().map(duration_milliseconds);
         Ok(limits
             .ready_at
-            .filter(|ready_at| *ready_at > now && self.backoff.is_some())
+            .filter(|ready_at| {
+                *ready_at > now
+                    && longest.is_some_and(|longest| ready_at.saturating_sub(now) <= longest)
+            })
             .map(moment))
     }
 }

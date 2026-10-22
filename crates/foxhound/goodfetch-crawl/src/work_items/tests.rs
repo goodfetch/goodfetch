@@ -218,6 +218,7 @@ impl Subject {
                     Unsuccessful::Retried(Failure {
                         code: "response_unavailable".to_owned(),
                         message: "a 503".to_owned(),
+                        details: serde_json::Map::new(),
                     }),
                     &ended_at,
                 )

@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rstest::rstest;
 
-use super::{RetryAfter, read};
+use super::{RetryAfter, detail, of_detail, read};
 
 /// 2026-10-21T07:27:00Z, the response's `Date` in the cases below.
 fn date() -> SystemTime {
@@ -101,5 +101,23 @@ fn an_absurd_number_of_seconds_is_still_a_time() {
     assert!(
         matches!(asked, RetryAfter::Until(until) if until > skewed() + Duration::from_hours(876_000)),
         "{asked:?}"
+    );
+}
+
+/// The time a site asked for reads back from the `retryAfter` detail it is
+/// written as, and a detail that names no time names none.
+///
+/// Covers: story:3-155
+#[test]
+fn a_retry_after_detail_names_the_time_the_site_asked_for() {
+    let asked = date() + Duration::from_secs(30);
+
+    assert_eq!(
+        (
+            detail(asked),
+            of_detail(&serde_json::json!(detail(asked))),
+            of_detail(&serde_json::Value::Null),
+        ),
+        ("2026-10-21T07:27:30Z".to_owned(), Some(asked), None)
     );
 }

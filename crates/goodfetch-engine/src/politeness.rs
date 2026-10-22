@@ -155,7 +155,8 @@ pub trait PermitRule: Send + Sync {
 
     /// A request under `key` ended at `now` as `ending` says, `in_flight`
     /// others still in flight; answers when `key` may go again, if later
-    /// than `now`.
+    /// than `now` and the run waits for it: `None` also when its requests
+    /// are refused until then ([`Verdict::Refused`]).
     ///
     /// # Errors
     ///

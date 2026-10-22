@@ -45,6 +45,22 @@ pub fn read(value: &str, date: Option<&str>, received: SystemTime) -> RetryAfter
     )
 }
 
+/// The time a site asked for, as an error's `retryAfter` detail writes it
+/// (ADRs 0092 and 0118): RFC 3339 in UTC, to the millisecond when it has
+/// a fraction.
+pub fn detail(at: SystemTime) -> String {
+    jiff::Timestamp::try_from(at).map_or_else(
+        |_| jiff::Timestamp::MAX.to_string(),
+        |at| at.round(jiff::Unit::Millisecond).unwrap_or(at).to_string(),
+    )
+}
+
+/// The time an error's `retryAfter` detail names, when it names one.
+pub fn of_detail(detail: &serde_json::Value) -> Option<SystemTime> {
+    let at: jiff::Timestamp = detail.as_str()?.parse().ok()?;
+    Some(SystemTime::from(at))
+}
+
 /// The latest moment after `from` the platform's clock holds, for a wait
 /// too long to add.
 fn far_future(from: SystemTime) -> SystemTime {

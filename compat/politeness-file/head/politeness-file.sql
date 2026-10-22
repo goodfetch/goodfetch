@@ -3,13 +3,13 @@ BEGIN TRANSACTION;
 CREATE TABLE domain_limits (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,
-            backoffs INTEGER NOT NULL,
+            backoff INTEGER,
             ceiling INTEGER,
             ceiling_changed_at INTEGER,
             last_start INTEGER
         ) STRICT;
-INSERT INTO "domain_limits" VALUES('shop.test',1767603602000,0,1,1767603600000,1767603602000);
-INSERT INTO "domain_limits" VALUES('hold.test',NULL,0,NULL,NULL,1767603602000);
+INSERT INTO "domain_limits" VALUES('shop.test',1767603614773,9474,1,1767603600000,1767603605299);
+INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603605299);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('politeness-file','0.1');
 CREATE TABLE permits (
@@ -21,7 +21,7 @@ CREATE TABLE permits (
         engine TEXT NOT NULL,
         taken_at INTEGER NOT NULL
     ) STRICT;
-INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','28bd8653e56a5d40',1767603602000);
+INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','28bd8653e56a5d40',1767603605299);
 CREATE TABLE returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT;
 INSERT INTO "returns" VALUES('shop.test',2);
 CREATE TABLE waiters (

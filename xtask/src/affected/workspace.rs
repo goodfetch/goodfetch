@@ -42,6 +42,9 @@ pub(crate) struct Crate {
     pub(crate) folder: RepoPath,
     /// The workspace members it depends on, of any kind (normal, build, dev).
     pub(crate) dependencies: BTreeSet<String>,
+    /// The workspace members its build depends on (normal and build
+    /// dependencies, not dev): a change to one changes its executable.
+    pub(crate) built_from: BTreeSet<String>,
     /// Its bench targets' names.
     pub(crate) benches: BTreeSet<String>,
     /// Whether it builds an executable (a `bin` target).
@@ -67,6 +70,11 @@ pub(crate) struct Package {
     pub(crate) folder: RepoPath,
     /// The members of its own workspace it depends on.
     pub(crate) dependencies: BTreeSet<String>,
+    /// The crates whose executables its tests run through the test tool
+    /// manifest, from `goodfetch.runs` in `package.json` or
+    /// `[tool.goodfetch] runs` in `pyproject.toml`: a change to one reaches
+    /// it as a dependency's would.
+    pub(crate) runs: BTreeSet<String>,
 }
 
 pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
@@ -173,6 +181,15 @@ fn crates(cargo: &OsStr, root: &Path) -> Result<Vec<Crate>> {
                     .filter(|dependency| members.contains(dependency.name.as_str()))
                     .map(|dependency| dependency.name.clone())
                     .collect(),
+                built_from: package
+                    .dependencies
+                    .iter()
+                    .filter(|dependency| {
+                        members.contains(dependency.name.as_str())
+                            && dependency.kind.as_deref() != Some("dev")
+                    })
+                    .map(|dependency| dependency.name.clone())
+                    .collect(),
                 benches: package
                     .targets
                     .iter()
@@ -207,6 +224,24 @@ struct PackageJson {
     peer_dependencies: BTreeMap<String, String>,
     #[serde(default)]
     optional_dependencies: BTreeMap<String, String>,
+    #[serde(default)]
+    goodfetch: Option<GoodfetchField>,
+}
+
+/// `goodfetch` in a `package.json`, or `[tool.goodfetch]` in a
+/// `pyproject.toml`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GoodfetchField {
+    /// The crates whose executables the package's tests run.
+    #[serde(default)]
+    runs: BTreeSet<String>,
+}
+
+fn runs(goodfetch: Option<GoodfetchField>) -> BTreeSet<String> {
+    goodfetch
+        .map(|goodfetch| goodfetch.runs)
+        .unwrap_or_default()
 }
 
 fn typescript_packages(root: &Path) -> Result<Vec<Package>> {
@@ -244,6 +279,7 @@ fn typescript_packages(root: &Path) -> Result<Vec<Package>> {
             .cloned()
             .collect(),
             name: manifest.name,
+            runs: runs(manifest.goodfetch),
             folder,
         })
         .collect())
@@ -269,6 +305,7 @@ struct Project {
 #[derive(Deserialize)]
 struct Tool {
     uv: Option<Uv>,
+    goodfetch: Option<GoodfetchField>,
 }
 
 #[derive(Deserialize)]
@@ -320,6 +357,7 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
         let Some(project) = pyproject.project else {
             bail!("{} has no [project] table", folder.display());
         };
+        let runs = runs(pyproject.tool.and_then(|tool| tool.goodfetch));
         let requirements: Vec<String> = project
             .dependencies
             .iter()
@@ -337,12 +375,13 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
             relative(root, &folder)?,
             python_name(&project.name),
             requirements,
+            runs,
         ));
     }
-    let names: BTreeSet<String> = members.iter().map(|(_, name, _)| name.clone()).collect();
+    let names: BTreeSet<String> = members.iter().map(|(_, name, _, _)| name.clone()).collect();
     Ok(members
         .into_iter()
-        .map(|(folder, name, requirements)| Package {
+        .map(|(folder, name, requirements, runs)| Package {
             ecosystem: Ecosystem::Python,
             dependencies: requirements
                 .iter()
@@ -351,6 +390,7 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
                 .collect(),
             name,
             folder,
+            runs,
         })
         .collect())
 }

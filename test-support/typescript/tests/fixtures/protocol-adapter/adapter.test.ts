@@ -72,6 +72,7 @@ test("a call answered as the bundle allows", async () => {
 /** What the first test's Client heard after its test ended. */
 const heardLate: string[] = [];
 
+// oxlint-disable-next-line vitest/expect-expect -- it only sends a call; the test after it asserts what its Client heard
 test("a test ending before its answer comes", async () => {
   const adapter = createProtocolAdapter();
   adapter.answer("sample.echo", async () => {

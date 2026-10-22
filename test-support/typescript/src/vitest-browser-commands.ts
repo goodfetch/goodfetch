@@ -36,7 +36,7 @@ const browserState: BrowserCommand<[BrowserState]> = async (context, state) => {
     (state.colorScheme !== undefined || state.reducedMotion !== undefined) &&
     !projectMedia.has(page)
   ) {
-    projectMedia.set(page, await media(page));
+    projectMedia.set(page, await mediaOf(page));
   }
   if (state.colorScheme !== undefined) {
     await page.emulateMedia({ colorScheme: state.colorScheme });
@@ -92,7 +92,7 @@ export const browserCommands: {
 } = { browserState, browserStateReset };
 
 /** The colour scheme and reduced motion the page matches now. */
-async function media(page: Page): Promise<Media> {
+async function mediaOf(page: Page): Promise<Media> {
   return page.evaluate(() => ({
     colorScheme: matchMedia("(prefers-color-scheme: dark)").matches
       ? "dark"

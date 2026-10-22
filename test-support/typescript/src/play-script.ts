@@ -296,6 +296,11 @@ function parse(line: string): { readonly value: unknown } | undefined {
   }
 }
 
+/** Whether `id` is a JSON-RPC request's ID: a string or a number. */
+function isId(id: unknown): boolean {
+  return typeof id === "string" || typeof id === "number";
+}
+
 /**
  * Whether `message` is one JSON-RPC 2.0 message, as the executable's player
  * judges it: a request or notification (`method`, an optional string or
@@ -305,7 +310,6 @@ function parse(line: string): { readonly value: unknown } | undefined {
 function isJsonRpc(message: Record<string, unknown>): boolean {
   const only = (members: readonly string[]): boolean =>
     Object.keys(message).every((key) => members.includes(key));
-  const isId = (id: unknown): boolean => typeof id === "string" || typeof id === "number";
   if (message["jsonrpc"] !== "2.0") return false;
   if ("method" in message) {
     return (

@@ -11,6 +11,10 @@ metrics_endpoint = "example"
 [settings.console]
 address = "example"
 
+[settings.console.sign_in]
+idle_expiry = 30000
+rate = 4
+
 [settings.daemon]
 idle_timeout = 30000
 address = "example"

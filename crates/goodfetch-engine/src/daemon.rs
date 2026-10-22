@@ -44,6 +44,7 @@ use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler}
 use crate::events::Events;
 use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
+use crate::people::{SignInDriver, SignInPolicy};
 use crate::product::{Channel, Identity};
 use crate::rpc::{self, Authorities, ConsoleSocket, Dispatch};
 use crate::run_state::install::InstallDatabase;
@@ -115,6 +116,8 @@ pub enum DaemonConsole {
         listener: ConsoleListener,
         /// Its URL, such as `http://127.0.0.1:7801/`.
         url: String,
+        /// How long its sign-ins last and how often an address may try.
+        sign_in: SignInPolicy,
     },
     /// The Console did not start; the Daemon still serves its Clients.
     Failed(ConsoleFailure),
@@ -213,6 +216,8 @@ pub(crate) struct Serving {
     pub(crate) console_sockets: mpsc::Receiver<ConsoleSocket>,
     /// The runtime's metrics.
     pub(crate) metrics: Metrics,
+    /// The sign-in driver of its Console, if it serves one.
+    pub(crate) sign_ins: Option<SignInDriver>,
 }
 
 /// The Clients connected now.
@@ -246,6 +251,7 @@ struct Shared {
     metrics: Metrics,
     blocking: TaskOwner,
     endings: mpsc::Sender<Ending>,
+    sign_ins: Option<SignInDriver>,
     /// Where the Daemon is, which only the engine's table changes; held
     /// while a handover is decided, so at most one begins.
     state: Mutex<EngineState>,
@@ -280,6 +286,7 @@ impl Shared {
             metrics: serving.metrics.clone(),
             blocking,
             endings,
+            sign_ins: serving.sign_ins.clone(),
             state: Mutex::new(EngineState::Serving),
         }
     }
@@ -414,6 +421,10 @@ impl DaemonSide for ConnectionSide {
 
     fn health(&self) -> Answering<'_, DaemonHealth> {
         Box::pin(self.shared.health.check())
+    }
+
+    fn sign_ins(&self) -> Option<SignInDriver> {
+        self.shared.sign_ins.clone()
     }
 
     fn stop(&self) -> Answering<'_, DaemonStopping> {

@@ -6,12 +6,10 @@
 //! `SameSite=Strict` cookie, and `GET /session` answers whether a request
 //! carries one; the Console's WebSocket is a column of the endpoint table,
 //! its handshake refusing a foreign `Host`, a foreign or missing `Origin`
-//! and a missing or wrong cookie, each refusal checked in the Daemon's log
-//! until the Audit log records it (area 4).
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the test reads the Daemon's log file itself"
-)]
+//! a missing or wrong cookie and a sign-in that ended, and its sign-in
+//! routes refusing a signed-in `POST` without its CSRF token and an
+//! eleventh sign-in attempt in a minute, each refusal checked in the Audit
+//! log.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -25,6 +23,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::daemon::StopsTheDaemon;
+use crate::lasting_sign_ins::audit_entries;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -32,12 +31,12 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The Daemon's runtime file in `env`'s home.
-fn runtime_file(env: &TestEnv) -> RuntimeFile {
+pub(crate) fn runtime_file(env: &TestEnv) -> RuntimeFile {
     RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap()
 }
 
 /// The URL the Daemon serves its Console at.
-fn console_url(env: &TestEnv) -> String {
+pub(crate) fn console_url(env: &TestEnv) -> String {
     match runtime_file(env).console {
         ConsoleState::Serving(url) => url,
         other => panic!("the Daemon serves no Console: {other:?}"),
@@ -45,7 +44,7 @@ fn console_url(env: &TestEnv) -> String {
 }
 
 /// An HTTP agent that reads every status as an answer.
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .http_status_as_error(false)
         .build()
@@ -53,19 +52,26 @@ fn agent() -> ureq::Agent {
 }
 
 /// The Console's origin, `http://127.0.0.1:<port>`.
-fn origin(url: &str) -> &str {
+pub(crate) fn origin(url: &str) -> &str {
     url.trim_end_matches('/')
 }
 
-/// The sign-in cookie's name of the Console at `url`.
-fn cookie_name(url: &str) -> String {
-    let port = origin(url).rsplit(':').next().unwrap();
-    format!("goodfetch_console_{port}")
+/// The sign-in cookie's name of this major's Console: `0.0` for any
+/// `0.0.y`, as its per-major folder.
+fn cookie_name() -> String {
+    let mut numbers = VERSION.split(['.', '-']);
+    let major = numbers.next().unwrap();
+    let name = if major == "0" {
+        format!("0.{}", numbers.next().unwrap())
+    } else {
+        major.to_owned()
+    };
+    format!("goodfetch_console_{name}")
 }
 
 /// Swaps `token` for a sign-in at the Console at `url`, as its page does:
 /// the status, and the `Set-Cookie` header if any.
-fn sign_in(url: &str, token: &str) -> (u16, Option<String>) {
+pub(crate) fn sign_in(url: &str, token: &str) -> (u16, Option<String>) {
     let response = agent()
         .post(format!("{}/sign-in", origin(url)))
         .header("Origin", origin(url))
@@ -116,9 +122,13 @@ fn console_json_prints_the_sign_in_link_and_opens_no_browser(#[case] running: bo
         "the token is in no log: {}",
         opened.output.stderr
     );
-    let mut settings = opened.output.settings();
-    settings.add_filter("#token=[0-9a-f]{64}", "#token=[TOKEN]");
-    settings.bind(|| insta::assert_snapshot!("console_json", opened.output.stdout));
+    // The token is taken out before the snapshot's filters run, one of
+    // which reads 26 of its hex digits as a ULID.
+    let stdout = opened.output.stdout.replace(&found.token, "[TOKEN]");
+    opened
+        .output
+        .settings()
+        .bind(|| insta::assert_snapshot!("console_json", stdout));
 }
 
 /// Covers: story:12-1
@@ -138,11 +148,14 @@ fn the_sign_in_link_swaps_its_token_once_for_an_http_only_cookie() {
     assert_eq!(status, 204);
     let cookie = cookie.expect("the sign-in sets its cookie");
     let attributes: Vec<&str> = cookie.split("; ").collect();
-    assert_eq!(&attributes[1..], ["HttpOnly", "SameSite=Strict", "Path=/"]);
+    assert_eq!(
+        &attributes[1..],
+        ["HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=2592000"]
+    );
     let (name, value) = attributes[0].split_once('=').unwrap();
-    assert_eq!(name, cookie_name(url));
+    assert_eq!(name, cookie_name());
     assert_ne!(value, token, "the cookie is not the token");
-    assert_eq!(session(url, Some(attributes[0])), 204);
+    assert_eq!(session(url, Some(attributes[0])), 200);
     assert_eq!(session(url, None), 401, "a request with no cookie");
     assert_eq!(
         session(url, Some(&format!("{name}={token}"))),
@@ -165,20 +178,26 @@ fn a_wrong_token_signs_nobody_in() {
     assert_eq!(sign_in(&url, ""), (401, None));
 }
 
-/// The endpoint table's reason each rule's refusal is logged with.
+/// The endpoint table's reason each rule's refusal is recorded with.
 fn reason(rule: Rule) -> Option<&'static str> {
     Some(match rule {
         Rule::TokenMissing | Rule::TokenInQueryString => "token_missing",
-        Rule::TokenWrong | Rule::TokenFromAnotherListener => "token_wrong",
+        Rule::TokenWrong | Rule::TokenFromAnotherListener | Rule::SignInRevoked => "token_wrong",
         Rule::HostForeign => "host_foreign",
         Rule::OriginForeign => "origin_foreign",
         Rule::OriginMissing => "origin_missing",
         Rule::HelloNotFirst => "hello_not_first",
+        Rule::CsrfTokenMissing => "csrf_token_missing",
+        Rule::SignInRateExceeded => "sign_in_rate_exceeded",
         Rule::ProbesAnswerStatusOnly => return None,
     })
 }
 
-/// Covers: story:12-1
+/// The Console's WebSocket and its sign-in routes, as the endpoint table's
+/// column: each passes every row, each refusal recorded in the Audit log
+/// with the listener and the rule's reason.
+///
+/// Covers: story:12-1, story:12-110, story:12-111
 #[test]
 fn the_consoles_websocket_passes_its_endpoint_table_rows() {
     let env = TestEnv::new();
@@ -210,33 +229,27 @@ fn the_consoles_websocket_passes_its_endpoint_table_rows() {
         ListenerKind::Console,
         Endpoint::SignedInWebSocket {
             address,
-            cookie: cookie_name(&url),
+            cookie: cookie_name(),
             hello,
+            link_token: daemon_token.clone(),
         },
         signed_in,
     )
     .with_other_listener_token(daemon_token);
-    let log = env
-        .home()
-        .join("logs")
-        .join(format!("goodfetch-collie-{}.jsonl", runtime_file(&env).pid));
     let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
-    let verifier = move |_: ListenerKind, rule: Rule| {
+    let verifier = |_: ListenerKind, rule: Rule| {
         let Some(reason) = reason(rule) else {
             return Ok(false);
         };
-        let text = std::fs::read_to_string(&log).map_err(AuditUnreadable::new)?;
-        let refusals = text
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|record| {
-                record["target"] == json!("goodfetch::rpc::refusal")
-                    && record["fields"]["listener"] == json!("console")
-                    && record["fields"]["reason"] == json!(reason)
+        let refusals = audit_entries(&env)
+            .iter()
+            .filter(|entry| {
+                entry["kind"] == json!("endpoint_authentication_failed")
+                    && entry["details"] == json!({ "listener": "console", "reason": reason })
             })
             .count();
         let earlier = seen.insert(reason, refusals).unwrap_or(0);
-        Ok(refusals > earlier)
+        Ok::<_, AuditUnreadable>(refusals > earlier)
     };
 
     let ran = EndpointRunner::new(verifier).run(&listener);

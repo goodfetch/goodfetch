@@ -32,6 +32,7 @@ use crate::admission::Gates;
 use crate::client::Client;
 use crate::events::{Credits, Events};
 use crate::log::ConnectionLog;
+use crate::people::SignInDriver;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
@@ -195,6 +196,8 @@ pub(crate) trait DaemonSide: Send + Sync {
     fn health(&self) -> Answering<'_, DaemonHealth>;
     /// Stops the Daemon once `daemon.stop` has answered what it says.
     fn stop(&self) -> Answering<'_, DaemonStopping>;
+    /// The sign-in driver of the Console it serves, if any.
+    fn sign_ins(&self) -> Option<SignInDriver>;
 }
 
 /// What a streaming call sends its notifications with: its id, the credits

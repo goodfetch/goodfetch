@@ -4,8 +4,8 @@
 # `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
 # `cargo fuzz run json_rpc_framing fuzz/json_rpc_framing/seeds
 # -- -dict=fuzz/json_rpc_framing/dictionary.dict`, and likewise
-# `settings_file`, `checkpoint`, `secret_reference`, `address_classification`
-# and `certificate_file`.
+# `settings_file`, `checkpoint`, `secret_reference`, `address_classification`,
+# `certificate_file` and `console_sign_in`.
 [package]
 name = "goodfetch-engine-fuzz"
 version = "0.0.0"
@@ -66,6 +66,13 @@ bench = false
 [[bin]]
 name = "certificate_file"
 path = "fuzz_targets/certificate_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "console_sign_in"
+path = "fuzz_targets/console_sign_in.rs"
 test = false
 doc = false
 bench = false

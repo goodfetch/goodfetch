@@ -33,6 +33,7 @@ fn written(env: &TestEnv, count: u64) -> AuditLog {
                 actor: Actor::ClientSurface {
                     surface: Surface::Cli,
                 },
+                surface: None,
                 layer: None,
                 run_id: None,
             },

@@ -292,6 +292,9 @@ impl Listener {
     fn daemon(folder: &Path) -> Result<(Self, Option<tempfile::TempDir>), Failure> {
         use std::os::unix::fs::PermissionsExt as _;
         let socket = folder.join(goodfetch_test_support::DAEMON_SOCKET);
+        // The caller holds the serving lock, so a socket left here is a dead
+        // Daemon's: a starting Daemon replaces its files (ADR 0024).
+        remove(&socket)?;
         let (listener, path, own_folder) = match UnixListener::bind(&socket) {
             Ok(listener) => (listener, socket, None),
             Err(error) if error.kind() == io::ErrorKind::InvalidInput => {

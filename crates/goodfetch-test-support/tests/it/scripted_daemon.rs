@@ -397,6 +397,25 @@ fn the_dead_pid_script_leaves_a_runtime_file_whose_pid_no_longer_runs() {
 }
 
 #[test]
+fn a_daemon_started_after_a_dead_one_replaces_its_files() {
+    let env = TestEnv::new();
+    let (dead, _) = start(&env, "socket", "daemon/dead-pid.json", &[]);
+    let (status, stderr) = finish(&dead);
+    assert_eq!(status.code(), Some(101), "{stderr}");
+
+    let (process, _) = start(
+        &env,
+        "socket",
+        "daemon/hello-refused-protocol-version-unsupported.json",
+        &[],
+    );
+
+    let found = RuntimeFile::read(&runtime_file(env.home())).unwrap();
+    assert_eq!(found.pid, process.child().id());
+    refused_to_its_end(&found, &process);
+}
+
+#[test]
 fn the_dropped_connection_script_closes_mid_call_after_its_expect() {
     let env = TestEnv::new();
     let (process, _) = start(

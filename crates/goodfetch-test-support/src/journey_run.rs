@@ -44,7 +44,7 @@ use serde_json::{Map, Value, json};
 
 use crate::env::{TestEnv, command};
 use crate::proving_ground::{ProvingGround, ProvingGroundError};
-use crate::variables::{RESULT_DOCUMENTS_VARIABLE, Variables};
+use crate::variables::{ENGINE_VARIABLE, RESULT_DOCUMENTS_VARIABLE, Variables};
 
 /// The runtime a Rust variant records.
 const RUNTIME: &str = "rust";
@@ -52,6 +52,18 @@ const RUNTIME: &str = "rust";
 /// The surface of a Collie Journey's `cli` variant run on Foxhound's
 /// executable (ADR 0094).
 const FOXHOUND_CLI: &str = "foxhound-cli";
+
+/// The executable a Journey variant drives: the one `GOODFETCH_TEST_ENGINE`
+/// names when it is set, for a skew run of `just journeys --engine <path>`
+/// (ADR 0066), else `built`, the commit's own: `CARGO_BIN_EXE_goodfetch-collie`
+/// or `-foxhound` in a Product's executable crate, or the test tool
+/// manifest's entry. Every `cli` variant takes its executable through it,
+/// and [`JourneyRun`] passes the executable it is given through it.
+pub fn journey_engine(built: impl AsRef<Path>) -> PathBuf {
+    Variables::from_process()
+        .get(ENGINE_VARIABLE)
+        .map_or_else(|| built.as_ref().to_owned(), PathBuf::from)
+}
 
 /// The catalog's folder, `journeys/` at the repository's root.
 fn catalog() -> PathBuf {
@@ -226,6 +238,7 @@ impl<C> JourneyRun<C> {
                 surface: surface.to_owned(),
             });
         }
+        let engine = &journey_engine(engine);
         let env = TestEnv::new();
         let (product, version) = reported_version(&env, engine)?;
         // The Journey's own seed, never the test's (ADR 0063).

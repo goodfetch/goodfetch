@@ -119,6 +119,7 @@ pub use insta as __insta;
 pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 pub use journey_run::{
     BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,
+    journey_engine,
 };
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 #[cfg(target_os = "linux")]
@@ -172,7 +173,7 @@ pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use variables::{
-    DNS_NAMESPACE_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE,
-    SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, Variables,
-    current_test,
+    DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE,
+    RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError,
+    TOOLS_VARIABLE, Variables, current_test,
 };

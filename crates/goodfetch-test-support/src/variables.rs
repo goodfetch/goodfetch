@@ -25,6 +25,11 @@ pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 /// (ADR 0060).
 pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
 
+/// The executable a skew run of `just journeys --engine <path>` drives
+/// (ADR 0066): when it is set, every Journey variant runs it in place of the
+/// executable its test passes.
+pub const ENGINE_VARIABLE: &str = "GOODFETCH_TEST_ENGINE";
+
 /// The folder each Journey variant run also writes its result document
 /// into, beside the test's own folder, which `just test` sets.
 pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
@@ -82,6 +87,7 @@ impl Variables {
             TOOLS_VARIABLE,
             LAZYFS_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
+            ENGINE_VARIABLE,
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,
             TEST_NAME_VARIABLE,

@@ -10,8 +10,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{
-    JourneyRun, JourneyRunError, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, TOOLS_VARIABLE, TestEnv,
-    Tool, UnfinishedJourneyRun, Variables, VariantNotProved, tools,
+    ENGINE_VARIABLE, JourneyRun, JourneyRunError, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
+    TOOLS_VARIABLE, TestEnv, Tool, UnfinishedJourneyRun, Variables, VariantNotProved, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -245,6 +245,25 @@ fn the_test_seed_variable_does_not_change_the_journeys_seed() {
     assert!(status.unwrap().success());
     let document = written(&env.folder().join("J-902@cli.json"));
     assert_eq!(document["proving_ground"]["seed"], json!(902));
+}
+
+/// `just journeys --engine <path>` sets `GOODFETCH_TEST_ENGINE`: a skew run
+/// drives that executable, whatever executable the test passes (ADR 0066).
+#[test]
+fn a_skew_run_drives_the_engine_variable_in_place_of_the_executable_passed() {
+    let env = TestEnv::new();
+    let variables = Variables::from_process();
+    let mut command = probe(&env, "probe::finishes_journey_901_on_collie");
+    command
+        .env(ENGINE_VARIABLE, executable(Tool::Foxhound))
+        .env(TOOLS_VARIABLE, variables.get(TOOLS_VARIABLE).unwrap())
+        .env(RESULT_DOCUMENTS_VARIABLE, env.folder());
+
+    let status = env.spawn(&mut command).unwrap().close_stdin_and_wait();
+
+    assert!(status.unwrap().success());
+    let document = written(&env.folder().join("J-901@cli.json"));
+    assert_eq!(document["executable"]["product"], json!("foxhound"));
 }
 
 /// Under `just test`, every test's runs write into one folder, where two

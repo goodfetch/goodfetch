@@ -149,6 +149,21 @@ fn records_a_command_then_drops_its_test_env() {
 }
 
 #[test]
+#[ignore = "run as a child by journey_run::a_skew_run_drives_the_engine_variable_in_place_of_the_executable_passed"]
+fn finishes_journey_901_on_collie() {
+    let journey =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/journey-run/J-901.toml");
+    let collie = tools().unwrap().path(Tool::Collie).unwrap().to_owned();
+    let run = JourneyRun::start_file(&journey, "cli", &collie, |mut facts: serde_json::Value| {
+        facts["outcome"] = serde_json::json!("failed");
+        facts
+    })
+    .unwrap();
+
+    let _finished = run.finish().unwrap();
+}
+
+#[test]
 #[ignore = "run as a child by journey_run::a_runs_document_stays_its_own_when_another_run_of_its_variant_finishes_after_it"]
 fn runs_journey_901_twice() {
     let journey =

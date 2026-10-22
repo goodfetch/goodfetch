@@ -751,6 +751,25 @@ export interface ConsoleFailure {
   message: string;
 }
 /**
+ * What `console.rotate_key` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConsoleKeyRotated".
+ */
+export interface ConsoleKeyRotated {
+  /**
+   * How many sign-ins it ended: every one.
+   */
+  signed_out: number;
+}
+/**
+ * What `console.rotate_key` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConsoleRotateKeyParams".
+ */
+export interface ConsoleRotateKeyParams {}
+/**
  * Why a Daemon's Console did not start: an Error code, its message and
  * what to do instead.
  */
@@ -2921,6 +2940,75 @@ export interface SettingsFile {
    * Its path.
    */
   path: string;
+}
+/**
+ * What `sign_in.list` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignInList".
+ */
+export interface SignInList {
+  /**
+   * Every sign-in that has not ended, oldest first.
+   */
+  sign_ins: SignInSummary[];
+}
+/**
+ * One sign-in, as `sign_in.list` shows it: never its cookie.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignInSummary".
+ */
+export interface SignInSummary {
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  created: string;
+  /**
+   * Its identifier, which `sign_in.revoke` takes.
+   */
+  id: string;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  last_used: string;
+  /**
+   * The person it signs in, by the name their account or OS user goes
+   * by.
+   */
+  person: string;
+}
+/**
+ * What `sign_in.list` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignInListParams".
+ */
+export interface SignInListParams {}
+/**
+ * What `sign_in.revoke` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignInRevokeParams".
+ */
+export interface SignInRevokeParams {
+  /**
+   * The sign-in's identifier, as `sign_in.list` gives it.
+   */
+  id: string;
+}
+/**
+ * What `sign_in.revoke` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignInRevoked".
+ */
+export interface SignInRevoked {
+  /**
+   * Whether a sign-in ended: `false` when none had that identifier, or
+   * it had already ended.
+   */
+  revoked: boolean;
 }
 /**
  * What `events.subscribe` answers when its subscription ends without the

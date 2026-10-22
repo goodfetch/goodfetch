@@ -26,6 +26,7 @@ mod help;
 mod human_output;
 mod invalid_calls;
 mod journeys;
+mod lasting_sign_ins;
 mod launch;
 mod layout;
 #[cfg(target_os = "linux")]

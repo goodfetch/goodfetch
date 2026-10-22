@@ -23,6 +23,38 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 5
+title = "As a user, I want my Console sign-in to survive Daemon restarts and expire after 30 idle days, revocable, so that I am not asked to sign in at every restart (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 109
+title = "As a user of a single-user local Daemon, I want my OS user to be the person, with no sign-in beyond the cookie, and the Audit log to record that user and the surface, so that one person's machine needs no account (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 110
+title = "As a person, I want sign-in rate-limited, cookies `SameSite=Strict` and the `POST` fallback carrying a CSRF token, so that the Console resists the usual web attacks (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As an operator, I want rotating the Console key to sign everyone out, and each sign-in revocable, so that a lost laptop's sign-in ends (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 128
 title = "As a user, I want the Console under a strict Content Security Policy (its own scripts only, no inline code or `eval`, Trusted Types, no third-party or telemetry call), `frame-ancestors 'none'` except the embed endpoint for granted origins, `Referrer-Policy: no-referrer`, COOP and CORP, so that the Console is hard to attack and calls nowhere (ADRs 0031, 0043)."
 milestone = "M1 Core"

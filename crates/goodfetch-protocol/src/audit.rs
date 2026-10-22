@@ -67,6 +67,11 @@ pub struct AuditEntry {
     /// Who did what it records.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub actor: Actor,
+    /// The surface the actor acted through, such as `console` for a person
+    /// in the Console; none for the engine's own events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub surface: Option<Surface>,
     /// The settings layer its event came from, such as an Operator policy
     /// that switched a control off; none where no layer applies.
     #[serde(default, skip_serializing_if = "Option::is_none")]

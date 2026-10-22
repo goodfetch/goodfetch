@@ -45,6 +45,7 @@ pub mod lowest_minor;
 pub mod metrics;
 pub mod ops;
 pub mod people;
+mod people_operations;
 pub mod pinned_download;
 pub mod politeness;
 mod product;

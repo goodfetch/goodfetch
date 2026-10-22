@@ -696,6 +696,23 @@ number = 12
 kind = "setting"
 prefix = "console."
 
+# Its sign-ins (#826): the person-only `sign_in.*` and `console.rotate_key`,
+# and the accounts store that keeps them.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "sign_in."
+
+[[area]]
+number = 12
+kind = "operation"
+prefix = "console."
+
+[[area]]
+number = 12
+kind = "format"
+prefix = "accounts-store"
+
 # The `console` command that opens it signed in, and the Error code its
 # Client raises when its Connection drops (#817).
 [[area]]

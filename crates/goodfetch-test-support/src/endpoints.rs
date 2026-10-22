@@ -8,6 +8,7 @@ mod connection;
 mod http;
 mod json_rpc;
 mod runner;
+mod sign_in;
 mod table;
 mod websocket;
 

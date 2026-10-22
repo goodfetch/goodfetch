@@ -353,6 +353,7 @@ impl RunSecrets {
         let audit = Arc::clone(&self.0.secrets.0.audit);
         let origin = Origin {
             actor: Actor::Engine,
+            surface: None,
             layer: purpose.layer,
             run_id: purpose.run_id.cloned(),
         };

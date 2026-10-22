@@ -350,6 +350,9 @@ fn with_otlp_metrics_endpoint_set_the_collector_receives_the_runtimes_metrics() 
             BTreeSet::from([
                 "goodfetch.client.connected".to_owned(),
                 "goodfetch.daemon.draining".to_owned(),
+                "goodfetch.governor.pressure_source".to_owned(),
+                "goodfetch.governor.saturation".to_owned(),
+                "goodfetch.governor.target".to_owned(),
                 "goodfetch.run.active".to_owned(),
                 "goodfetch.run.ended".to_owned(),
             ])

@@ -57,6 +57,7 @@ use goodfetch_protocol::checkpoint::{
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::governor::RUN_SHARE;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
@@ -98,6 +99,7 @@ use crate::client::Client;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
+use crate::governor::{Governor, RunShare};
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, Refusal, Reservation};
@@ -182,6 +184,8 @@ pub(crate) struct RunsSetup {
     pub(crate) drivers: BTreeMap<RunKind, Driver>,
     /// The runtime's metrics, which count the live Runs and their ends.
     pub(crate) metrics: Metrics,
+    /// The engine's Resource governor, which each live Run joins.
+    pub(crate) governor: Governor,
     /// What the composition's areas add to each Run's report (ADR 0102).
     pub(crate) report_parts: Vec<Arc<dyn ReportPart>>,
     /// The Console's address, when this engine serves one (ADR 0031): each
@@ -688,6 +692,8 @@ pub(crate) struct RegistryHealth {
     pub(crate) draining: bool,
     /// The folder of the run folders.
     pub(crate) folder: PathBuf,
+    /// Whether the Resource governor is at its last resort (ADR 0040).
+    pub(crate) governor_last_resort: bool,
 }
 
 /// Whether a wait for a Run's end lets it finish (ADR 0102): `run.finish`
@@ -766,6 +772,8 @@ struct Shared {
     span: tracing::Span,
     /// What it resolves its Secret references through.
     secrets: RunSecrets,
+    /// Its share of the Resource governor's admissions.
+    governor: RunShare,
 }
 
 impl std::fmt::Debug for Run {
@@ -792,6 +800,14 @@ impl Run {
     /// 0050).
     pub fn metrics(&self) -> &Metrics {
         &self.shared.metrics
+    }
+
+    /// Its share of the engine's Resource governor (ADR 0040), through
+    /// which it takes each HTTP fetch, browser page and model call it
+    /// runs, in turn with the other live Runs, up to its
+    /// `governor.run_share`.
+    pub fn governor(&self) -> &RunShare {
+        &self.shared.governor
     }
 
     /// Its folder, which holds its state and its Run trace.
@@ -1991,13 +2007,7 @@ impl Registry {
                     let _ = answer.send(self.live.len());
                 }
                 Command::Health(answer) => {
-                    let _ = answer.send(RegistryHealth {
-                        draining: self.draining,
-                        folder: self
-                            .setup
-                            .location
-                            .folder(&self.setup.home, &self.setup.version),
-                    });
+                    let _ = answer.send(self.health());
                 }
                 Command::Folder(run_id, answer) => {
                     let _ = answer.send(self.folder(&run_id));
@@ -2583,6 +2593,18 @@ impl Registry {
         Ok(progress)
     }
 
+    /// What it answers about the engine's health.
+    fn health(&self) -> RegistryHealth {
+        RegistryHealth {
+            draining: self.draining,
+            governor_last_resort: self.setup.governor.at_last_resort(),
+            folder: self
+                .setup
+                .location
+                .folder(&self.setup.home, &self.setup.version),
+        }
+    }
+
     /// A handle to the registry for a Run of `connection`.
     /// The live Run `run_id` as its driver holds it, writing `state` in
     /// `folder`, under its resolved `settings`, resolving its Secret
@@ -2597,6 +2619,10 @@ impl Registry {
         secrets: RunSecrets,
     ) -> Run {
         let epoch = state.epoch();
+        let share = settings
+            .as_ref()
+            .and_then(|settings| settings.resolved().count(RUN_SHARE.name))
+            .unwrap_or(100);
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -2615,6 +2641,7 @@ impl Registry {
                 metrics: self.setup.metrics.clone(),
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),
                 secrets,
+                governor: self.setup.governor.join(share),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

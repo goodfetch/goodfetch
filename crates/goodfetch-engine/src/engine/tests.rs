@@ -15,6 +15,7 @@ mod checkpoint;
 mod daemon;
 mod durability;
 mod events;
+mod governor;
 mod key_value_store;
 mod layout;
 mod lifecycle;

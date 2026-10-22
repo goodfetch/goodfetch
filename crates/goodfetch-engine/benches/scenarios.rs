@@ -106,6 +106,7 @@ pub(crate) fn dispatch(calls: &[u8], home: &Path) -> usize {
             blocking: BlockingPolicy::Inline,
             run_state_location: RunStateLocation::PerMajor,
             run_state: RunStateOptions::default(),
+            politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
         };
         let (served, replies) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies),

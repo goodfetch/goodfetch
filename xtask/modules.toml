@@ -149,6 +149,7 @@ python = ["entry"]
 # Which of `codegen`'s own modules may import which.
 [submodules.codegen]
 cdp = []
+cli = ["emitter"]
 deny = []
 digest = []
 emitter = []

@@ -32,6 +32,9 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+# The per-install layout's VFS, which keeps each Run's run file inside the
+# install database (ADR 0002), registered with the SQLite rusqlite bundles.
+sqlite-plugin.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).
@@ -53,6 +56,12 @@ libc.workspace = true
 # kill-on-close Job Objects (ADR 0024).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+# Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
+# build script, so that script loads libclang where the OS keeps it, as
+# goodfetch-test-support's does.
+[build-dependencies]
+bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
@@ -79,7 +88,7 @@ harness = false
 
 [package.metadata.cargo-shear]
 # flate2 is never named: it only picks the backend zip inflates with.
-ignored = ["flate2"]
+ignored = ["bindgen", "flate2"]
 
 [lints]
 workspace = true

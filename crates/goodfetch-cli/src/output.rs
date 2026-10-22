@@ -75,6 +75,40 @@ pub enum ColourChoice {
     Never,
 }
 
+// The `--color` flag, which every command of the command line takes,
+// before or after its subcommand. Plain comments, not doc comments, which
+// would become the help of every command that flattens it.
+//
+// Each command group of the root carries it itself, global within the
+// group, so clap copies it into the group's commands only when it builds
+// that group: a flag global at the root would be copied into every group
+// whenever the command line is parsed, `--version` included (ADR 0071's
+// startup figure). The root takes it as a flag of its own, not global.
+#[derive(Clone, Copy, Debug, Default, clap::Args)]
+pub struct ColourFlag {
+    /// When to colour human output; `auto` colours on a terminal unless
+    /// `NO_COLOR` is set and not empty.
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value_t,
+        value_name = "WHEN",
+        display_order = ColourFlag::DISPLAY_ORDER
+    )]
+    pub color: ColourChoice,
+}
+
+impl ColourFlag {
+    /// The flag's id in a parse.
+    pub const ID: &str = "color";
+
+    /// Where `--help` sorts the flag among a command's own flags: where it
+    /// sorted while it was global at the root, after the root's six
+    /// hand-written commands, so every command's help reads as it did.
+    const DISPLAY_ORDER: usize = 6;
+}
+
 /// The variable that turns colour off when it is set and not empty
 /// (no-color.org).
 const NO_COLOR: &str = "NO_COLOR";

@@ -30,7 +30,7 @@ text = "Run the Daemon in the foreground (`daemon run`)"
 text = "Wait past the Daemon's idle time with no Client connected"
 
 [[steps]]
-text = "Start two runs on the Daemon, each extracting the catalog's product pages one after another"
+text = "Start two runs on the Daemon, each visiting its own share of the catalog's product pages one after another"
 
 [[steps]]
 text = "Send the Daemon `SIGTERM` while both runs are going on"
@@ -51,4 +51,4 @@ text = "The foreground Daemon was still running after its idle time with no Clie
 text = "On `SIGTERM` the Daemon refused new runs, checkpointed both runs as resumable and exited within its drain grace period"
 
 [[expect]]
-text = "When the Daemon started again, both runs resumed and finished with every product page extracted, none lost and none twice"
+text = "When the Daemon started again, both runs resumed by their Run IDs and finished, and the catalog served every product page of both shares once, none lost and none twice"

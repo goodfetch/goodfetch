@@ -8,7 +8,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::journey::{JourneyId, TaskId};
 use goodfetch_protocol::result_document::{
     CheckOutcome, CheckResult, Executable, JourneyDocument, JourneyFacts, OracleAnswer,
-    OracleOutcome, ResultDocument, StepOutcome, StepResult, TaskResult,
+    OracleOutcome, ProvingGroundCopy, ResultDocument, StepOutcome, StepResult, TaskResult,
 };
 use std::process::Output;
 
@@ -98,15 +98,19 @@ fn j951_document(steps: &[&str]) -> ResultDocument {
     let task = TaskId::try_from("catalog/1".to_owned()).unwrap();
     ResultDocument::Journey(JourneyDocument::new(JourneyFacts {
         journey_id: JourneyId::try_from("J-951".to_owned()).unwrap(),
-        surface: "console".to_owned(),
+        surface: "cli".to_owned(),
         executable: Executable {
             product: Product::Collie,
             version: "0.0.0".to_owned(),
         },
         surface_package: None,
         platform: platform(),
-        runtime: "chromium-141".to_owned(),
-        proving_ground: None,
+        runtime: "rust".to_owned(),
+        // J-951's own seed, as its Journey file pins it.
+        proving_ground: Some(ProvingGroundCopy {
+            version: "0.0.0".to_owned(),
+            seed: 951,
+        }),
         steps: steps
             .iter()
             .map(|text| StepResult {

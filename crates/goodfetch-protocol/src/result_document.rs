@@ -100,6 +100,10 @@ impl UncomparedJourneyDocument {
     }
 }
 
+/// The surface of a Collie Journey's `cli` variant run on Foxhound's
+/// executable (ADR 0094).
+const FOXHOUND_CLI: &str = "foxhound-cli";
+
 /// Compares a loaded `journey` document with its Journey (ADR 0063). The
 /// document must name the Journey and hold exactly its steps, its checks
 /// and the Proving ground tasks it names, each in the Journey's order, with
@@ -113,6 +117,10 @@ impl UncomparedJourneyDocument {
 /// # Errors
 ///
 /// [`ReadError::OtherJourney`] when the document names another Journey,
+/// [`ReadError::UnlistedSurface`] when its surface is not one of the
+/// Journey's variants, [`ReadError::OtherSeed`] when its Proving ground
+/// seed is not the Journey's, [`ReadError::AnswerOfAnotherTask`] when a
+/// task holds an answer naming another task,
 /// [`ReadError::NotTheJourneys`] when a step, check or task is missing,
 /// extra or out of order, and [`ReadError::ManualStep`] when a step is
 /// recorded `manual` against its Journey's word, or the other way round.
@@ -126,6 +134,27 @@ pub fn read_journey_document(
         return Err(ReadError::OtherJourney {
             document: facts.journey_id.clone(),
             journey: journey.id.clone(),
+        });
+    }
+    // A Collie Journey's `cli` variant also runs on Foxhound's executable
+    // as `foxhound-cli` (ADR 0094).
+    let listed = journey.surfaces.contains_key(&facts.surface)
+        || (facts.surface == FOXHOUND_CLI
+            && journey.product == Product::Collie
+            && journey.surfaces.contains_key("cli"));
+    if !listed {
+        return Err(ReadError::UnlistedSurface {
+            surface: facts.surface.clone(),
+        });
+    }
+    let seeds = (
+        facts.proving_ground.as_ref().map(|copy| copy.seed),
+        journey.proving_ground.as_ref().map(|table| table.seed),
+    );
+    if seeds.0 != seeds.1 {
+        return Err(ReadError::OtherSeed {
+            document: seeds.0,
+            journey: seeds.1,
         });
     }
     compare(
@@ -187,6 +216,17 @@ pub fn read_journey_document(
         &facts.tasks.iter().map(|task| &task.id).collect::<Vec<_>>(),
         |id| id.as_str().to_owned(),
     )?;
+    if let Some((task, answer)) = facts.tasks.iter().find_map(|task| {
+        task.answer
+            .as_ref()
+            .filter(|answer| answer.task != task.id)
+            .map(|answer| (task, answer))
+    }) {
+        return Err(ReadError::AnswerOfAnotherTask {
+            task: task.id.clone(),
+            answered: answer.task.clone(),
+        });
+    }
     Ok(document)
 }
 
@@ -284,6 +324,36 @@ pub enum ReadError {
         /// The step's or check's text, or the task's ID.
         text: String,
     },
+    /// A named task holding the oracle's answer for another task: the
+    /// answer names the task it judged (ADR 0063).
+    #[error("task `{task}` holds the oracle's answer for task `{answered}`")]
+    AnswerOfAnotherTask {
+        /// The task the document holds the answer under.
+        task: TaskId,
+        /// The task the answer names.
+        answered: TaskId,
+    },
+    /// A document whose Proving ground seed is not its Journey's, or that
+    /// records a Proving ground its Journey starts none for, or none for a
+    /// Journey that starts one: a Journey's seed is its own, never
+    /// `GOODFETCH_TEST_SEED` (ADR 0063).
+    #[error(
+        "the document's Proving ground seed is {}, its Journey's {}",
+        seed_text(*document),
+        seed_text(*journey)
+    )]
+    OtherSeed {
+        /// The seed the document records, if any.
+        document: Option<u64>,
+        /// The Journey's seed, if it starts a Proving ground.
+        journey: Option<u64>,
+    },
+    /// A document of a surface its Journey has no variant on.
+    #[error("the Journey has no variant on `{surface}`")]
+    UnlistedSurface {
+        /// The surface the document names.
+        surface: String,
+    },
     /// A step recorded `manual` that its Journey does not mark manual, or
     /// one the Journey marks manual recorded as an automated step.
     #[error(
@@ -298,6 +368,11 @@ pub enum ReadError {
         /// Whether the document records it `manual`.
         recorded_manual: bool,
     },
+}
+
+/// A seed as a reader's message writes it.
+fn seed_text(seed: Option<u64>) -> String {
+    seed.map_or_else(|| "none".to_owned(), |seed| seed.to_string())
 }
 
 /// A list of a Journey that each of its `journey` documents holds exactly.

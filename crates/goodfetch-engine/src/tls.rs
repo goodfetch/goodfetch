@@ -6,14 +6,21 @@
 //! Operator-configured endpoint's own. Nothing turns verification off.
 
 use std::collections::BTreeMap;
+use std::io;
 use std::sync::Arc;
 
-use rustls::client::WebPkiServerVerifier;
+use goodfetch_protocol::tls::{
+    CERTIFICATE_INVALID, CertificateFailure, CertificateInvalidDetails, KnownCertificateFailure,
+};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::{WebPkiServerVerifier, verify_server_cert_signed_by_trust_anchor};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
+use rustls::server::ParsedCertificate;
+use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
 use url::Host;
+
+use crate::composition::CallError;
 
 /// What a host's certificate may chain to beside Mozilla's roots.
 #[derive(Clone, Debug, Default)]
@@ -25,6 +32,55 @@ pub struct Trust {
     /// parser leaves a host.
     by_domain: BTreeMap<String, Vec<CertificateDer<'static>>>,
 }
+
+/// A host's certificate that failed verification, with no exception for
+/// its domain: the request ends before anything is sent to the host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CertificateInvalid {
+    /// The host, as the request named it.
+    pub host: String,
+    /// How its certificate failed.
+    pub failure: CertificateFailure,
+}
+
+impl CertificateInvalid {
+    /// What `certificate_invalid` details: the host, the failure and the
+    /// setting that makes an exception for its domain.
+    pub fn details(&self) -> CertificateInvalidDetails {
+        let host = &self.host;
+        let fix = match self.failure {
+            CertificateFailure::Known(KnownCertificateFailure::UnknownIssuer) => format!(
+                "Trust the certificate authority of {host} for its domain under `tls.trusted_cas` in user or project configuration or the Operator policy, or list its domain under `tls.accept_invalid_certs` to pin its certificate on first use."
+            ),
+            _ => format!(
+                "List the domain of {host} under `tls.accept_invalid_certs` to pin its certificate on first use, or give its pin there in user or project configuration or the Operator policy."
+            ),
+        };
+        CertificateInvalidDetails {
+            host: host.clone(),
+            failure: self.failure.clone(),
+            fix,
+        }
+    }
+
+    /// The failure the call that waited for the request answers with.
+    pub fn error(&self) -> CallError {
+        CallError::new(&CERTIFICATE_INVALID, self.to_string(), &self.details())
+    }
+}
+
+impl std::fmt::Display for CertificateInvalid {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the certificate of {} failed verification ({})",
+            self.host,
+            self.failure.as_str()
+        )
+    }
+}
+
+impl std::error::Error for CertificateInvalid {}
 
 /// A `tls.trusted_cas` entry that names no host.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -137,6 +193,104 @@ struct Verifier {
     /// domain it is a subdomain of.
     by_domain: BTreeMap<String, Arc<WebPkiServerVerifier>>,
     trust: Trust,
+    provider: Arc<CryptoProvider>,
+}
+
+/// How a certificate failed, carried from the verifier through rustls's
+/// handshake error to the request that waited for it.
+#[derive(Debug)]
+struct Rejected(CertificateFailure);
+
+impl std::fmt::Display for Rejected {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0.as_str())
+    }
+}
+
+impl std::error::Error for Rejected {}
+
+/// The failure a handshake that ended with `error` met on `host`'s
+/// certificate; `None` when the handshake failed for another reason.
+pub(crate) fn certificate_invalid(error: &io::Error, host: &str) -> Option<CertificateInvalid> {
+    let rustls::Error::InvalidCertificate(CertificateError::Other(OtherError(other))) =
+        error.get_ref()?.downcast_ref::<rustls::Error>()?
+    else {
+        return None;
+    };
+    let Rejected(failure) = other.downcast_ref::<Rejected>()?;
+    Some(CertificateInvalid {
+        host: host.to_owned(),
+        failure: failure.clone(),
+    })
+}
+
+/// The wire's name for how rustls's verifier refused a certificate
+/// (ADR 0127's translation point): the failures the wire names, and any
+/// other as its own name in text.
+fn failure_of(error: &CertificateError) -> CertificateFailure {
+    let known = |failure| CertificateFailure::Known(failure);
+    let text = |name: &str| CertificateFailure::Unrecognized(name.to_owned());
+    match error {
+        CertificateError::Expired | CertificateError::ExpiredContext { .. } => {
+            known(KnownCertificateFailure::Expired)
+        }
+        CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => {
+            known(KnownCertificateFailure::NotYetValid)
+        }
+        CertificateError::UnknownIssuer => known(KnownCertificateFailure::UnknownIssuer),
+        CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => {
+            known(KnownCertificateFailure::NameMismatch)
+        }
+        CertificateError::Revoked => known(KnownCertificateFailure::Revoked),
+        CertificateError::BadEncoding => text("bad_encoding"),
+        CertificateError::BadSignature => text("bad_signature"),
+        CertificateError::UnhandledCriticalExtension => text("unhandled_critical_extension"),
+        CertificateError::InvalidPurpose | CertificateError::InvalidPurposeContext { .. } => {
+            text("invalid_purpose")
+        }
+        CertificateError::UnknownRevocationStatus => text("unknown_revocation_status"),
+        CertificateError::ExpiredRevocationList
+        | CertificateError::ExpiredRevocationListContext { .. } => text("expired_revocation_list"),
+        CertificateError::UnsupportedSignatureAlgorithmContext { .. }
+        | CertificateError::UnsupportedSignatureAlgorithmForPublicKeyContext { .. } => {
+            text("unsupported_signature_algorithm")
+        }
+        CertificateError::InvalidOcspResponse => text("invalid_ocsp_response"),
+        CertificateError::ApplicationVerificationFailure => {
+            text("application_verification_failure")
+        }
+        CertificateError::Other(other) => text(&other.to_string()),
+        _ => text("invalid_certificate"),
+    }
+}
+
+/// Whether `end_entity` is its own issuer: trusted as an authority of its
+/// own, it chains, whatever its dates.
+fn self_signed(end_entity: &CertificateDer<'_>, now: UnixTime, provider: &CryptoProvider) -> bool {
+    let Ok(parsed) = ParsedCertificate::try_from(end_entity) else {
+        return false;
+    };
+    let mut itself = RootCertStore::empty();
+    if itself.add(end_entity.clone().into_owned()).is_err() {
+        return false;
+    }
+    match verify_server_cert_signed_by_trust_anchor(
+        &parsed,
+        &itself,
+        &[],
+        now,
+        provider.signature_verification_algorithms.all,
+    ) {
+        Ok(()) => true,
+        Err(rustls::Error::InvalidCertificate(error)) => matches!(
+            error,
+            CertificateError::Expired
+                | CertificateError::ExpiredContext { .. }
+                | CertificateError::NotValidYet
+                | CertificateError::NotValidYetContext { .. }
+        ),
+        Err(_) => false,
+    }
 }
 
 impl Verifier {
@@ -169,6 +323,7 @@ impl Verifier {
             default: build(&[]),
             by_domain,
             trust: trust.clone(),
+            provider: Arc::clone(provider),
         }
     }
 
@@ -192,13 +347,23 @@ impl ServerCertVerifier for Verifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        self.for_server(server_name).verify_server_cert(
-            end_entity,
-            intermediates,
-            server_name,
-            ocsp_response,
-            now,
-        )
+        self.for_server(server_name)
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+            .map_err(|error| match error {
+                rustls::Error::InvalidCertificate(error) => {
+                    let failure = if matches!(error, CertificateError::UnknownIssuer)
+                        && self_signed(end_entity, now, &self.provider)
+                    {
+                        CertificateFailure::Known(KnownCertificateFailure::SelfSigned)
+                    } else {
+                        failure_of(&error)
+                    };
+                    rustls::Error::InvalidCertificate(CertificateError::Other(OtherError(
+                        Arc::new(Rejected(failure)),
+                    )))
+                }
+                other => other,
+            })
     }
 
     fn verify_tls12_signature(
@@ -225,3 +390,6 @@ impl ServerCertVerifier for Verifier {
         self.default.supported_verify_schemes()
     }
 }
+
+#[cfg(test)]
+mod tests;

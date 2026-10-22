@@ -43,7 +43,7 @@ use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
 use crate::egress::{self, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::run_trace::RequestLog;
-use crate::tls::Trust;
+use crate::tls::{self, CertificateInvalid, Trust};
 
 #[cfg(test)]
 mod tests;
@@ -340,6 +340,9 @@ pub enum Failure {
     ServerName,
     /// No answer, or a connection that broke.
     Network,
+    /// The host's certificate failed verification, so nothing was sent:
+    /// `certificate_invalid`.
+    CertificateInvalid(CertificateInvalid),
 }
 
 /// The task that drives one connection, plain or over TLS, until it ends.
@@ -436,7 +439,10 @@ pub(crate) async fn send(
         let tls = tokio_rustls::TlsConnector::from(Arc::new(network.trust.client_config()))
             .connect(server_name, tcp)
             .await
-            .map_err(|_| Failure::Network)?;
+            .map_err(|error| {
+                tls::certificate_invalid(&error, server.host)
+                    .map_or(Failure::Network, Failure::CertificateInvalid)
+            })?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
             .await
             .map_err(|_| Failure::Network)?;

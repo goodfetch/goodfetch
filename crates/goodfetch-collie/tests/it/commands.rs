@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use goodfetch_test_support::{
     SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
 };
+use rstest::rstest;
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
@@ -268,4 +269,158 @@ fn page_body_follow_prints_each_chunk_on_one_line_as_it_arrives() {
     [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
     [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="page.body"
     "#);
+}
+
+/// Covers: command:run.checkpoint
+#[test]
+fn run_checkpoint_writes_the_runs_checkpoint_and_answers_where() {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", "checkpoint", "first", "--json"])
+        .json("Checkpoint")
+        .unwrap();
+
+    let checkpoint = &checked.documents[0];
+    assert_eq!(
+        (
+            checked.output.exit,
+            &checkpoint["run_id"],
+            checkpoint["location"].as_str().map(PathBuf::from),
+        ),
+        (
+            Some(0),
+            &json!("first"),
+            Some(run_folder(&env, "first").join("checkpoint.sqlite"))
+        ),
+        "{}",
+        checked.output
+    );
+}
+
+/// A command that ends a Run answers the report of a Run that already
+/// ended as it is: `stopped` by its Client's abort, exiting `20`.
+#[rstest]
+/// Covers: command:run.pause
+#[case::pause("pause")]
+/// Covers: command:run.migrate
+#[case::migrate("migrate")]
+fn a_command_that_ends_a_run_answers_an_ended_runs_report_as_it_is(#[case] command: &str) {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", command, "first", "--json"])
+        .json("RunReport")
+        .unwrap();
+
+    assert_eq!(
+        (
+            checked.output.exit,
+            &checked.documents[0]["lifecycle"],
+            &checked.documents[0]["stop_reason"],
+        ),
+        (
+            Some(20),
+            &json!("stopped"),
+            &json!({ "by": "client", "kind": "abort" })
+        ),
+        "{}",
+        checked.output
+    );
+}
+
+/// The Key-value store of a Run no engine holds is read: a key never set
+/// answers null.
+///
+/// Covers: command:key-value-store.get
+#[test]
+fn key_value_store_get_answers_null_for_a_key_never_set() {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args([
+            "key-value-store",
+            "get",
+            "--run-id",
+            "first",
+            "--key",
+            "progress",
+            "--json",
+        ])
+        .json("KeyValueStoreValue")
+        .unwrap();
+
+    assert_eq!(
+        (checked.output.exit, &checked.documents[0]),
+        (Some(0), &json!({ "value": null })),
+        "{}",
+        checked.output
+    );
+}
+
+/// A store nothing was written to sends no key.
+///
+/// Covers: command:key-value-store.keys
+#[test]
+fn key_value_store_keys_sends_none_from_a_store_never_written() {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let output = cli(&env, COLLIE)
+        .args([
+            "key-value-store",
+            "keys",
+            "--run-id",
+            "first",
+            "--follow",
+            "--json",
+        ])
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (output.exit, output.stdout.as_str()),
+        (Some(0), ""),
+        "{output}"
+    );
+}
+
+/// The Key-value store of a Run no engine holds is never written: a write
+/// fails with `run_not_found`, naming a start or a resume.
+#[rstest]
+/// Covers: command:key-value-store.set
+#[case::set(&["set", "--value", "1"], "key_value_store.set")]
+/// Covers: command:key-value-store.delete
+#[case::delete(&["delete"], "key_value_store.delete")]
+fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
+    #[case] command: &[&str],
+    #[case] operation: &str,
+) {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["key-value-store"])
+        .args(command)
+        .args(["--run-id", "first", "--key", "progress", "--json"])
+        .json("CommandFailed")
+        .unwrap();
+
+    let error = &checked.documents[0]["error"];
+    assert_eq!(
+        (
+            checked.output.exit,
+            &error["code"],
+            &error["operation"],
+            error["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("start or resume it")),
+        ),
+        (Some(3), &json!("run_not_found"), &json!(operation), true),
+        "{}",
+        checked.output
+    );
 }

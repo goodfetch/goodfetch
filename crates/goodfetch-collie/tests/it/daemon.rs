@@ -28,7 +28,7 @@ use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_test_support::{
     AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
     ListenerKind, Process, Rule, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
-    reported_address, snapshot_settings, tools,
+    record_command, reported_address, snapshot_settings, tools,
 };
 use serde_json::{Value, json};
 
@@ -382,6 +382,39 @@ fn the_daemon_stops_once_no_client_was_connected_for_its_idle_timeout() {
     assert_eq!(
         (after["daemon"].clone(), runtime_file(&env).exists()),
         (Value::Null, false)
+    );
+}
+
+/// `daemon launched`, which a start and the major's service run, serves as
+/// the Daemon: once it listens it prints the runtime file that `daemon
+/// status` reads, and it exits `0` when `daemon stop` stops it.
+///
+/// Covers: command:daemon.launched
+#[test]
+fn daemon_launched_prints_its_runtime_file_once_it_serves_and_exits_0_when_stopped() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let mut command = env.process_command(COLLIE);
+    command
+        .args(["daemon", "launched"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let daemon = env.spawn(&mut command).unwrap();
+    let mut ready = String::new();
+    BufReader::new(daemon.child().stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    let printed: RuntimeFile = serde_json::from_str(&ready).unwrap();
+
+    let status = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "stop", "--json"]);
+    let exit = daemon.child().wait().unwrap().code();
+    record_command(&env, &["daemon", "launched"], exit).unwrap();
+
+    assert_eq!(
+        (status["daemon"]["pid"].clone(), exit),
+        (json!(printed.pid), Some(0))
     );
 }
 

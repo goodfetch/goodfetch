@@ -117,11 +117,22 @@ fn fetch_replaces_a_kept_file_whose_digest_differs_from_its_pin() {
 }
 
 /// The release of the repository that keeps a copy of the tools, as GitHub's
-/// API lists it: asset 7 is `tla2tools.jar`.
+/// API lists it: asset 7 is `tla2tools.jar`, whose content GitHub serves by
+/// redirecting to its storage, as `STORAGE` stands in for.
 const RELEASE: &str = "/repos/goodfetch/goodfetch/releases/tags/tla-tools-1";
 const RELEASE_LISTING: &str =
     r#"{"tag_name":"tla-tools-1","assets":[{"id":7,"name":"tla2tools.jar"}]}"#;
 const ASSET: &str = "/repos/goodfetch/goodfetch/releases/assets/7";
+const STORAGE: &str = "/storage/tla2tools.jar";
+
+/// A stand-in of GitHub's API whose release lists asset 7, redirecting its
+/// download to storage that serves `content`.
+fn release_serving(content: &str) -> GitHub {
+    GitHub::serving_with_redirects(
+        &[(RELEASE, RELEASE_LISTING), (STORAGE, content)],
+        &[(ASSET, STORAGE)],
+    )
+}
 
 /// A workspace whose tools file pins `tla2tools.jar` as `asset` of the
 /// repository's `tla-tools-1` release, at its stand-in's SHA-256.
@@ -139,9 +150,11 @@ fn pinned_to_release(asset: &str) -> Workspace {
     workspace
 }
 
+/// GitHub's storage answers a request that also carries the token with an
+/// error, so the token goes to the API only, never across the redirect.
 #[test]
 fn fetch_downloads_a_release_asset_through_the_api_with_the_token() {
-    let github = GitHub::serving(&[(RELEASE, RELEASE_LISTING), (ASSET, TLA2TOOLS)]);
+    let github = release_serving(TLA2TOOLS);
     let workspace = pinned_to_release("tla2tools.jar");
 
     let outcome = workspace.xtask_with_env(
@@ -150,31 +163,63 @@ fn fetch_downloads_a_release_asset_through_the_api_with_the_token() {
     );
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    let asset = github
-        .requests()
-        .into_iter()
-        .find(|request| request.path == ASSET)
-        .map(|request| (request.authorization, request.accept));
+    let headers_at = |path: &str| {
+        github
+            .requests()
+            .into_iter()
+            .find(|request| request.path == path)
+            .map(|request| (request.authorization, request.accept))
+    };
     assert_eq!(
-        (workspace.read("target/tla-tools/tla2tools.jar"), asset),
+        (
+            workspace.read("target/tla-tools/tla2tools.jar"),
+            headers_at(ASSET),
+            headers_at(STORAGE).map(|(authorization, _)| authorization),
+        ),
         (
             Some(TLA2TOOLS.as_bytes().to_vec()),
             Some((
                 Some("Bearer a-read-token".to_owned()),
                 Some("application/octet-stream".to_owned())
-            ))
+            )),
+            Some(None),
         )
     );
 }
 
+#[test]
+fn fetch_fails_on_a_release_asset_whose_digest_differs_from_its_pin() {
+    let github = release_serving("a rebuilt tla2tools.jar");
+    let workspace = pinned_to_release("tla2tools.jar");
+
+    let outcome = workspace.xtask(&["tlc", "fetch", "--api-url", github.url()]);
+
+    assert_eq!(
+        (
+            outcome.code,
+            outcome.findings(),
+            workspace.read("target/tla-tools/tla2tools.jar")
+        ),
+        (1, vec![finding("digest-mismatch", "tla2tools.jar")], None)
+    );
+}
+
+/// A release that does not exist, or that a missing token cannot see, and a
+/// release without the pinned asset are told apart, so the finding names
+/// what to create or correct.
 #[rstest]
-#[case::a_release_without_the_asset(&[(RELEASE, RELEASE_LISTING), (ASSET, TLA2TOOLS)], "tla2tools-renamed.jar")]
-#[case::no_such_release(&[], "tla2tools.jar")]
+#[case::a_release_without_the_asset(true, "tla2tools-renamed.jar", "missing-asset")]
+#[case::no_such_release(false, "tla2tools.jar", "missing-release")]
 fn fetch_fails_on_a_release_asset_it_cannot_find(
-    #[case] routes: &[(&str, &str)],
+    #[case] release_exists: bool,
     #[case] asset: &str,
+    #[case] kind: &str,
 ) {
-    let github = GitHub::serving(routes);
+    let github = if release_exists {
+        release_serving(TLA2TOOLS)
+    } else {
+        GitHub::serving(&[])
+    };
     let workspace = pinned_to_release(asset);
 
     let outcome = workspace.xtask(&["tlc", "fetch", "--api-url", github.url()]);
@@ -185,7 +230,7 @@ fn fetch_fails_on_a_release_asset_it_cannot_find(
             outcome.findings(),
             workspace.read("target/tla-tools/tla2tools.jar")
         ),
-        (1, vec![finding("missing-asset", "tla2tools.jar")], None)
+        (1, vec![finding(kind, "tla2tools.jar")], None)
     );
 }
 

@@ -153,29 +153,38 @@ struct Asset {
     name: String,
 }
 
-/// The pin's bytes, or `None` when its release or the asset does not exist,
-/// or the token cannot see them.
-fn download_source(source: &Source, api: Api<'_>, maximum: u64) -> Result<Option<Vec<u8>>> {
+/// What a pin's source served.
+enum Downloaded<'a> {
+    Bytes(Vec<u8>),
+    /// The release does not exist, or the token cannot see it.
+    NoRelease(&'a ReleaseAsset),
+    /// The release exists without the pinned asset.
+    NoAsset,
+}
+
+fn download_source<'a>(source: &'a Source, api: Api<'_>, maximum: u64) -> Result<Downloaded<'a>> {
     match source {
-        Source::Url(url) => download(url, maximum).map(Some),
+        Source::Url(url) => download(url, maximum).map(Downloaded::Bytes),
         Source::Release(release) => {
-            let listing: Option<Release> = api.find(&format!(
+            let Some(listing) = api.find::<Release>(&format!(
                 "/repos/{}/releases/tags/{}",
                 release.repository, release.tag
-            ))?;
-            let Some(asset) = listing.and_then(|listing| {
-                listing
-                    .assets
-                    .into_iter()
-                    .find(|asset| asset.name == release.asset)
-            }) else {
-                return Ok(None);
+            ))?
+            else {
+                return Ok(Downloaded::NoRelease(release));
+            };
+            let Some(asset) = listing
+                .assets
+                .into_iter()
+                .find(|asset| asset.name == release.asset)
+            else {
+                return Ok(Downloaded::NoAsset);
             };
             api.download(
                 &format!("/repos/{}/releases/assets/{}", release.repository, asset.id),
                 maximum,
             )
-            .map(Some)
+            .map(Downloaded::Bytes)
         }
     }
 }
@@ -195,8 +204,9 @@ impl Source {
 
 /// Downloads into `folder` each pin whose kept file lacks its SHA-256, each
 /// at most `maximum` bytes, a release's asset through `api`. A download with
-/// another SHA-256, or a release without the pinned asset, is a finding and
-/// leaves no kept file of that pin; `pins_file` names where to move it.
+/// another SHA-256, a missing release and a release without the pinned asset
+/// are each a finding, and leave no kept file of that pin; `pins_file` names
+/// where to correct it.
 pub(crate) fn fetch(
     folder: &Path,
     pins: &[Pin],
@@ -211,45 +221,55 @@ pub(crate) fn fetch(
         if kept_as_pinned(&path, &pin.sha256)? {
             continue;
         }
-        let bytes = match download_source(&pin.source, api, maximum)? {
-            Some(bytes) if sha256(&bytes) == pin.sha256 => bytes,
-            downloaded => {
-                if path.exists() {
-                    std::fs::remove_file(&path)
-                        .with_context(|| format!("removing {}", path.display()))?;
-                }
-                findings.push(match downloaded {
-                    None => Finding::new(
-                        "missing-asset",
-                        pin.name.clone(),
-                        format!(
-                            "{} does not exist, or GITHUB_TOKEN cannot read it; correct the pin in {pins_file} or set the token",
-                            pin.source.describe()
-                        ),
-                    ),
-                    Some(bytes) => Finding::new(
-                        "digest-mismatch",
-                        pin.name.clone(),
-                        format!(
-                            "{} served SHA-256 {}, not the pinned {}; move the pin in {pins_file} only after checking the new release",
-                            pin.source.describe(),
-                            sha256(&bytes),
-                            pin.sha256
-                        ),
-                    ),
-                });
+        let finding = match download_source(&pin.source, api, maximum)? {
+            Downloaded::Bytes(bytes) if sha256(&bytes) == pin.sha256 => {
+                keep(folder, &pin.name, &bytes)?;
                 continue;
             }
+            Downloaded::Bytes(bytes) => Finding::new(
+                "digest-mismatch",
+                pin.name.clone(),
+                format!(
+                    "{} served SHA-256 {}, not the pinned {}; move the pin in {pins_file} only after checking the new release",
+                    pin.source.describe(),
+                    sha256(&bytes),
+                    pin.sha256
+                ),
+            ),
+            Downloaded::NoRelease(release) => Finding::new(
+                "missing-release",
+                pin.name.clone(),
+                format!(
+                    "{}'s release {} does not exist, or GITHUB_TOKEN cannot read it: create it with the asset {} that {pins_file} pins, or set the token",
+                    release.repository, release.tag, release.asset
+                ),
+            ),
+            Downloaded::NoAsset => Finding::new(
+                "missing-asset",
+                pin.name.clone(),
+                format!(
+                    "{} has no asset of that name: attach it, or correct the pin in {pins_file}",
+                    pin.source.describe()
+                ),
+            ),
         };
-        // Written beside its final name and renamed, so an interrupted
-        // download never leaves a file under the kept name.
-        let partial = folder.join(format!("{}.partial", pin.name));
-        std::fs::write(&partial, &bytes)
-            .with_context(|| format!("writing {}", partial.display()))?;
-        std::fs::rename(&partial, &path)
-            .with_context(|| format!("renaming {} to {}", partial.display(), path.display()))?;
+        if path.exists() {
+            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        }
+        findings.push(finding);
     }
     Ok(findings)
+}
+
+/// Writes `bytes` as the kept file `name` in `folder`, beside its final name
+/// first and then renamed, so an interrupted download never leaves a file
+/// under the kept name.
+fn keep(folder: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    let path = folder.join(name);
+    let partial = folder.join(format!("{name}.partial"));
+    std::fs::write(&partial, bytes).with_context(|| format!("writing {}", partial.display()))?;
+    std::fs::rename(&partial, &path)
+        .with_context(|| format!("renaming {} to {}", partial.display(), path.display()))
 }
 
 /// The kept files of `pins` in `folder`, in their pinned order: each one

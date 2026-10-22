@@ -222,6 +222,7 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("usage-ledger", Rule::FrozenMajor),
             ("politeness-file", Rule::FrozenMajor),
             ("audit-log", Rule::FrozenMajor),
+            ("known-certificates", Rule::FrozenMajor),
             ("operator-policy", Rule::SharedStore),
             ("user-configuration", Rule::SharedStore)
         ]

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, AuditVerified, AuditVerifyParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -47,6 +47,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return AuditVerified.model_construct(**_fields(await self._caller.call("audit.verify", params)))
+
+    async def certs_list(self, params: CertsListParams) -> CertsListed:
+        """Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CertsListed.model_construct(**_fields(await self._caller.call("certs.list", params)))
 
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
@@ -288,6 +295,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return AuditVerified.model_construct(**_fields(self._caller.call("audit.verify", params)))
+
+    def certs_list(self, params: CertsListParams) -> CertsListed:
+        """Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CertsListed.model_construct(**_fields(self._caller.call("certs.list", params)))
 
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""

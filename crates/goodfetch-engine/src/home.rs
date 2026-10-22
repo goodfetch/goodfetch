@@ -27,6 +27,9 @@ const AUDIT_LOG: &str = "audit-log.sqlite";
 /// The Audit log's head file, beside its store.
 const AUDIT_LOG_HEAD: &str = "audit-log-head.json";
 
+/// The known-certificates store, beside the Usage ledger (ADR 0042).
+const KNOWN_CERTIFICATES: &str = "known-certificates.sqlite";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +107,13 @@ impl Home {
     /// entry so that a truncated tail shows.
     pub fn audit_log_head(&self) -> PathBuf {
         self.root.join(AUDIT_LOG_HEAD)
+    }
+
+    /// The per-user known-certificates store, beside the Usage ledger and
+    /// outside the per-major folders, which every engine of every major and
+    /// of both Products reads (ADR 0042).
+    pub fn known_certificates(&self) -> PathBuf {
+        self.root.join(KNOWN_CERTIFICATES)
     }
 }
 

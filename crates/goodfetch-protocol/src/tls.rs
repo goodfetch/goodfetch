@@ -4,14 +4,20 @@
 //! value, and `certificate_invalid`, the Error code a certificate that fails
 //! verification ends a request with, naming the host, the failure and the
 //! setting that makes an exception. No setting turns verification off.
+//!
+//! A certificate a domain's trust-on-first-use exception accepted is pinned
+//! by the SHA-256 of its SubjectPublicKeyInfo in the user's known-certificates
+//! store, one partition per person; `certs.list` reads the caller's pins.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
+use crate::run::{PointInTime, RunId};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -131,10 +137,64 @@ pub struct CertificateInvalidDetails {
     pub fix: String,
 }
 
+/// One pin of the known-certificates store, as `certs.list` answers it and
+/// as the store's rows hold it: a host whose certificate was accepted on
+/// first use, and the key it must keep presenting.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CertificatePin {
+    /// The host, as the URL parser leaves it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+    /// The SHA-256 of the pinned certificate's SubjectPublicKeyInfo, as
+    /// `sha256/` and its standard base64; none when the row cannot be read,
+    /// which stops the host as a changed key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub spki_sha256: Option<String>,
+    /// When it was pinned; none when the row cannot be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pinned_at: Option<PointInTime>,
+    /// The Run whose connection pinned it; none outside a Run or when the
+    /// row cannot be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+}
+
+/// What `certs.list` takes: nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CertsListParams {}
+
+/// What `certs.list` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CertsListed {
+    /// The caller's pins, by host.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pins: Vec<CertificatePin>,
+}
+
+/// `certs.list` (ADR 0042).
+pub const CERTS_LIST: Operation = Operation {
+    name: "certs.list",
+    description: "Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.",
+    class: OperationClass::Read,
+    kind: OperationKind::Query,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<CertsListParams>,
+    result: schema_of::<CertsListed>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[],
+    operations: &[CERTS_LIST],
     events: &[],
     handler_requests: &[],
     error_codes: &[CERTIFICATE_INVALID],

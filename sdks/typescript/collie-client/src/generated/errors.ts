@@ -523,6 +523,15 @@ export class SecretDomainNotAllowedError extends RefusedError {
 }
 
 /**
+ * A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.
+ */
+export class SecretInputRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_input_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
  */
 export class SecretUnavailableError extends UnavailableError {
@@ -667,6 +676,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
   secret_domain_not_allowed: SecretDomainNotAllowedError,
+  secret_input_refused: SecretInputRefusedError,
   secret_unavailable: SecretUnavailableError,
   secret_unbound: SecretUnboundError,
   session_bound_to_machine: SessionBoundToMachineError,

@@ -214,6 +214,80 @@
       ],
       "type": "object"
     },
+    "CertificatePin": {
+      "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
+      "properties": {
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host, as the URL parser leaves it.",
+          "type": "string"
+        },
+        "pinned_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When it was pinned; none when the row cannot be read."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run whose connection pinned it; none outside a Run or when the\nrow cannot be read."
+        },
+        "spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the pinned certificate's SubjectPublicKeyInfo, as\n`sha256/` and its standard base64; none when the row cannot be read,\nwhich stops the host as a changed key.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "type": "object"
+    },
+    "CertsListParams": {
+      "additionalProperties": false,
+      "description": "What `certs.list` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "CertsListed": {
+      "description": "What `certs.list` answers.",
+      "properties": {
+        "pins": {
+          "arrived_in": "0.1",
+          "description": "The caller's pins, by host.",
+          "items": {
+            "$ref": "#/$defs/CertificatePin"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pins"
+      ],
+      "type": "object"
+    },
     "Checkpoint": {
       "description": "A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a\nconsistent, self-contained copy of a Run's state, complete at its\nlocation before it is reported, from which the Run resumes on this\nmachine or another one.",
       "properties": {
@@ -4108,6 +4182,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "secret_input_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
       "exit_code": null,
       "group": "unavailable",
@@ -4678,6 +4762,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.",
+      "events": [],
+      "kind": "query",
+      "name": "certs.list",
+      "params": {
+        "$ref": "#/$defs/CertsListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CertsListed"
       },
       "stability": "experimental"
     },

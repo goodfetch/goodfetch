@@ -19,6 +19,7 @@ use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
 use crate::politeness::PermitRow;
 use crate::run::{RunIndexRow, RunStateRow};
+use crate::tls::CertificatePin;
 use crate::usage::Limit;
 
 /// How a format's files are stored in its corpus sets (ADR 0066).
@@ -331,6 +332,20 @@ pub const AUDIT_LOG: Format = Format {
     schema: schema_of::<AuditEntry>,
 };
 
+/// The per-user known-certificates store in Goodfetch home (ADR 0042),
+/// beside the Usage ledger, outside the per-major folders: the pins of the
+/// certificates each person's trust-on-first-use exceptions accepted, one
+/// partition per person on a shared Daemon. Engines of every major read
+/// it, so it is of the Usage ledger's family; its schema is one pin's.
+pub const KNOWN_CERTIFICATES: Format = Format {
+    name: "known-certificates",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<CertificatePin>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -341,6 +356,7 @@ pub const FORMATS: &[&Format] = &[
     &USAGE_LEDGER,
     &POLITENESS_FILE,
     &AUDIT_LOG,
+    &KNOWN_CERTIFICATES,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
 ];

@@ -25,6 +25,13 @@ export type ArtifactKind =
  */
 export type Asked = true;
 /**
+ * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunId".
+ */
+export type RunId = string;
+/**
  * Whether a Run's results cover everything in its scope (ADRs 0005 and
  * 0029).
  *
@@ -329,13 +336,6 @@ export type Resource = "memory" | "storage";
  */
 export type Verdict = "verified" | "rejected" | "needs_review";
 /**
- * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RunId".
- */
-export type RunId = string;
-/**
  * Why a Run stopped (ADRs 0029, 0080 and 0102).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -599,6 +599,54 @@ export interface CancelParams {
   id: number | string;
 }
 /**
+ * One pin of the known-certificates store, as `certs.list` answers it and
+ * as the store's rows hold it: a host whose certificate was accepted on
+ * first use, and the key it must keep presenting.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertificatePin".
+ */
+export interface CertificatePin {
+  /**
+   * The host, as the URL parser leaves it.
+   */
+  host: string;
+  /**
+   * When it was pinned; none when the row cannot be read.
+   */
+  pinned_at?: PointInTime | null;
+  /**
+   * The Run whose connection pinned it; none outside a Run or when the
+   * row cannot be read.
+   */
+  run_id?: RunId | null;
+  /**
+   * The SHA-256 of the pinned certificate's SubjectPublicKeyInfo, as
+   * `sha256/` and its standard base64; none when the row cannot be read,
+   * which stops the host as a changed key.
+   */
+  spki_sha256?: string | null;
+}
+/**
+ * What `certs.list` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsListParams".
+ */
+export interface CertsListParams {}
+/**
+ * What `certs.list` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsListed".
+ */
+export interface CertsListed {
+  /**
+   * The caller's pins, by host.
+   */
+  pins: CertificatePin[];
+}
+/**
  * A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a
  * consistent, self-contained copy of a Run's state, complete at its
  * location before it is reported, from which the Run resumes on this
@@ -627,7 +675,7 @@ export interface Checkpoint {
    */
   run_epoch: number;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
@@ -1373,7 +1421,7 @@ export interface KeyValueStoreKeyParams {
    */
   key: string;
   /**
-   * The Run whose store it is.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -1402,7 +1450,7 @@ export interface KeyValueStoreKeysParams {
    */
   prefix?: string | null;
   /**
-   * The Run whose store it is.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -1425,7 +1473,7 @@ export interface KeyValueStoreSetParams {
    */
   key: string;
   /**
-   * The Run whose store it is.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
@@ -1762,7 +1810,7 @@ export interface PageResponse {
  */
 export interface NewPageParams {
   /**
-   * The Run.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -1816,7 +1864,7 @@ export interface PageBodyParams {
    */
   body: string;
   /**
-   * The Run whose folder holds it.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2122,7 +2170,7 @@ export interface RunAxes {
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
@@ -2144,7 +2192,7 @@ export interface RunAbortParams {
    */
   forwarded?: boolean;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2160,7 +2208,7 @@ export interface RunAborting {
    */
   by: "client" | "program";
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2177,7 +2225,7 @@ export interface RunCheckpointParams {
    */
   location?: string | null;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2193,7 +2241,7 @@ export interface RunCheckpointing {
    */
   run_epoch: number;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2205,7 +2253,7 @@ export interface RunCheckpointing {
  */
 export interface RunMigrating {
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2217,7 +2265,7 @@ export interface RunMigrating {
  */
 export interface RunParams {
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2237,7 +2285,7 @@ export interface RunProgress {
    */
   message?: ProgressMessage | null;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2303,7 +2351,7 @@ export interface RunReport {
    */
   recording?: RecordingReport | null;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
@@ -2537,7 +2585,7 @@ export interface RunResumeParams {
    */
   project?: ProjectSettings | null;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
@@ -2560,7 +2608,7 @@ export interface RunSetProgressMessageParams {
    */
   message: string;
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2606,7 +2654,7 @@ export interface RunStarted {
    */
   needs: "collie" | "foxhound";
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
@@ -2661,7 +2709,7 @@ export interface RunStopping {
         resource: "memory" | "storage";
       };
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
 }
@@ -2719,7 +2767,7 @@ export interface RunUsage1 {
  */
 export interface RunWaitParams {
   /**
-   * The Run's ID.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**

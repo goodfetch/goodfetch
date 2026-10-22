@@ -479,6 +479,23 @@ number = 4
 kind = "format"
 prefix = "audit-log"
 
+# Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
+# list` and the store's format.
+[[area]]
+number = 4
+kind = "operation"
+prefix = "certs."
+
+[[area]]
+number = 4
+kind = "command"
+prefix = "certs."
+
+[[area]]
+number = 4
+kind = "format"
+prefix = "known-certificates"
+
 [[area]]
 number = 5
 kind = "setting"

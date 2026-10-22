@@ -123,6 +123,42 @@ pub struct SecretDomainNotAllowedDetails {
     pub domains: Vec<String>,
 }
 
+/// A value would go where it must not (ADR 0092).
+pub const SECRET_INPUT_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "secret_input_refused",
+    description: "A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Why a value may not go where it would.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SecretInputRefusedReason {
+    /// The receiving host was reached through an invalid-certificate
+    /// exception (ADR 0042), so whoever holds its key may not be the site.
+    InvalidCertificateException,
+}
+
+/// What `secret_input_refused` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SecretInputRefusedDetails {
+    /// The placeholder.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub placeholder: String,
+    /// The Secret reference.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reference: String,
+    /// The host the value would have gone to.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// Why it may not go there.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: SecretInputRefusedReason,
+}
+
 fn null() -> Value {
     Value::Null
 }
@@ -165,6 +201,7 @@ pub const ENTRIES: Entries = Entries {
         SECRET_UNAVAILABLE,
         SECRET_UNBOUND,
         SECRET_DOMAIN_NOT_ALLOWED,
+        SECRET_INPUT_REFUSED,
     ],
     plugin_kinds: &[],
     metrics: &[],

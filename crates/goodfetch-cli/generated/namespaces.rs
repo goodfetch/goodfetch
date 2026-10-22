@@ -7,6 +7,11 @@
         about: "Calls the catalog's `daemon` operations",
     },
     Namespace {
+        name: "certs",
+        spelled: "certs",
+        about: "Calls the catalog's `certs` operations",
+    },
+    Namespace {
         name: "engine",
         spelled: "engine",
         about: "Calls the catalog's `engine` operations",

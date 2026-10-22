@@ -38,6 +38,7 @@ pub mod http_client;
 mod info;
 pub mod installed;
 pub mod key_value_store;
+pub mod known_certificates;
 pub mod lease;
 pub mod ledger;
 pub mod log;

@@ -943,6 +943,20 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class Unready(StrEnum):
+    """
+    Why a Daemon cannot take a new Run now, as its ops listener's
+    `/readyz` and `daemon health` check it (ADR 0050).
+    """
+
+    draining = "draining"
+    """It drains, taking no Run (ADR 0049)."""
+    run_state_not_writable = "run_state_not_writable"
+    """Its run state cannot be written."""
+    browsers_missing = "browsers_missing"
+    """A browser its configuration uses is not installed."""
+
+
 class UsageListParams(BaseModel):
     """What `usage.list` takes."""
 
@@ -1094,6 +1108,27 @@ class CreditParams(BaseModel):
     """
     id: RequestId
     """The streaming call's id."""
+
+
+class DaemonHealth(BaseModel):
+    """
+    What `daemon.health` answers: what the ops listener's `/livez` and
+    `/readyz` check (ADR 0050). In a Daemon group, readiness ignores the
+    Lead Daemon's reachability.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    live: bool
+    """
+    Whether it is live: its runtime and its Runs' registry, which writes
+    their run state, respond.
+    """
+    ready: bool
+    """Whether it is ready: live, and able to take a new Run."""
+    unready: list[Unready]
+    """Why it is not ready, when it is not; empty when it is."""
 
 
 class DaemonStatus(BaseModel):

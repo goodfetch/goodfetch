@@ -282,9 +282,37 @@
             },
             "type": "object"
           },
+          "ops": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+              }
+            },
+            "type": "object"
+          },
           "otlp": {
             "additionalProperties": false,
             "properties": {
+              "metrics_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043)."
+              },
               "traces_endpoint": {
                 "anyOf": [
                   {

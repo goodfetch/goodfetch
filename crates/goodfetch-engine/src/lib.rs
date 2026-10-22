@@ -41,6 +41,8 @@ pub mod lease;
 pub mod ledger;
 pub mod log;
 pub mod lowest_minor;
+pub mod metrics;
+pub mod ops;
 pub mod pinned_download;
 pub mod politeness;
 mod product;

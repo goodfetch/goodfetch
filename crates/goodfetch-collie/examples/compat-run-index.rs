@@ -19,6 +19,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
@@ -180,6 +181,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             console: DaemonConsole::Absent,
             drain: None,
             install: None,
+            ops: Ops::default(),
             websocket: None,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);

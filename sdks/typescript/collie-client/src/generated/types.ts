@@ -63,6 +63,14 @@ export type DaemonEndpoint =
       tcp: string;
     };
 /**
+ * Why a Daemon cannot take a new Run now, as its ops listener's
+ * `/readyz` and `daemon health` check it (ADR 0050).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Unready".
+ */
+export type Unready = "draining" | "run_state_not_writable" | "browsers_missing";
+/**
  * One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -629,6 +637,29 @@ export interface CreditParams {
    * The streaming call's id.
    */
   id: number | string;
+}
+/**
+ * What `daemon.health` answers: what the ops listener's `/livez` and
+ * `/readyz` check (ADR 0050). In a Daemon group, readiness ignores the
+ * Lead Daemon's reachability.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonHealth".
+ */
+export interface DaemonHealth {
+  /**
+   * Whether it is live: its runtime and its Runs' registry, which writes
+   * their run state, respond.
+   */
+  live: boolean;
+  /**
+   * Whether it is ready: live, and able to take a new Run.
+   */
+  ready: boolean;
+  /**
+   * Why it is not ready, when it is not; empty when it is.
+   */
+  unready: Unready[];
 }
 /**
  * What `daemon.status` and `daemon.stop` take: nothing.

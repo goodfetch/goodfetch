@@ -337,6 +337,35 @@
         }
       ]
     },
+    "DaemonHealth": {
+      "description": "What `daemon.health` answers: what the ops listener's `/livez` and\n`/readyz` check (ADR 0050). In a Daemon group, readiness ignores the\nLead Daemon's reachability.",
+      "properties": {
+        "live": {
+          "arrived_in": "0.1",
+          "description": "Whether it is live: its runtime and its Runs' registry, which writes\ntheir run state, respond.",
+          "type": "boolean"
+        },
+        "ready": {
+          "arrived_in": "0.1",
+          "description": "Whether it is ready: live, and able to take a new Run.",
+          "type": "boolean"
+        },
+        "unready": {
+          "arrived_in": "0.1",
+          "description": "Why it is not ready, when it is not; empty when it is.",
+          "items": {
+            "$ref": "#/$defs/Unready"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "live",
+        "ready",
+        "unready"
+      ],
+      "type": "object"
+    },
     "DaemonParams": {
       "additionalProperties": false,
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
@@ -2439,6 +2468,26 @@
       "maxItems": 16,
       "type": "array"
     },
+    "Unready": {
+      "description": "Why a Daemon cannot take a new Run now, as its ops listener's\n`/readyz` and `daemon health` check it (ADR 0050).",
+      "oneOf": [
+        {
+          "const": "draining",
+          "description": "It drains, taking no Run (ADR 0049).",
+          "type": "string"
+        },
+        {
+          "const": "run_state_not_writable",
+          "description": "Its run state cannot be written.",
+          "type": "string"
+        },
+        {
+          "const": "browsers_missing",
+          "description": "A browser its configuration uses is not installed.",
+          "type": "string"
+        }
+      ]
+    },
     "UsageListParams": {
       "additionalProperties": false,
       "description": "What `usage.list` takes.",
@@ -3448,8 +3497,132 @@
   "metrics": [
     {
       "arrived_in": "0.1",
+      "description": "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
+      "instrument": "up_down_counter",
+      "labels": [
+        {
+          "name": "browser",
+          "values": [
+            "chrome_for_testing",
+            "chromium"
+          ]
+        }
+      ],
+      "name": "goodfetch.browser.running",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{browser}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Clients connected to the Daemon, by the surface each named in its `hello`, Console tabs included.",
+      "instrument": "up_down_counter",
+      "labels": [
+        {
+          "name": "surface",
+          "values": [
+            "sdk_typescript",
+            "sdk_python",
+            "rust",
+            "cli",
+            "mcp",
+            "console",
+            "cloud",
+            "browser_host",
+            "worker"
+          ]
+        }
+      ],
+      "name": "goodfetch.client.connected",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{client}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "1 while the Daemon drains, taking no Run (ADR 0049), else 0.",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.daemon.draining",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The share of the resource governor's concurrency target in use, from 0 to 1, on which the Helm chart's autoscaler scales the Daemons (ADRs 0040 and 0055). Reported once the governor runs.",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.governor.saturation",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "1"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Daemon's live Runs, whose Lifecycle is `running`, by kind.",
+      "instrument": "up_down_counter",
+      "labels": [
+        {
+          "name": "run_kind",
+          "values": [
+            "collie",
+            "crawl"
+          ]
+        }
+      ],
+      "name": "goodfetch.run.active",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Runs that ended on the Daemon, by kind, Lifecycle, Verdict and Completeness (ADR 0029).",
+      "instrument": "counter",
+      "labels": [
+        {
+          "name": "run_kind",
+          "values": [
+            "collie",
+            "crawl"
+          ]
+        },
+        {
+          "name": "lifecycle",
+          "values": [
+            "stopped",
+            "finished",
+            "failed"
+          ]
+        },
+        {
+          "name": "verdict",
+          "values": [
+            "verified",
+            "rejected",
+            "needs_review"
+          ]
+        },
+        {
+          "name": "completeness",
+          "values": [
+            "complete",
+            "incomplete",
+            "unverified"
+          ]
+        }
+      ],
+      "name": "goodfetch.run.ended",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "instrument": "counter",
+      "labels": [],
       "name": "goodfetch.sample.echoes",
       "product": "collie",
       "stability": "stable",
@@ -3513,6 +3686,25 @@
         "$ref": "#/$defs/LogLevelSet"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Says whether the Daemon is live and ready to take a new Run, and why not: what its ops listener's `/livez` and `/readyz` answer with a status alone.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "daemon.health",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DaemonHealth"
+      },
+      "stability": "stable"
     },
     {
       "arrived_in": "0.1",
@@ -4372,6 +4564,40 @@
           "type": "array"
         },
         "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`.",
+      "name": "ops.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043).",
+      "name": "otlp.metrics_endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
       },
       "weakens": false
     },

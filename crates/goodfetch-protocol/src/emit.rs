@@ -44,8 +44,8 @@ use crate::catalog::{
 use crate::cli::{CommandFailed, ExitCodeRow, exit_code_table};
 use crate::connection::{CancelParams, HelloParams, HelloResult};
 use crate::daemon::{
-    DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput, DaemonStatusOutput,
-    DaemonStopOutput, DaemonUninstallOutput,
+    DaemonHealthOutput, DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput,
+    DaemonStatusOutput, DaemonStopOutput, DaemonUninstallOutput,
 };
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
@@ -113,6 +113,7 @@ pub fn emit() -> Emitted {
         "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
         "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
         "config.explain": generator.subschema_for::<SettingsExplanation>(),
+        "daemon.health": generator.subschema_for::<DaemonHealthOutput>(),
         "daemon.install": generator.subschema_for::<DaemonInstallOutput>(),
         "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),
         "daemon.rotate-token": generator.subschema_for::<DaemonRotateTokenOutput>(),
@@ -375,6 +376,11 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
         "description": metric.description,
         "instrument": metric.instrument.as_str(),
         "unit": metric.unit,
+        "labels": metric
+            .labels
+            .iter()
+            .map(|label| json!({ "name": label.name, "values": label.values }))
+            .collect::<Vec<_>>(),
         "stability": metric.stability.as_str(),
         "arrived_in": metric.arrived_in.to_string(),
     })

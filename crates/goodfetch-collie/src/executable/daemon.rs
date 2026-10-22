@@ -1,7 +1,10 @@
 //! The Daemon from both Products' executables (ADRs 0024, 0030 and 0098):
-//! `daemon start|stop|restart|status`, the hidden `daemon launched` that a
-//! start runs from the pick's versioned copy, and the Client side every
-//! command that reaches the Daemon shares.
+//! `daemon start|stop|restart|status|health`, the hidden `daemon launched`
+//! that a start runs from the pick's versioned copy, and the Client side
+//! every command that reaches the Daemon shares. `daemon health` asks the
+//! running Daemon of the major, or else the foreground Daemon at
+//! `daemon.address` with the persistent token, what its ops listener's
+//! probes check (ADR 0050), for `exec` probes and systemd.
 //!
 //! Each executable records itself in the list of installed executables
 //! when it runs. Whatever starts the Daemon, under the start lock so two
@@ -52,8 +55,8 @@ use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{HelloParams, Surface};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{
-    DaemonEndpoint, DaemonRuntimeFile, DaemonStartOutput, DaemonStatus, DaemonStatusOutput,
-    DaemonStopOutput, DaemonStopping,
+    DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonStartOutput,
+    DaemonStatus, DaemonStatusOutput, DaemonStopOutput, DaemonStopping, HealthProbe, Unready,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
@@ -528,6 +531,35 @@ impl Machine<'_> {
         Ok((found.endpoint, found.token))
     }
 
+    /// What the running Daemon of the major, or else the foreground Daemon
+    /// at `daemon.address`, answers `daemon.health`; `None` when neither
+    /// answers.
+    fn health(&self) -> Result<Option<DaemonHealth>, Failure> {
+        if let Some(mut connected) = self.connect(false, Product::Collie)? {
+            let health = connected.call::<DaemonHealth>("daemon.health", &serde_json::json!({}));
+            connected.close();
+            return health.map(Some);
+        }
+        let Some(found) = foreground::reach(self)? else {
+            return Ok(None);
+        };
+        let runtime = runtime();
+        let connection = match runtime.block_on(self.open(&found, Product::Collie)) {
+            Ok(connection) => connection,
+            Err(Opening::Refused(error)) => return Err(self.refused(&error)),
+            Err(Opening::HandOver | Opening::Gone | Opening::Unreachable) => return Ok(None),
+        };
+        let mut connected = Connected {
+            runtime,
+            connection,
+            endpoint: found.endpoint,
+            next: 1,
+        };
+        let health = connected.call::<DaemonHealth>("daemon.health", &serde_json::json!({}));
+        connected.close();
+        health.map(Some)
+    }
+
     /// Starts the Daemon unless it runs, and answers its status.
     fn start(&self, keep_alive: bool) -> Result<DaemonStartOutput, Failure> {
         let (_, started) = self.running_or_started(keep_alive)?;
@@ -785,6 +817,60 @@ pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// `daemon health`: whether the Daemon is ready, or live when `live`.
+pub(super) fn health(machine: &Machine<'_>, live: bool, json: bool) -> ExitCode {
+    let daemon = match machine.health() {
+        Ok(daemon) => daemon,
+        Err(failure) => return failure.report(),
+    };
+    let probe = if live {
+        HealthProbe::Live
+    } else {
+        HealthProbe::Ready
+    };
+    let healthy = daemon.as_ref().is_some_and(|daemon| match probe {
+        HealthProbe::Live => daemon.live,
+        HealthProbe::Ready => daemon.ready,
+    });
+    if json {
+        output::json(&DaemonHealthOutput {
+            probe,
+            healthy,
+            daemon,
+        });
+    } else {
+        let major = machine.major();
+        output::line(&match (&daemon, probe) {
+            (None, _) => format!("No Daemon of major {major} answers"),
+            (Some(_), HealthProbe::Live) if healthy => {
+                format!("The Daemon of major {major} is live")
+            }
+            (Some(_), HealthProbe::Live) => format!("The Daemon of major {major} is not live"),
+            (Some(_), HealthProbe::Ready) if healthy => {
+                format!("The Daemon of major {major} is ready to take a run")
+            }
+            (Some(daemon), HealthProbe::Ready) => format!(
+                "The Daemon of major {major} is not ready to take a run: {}",
+                daemon
+                    .unready
+                    .iter()
+                    .map(|reason| match reason {
+                        Unready::Draining => "it drains",
+                        Unready::RunStateNotWritable => "its run state cannot be written",
+                        Unready::BrowsersMissing => "a browser it uses is not installed",
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+    }
+    if healthy {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 fn describe(status: &DaemonStatus) -> String {

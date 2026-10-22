@@ -20,7 +20,7 @@ use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
 use goodfetch_protocol::connection::Surface;
-use goodfetch_protocol::daemon::{DaemonStatus, DaemonStopping};
+use goodfetch_protocol::daemon::{DaemonHealth, DaemonStatus, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -183,6 +183,8 @@ pub(crate) trait DaemonSide: Send + Sync {
     fn refusing(&self) -> Answering<'_, bool>;
     /// What `daemon.status` answers.
     fn status(&self) -> Answering<'_, DaemonStatus>;
+    /// What `daemon.health` answers.
+    fn health(&self) -> Answering<'_, DaemonHealth>;
     /// Stops the Daemon once `daemon.stop` has answered what it says.
     fn stop(&self) -> Answering<'_, DaemonStopping>;
 }

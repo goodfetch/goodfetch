@@ -23,7 +23,7 @@ pub const HANDLER_REQUESTS: &[&str] = &["crawl_request.handle"];
 pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
 
 /// The metrics only Foxhound carries.
-pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages"];
+pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages", "goodfetch.work_item.leased", "goodfetch.work_item.retried"];
 
 /// The operations only Foxhound carries.
 pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "run.add_seed", "run.add_seeds", "run.failed_requests", "run.outcomes", "run.seeds", "sample.crawl"];

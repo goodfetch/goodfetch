@@ -25,6 +25,7 @@ use goodfetch_engine::daemon::files::{DaemonFiles, FileLock, new_token};
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
+use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::install::InstallDatabase;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{DaemonListener, Network, listen_console};
@@ -209,6 +210,7 @@ pub(in crate::executable) fn launched(
             console,
             drain: None,
             install,
+            ops: Ops::default(),
             websocket: None,
         };
         Ok::<_, Failure>((

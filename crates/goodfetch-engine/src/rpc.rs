@@ -1,5 +1,6 @@
 //! The protocol server (ADRs 0024 and 0038) over each Connection
-//! `transport` gives it: newline-delimited JSON-RPC 2.0, opened by `hello`,
+//! `transport` gives it: newline-delimited JSON-RPC 2.0, or on an Exposed
+//! Daemon's address the same messages over WebSocket (ADR 0049), opened by `hello`,
 //! with `$/cancel`, dispatch to the composition's handlers, and the one
 //! place where a [`CallError`](crate::CallError) becomes the wire's
 //! `{code, message, data: {code, retryable, …}}`. Dispatch emits one
@@ -15,6 +16,7 @@ pub mod framing;
 mod connection;
 mod handshake;
 mod stream;
+mod websocket;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
@@ -29,6 +31,7 @@ use crate::product::{Identity, Requested};
 pub use connection::REFUSAL_TARGET;
 pub(crate) use connection::{Access, Dispatch, serve};
 pub(crate) use stream::handlers;
+pub use websocket::Authorities;
 
 /// The `tracing` target of dispatch's records.
 pub const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";

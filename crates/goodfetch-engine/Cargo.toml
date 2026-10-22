@@ -16,6 +16,8 @@ chacha20.workspace = true
 data-encoding.workspace = true
 # Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
 flate2.workspace = true
+# Drives the WebSocket's stream of messages and its sink (ADR 0049).
+futures-util.workspace = true
 getrandom.workspace = true
 goodfetch-protocol.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
@@ -43,6 +45,8 @@ thiserror.workspace = true
 toml_edit.workspace = true
 tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "time", "fs", "net", "process"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
+# The protocol over WebSocket on an Exposed Daemon's address (ADR 0049).
+tokio-tungstenite.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 ulid.workspace = true

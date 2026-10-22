@@ -61,7 +61,7 @@ const BODY: Operation = Operation {
 };
 
 /// The `size` bytes a test body holds.
-fn body_bytes(size: usize) -> Vec<u8> {
+pub(super) fn body_bytes(size: usize) -> Vec<u8> {
     (0..size)
         .map(|index| u8::try_from(index % 251).unwrap())
         .collect()
@@ -115,7 +115,7 @@ fn test_streams() -> Contribution {
         ))
 }
 
-fn engine(options: EventsOptions) -> Engine {
+pub(super) fn engine(options: EventsOptions) -> Engine {
     engine_with(Product::Collie, Some(test_streams())).with_events(options)
 }
 
@@ -129,7 +129,7 @@ fn call(id: i64, method: &str, params: Value) -> Value {
     call
 }
 
-fn credit(id: i64, credits: u32) -> Value {
+pub(super) fn credit(id: i64, credits: u32) -> Value {
     json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": id, "credits": credits } })
 }
 

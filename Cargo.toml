@@ -185,6 +185,13 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
+# The protocol over WebSocket, an Exposed Daemon's carriage for edge and
+# serverless Clients (ADR 0049): tungstenite's handshake and framing, on
+# Tokio in the engine, and blocking in the endpoint table's runner.
+# futures-util drives its stream of messages and its sink.
+futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 # The settings files, which a rewrite keeps byte for byte but for the
 # value it writes (ADRs 0028, 0098).
 toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }

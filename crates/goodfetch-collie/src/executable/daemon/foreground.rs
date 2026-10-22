@@ -125,6 +125,7 @@ pub(in crate::executable) fn run(
                 grace: configured.drain_grace,
             }),
             install,
+            websocket: None,
         };
         tracing::info!(
             %endpoint,

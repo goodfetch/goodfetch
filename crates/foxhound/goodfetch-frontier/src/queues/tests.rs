@@ -33,6 +33,16 @@ fn queues() -> DomainQueues {
 /// Enqueues a request of `url` named `id` at `priority`, its order the
 /// count of requests enqueued before it in the test.
 fn enqueue(gate: &mut dyn Gate, id: &str, url: &str, priority: i64) -> bool {
+    enqueue_as(gate, id, url, priority, false)
+}
+
+/// Enqueues a request of `url` named `id` at `priority` that goes ahead of
+/// its domain's pending requests.
+fn enqueue_forefront(gate: &mut dyn Gate, id: &str, url: &str, priority: i64) -> bool {
+    enqueue_as(gate, id, url, priority, true)
+}
+
+fn enqueue_as(gate: &mut dyn Gate, id: &str, url: &str, priority: i64, forefront: bool) -> bool {
     thread_local! {
         static ORDER: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
     }
@@ -43,6 +53,7 @@ fn enqueue(gate: &mut dyn Gate, id: &str, url: &str, priority: i64) -> bool {
         key,
         priority,
         order,
+        forefront,
     })
 }
 
@@ -87,6 +98,68 @@ fn priority_orders_requests_within_their_domain_only() {
     let admitted = admit_all(&mut queues, now);
 
     assert_eq!(admitted, ["h-high", "a", "h-first", "h-second", "h-low"]);
+}
+
+/// Covers: story:6-215
+#[test]
+fn forefront_goes_ahead_of_its_domains_pending_requests_and_of_no_other_domain() {
+    let now = Instant::now();
+    let mut queues = queues();
+    enqueue(&mut queues, "h-high", "https://heavy.test/high", 5);
+    enqueue(&mut queues, "h-first", "https://heavy.test/first", 0);
+    enqueue(&mut queues, "a", "https://a.test/", 0);
+    enqueue_forefront(&mut queues, "h-front", "https://heavy.test/front", -1);
+    enqueue_forefront(
+        &mut queues,
+        "h-later-front",
+        "https://heavy.test/later-front",
+        0,
+    );
+    enqueue(&mut queues, "h-higher", "https://heavy.test/higher", 9);
+
+    let admitted = admit_all(&mut queues, now);
+
+    assert_eq!(
+        admitted,
+        [
+            "h-later-front",
+            "a",
+            "h-front",
+            "h-higher",
+            "h-high",
+            "h-first"
+        ]
+    );
+}
+
+/// A full queue takes a request that goes ahead of its last one, which
+/// waits outside instead; while one waits outside, a request that would go
+/// after it waits outside too, though the queue has room.
+///
+/// Covers: story:6-215
+#[test]
+fn a_full_queue_puts_out_its_last_request_for_one_that_goes_ahead() {
+    let now = Instant::now();
+    let mut queues = DomainQueues::new(DomainKeys::default(), 2);
+    let mut taken = vec![
+        enqueue(&mut queues, "1", "https://heavy.test/1", 0),
+        enqueue(&mut queues, "2", "https://heavy.test/2", 0),
+        enqueue_forefront(&mut queues, "front", "https://heavy.test/front", 0),
+    ];
+    let first = queues.admit(now).unwrap();
+    taken.push(enqueue(&mut queues, "3", "https://heavy.test/3", 0));
+    let second = queues.admit(now).unwrap();
+    taken.push(enqueue(&mut queues, "2", "https://heavy.test/2", 0));
+
+    assert_eq!(
+        (taken, first.id, second.id, second.drained),
+        (
+            vec![true, true, true, false, true],
+            "front".to_owned(),
+            "1".to_owned(),
+            true
+        )
+    );
 }
 
 /// Covers: story:3-50
@@ -273,6 +346,55 @@ fn a_crawls_domain_keys_setting_overrides_its_queues_keys() {
     assert_eq!(gate.key("https://alice.github.io/"), "github");
 }
 
+/// One step of a crawl's requests through the gate.
+#[derive(Clone, Debug)]
+enum Step {
+    /// A request of one of three domains comes.
+    Comes {
+        domain: usize,
+        priority: i64,
+        forefront: bool,
+    },
+    /// The gate admits the next request ready.
+    Admit,
+    /// A request admitted ends, done or back to pending for a retry.
+    Ends {
+        attempt: proptest::sample::Index,
+        retried: bool,
+    },
+}
+
+fn step() -> impl Strategy<Value = Step> {
+    prop_oneof![
+        3 => (0_usize..3, -2_i64..=2, any::<bool>()).prop_map(|(domain, priority, forefront)| Step::Comes { domain, priority, forefront }),
+        3 => Just(Step::Admit),
+        2 => (any::<proptest::sample::Index>(), any::<bool>()).prop_map(|(attempt, retried)| Step::Ends { attempt, retried }),
+    ]
+}
+
+/// A request in the reference's line of its domain.
+#[derive(Clone, Debug)]
+struct Lined {
+    id: String,
+    priority: i64,
+    forefront: bool,
+    admitted: bool,
+}
+
+/// Lines `request` up by hand: a `forefront` one in front of the line, any
+/// other one behind the `forefront` ones and every one of its priority or
+/// higher.
+fn line_up(line: &mut Vec<Lined>, request: Lined) {
+    let at = if request.forefront {
+        0
+    } else {
+        line.iter()
+            .position(|lined| !lined.forefront && lined.priority < request.priority)
+            .unwrap_or(line.len())
+    };
+    line.insert(at, request);
+}
+
 proptest! {
     /// However requests are spread over domains and priorities, between two
     /// admissions of one domain every other domain that still waits is
@@ -323,6 +445,84 @@ proptest! {
             let mut expected = order.clone();
             expected.sort_by_key(|(priority, index)| (std::cmp::Reverse(*priority), *index));
             prop_assert_eq!(order, &expected);
+        }
+    }
+
+    /// However requests come, with any priority, `forefront` or neither,
+    /// are admitted, and end done or back to pending, the gate admits each
+    /// domain's requests in the order a reference lines them up by hand:
+    /// a `forefront` request in front of every request of its domain, any
+    /// other one behind the `forefront` ones and every one of its priority
+    /// or higher, a retried one where it stood; even when a queue's bound
+    /// leaves requests outside, refilled from the run state when it
+    /// drains. It admits nothing only when nothing is pending.
+    ///
+    /// Covers: story:6-215, story:3-49
+    #[test]
+    fn each_domain_admits_its_requests_in_the_order_they_were_lined_up(
+        steps in proptest::collection::vec(step(), 1..80),
+        bound in 1_usize..4,
+    ) {
+        let now = Instant::now();
+        let mut queues = DomainQueues::new(DomainKeys::default(), bound);
+        let mut lines: [Vec<Lined>; 3] = Default::default();
+        let mut pending: BTreeMap<i64, (usize, Waiting)> = BTreeMap::new();
+        let mut in_flight: Vec<(usize, Waiting)> = Vec::new();
+        let mut order = 0;
+        for step in steps {
+            match step {
+                Step::Comes { domain, priority, forefront } => {
+                    order += 1;
+                    let id = order.to_string();
+                    let waiting = Waiting {
+                        key: queues.key(&format!("https://d{domain}.test/{id}")),
+                        id: id.clone(),
+                        priority,
+                        order,
+                        forefront,
+                    };
+                    pending.insert(order, (domain, waiting.clone()));
+                    queues.enqueue(waiting);
+                    line_up(&mut lines[domain], Lined { id, priority, forefront, admitted: false });
+                }
+                Step::Admit => match queues.admit(now) {
+                    Some(admitted) => {
+                        let order: i64 = admitted.id.parse().unwrap();
+                        let (domain, waiting) = pending.remove(&order).unwrap();
+                        let next = lines[domain].iter_mut().find(|lined| !lined.admitted).unwrap();
+                        prop_assert_eq!(&admitted.id, &next.id);
+                        next.admitted = true;
+                        in_flight.push((domain, waiting));
+                        if admitted.drained {
+                            let outside: Vec<Waiting> = pending
+                                .values()
+                                .rev()
+                                .filter(|(other, _)| *other == domain)
+                                .map(|(_, waiting)| waiting.clone())
+                                .collect();
+                            for waiting in outside {
+                                queues.enqueue(waiting);
+                            }
+                        }
+                    }
+                    None => prop_assert!(pending.is_empty(), "nothing admitted while {pending:?} pend"),
+                },
+                Step::Ends { attempt, retried } => {
+                    if in_flight.is_empty() {
+                        continue;
+                    }
+                    let (domain, waiting) = in_flight.remove(attempt.index(in_flight.len()));
+                    queues.ended(&waiting.key, now, Ended::Done);
+                    let lined = lines[domain].iter().position(|lined| lined.id == waiting.id).unwrap();
+                    if retried {
+                        lines[domain][lined].admitted = false;
+                        pending.insert(waiting.order, (domain, waiting.clone()));
+                        queues.enqueue(waiting);
+                    } else {
+                        lines[domain].remove(lined);
+                    }
+                }
+            }
         }
     }
 

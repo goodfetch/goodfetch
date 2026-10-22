@@ -264,6 +264,13 @@ export interface CrawlRequestEnqueueParams {
    */
   document?: EnqueueDocument | null;
   /**
+   * Whether it goes ahead of every request its domain holds pending,
+   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+   * such requests, the later goes first. A priority or `forefront` never
+   * orders requests of different domains (ADR 0004); `false` by default.
+   */
+  forefront?: boolean;
+  /**
    * Its identity in the Frontier, declared by the program in place of
    * its method, its URL's key and its body's hash: a canonicalization
    * of the program's own, which always wins (ADR 0005).

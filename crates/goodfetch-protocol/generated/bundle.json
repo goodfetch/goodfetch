@@ -986,6 +986,12 @@
           "arrived_in": "0.1",
           "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
         },
+        "forefront": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first. A priority or `forefront` never\norders requests of different domains (ADR 0004); `false` by default.",
+          "type": "boolean"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",

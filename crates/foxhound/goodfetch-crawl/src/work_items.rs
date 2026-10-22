@@ -8,10 +8,13 @@
 //! commit, in commit order, with the errors of the attempts that failed
 //! since its previous ending, each kept as it failed. Each statement runs
 //! inside one of the run-state writer's commits. Each pending work item
-//! also waits under its domain key and priority, from which its per-domain
-//! queue fills again, after a drain or a resume (ADR 0004). A work item is
-//! added once per identity, as the Frontier's visited set, in the same run
-//! file, decides; it keeps the method and body it is sent with.
+//! also waits under its domain key, priority and `forefront`, from which
+//! its per-domain queue fills again in the same order, after a drain or a
+//! resume (ADRs 0004 and 0005): a `forefront` work item keeps its own
+//! position in `forefront`, so the later of two goes first and both ahead
+//! of the rest. A work item is added once per identity, as the Frontier's
+//! visited set, in the same run file, decides; it keeps the method and body
+//! it is sent with.
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::RunStateTables;
@@ -45,13 +48,14 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             lease_epoch INTEGER NOT NULL,
             error_code TEXT,
             domain_key TEXT,
-            priority INTEGER NOT NULL
+            priority INTEGER NOT NULL,
+            forefront INTEGER
         ) STRICT",
         "CREATE INDEX IF NOT EXISTS work_items_by_status ON work_items (status, position)",
         "CREATE INDEX IF NOT EXISTS work_items_unkeyed ON work_items (position)
             WHERE domain_key IS NULL",
         "CREATE INDEX IF NOT EXISTS work_items_by_domain
-            ON work_items (status, domain_key, priority DESC, position)",
+            ON work_items (status, domain_key, forefront DESC, priority DESC, position)",
         "CREATE TABLE IF NOT EXISTS records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -137,6 +141,8 @@ pub(crate) struct Adding<'a> {
     pub(crate) payload: Option<&'a Value>,
     /// Its priority within its domain.
     pub(crate) priority: i64,
+    /// Whether it goes ahead of every request its domain holds pending.
+    pub(crate) forefront: bool,
     /// Its depth: 0 for a seed.
     pub(crate) depth: u32,
 }
@@ -169,6 +175,7 @@ pub(crate) fn admit_seeds(
                         label: &seed.label,
                         payload: seed.payload.as_ref(),
                         priority: seed.priority,
+                        forefront: false,
                         depth: 0,
                     },
                 )
@@ -186,8 +193,8 @@ pub(crate) fn add(
 ) -> rusqlite::Result<String> {
     connection.query_row(
         "INSERT INTO work_items
-             (id, position, url, method, body, label, depth, payload, status, attempts, lease_epoch, priority)
-         SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, ?7
+             (id, position, url, method, body, label, depth, payload, status, attempts, lease_epoch, priority, forefront)
+         SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, ?7, CASE WHEN ?8 THEN next END
          FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
          RETURNING id",
         (
@@ -198,6 +205,7 @@ pub(crate) fn add(
             adding.depth,
             adding.payload.map(Value::to_string),
             adding.priority,
+            adding.forefront,
         ),
         |row| row.get(0),
     )
@@ -224,7 +232,7 @@ pub(crate) fn attempt(
 pub(crate) fn unkeyed(connection: &Connection) -> rusqlite::Result<Vec<(String, Waiting)>> {
     connection
         .prepare(
-            "SELECT url, id, priority, position FROM work_items
+            "SELECT url, id, priority, position, forefront IS NOT NULL FROM work_items
              WHERE domain_key IS NULL ORDER BY position",
         )?
         .query_map([], |row| {
@@ -235,6 +243,7 @@ pub(crate) fn unkeyed(connection: &Connection) -> rusqlite::Result<Vec<(String, 
                     key: String::new(),
                     priority: row.get(2)?,
                     order: row.get(3)?,
+                    forefront: row.get(4)?,
                 },
             ))
         })?
@@ -251,8 +260,9 @@ pub(crate) fn set_keys(connection: &Connection, keys: &[(String, String)]) -> ru
 }
 
 /// The pending work items of `key`, or of every key when `None`, at most
-/// `bound` of each key, each key's highest priority first and then in
-/// order: what fills its per-domain queue.
+/// `bound` of each key, in the order its per-domain queue admits them
+/// (`forefront` ones latest first, then highest priority first, then in
+/// order): what fills that queue.
 pub(crate) fn waiting(
     connection: &Connection,
     key: Option<&str>,
@@ -265,22 +275,23 @@ pub(crate) fn waiting(
             key: row.get(1)?,
             priority: row.get(2)?,
             order: row.get(3)?,
+            forefront: row.get(4)?,
         })
     };
     match key {
         Some(key) => connection
             .prepare(
-                "SELECT id, domain_key, priority, position FROM work_items
+                "SELECT id, domain_key, priority, position, forefront IS NOT NULL FROM work_items
                  WHERE status = 'pending' AND domain_key = ?1
-                 ORDER BY priority DESC, position LIMIT ?2",
+                 ORDER BY forefront DESC, priority DESC, position LIMIT ?2",
             )?
             .query_map((key, bound), row)?
             .collect(),
         None => connection
             .prepare(
-                "SELECT id, domain_key, priority, position FROM (
-                     SELECT id, domain_key, priority, position, row_number() OVER (
-                         PARTITION BY domain_key ORDER BY priority DESC, position
+                "SELECT id, domain_key, priority, position, forefront IS NOT NULL FROM (
+                     SELECT id, domain_key, priority, position, forefront, row_number() OVER (
+                         PARTITION BY domain_key ORDER BY forefront DESC, priority DESC, position
                      ) AS rank
                      FROM work_items WHERE status = 'pending' AND domain_key IS NOT NULL
                  ) WHERE rank <= ?1 ORDER BY position",
@@ -297,7 +308,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
         "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending'
          RETURNING id, url, label, payload, attempts, lease_epoch, domain_key, priority, position,
-             method, body",
+             forefront IS NOT NULL, method, body",
     )?;
     let mut leased = Vec::with_capacity(ids.len());
     for id in ids {
@@ -310,14 +321,14 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
                         url: row.get(1)?,
                         label: row.get(2)?,
                         payload: payload.and_then(|payload| serde_json::from_str(&payload).ok()),
-                        method: HttpMethod::parse(&row.get::<_, String>(9)?).map_err(|error| {
+                        method: HttpMethod::parse(&row.get::<_, String>(10)?).map_err(|error| {
                             rusqlite::Error::FromSqlConversionFailure(
-                                9,
+                                10,
                                 rusqlite::types::Type::Text,
                                 Box::new(error),
                             )
                         })?,
-                        body: row.get::<_, Option<Vec<u8>>>(10)?.map(HttpBody::new),
+                        body: row.get::<_, Option<Vec<u8>>>(11)?.map(HttpBody::new),
                     },
                     attempt: row.get(4)?,
                     lease_epoch: u64::try_from(row.get::<_, i64>(5)?).unwrap_or_default(),
@@ -326,6 +337,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
                         key: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
                         priority: row.get(7)?,
                         order: row.get(8)?,
+                        forefront: row.get(9)?,
                     },
                 })
             })
@@ -595,3 +607,6 @@ pub(crate) fn any_pending(connection: &Connection) -> rusqlite::Result<bool> {
         .optional()?
         .is_some())
 }
+
+#[cfg(test)]
+mod tests;

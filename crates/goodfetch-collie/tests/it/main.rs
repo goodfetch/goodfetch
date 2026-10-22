@@ -42,4 +42,5 @@ mod upgrade_files;
 mod usage;
 #[cfg(target_os = "linux")]
 mod virtual_display;
+mod websocket;
 mod writer_lock;

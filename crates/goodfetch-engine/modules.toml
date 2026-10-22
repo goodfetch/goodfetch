@@ -81,10 +81,11 @@ writer = []
 
 # Which of `rpc`'s own modules may import which.
 [submodules.rpc]
-connection = ["framing", "handshake"]
+connection = ["framing", "handshake", "websocket"]
 framing = []
 handshake = []
 stream = []
+websocket = ["framing"]
 
 # Which of `browser_cache`'s own modules may import which.
 [submodules.browser_cache]

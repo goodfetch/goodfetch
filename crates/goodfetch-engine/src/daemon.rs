@@ -38,7 +38,7 @@ use crate::clock::Clock;
 use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler};
 use crate::events::Events;
 use crate::product::{Channel, Identity};
-use crate::rpc::{self, Dispatch};
+use crate::rpc::{self, Authorities, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
@@ -77,6 +77,11 @@ pub struct DaemonOptions {
     /// per-install layout (`run_state.layout`, ADR 0002); none in the
     /// per-run layout.
     pub install: Option<InstallDatabase>,
+    /// Whether its listener also carries the protocol over WebSocket, as
+    /// an Exposed Daemon's address does (ADR 0049): the names a handshake's
+    /// `Host` may carry, and its `Origin` over `http`; none for a Daemon
+    /// on the machine.
+    pub websocket: Option<Authorities>,
 }
 
 /// How a foreground Daemon drains (ADR 0049): once `asked` is cancelled it
@@ -221,6 +226,7 @@ struct Shared {
     holds: Holds,
     succession: Arc<dyn Succession>,
     console: ConsoleState,
+    websocket: Option<Arc<Authorities>>,
     presence: watch::Sender<Presence>,
     runs: Runs,
     blocking: TaskOwner,
@@ -247,6 +253,7 @@ impl Shared {
             holds: options.holds,
             succession: options.succession,
             console: serving.console.clone(),
+            websocket: options.websocket.map(Arc::new),
             presence: watch::Sender::new(Presence::default()),
             runs: serving.runs.clone(),
             blocking,
@@ -519,13 +526,17 @@ fn serve_connection(
         serving.runs.on_connection(id),
         serving.events.clone(),
     );
+    let access = match &shared.websocket {
+        Some(authorities) => rpc::Access::Exposed(side, Arc::clone(authorities)),
+        None => rpc::Access::Daemon(side),
+    };
     let its_owner = connections.child();
     let cancelled = token.clone();
     connections.spawn(async move {
         tokio::select! {
             biased;
             () = cancelled.cancelled() => {}
-            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, rpc::Access::Daemon(side)) => {}
+            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, access) => {}
         }
         its_owner.stop().await;
         runs.stop_connection(id).await;

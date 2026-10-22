@@ -17,9 +17,11 @@
 //! must open with a `hello` carrying that listener's token: anything else
 //! is closed without an answer, so a stranger learns nothing (ADRs 0024 and
 //! 0031). Each refusal is logged under [`REFUSAL_TARGET`], with its
-//! listener and its reason, until the Audit log records it (area 4). Only
-//! the Client of an Attached engine's stdio is told its private endpoint,
-//! in the reply to its `hello`.
+//! listener and its reason, until the Audit log records it (area 4). An
+//! Exposed Daemon's address carries its Connections as lines or over
+//! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
+//! Only the Client of an Attached engine's stdio is told its private
+//! endpoint, in the reply to its `hello`.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
@@ -40,6 +42,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
+use super::websocket::{
+    self, Authorities, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
+};
 use super::{
     failure_line, handshake, line, not_in_product, notification_line, record, record_cancel,
     success_line,
@@ -57,7 +62,7 @@ use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
 };
 use crate::transition::{self, Refusal};
-use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
+use crate::transport::{Connection, ConnectionWriter};
 
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
@@ -91,6 +96,10 @@ pub(crate) enum Access {
     Attached(Option<PrivateEndpoint>),
     /// A Daemon's listener: its token, and what else the Daemon gives.
     Daemon(Arc<dyn DaemonSide>),
+    /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
+    /// also carries the protocol over WebSocket, its handshake held to the
+    /// names the Daemon is reached at.
+    Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
 }
@@ -100,17 +109,126 @@ impl Access {
     fn token(&self) -> Option<&str> {
         match self {
             Self::Attached(_) => None,
-            Self::Daemon(daemon) => Some(daemon.token()),
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
             Self::PrivateEndpoint(token) => Some(token),
         }
     }
 
-    /// Its listener's name in the endpoint table (ADR 0067).
+    /// The Daemon it reaches, if any.
+    fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
+        match self {
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
+            Self::Attached(_) | Self::PrivateEndpoint(_) => None,
+        }
+    }
+
+    /// Its listener's name in the endpoint table (ADR 0067), for a
+    /// Connection of newline-delimited JSON-RPC.
     fn listener(&self) -> &'static str {
         match self {
             Self::Attached(_) => "stdio",
             Self::Daemon(_) => "daemon_socket",
+            Self::Exposed(..) => "exposed_daemon",
             Self::PrivateEndpoint(_) => "private_endpoint",
+        }
+    }
+}
+
+/// The endpoint table's name of a Daemon's WebSocket listener (ADR 0067).
+const WEBSOCKET_LISTENER: &str = "daemon_websocket";
+
+/// How a Connection's messages arrive: as lines, or as WebSocket messages.
+enum Reading {
+    Lines {
+        reader: Prefixed,
+        framer: Framer,
+        chunk: Vec<u8>,
+    },
+    Messages(MessageReader),
+}
+
+impl Reading {
+    fn lines(reader: Prefixed) -> Self {
+        Self::Lines {
+            reader,
+            framer: Framer::new(MAX_MESSAGE_BYTES),
+            chunk: vec![0; READ_CHUNK],
+        }
+    }
+
+    /// Reads what comes next and appends each message it ends to `frames`;
+    /// `false` once the Connection has ended, after appending its last.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing the Connection sent.
+    async fn read(&mut self, frames: &mut Vec<Frame>) -> bool {
+        match self {
+            Self::Lines {
+                reader,
+                framer,
+                chunk,
+            } => match reader.read(chunk).await {
+                Ok(0) | Err(_) => {
+                    frames.extend(framer.finish());
+                    false
+                }
+                Ok(read) => {
+                    framer.feed(&chunk[..read], frames);
+                    true
+                }
+            },
+            Self::Messages(messages) => messages.read(frames).await,
+        }
+    }
+}
+
+/// How a Connection's messages leave: as lines, or as WebSocket messages.
+enum Writing {
+    Lines(ConnectionWriter),
+    Messages(MessageWriter),
+}
+
+/// How `connection`, reached through `access`, carries its messages, and
+/// its listener's name; `None` when an Exposed Daemon's WebSocket handshake
+/// was refused or failed, which closes it.
+async fn carriage(
+    connection: Connection,
+    access: &Access,
+) -> Option<(Reading, Writing, &'static str)> {
+    let (mut reader, writer) = connection.split();
+    let Access::Exposed(_, authorities) = access else {
+        let reader = Prefixed::new(Vec::new(), reader);
+        return Some((
+            Reading::lines(reader),
+            Writing::Lines(writer),
+            access.listener(),
+        ));
+    };
+    let mut first = vec![0; READ_CHUNK];
+    let read = reader.read(&mut first).await.unwrap_or(0);
+    first.truncate(read);
+    let reader = Prefixed::new(first, reader);
+    if !reader.opens_a_request() {
+        return Some((
+            Reading::lines(reader),
+            Writing::Lines(writer),
+            access.listener(),
+        ));
+    }
+    match websocket::accept(Rejoined::new(reader, writer), authorities).await {
+        Ok((messages, sent)) => Some((
+            Reading::Messages(messages),
+            Writing::Messages(sent),
+            WEBSOCKET_LISTENER,
+        )),
+        Err(NotOpened::Refused(refusal)) => {
+            tracing::warn!(target: REFUSAL_TARGET, listener = WEBSOCKET_LISTENER, reason = refusal.reason(), "a WebSocket handshake whose `Host` or `Origin` is not the Daemon's was refused");
+            None
+        }
+        Err(NotOpened::Failed(error)) => {
+            tracing::debug!(%error, "a request that is no WebSocket handshake closes");
+            None
         }
     }
 }
@@ -129,15 +247,14 @@ pub(crate) async fn serve(
     events: Events,
     access: Access,
 ) {
-    let (mut reader, writer) = connection.split();
+    let Some((mut reading, writing, listener)) = carriage(connection, &access).await else {
+        return;
+    };
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
-    owner.spawn(write_lines(writer, lines));
+    owner.spawn(write_lines(writing, lines));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
     let (client, requests) = Client::new();
-    let daemon = match &access {
-        Access::Daemon(daemon) => Some(Arc::clone(daemon)),
-        Access::Attached(_) | Access::PrivateEndpoint(_) => None,
-    };
+    let daemon = access.daemon();
     let log = dispatch.log_events.connection();
     let logging = CancellationToken::new();
     let forwarding = log.forward(outgoing.clone());
@@ -175,26 +292,43 @@ pub(crate) async fn serve(
         next_request: 0,
         opened_client: None,
         access,
+        listener,
     };
-    session.run(&mut reader).await;
+    session.run(&mut reading).await;
     logging.cancel();
     session.cancel_in_flight();
     drop(session);
     owner.wait().await;
 }
 
-/// Writes each line whole, flushing once no other line waits; shuts the
-/// Connection's sending side down when every sender is gone.
-async fn write_lines(mut writer: ConnectionWriter, mut lines: mpsc::Receiver<Vec<u8>>) {
+/// Writes each line whole, or as one WebSocket message, flushing once no
+/// other line waits; shuts the Connection's sending side down, or closes
+/// its WebSocket, when every sender is gone.
+async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
     while let Some(line) = lines.recv().await {
-        if writer.write_all(&line).await.is_err() {
+        let sent = match &mut writing {
+            Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
+            Writing::Messages(messages) => messages.feed(line).await,
+        };
+        if !sent {
             return;
         }
-        if lines.is_empty() && writer.flush().await.is_err() {
-            return;
+        if lines.is_empty() {
+            let flushed = match &mut writing {
+                Writing::Lines(writer) => writer.flush().await.is_ok(),
+                Writing::Messages(messages) => messages.flush().await,
+            };
+            if !flushed {
+                return;
+            }
         }
     }
-    let _ = writer.shutdown().await;
+    match writing {
+        Writing::Lines(mut writer) => {
+            let _ = writer.shutdown().await;
+        }
+        Writing::Messages(messages) => messages.close().await,
+    }
 }
 
 /// A call in flight.
@@ -263,6 +397,8 @@ struct Session<'owner> {
     opened_client: Option<Box<dyn Send + Sync>>,
     /// How the Connection reached the engine.
     access: Access,
+    /// Its listener's name in the endpoint table (ADR 0067).
+    listener: &'static str,
 }
 
 /// A handler request the engine sent, waiting for its reply.
@@ -272,10 +408,8 @@ struct Pending {
 }
 
 impl Session<'_> {
-    async fn run(&mut self, reader: &mut ConnectionReader) {
-        let mut framer = Framer::new(MAX_MESSAGE_BYTES);
+    async fn run(&mut self, reading: &mut Reading) {
         let mut pending = Vec::new();
-        let mut chunk = vec![0; READ_CHUNK];
         let mut ended = false;
         let mut lost = false;
         loop {
@@ -309,7 +443,7 @@ impl Session<'_> {
                     return;
                 }
             }
-            let reading = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
+            let open = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
             let sending = self.state != ConnectionState::Opening;
             tokio::select! {
                 biased;
@@ -321,13 +455,9 @@ impl Session<'_> {
                         return;
                     }
                 }
-                read = reader.read(&mut chunk), if reading => match read {
-                    Ok(0) | Err(_) => {
-                        ended = true;
-                        pending.extend(framer.finish());
-                    }
-                    Ok(read) => framer.feed(&chunk[..read], &mut pending),
-                },
+                more = reading.read(&mut pending), if open => {
+                    ended = !more;
+                }
             }
         }
     }
@@ -747,7 +877,7 @@ impl Session<'_> {
 
     /// Logs the listener's refusal of the Connection, with its reason.
     fn refused(&self, reason: &'static str) {
-        let listener = self.access.listener();
+        let listener = self.listener;
         tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` and its token was closed");
     }
 }

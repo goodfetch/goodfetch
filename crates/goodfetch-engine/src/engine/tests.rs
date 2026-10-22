@@ -26,6 +26,7 @@ mod settings;
 mod takeover;
 mod usage;
 mod versions;
+mod websocket;
 
 use std::time::Duration;
 
@@ -622,6 +623,12 @@ impl std::io::Write for LogWriter {
 /// The records dispatch emits while `run` runs, sorted, each from its
 /// target on.
 fn dispatch_records<T>(run: impl FnOnce() -> T) -> Vec<String> {
+    records_of(crate::rpc::DISPATCH_TARGET, run)
+}
+
+/// The records `run` logs under `target`, sorted, each without its level
+/// and target.
+fn records_of<T>(target: &str, run: impl FnOnce() -> T) -> Vec<String> {
     let (sender, log) = std::sync::mpsc::channel();
     let writer = LogWriter(sender);
     let subscriber = tracing_subscriber::fmt()
@@ -642,7 +649,7 @@ fn dispatch_records<T>(run: impl FnOnce() -> T) -> Vec<String> {
         .try_iter()
         .map(|bytes| String::from_utf8(bytes).unwrap())
         .filter_map(|line| {
-            line.split_once(crate::rpc::DISPATCH_TARGET)
+            line.split_once(target)
                 .map(|(_, record)| record.trim_end().to_owned())
         })
         .collect();

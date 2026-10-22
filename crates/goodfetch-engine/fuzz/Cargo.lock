@@ -531,6 +531,7 @@ dependencies = [
  "goodfetch-protocol",
  "hickory-resolver",
  "http-body-util",
+ "httpdate",
  "hyper",
  "hyper-util",
  "jiff",

@@ -99,10 +99,23 @@ sharing = "shared"
 concurrency = 4
 delay = 30000
 
+[settings.politeness.backoff]
+enabled = true
+initial = 30000
+max = 30000
+
+[settings.politeness.retry_after]
+max = 30000
+
 [settings.crawl]
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
 keep_alive = true
+max_depth = 4
+max_requests = 4
+max_url_length = 4
+max_path_segments = 4
+max_segment_repeats = 4
 
 [settings.crawl.retry]
 max = 4

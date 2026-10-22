@@ -5,10 +5,13 @@
 #   [[exception]]
 #   rule = "color-contrast"          # the axe rule's ID
 #   selector = "#brand"              # a CSS selector of the excepted elements
+#   pages = ["/runs/:run_id"]        # URL path patterns of the pages it holds on
 #   reason = "why axe is wrong here"
 #   issue = 1234                     # its open issue, which the fix closes
 #
-# `@goodfetch/test-support`'s axe fixture reads this file and fails a page
-# where an entry's rule ran and its selector matches nothing;
-# `xtask axe-exceptions check` fails an entry missing a field or whose issue
-# is not open.
+# `pages` names as few pages as the false positive needs (`URLPattern`'s
+# pathname syntax; `/*` for an element of the shared layout).
+# `@goodfetch/test-support`'s axe fixture reads this file and fails a page an
+# entry names where its rule ran and its selector matches nothing;
+# `xtask axe-exceptions check` fails an entry missing a field or naming no
+# page, or whose issue is not open.

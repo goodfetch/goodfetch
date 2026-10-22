@@ -10,13 +10,17 @@
 //!
 //! An enqueue outside the crawl's scope, measured against every seed, is
 //! `out_of_scope`; a seed is never, since seeds define the scope, and each
-//! seed added widens it. The bounds and the learned rules join behind this
-//! one interface.
+//! seed added widens it. One the crawl would otherwise admit is then
+//! measured against its bounds, `crawl.max_depth` (seeds at depth 0) and
+//! `crawl.max_requests`, and the caps on a URL's shape, each refusal
+//! counted by its setting. The learned rules join behind this one
+//! interface.
 
 use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
 use rusqlite::Connection;
 use url::Url;
 
+use crate::bounds::{Bounds, count_admitted, count_refused};
 use crate::identity::{Declared, identity, visit, visitor};
 use crate::scope::{Narrowing, Scope};
 use crate::url::parse;
@@ -42,6 +46,8 @@ pub enum Candidate<'a> {
         /// The call's own patterns, which narrow the crawl's scope, as an
         /// `enqueueLinks` call's `include` and `exclude`.
         narrowing: Narrowing<'a>,
+        /// Its depth: one deeper than the request whose attempt added it.
+        depth: u32,
     },
 }
 
@@ -59,14 +65,15 @@ pub fn admit(
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
-    let (given, base, declared, narrowing) = match candidate {
-        Candidate::Seed { url, declared } => (url, None, declared, None),
+    let (given, base, declared, narrowing, depth) = match candidate {
+        Candidate::Seed { url, declared } => (url, None, declared, None, 0),
         Candidate::Enqueue {
             url,
             base,
             declared,
             narrowing,
-        } => (url, Some(base), declared, Some(narrowing)),
+            depth,
+        } => (url, Some(base), declared, Some(narrowing), depth),
     };
     let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
         reason,
@@ -85,7 +92,12 @@ pub fn admit(
     if visitor(connection, &identity)?.is_some() {
         return Ok(not_added(NotAddedReason::Duplicate));
     }
+    if let Some(reason) = Bounds::read(connection)?.refuses(connection, &url, depth.into())? {
+        count_refused(connection, reason)?;
+        return Ok(not_added(reason));
+    }
     let id = add(&url)?;
+    count_admitted(connection)?;
     visit(connection, &identity, &id)?;
     if narrowing.is_none() {
         Scope::widen(connection, &url)?;

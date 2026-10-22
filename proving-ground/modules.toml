@@ -119,6 +119,7 @@ print = []
 responsive = []
 
 [submodules.hostile]
+bombs = []
 downloads = []
 headers = []
 redirects = []

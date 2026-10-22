@@ -17,10 +17,12 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::admission::{Ended, Gate as _};
+use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_frontier::{
-    Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, VISITED_TABLES, admit,
+    BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope,
+    VISITED_TABLES, admit,
 };
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
@@ -115,7 +117,7 @@ impl Subject {
                     vfs: Some(vfs.name().to_owned()),
                     ..RunStateOptions::default()
                 },
-                vec![TABLES, VISITED_TABLES, SCOPE_TABLES],
+                vec![TABLES, VISITED_TABLES, SCOPE_TABLES, BOUNDS_TABLES],
                 1,
                 &owner,
             ))
@@ -217,6 +219,7 @@ impl Subject {
                     Unsuccessful::Retried(Failure {
                         code: "response_unavailable".to_owned(),
                         message: "a 503".to_owned(),
+                        details: serde_json::Map::new(),
                     }),
                     &ended_at,
                 )
@@ -236,7 +239,7 @@ impl Subject {
         let connection = after_crash(&self.vfs, &self.path).unwrap();
         super::recover_leases(&connection, "handler_lost", u32::MAX).unwrap();
         let now = tokio::time::Instant::now();
-        let mut queues = DomainQueues::new(DomainKeys::default(), BOUND);
+        let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));
         for waiting in super::waiting(&connection, None, BOUND).unwrap() {
             queues.enqueue(waiting);
         }

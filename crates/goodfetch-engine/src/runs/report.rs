@@ -19,6 +19,8 @@ use goodfetch_protocol::usage::{
 };
 use rusqlite::{Connection, OptionalExtension as _};
 
+use super::CompletenessReason;
+
 /// The Usage kind of Paid fetches, which only Foxhound charges (ADR 0045),
 /// named here since every Run's report carries them (ADR 0101).
 const PAID_FETCH: &str = "paid_fetch";
@@ -53,6 +55,9 @@ pub(super) struct EndFacts {
     pub(super) console_url: Option<String>,
     pub(super) limits: Vec<AppliedLimit>,
     pub(super) error: Option<EndingError>,
+    /// Why a `finished` Run's driver found its results short of its scope,
+    /// if it did (ADRs 0093, 0118 and 0120).
+    pub(super) finished: Vec<CompletenessReason>,
 }
 
 /// The report of a Run that ended as `ended` says, from its state on
@@ -84,7 +89,7 @@ impl EndFacts {
     /// state: what is answered when its end could not be written.
     pub(super) fn bare(&self) -> RunReport {
         let (completeness, completeness_reasons) =
-            completeness(self.lifecycle, self.stop_reason.as_ref());
+            completeness(self.lifecycle, self.stop_reason.as_ref(), &self.finished);
         RunReport {
             run_id: self.run_id.clone(),
             lifecycle: self.lifecycle,
@@ -117,12 +122,19 @@ impl EndFacts {
 }
 
 /// The Completeness a Run's end gives, with its reasons (ADR 0029): a
-/// finished Run's is the program's or the Frontier's to lower.
+/// finished Run's is the program's or the Frontier's to lower, as its
+/// driver's reasons do, the worst of them winning, `incomplete` before
+/// `unverified`.
 fn completeness(
     lifecycle: Lifecycle,
     stop_reason: Option<&StopReason>,
+    finished: &[CompletenessReason],
 ) -> (Completeness, Vec<AxisReason>) {
     match (lifecycle, stop_reason) {
+        (Lifecycle::Finished, _) if !finished.is_empty() => (
+            worst(finished),
+            finished.iter().map(|given| given.reason.clone()).collect(),
+        ),
         (Lifecycle::Finished | Lifecycle::Running, _) => (Completeness::Complete, Vec::new()),
         (Lifecycle::Stopped, Some(reason)) => (
             Completeness::Incomplete,
@@ -148,6 +160,23 @@ fn completeness(
                 call_id: None,
             }],
         ),
+    }
+}
+
+/// The worst Completeness `reasons` give: `incomplete` before
+/// `unverified`, else `complete`.
+fn worst(reasons: &[CompletenessReason]) -> Completeness {
+    let gives = |completeness| {
+        reasons
+            .iter()
+            .any(|reason| reason.completeness == completeness)
+    };
+    if gives(Completeness::Incomplete) {
+        Completeness::Incomplete
+    } else if gives(Completeness::Unverified) {
+        Completeness::Unverified
+    } else {
+        Completeness::Complete
     }
 }
 

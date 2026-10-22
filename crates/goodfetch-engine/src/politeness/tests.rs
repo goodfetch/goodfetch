@@ -94,6 +94,7 @@ fn granted(taken: Taken) -> Permit {
     match taken {
         Taken::Granted(permit) => permit,
         Taken::Wait(until) => panic!("refused until {until:?}"),
+        Taken::Refused(until) => panic!("refused, unsent, until {until:?}"),
     }
 }
 

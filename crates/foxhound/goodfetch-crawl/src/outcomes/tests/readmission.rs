@@ -45,6 +45,7 @@ fn crawl_of(count: usize) -> Connection {
         .iter()
         .chain(goodfetch_frontier::VISITED_TABLES.statements)
         .chain(goodfetch_frontier::SCOPE_TABLES.statements)
+        .chain(goodfetch_frontier::BOUNDS_TABLES.statements)
     {
         connection.execute_batch(statement).unwrap();
     }
@@ -68,6 +69,7 @@ fn failure() -> Failure {
     Failure {
         code: "response_not_ok".to_owned(),
         message: "404".to_owned(),
+        details: serde_json::Map::new(),
     }
 }
 

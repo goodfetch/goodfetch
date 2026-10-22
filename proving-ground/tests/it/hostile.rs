@@ -546,3 +546,109 @@ fn a_harmless_name_is_kept_exactly(#[case] id: &str, #[case] name: &str) {
     assert_eq!(kept["outcome"], "verified", "{kept}");
     assert_ne!(renamed["outcome"], "verified", "{renamed}");
 }
+
+// --- bombs ---
+
+/// The body of a raw response, after its blank line, as its bytes: a bomb's
+/// compressed body, which is not UTF-8.
+fn body_bytes(response: &[u8]) -> &[u8] {
+    let start = head(response).len() + 2;
+    &response[start..]
+}
+
+/// The bytes `body` decodes to under gzip, as a tool with no limit would
+/// inflate them.
+fn gunzip(body: &[u8]) -> Vec<u8> {
+    let mut decoded = Vec::new();
+    flate2::read::GzDecoder::new(body)
+        .read_to_end(&mut decoded)
+        .expect("the gzip body decodes");
+    decoded
+}
+
+/// The typed error a decompression bomb's refusal names.
+fn ratio_refused() -> Value {
+    json!({ "code": "response_limit_exceeded", "setting": "network.max_decompression_ratio" })
+}
+
+#[rstest]
+#[case::gzip("bombs/1", "gzip")]
+#[case::deflate("bombs/2", "deflate")]
+#[case::brotli("bombs/3", "br")]
+#[case::zstd("bombs/4", "zstd")]
+#[case::double_gzip("bombs/5", "gzip, gzip")]
+fn a_decompression_bomb_is_served_compressed_and_only_a_refusal_is_verified(
+    #[case] id: &str,
+    #[case] encoding: &str,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
+
+    assert!(
+        holds(
+            head(&response),
+            format!("content-encoding: {encoding}").as_bytes()
+        ),
+        "served under its coding: {}",
+        String::from_utf8_lossy(head(&response))
+    );
+    assert!(
+        body_bytes(&response).len() < 256 * 1024,
+        "the body is small and compressed, {} bytes",
+        body_bytes(&response).len()
+    );
+
+    let refused = proving_ground.judge(&refusal(id, &ratio_refused())).json();
+    let claimed = proving_ground.judge(&submission(id, "success", &[])).json();
+
+    assert_eq!(refused["outcome"], "verified", "{refused}");
+    assert_eq!(claimed["outcome"], "false_success", "{claimed}");
+}
+
+#[test]
+fn a_gzip_bomb_decodes_far_past_the_ratio_limit() {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, "bombs/1"));
+    let compressed = body_bytes(&response);
+
+    let decoded = gunzip(compressed);
+
+    assert!(
+        decoded.len() >= 10 * 1024 * 1024,
+        "the body decodes to megabytes, not {} bytes",
+        decoded.len()
+    );
+    assert!(
+        decoded.len() / compressed.len() > 100,
+        "far past the 100:1 ratio the engine allows"
+    );
+}
+
+#[test]
+fn a_bomb_refused_with_the_wrong_limit_setting_fails_and_names_both() {
+    let proving_ground = ProvingGround::start(SEED);
+    let reported = json!({ "code": "response_limit_exceeded", "setting": "network.max_body_size" });
+
+    let answer = proving_ground.judge(&refusal("bombs/1", &reported)).json();
+
+    assert_eq!(answer["outcome"], "failed", "{answer}");
+    assert_eq!(
+        answer["wrong_error"]["expected"],
+        ratio_refused(),
+        "{answer}"
+    );
+}
+
+#[test]
+fn the_safe_compressed_page_is_kept() {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, "bombs/6"));
+    assert!(holds(head(&response), b"content-encoding: gzip"));
+
+    let page = String::from_utf8(gunzip(body_bytes(&response))).expect("the safe page is UTF-8");
+    let answer = proving_ground
+        .judge(&submission("bombs/6", "success", &[read_record(&page)]))
+        .json();
+
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+}

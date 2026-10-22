@@ -6,9 +6,10 @@
 //! is enqueued, admitted in round-robin turns and ended.
 
 use goodfetch_engine::admission::{Ended, Gate, Waiting};
+use goodfetch_engine::entropy::Entropy;
 use goodfetch_frontier::{
-    Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, Url, VISITED_TABLES, admit,
-    url_key,
+    BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, Url,
+    VISITED_TABLES, admit, url_key,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rusqlite::Connection;
@@ -41,7 +42,7 @@ pub(crate) fn requests(heavy: usize, small: usize) -> Vec<(String, i64)> {
 )]
 pub(crate) fn admit_all(requests: Vec<(String, i64)>) -> (usize, usize) {
     let now = Instant::now();
-    let mut queues = DomainQueues::new(DomainKeys::default(), BOUND);
+    let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));
     for (order, (url, priority)) in requests.into_iter().enumerate() {
         let key = queues.key(&url);
         queues.enqueue(Waiting {
@@ -103,6 +104,7 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
         .statements
         .iter()
         .chain(SCOPE_TABLES.statements)
+        .chain(BOUNDS_TABLES.statements)
     {
         connection
             .execute(statement, [])

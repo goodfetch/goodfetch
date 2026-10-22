@@ -1,6 +1,7 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
-admit = ["identity", "scope", "url"]
+admit = ["bounds", "identity", "scope", "url"]
+bounds = []
 domain_key = []
 identity = ["scope", "url"]
 politeness = []

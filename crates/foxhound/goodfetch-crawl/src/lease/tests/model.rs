@@ -320,6 +320,7 @@ impl StateMachineTest for Subject {
                     work_items::TABLES,
                     goodfetch_frontier::VISITED_TABLES,
                     goodfetch_frontier::SCOPE_TABLES,
+                    goodfetch_frontier::BOUNDS_TABLES,
                 ],
                 1,
                 &owner,
@@ -410,10 +411,7 @@ impl StateMachineTest for Subject {
                                 connection,
                                 &id,
                                 epoch,
-                                Unsuccessful::Retried(Failure {
-                                    code: "handler_lost".to_owned(),
-                                    message: "no answer".to_owned(),
-                                }),
+                                Unsuccessful::Retried(Failure::new("handler_lost", "no answer")),
                                 &ended_at(),
                             )
                         }))

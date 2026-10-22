@@ -1,0 +1,46 @@
+# The advisory snapshot the gate's `just audit` checks every lockfile
+# against, offline (ADR 0064; ci/audit.sh): a check whose data moves without
+# a commit would be a Live check, so the gate reads only what this file pins,
+# and the daily live audit (`just audit-live`) reads the newest data. A new
+# advisory against `main` so shows within a day, and a gate fails only for
+# what its commit changed. `xtask advisories fetch` keeps the snapshot in
+# target/advisories/, downloading only what is missing or differs.
+#
+# Taken on 2026-10-22.
+#
+# To refresh it, in one pull request, from the repository root (with the
+# fix that answers a failing live audit, or at any time):
+# 1. Pin RustSec's newest commit:
+#      gh api repos/rustsec/advisory-db/commits/main --jq .sha
+# 2. Download OSV's newest npm and PyPI databases into an empty folder,
+#    `$new`, and read their digests:
+#      curl -fsSL -o "$new/osv-npm-<day>.zip" https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip
+#      curl -fsSL -o "$new/osv-PyPI-<day>.zip" https://osv-vulnerabilities.storage.googleapis.com/PyPI/all.zip
+#      shasum -a 256 "$new"/*.zip
+#    OSV replaces these files hourly and keeps an old one about a week, so
+#    the copies of this repository's release are the pinned ones.
+# 3. Create a prerelease of this repository tagged `advisories-<day>` with
+#    the two files as its assets (a GitHub write: the owner's or the
+#    orchestrator's), point the pins below at it with their digests, and
+#    update the day above.
+# 4. Run `just audit` and `just proofs`: an advisory the new snapshot finds
+#    is fixed in the same pull request, as STYLE.md's "no open security
+#    advisory" asks.
+
+# RustSec's advisory database, read by cargo-deny and cargo-audit: a commit
+# of its Git repository, fetched alone.
+[rustsec]
+repository = "https://github.com/rustsec/advisory-db"
+commit = "4b587f00996ebe5c05a73eaef105ef241e876414"
+
+# OSV's databases, read by OSV-Scanner: each named `<ecosystem>.zip`, the
+# ecosystem as OSV spells it.
+[[osv]]
+name = "npm.zip"
+release = { repository = "goodfetch/goodfetch", tag = "advisories-2026-10-22", asset = "osv-npm-2026-10-22.zip" }
+sha256 = "52a54f5afaa6689b58c9ae664ec591dea6e13ea63f5662cb99ee5ea9d01faa97"
+
+[[osv]]
+name = "PyPI.zip"
+release = { repository = "goodfetch/goodfetch", tag = "advisories-2026-10-22", asset = "osv-PyPI-2026-10-22.zip" }
+sha256 = "2bee3e8b490b2a9050fb714f0fad9e60ec4a2700ac465badd8d2900fbfc32a2e"

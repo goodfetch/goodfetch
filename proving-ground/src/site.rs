@@ -254,7 +254,8 @@ impl Site {
     pub(crate) fn respond(&self, host: &str, request: &Request<'_>) -> Reply {
         let name = observation::host_name(host);
         if raw_site::serves(&name) {
-            // The raw server answers these over TLS alone.
+            // The raw server answers these over TLS and plain HTTP/1.1,
+            // never over plain HTTP/2.
             return Reply::error(StatusCode::MISDIRECTED_REQUEST, "tls_required");
         }
         if let Some((reply, recorded)) = browser_pages::respond(self.seed, &name, request) {

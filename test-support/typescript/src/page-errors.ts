@@ -164,12 +164,16 @@ export async function watchPageErrors(context: BrowserContext): Promise<PageErro
       record("request_failed", `HTTP ${response.status()}`, response.url());
     }
   });
-  // A violation reaches the watch through the page's own event loop: one
-  // round trip to each open page lets those already raised arrive.
+  // A violation reaches the watch through the page's own event loop: the
+  // browser queues a task to fire its event (Chromium on its networking task
+  // queue), and an evaluation can run before that task does. Each open page
+  // answers from a task of its own, queued after those already raised.
   const delivered = async (): Promise<void> => {
     await Promise.all(
       context.pages().map(async (page) => {
-        await page.evaluate(() => 0).catch(() => undefined);
+        await page
+          .evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)))
+          .catch(() => undefined);
       }),
     );
   };

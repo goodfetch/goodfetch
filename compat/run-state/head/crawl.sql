@@ -13,7 +13,7 @@ CREATE TABLE domains (
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "domains" VALUES('shop.test',1767603602000,1);
+INSERT INTO "domains" VALUES('shop.test',1767603602000,0);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE outcomes (
@@ -57,7 +57,7 @@ CREATE TABLE run (
         binding TEXT,
         clean_up_digest TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',19,NULL,NULL);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',22,NULL,NULL);
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -68,6 +68,13 @@ INSERT INTO "seeds" VALUES(3,'{"kind":"not_added","reason":"duplicate","url":"ht
 INSERT INTO "seeds" VALUES(4,'{"kind":"added","id":"3","url":"https://api.test/search"}');
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
+CREATE TABLE usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT;
+INSERT INTO "usage" VALUES(1,1,3);
 CREATE TABLE visited (
             identity TEXT NOT NULL PRIMARY KEY,
             crawl_request TEXT NOT NULL

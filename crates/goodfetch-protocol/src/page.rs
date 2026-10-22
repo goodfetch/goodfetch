@@ -2,7 +2,8 @@
 //! the Run's default Session, which the first call opens and every later
 //! one shares; `page.goto`, `page.reload`, `page.go_back` and
 //! `page.go_forward` navigate a page and answer the document's `Response`;
-//! and the Error codes a page's browser and its navigations fail with.
+//! and the Error codes a page's browser, its navigations and the URL
+//! patterns its calls pass fail with.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -11,10 +12,12 @@
 //! the Client grants the call with `$/credit`, and answers once the last
 //! chunk is sent.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema, schema_for};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
@@ -299,6 +302,49 @@ pub const BROWSER_LAUNCH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A construct of a URL pattern the engine's matcher cannot read (ADR 0081).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternConstruct {
+    /// A regular expression's look-ahead or look-behind, such as `(?=x)`.
+    LookAround,
+    /// A regular expression's back-reference, such as `\1`.
+    Backreference,
+    /// A glob's `{` inside another `{…}` group, which Playwright refuses
+    /// too.
+    NestedBraces,
+    /// A glob's `{` with no `}`, or `}` with no `{`, which Playwright
+    /// refuses too.
+    UnmatchedBrace,
+    /// Any other construct outside the `regex` crate's syntax, or a
+    /// regular expression too large to compile; the message names it.
+    Other,
+}
+
+/// What `pattern_unsupported` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PatternUnsupportedDetails {
+    /// The pattern as the call passed it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pattern: String,
+    /// The construct the engine cannot read.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub construct: PatternConstruct,
+    /// What to do instead.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// A URL pattern outside the syntax of the engine's matcher (ADR 0081).
+pub const PATTERN_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "pattern_unsupported",
+    description: "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `run.new_page`.
 pub const RUN_NEW_PAGE: Operation = Operation {
     name: "run.new_page",
@@ -379,6 +425,175 @@ pub const PAGE_GO_FORWARD: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// A format asked for as `true`: with its default options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Asked;
+
+impl Serialize for Asked {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(true)
+    }
+}
+
+impl<'de> Deserialize<'de> for Asked {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if bool::deserialize(deserializer)? {
+            Ok(Self)
+        } else {
+            Err(serde::de::Error::custom(
+                "a format is asked for with `true` or its options; leave out a format not wanted",
+            ))
+        }
+    }
+}
+
+impl JsonSchema for Asked {
+    fn schema_name() -> Cow<'static, str> {
+        "Asked".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "The format, with its default options.",
+            "const": true,
+        })
+    }
+}
+
+/// How much of the page a Markdown format holds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkdownContent {
+    /// The main content the extractor finds, the default.
+    #[default]
+    Main,
+}
+
+/// The options of the `markdown` format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownOptions {
+    /// How much of the page it holds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub content: MarkdownContent,
+}
+
+/// The `markdown` format of a request: `true`, or its options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum MarkdownFormat {
+    /// With its default options.
+    Asked(Asked),
+    /// With these options.
+    Options(MarkdownOptions),
+}
+
+impl MarkdownFormat {
+    /// How much of the page it holds.
+    pub fn content(self) -> MarkdownContent {
+        match self {
+            Self::Asked(Asked) => MarkdownContent::default(),
+            Self::Options(options) => options.content,
+        }
+    }
+}
+
+/// The formats a `page.formats` call asks for, each `true` or its options:
+/// one value, which a Record can carry and a Dataset's schema can be
+/// generated from (ADR 0103). A format left out is left out of the result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FormatsRequest {
+    /// The page's content as Markdown, with GFM's tables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub markdown: Option<MarkdownFormat>,
+}
+
+/// What `page.formats` takes: the page, and the formats it asks for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FormatsParams {
+    /// The page.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub page_id: PageId,
+    /// The formats.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub formats: FormatsRequest,
+}
+
+/// Whether the extractor found the document's main content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MainContent {
+    /// It found it.
+    Found,
+    /// The document has none: the formats read from it are empty, a value
+    /// and never the whole page in its place.
+    None,
+}
+
+/// What `page.formats` answers: the formats the request asked for, and
+/// none it did not, with the document's URL, its base URL and whether it
+/// has main content. Text is as the document holds it, never repaired.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PageFormats {
+    /// The document's URL, after redirects.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The URL its relative URLs resolve against: its first `<base href>`,
+    /// else its URL.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub base_url: String,
+    /// Whether it has main content.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub main_content: MainContent,
+    /// Its content as Markdown, when the request asked for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String", extend("arrived_in" = "0.1"))]
+    pub markdown: Option<String>,
+}
+
+/// The JSON Schema of what `page.formats` answers to `request`: the
+/// result's envelope and each format it asks for, all required, and no
+/// other property, so a code-free crawl writes its Dataset's schema from
+/// the request alone (ADR 0103). Derived from [`PageFormats`]' own schema.
+pub fn page_formats_schema(request: &FormatsRequest) -> Value {
+    let mut schema =
+        serde_json::to_value(schema_for!(PageFormats)).expect("invariant: a JSON Schema is JSON");
+    let Ok(Value::Object(asked)) = serde_json::to_value(request) else {
+        unreachable!("invariant: a formats request serializes as an object");
+    };
+    let mut required: Vec<Value> = schema["required"].as_array().cloned().unwrap_or_default();
+    let envelope: Vec<String> = required
+        .iter()
+        .filter_map(|name| name.as_str().map(ToOwned::to_owned))
+        .collect();
+    if let Some(properties) = schema["properties"].as_object_mut() {
+        properties.retain(|name, _| envelope.contains(name) || asked.contains_key(name));
+    }
+    required.extend(asked.keys().map(|name| Value::String(name.clone())));
+    schema["required"] = Value::Array(required);
+    schema["additionalProperties"] = Value::Bool(false);
+    schema
+}
+
+/// `page.formats`.
+pub const PAGE_FORMATS: Operation = Operation {
+    name: "page.formats",
+    description: "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<FormatsParams>,
+    result: schema_of::<PageFormats>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -388,6 +603,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_RELOAD,
         PAGE_GO_BACK,
         PAGE_GO_FORWARD,
+        PAGE_FORMATS,
         PAGE_BODY,
     ],
     events: &[],
@@ -398,6 +614,7 @@ pub const ENTRIES: Entries = Entries {
         NAVIGATION_INTERRUPTED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
+        PATTERN_UNSUPPORTED,
     ],
     plugin_kinds: &[],
     metrics: &[],
@@ -405,3 +622,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

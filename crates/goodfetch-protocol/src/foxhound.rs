@@ -10,6 +10,7 @@ pub mod crawl;
 pub mod frontier;
 pub mod outcomes;
 pub mod settings;
+pub mod usage;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

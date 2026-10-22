@@ -14,7 +14,7 @@
 use std::time::Duration;
 
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_test_support::TestEnv;
@@ -354,4 +354,52 @@ fn forgetting_an_executable_removes_its_one_entry_and_keeps_the_rest() {
         ),
         (vec![kept], 2)
     );
+}
+
+/// The lowest Product version the Daemon's pick must meet is the highest
+/// lowest minor the major's shared stores record (ADR 0098).
+///
+/// Covers: story:3-144
+#[rstest]
+#[case::no_store_raised(None, None, None)]
+#[case::the_run_index(Some(3), None, Some(ProtocolVersion { major: 2, minor: 3 }))]
+#[case::user_configuration_above_the_run_index(
+    Some(3),
+    Some(5),
+    Some(ProtocolVersion { major: 2, minor: 5 })
+)]
+fn the_daemons_pick_meets_the_highest_lowest_minor_of_the_majors_stores(
+    #[case] run_index: Option<u16>,
+    #[case] user_configuration: Option<u16>,
+    #[case] floor: Option<ProtocolVersion>,
+) {
+    let folder = tempfile::tempdir().unwrap();
+    let home = crate::home::Home::new(folder.path().to_owned());
+    let engine = goodfetch_protocol::connection::ProductVersion::parse("2.6.0").unwrap();
+    let major = home.per_major(&engine);
+    std::fs::create_dir_all(&major).unwrap();
+    if let Some(lowest_minor) = run_index {
+        let connection = rusqlite::Connection::open(home.run_index(&engine)).unwrap();
+        connection
+            .execute(crate::lowest_minor::FORMAT_TABLE, [])
+            .unwrap();
+        crate::lowest_minor::write_sqlite(
+            &connection,
+            goodfetch_protocol::formats::RUN_INDEX.name,
+            crate::lowest_minor::Marker {
+                version: goodfetch_protocol::formats::RUN_INDEX.version,
+                lowest_minor,
+            },
+        )
+        .unwrap();
+    }
+    if let Some(lowest_minor) = user_configuration {
+        std::fs::write(
+            major.join("configuration.toml"),
+            format!("version = \"0.1\"\nlowest_minor = {lowest_minor}\n"),
+        )
+        .unwrap();
+    }
+
+    assert_eq!(super::stores_floor(&home, &engine), floor);
 }

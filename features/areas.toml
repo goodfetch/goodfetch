@@ -249,14 +249,58 @@ prefix = "installed-executables"
 
 [[area]]
 number = 3
+kind = "format"
+prefix = "politeness-file"
+
+[[area]]
+number = 3
 kind = "command"
 prefix = "daemon."
+
+# Area 3's versions (#226): `upgrade-files`, its refusal, and the setting
+# that turns the age notice off.
+[[area]]
+number = 3
+kind = "command"
+prefix = "upgrade-files"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "upgrade_source_unsupported"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "version."
 
 # Area 3's writer lock and Run index (#219): `runs reindex`.
 [[area]]
 number = 3
 kind = "command"
 prefix = "runs."
+
+# Area 3's Usage ledger (#231): Limits across runs, `usage`, their Error
+# codes and the ledger's format.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "usage."
+
+[[area]]
+number = 3
+kind = "command"
+prefix = "usage"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "limit_"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "usage-ledger"
 
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
@@ -310,6 +354,11 @@ prefix = "crawl.domain_keys"
 number = 3
 kind = "setting"
 prefix = "admission."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "politeness."
 
 # The keys #225 declares for the areas that build what they shape, each with
 # its area first (ADR 0083): Security and egress (4), Site access (5),
@@ -377,6 +426,12 @@ number = 5
 kind = "operation"
 prefix = "page.go_"
 
+# Area 6, Collection (spec #580): the page formats (#783).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "page.formats"
+
 [[area]]
 number = 5
 kind = "error"
@@ -391,6 +446,11 @@ prefix = "page_crashed"
 number = 5
 kind = "error"
 prefix = "browser_launch_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "pattern_unsupported"
 
 [[area]]
 number = 6

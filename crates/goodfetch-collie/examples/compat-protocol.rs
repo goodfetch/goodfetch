@@ -65,6 +65,7 @@ fn dependencies(home: &std::path::Path) -> Dependencies {
         blocking: BlockingPolicy::Inline,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     }
 }
 

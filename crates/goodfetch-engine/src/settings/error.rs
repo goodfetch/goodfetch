@@ -3,7 +3,9 @@
 //! call's failure.
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::checkpoint::FORMAT_VERSION_UNSUPPORTED;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
+use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::settings::{
     SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN, SettingLimit,
     SettingsLayer,
@@ -62,6 +64,39 @@ pub enum SettingsError {
         /// What to do instead.
         fix: String,
     },
+    /// A settings file of a format version this engine cannot read (ADR
+    /// 0066), or a shared one whose lowest minor is newer than this engine
+    /// (ADR 0098).
+    #[error("{}", format_message(format, found, *compatibility, install.as_deref()))]
+    Format {
+        /// The file's layer.
+        layer: SettingsLayer,
+        /// The format's name.
+        format: &'static str,
+        /// The file's version.
+        found: String,
+        /// The version this engine reads.
+        supported: String,
+        /// What this engine makes of it.
+        compatibility: Compatibility,
+        /// The Product version to install, when its lowest minor refused
+        /// this engine.
+        install: Option<String>,
+    },
+    /// Goodfetch home holds an Operator policy only for an older major: a
+    /// new major refuses to start until `upgrade-files` has given it its
+    /// copy (ADR 0030).
+    #[error(
+        "Goodfetch home holds an Operator policy only for the older major {major}, at `{path}`; run `upgrade-files` to give the major {current} its copy, then try again"
+    )]
+    OlderMajorPolicy {
+        /// The older major's Operator policy.
+        path: String,
+        /// The older major's name.
+        major: String,
+        /// This engine's major's name.
+        current: String,
+    },
     /// A key, or a Recipe, of the Product this engine lacks, given
     /// explicitly.
     #[error("`{key}` is part of {}", needs.name())]
@@ -71,6 +106,25 @@ pub enum SettingsError {
         /// The Product that carries it.
         needs: Product,
     },
+}
+
+fn format_message(
+    format: &str,
+    found: &str,
+    compatibility: Compatibility,
+    install: Option<&str>,
+) -> String {
+    match (compatibility, install) {
+        (_, Some(install)) => format!(
+            "this {format} file ({found}) can be used from Goodfetch {install} on; install Goodfetch {install} or newer"
+        ),
+        (Compatibility::OlderMajor, None) => format!(
+            "this {format} file is {found}, of an older major; run `upgrade-files` to upgrade it"
+        ),
+        (_, None) => format!(
+            "this {format} file is {found}, newer than this engine reads; upgrade Goodfetch to read it"
+        ),
+    }
 }
 
 fn in_layer(layer: Option<SettingsLayer>) -> String {
@@ -104,6 +158,7 @@ impl SettingsError {
             Self::NotApplicable { .. } => SETTING_NOT_APPLICABLE.name,
             Self::Locked { .. } => SETTING_LOCKED.name,
             Self::NotInProduct { .. } => NOT_IN_PRODUCT.name,
+            Self::Format { .. } | Self::OlderMajorPolicy { .. } => FORMAT_VERSION_UNSUPPORTED.name,
         }
     }
 }

@@ -50,11 +50,14 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
+use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RunAxes, RunId, RunIndexRow,
-    RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
+    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, ReachedLimit, RunAxes, RunId,
+    RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags,
+    Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -69,6 +72,7 @@ use self::folder::{
     text, write_end,
 };
 use self::reader::Following;
+pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::admission::{Admission, Gates};
@@ -78,7 +82,9 @@ use crate::client::Client;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
-use crate::home::{Home, RunStateLocation};
+use crate::home::{Home, RunStateLocation, major_name};
+use crate::ledger::{Charging, Ledger, Refusal};
+use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
 use crate::run_state::{self, RunState, RunStateError, RunStateOptions, RunStateTables};
 use crate::settings::{Resolved, RunSettings, Settings};
@@ -93,7 +99,7 @@ const MACHINE_FILE: &str = "machine-id";
 
 /// Who a Connection acts for: the OS user on a single-user install (ADR
 /// 0102), the only caller until accounts arrive (area 12).
-const CALLER: &str = "os_user";
+pub(crate) const CALLER: &str = "os_user";
 
 /// How many commands wait for the registry before their senders wait.
 const COMMANDS: usize = 256;
@@ -112,6 +118,10 @@ pub(crate) struct RunsSetup {
     pub(crate) tables: Vec<RunStateTables>,
     /// The gate in admission the composition passes in, if any.
     pub(crate) gates: Option<Arc<dyn Gates>>,
+    /// How the per-user Politeness file opens.
+    pub(crate) politeness: PolitenessOptions,
+    /// The tables the composition adds to the Politeness file.
+    pub(crate) politeness_tables: Vec<PolitenessTables>,
     /// The engine's clock.
     pub(crate) clock: Clock,
     /// The engine's entropy, from which Run IDs draw.
@@ -273,9 +283,46 @@ pub enum StartError {
         /// What failed.
         error: String,
     },
+    /// A Limit that covers the Run has nothing left in its period (ADR
+    /// 0041).
+    #[error("a Limit on {} {} has nothing left", .0.scope.kind, .0.usage_kind)]
+    LimitReached(Box<ReachedLimit>),
+    /// A Limit flagged *must understand* that this engine cannot evaluate
+    /// may cover the Run (ADR 0041).
+    #[error("a Limit on {} cannot be evaluated by this engine", .0.scope.kind)]
+    LimitNotUnderstood(Box<Limit>),
+    /// The Run index refuses this engine: its format is of another major,
+    /// or its lowest minor is newer than the engine (ADR 0098), so no Run
+    /// starts.
+    #[error("the Run index is {format} {found}, which this engine cannot use")]
+    Format {
+        /// The format's name.
+        format: &'static str,
+        /// The index's format version.
+        found: String,
+        /// What this engine makes of it.
+        compatibility: Compatibility,
+        /// The Product version to install, when its lowest minor refused
+        /// this engine.
+        install: Option<String>,
+    },
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
+}
+
+/// Why a Run could not charge Usage.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ChargeError {
+    /// The Usage ledger refused it: a Limit has too little left, which asks
+    /// the Run to stop at its next safe point, or cannot be evaluated, or
+    /// the ledger could not be read or written.
+    #[error(transparent)]
+    Refused(#[from] Refusal),
+    /// What it charged could not be journaled in its run state.
+    #[error(transparent)]
+    State(#[from] RunStateError),
 }
 
 /// Why a Run could not be finished or aborted.
@@ -337,6 +384,9 @@ pub enum RunError {
         found: String,
         /// What this engine makes of it.
         compatibility: Compatibility,
+        /// The Product version to install, when a shared store's lowest
+        /// minor refused this engine (ADR 0098).
+        install: Option<String>,
     },
     /// The Run is bound to another machine (ADR 0056).
     #[error("the Run `{0}` is bound to another machine")]
@@ -369,11 +419,13 @@ impl RunError {
                 format,
                 found,
                 compatibility,
+                install,
             } => Self::Format {
                 run_id: run_id.clone(),
                 format,
                 found,
                 compatibility,
+                install,
             },
             other => Self::Unavailable {
                 run_id: run_id.clone(),
@@ -410,7 +462,7 @@ enum Waiting {
 }
 
 /// How a Run's driver ends it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {
     /// Its work is done: `finished`.
     Finished,
@@ -422,7 +474,7 @@ pub enum Ending {
 }
 
 /// Why a Run ends.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum End {
     Finished,
     Failed,
@@ -499,8 +551,8 @@ pub(crate) type ConnectionId = u64;
 pub struct Runs {
     commands: mpsc::Sender<Command>,
     settings: Settings,
-    home: Arc<Home>,
     connection: Option<ConnectionId>,
+    limits: Arc<Limits>,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
 }
 
@@ -520,11 +572,19 @@ pub struct Run {
     folder: PathBuf,
     state: RunState,
     clock: Clock,
-    gates: Option<Arc<dyn Gates>>,
-    stop: Arc<watch::Sender<Option<StopReason>>>,
+    admitting: Arc<Admitting>,
+    shared: Arc<Shared>,
     owner: Arc<TaskOwner>,
     runs: Runs,
     settings: Option<Arc<RunSettings>>,
+}
+
+/// What every handle of a live Run shares.
+struct Shared {
+    /// The reason it was asked to stop at its next safe point, once asked.
+    stop: watch::Sender<Option<StopReason>>,
+    /// Its Slices of the Limits that hold it, until it ends.
+    charging: tokio::sync::Mutex<Option<Charging>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -578,8 +638,11 @@ impl Run {
     ///
     /// Dropping the future loses nothing; a later call answers the same.
     pub async fn stopping(&self) -> StopReason {
-        let mut stop = self.stop.subscribe();
-        let asked = stop.wait_for(Option::is_some).await.map(|reason| *reason);
+        let mut stop = self.shared.stop.subscribe();
+        let asked = stop
+            .wait_for(Option::is_some)
+            .await
+            .map(|reason| reason.clone());
         match asked {
             Ok(Some(reason)) => reason,
             _ => std::future::pending().await,
@@ -613,7 +676,7 @@ impl Run {
     /// Asks the Run to stop at its next safe point for `reason`; the first
     /// reason asked stays.
     fn stop_at_safe_point(&self, reason: StopReason) {
-        self.stop.send_if_modified(|stop| {
+        self.shared.stop.send_if_modified(|stop| {
             let unset = stop.is_none();
             if unset {
                 *stop = Some(reason);
@@ -623,18 +686,24 @@ impl Run {
     }
 
     /// Its admission under `settings`: the gate in admission the
-    /// composition passes in, opened from what its run file journaled, and
-    /// its rate cap; `None` when the composition passes in no gate.
+    /// composition passes in, opened from what its run file journaled, its
+    /// rate cap, and, when the gate names a rule for its keys, the
+    /// Politeness `politeness.sharing` says it shares: the per-user
+    /// Politeness file for `shared` and `per_daemon`, a file of its own in
+    /// memory for `run`. `None` when the composition passes in no gate.
     ///
     /// # Errors
     ///
-    /// When its run file cannot be read.
+    /// When its run file cannot be read, or the Politeness file opened.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub async fn admission(&self, settings: &Resolved) -> Result<Option<Admission>, RunStateError> {
-        let Some(gates) = self.gates.clone() else {
+    pub async fn admission(
+        &self,
+        settings: &Resolved,
+    ) -> Result<Option<Admission>, AdmissionError> {
+        let Some(gates) = self.admitting.gates.clone() else {
             return Ok(None);
         };
         let opening = settings.clone();
@@ -643,7 +712,23 @@ impl Run {
             .state
             .read(move |connection| gates.open(&opening, connection, wall, now))
             .await?;
-        Ok(Some(Admission::new(gate, settings)))
+        let admission = Admission::new(gate, settings);
+        if !admission.shares(settings) {
+            return Ok(Some(admission));
+        }
+        let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
+            Politeness::in_memory(self.admitting.politeness.tables.clone(), &self.owner).await?
+        } else {
+            self.admitting.politeness.file().await?
+        };
+        let holder = Holder {
+            run_id: self.id.to_string(),
+            epoch: self.state.epoch(),
+            run_folder: self.folder.clone(),
+        };
+        Ok(Some(
+            admission.sharing(politeness, holder, self.clock, settings),
+        ))
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -710,6 +795,56 @@ impl Run {
         point_in_time(&self.clock)
     }
 
+    /// Charges `amount` of `usage_kind` against every Limit that holds the
+    /// Run, before the Run uses it (ADR 0041): out of its Slices, taking
+    /// another Slice in one ledger transaction when they run out, then
+    /// journaled in its run state under its run epoch, from which an engine
+    /// reclaiming its Slices after a crash charges them. A Run with nothing
+    /// left of a Limit is asked to stop at its next safe point, `stopped`
+    /// for that Limit, and must not use what it was refused.
+    ///
+    /// # Errors
+    ///
+    /// `Refused` when the ledger refused the charge or could not be read or
+    /// written, `State` when the run state could not journal it: nothing
+    /// may be used then.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a Slice taken or the charge journaled,
+    /// never more charged than the Run used.
+    pub async fn charge(&self, usage_kind: &str, amount: u64) -> Result<(), ChargeError> {
+        let mut held = self.shared.charging.lock().await;
+        let Some(mut charging) = held.take() else {
+            return Ok(());
+        };
+        let now = self.runs.limits.now();
+        let kind = usage_kind.to_owned();
+        let (charging, charged) = self
+            .owner
+            .blocking(move || {
+                let charged = charging.charge(&kind, amount, now);
+                (charging, charged)
+            })
+            .await;
+        *held = Some(charging);
+        match charged {
+            Ok(charged) if charged.used.is_empty() => Ok(()),
+            Ok(charged) => {
+                let epoch = self.state.epoch();
+                self.state
+                    .write(move |connection| slices::journal(connection, epoch, &charged.used))
+                    .await?;
+                Ok(())
+            }
+            Err(Refusal::Reached(reached)) => {
+                self.stop_at_safe_point(StopReason::Limit(ReachedLimit::clone(&reached)));
+                Err(Refusal::Reached(reached).into())
+            }
+            Err(refusal) => Err(refusal.into()),
+        }
+    }
+
     /// Records that the Run uses an entry of `product`'s, so that from now
     /// on it needs the larger of its Product and `product` (ADR 0098).
     ///
@@ -728,23 +863,48 @@ impl Run {
 impl Runs {
     /// Starts the registry as a task of `owner`, each Run's tasks under a
     /// child of it.
-    pub(crate) fn start_registry(setup: RunsSetup, owner: &TaskOwner) -> Self {
+    pub(crate) fn start_registry(mut setup: RunsSetup, owner: &TaskOwner) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let readers = Arc::new(owner.child());
+        let limits = Limits {
+            home: setup.home.clone(),
+            owner: Arc::clone(&readers),
+            ledger: Ledger::at(setup.home.usage_ledger(), setup.run_state.vfs.clone()),
+            clock: setup.clock,
+            product: setup.product,
+            instance: format!("{:016x}", setup.entropy.next_u64()),
+            daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
+                .then(|| major_name(&setup.version)),
+        };
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
-            home: Arc::new(setup.home.clone()),
             connection: None,
+            limits: Arc::new(limits),
             drivers: Arc::new(setup.drivers.clone()),
         };
+        let politeness = SharedPoliteness {
+            file: Arc::new(tokio::sync::OnceCell::new()),
+            path: setup.home.politeness_file(),
+            options: setup.politeness.clone(),
+            tables: setup.politeness_tables.clone(),
+            engine: format!("{:016x}", setup.entropy.next_u64()),
+            owner: Arc::new(owner.child()),
+        };
+        let admitting = Arc::new(Admitting {
+            gates: setup.gates.clone(),
+            politeness,
+        });
         let registry = Registry {
             setup,
+            admitting,
             owner: owner.child(),
             ending_owner: owner.child(),
-            readers: Arc::new(owner.child()),
+            readers,
             live: BTreeMap::new(),
             ended: BTreeMap::new(),
             runs: runs.downgrade(),
+            limits: Arc::clone(&runs.limits),
             drivers: Arc::clone(&runs.drivers),
             machine: None,
         };
@@ -761,9 +921,21 @@ impl Runs {
         &self.settings
     }
 
+    /// What this engine's Runs charge against: the user's Usage ledger and
+    /// the scopes they stand in.
+    pub(crate) fn limits(&self) -> &Limits {
+        &self.limits
+    }
+
+    /// The Daemon's Connection these Runs belong to; none on an Attached
+    /// engine, whose one Connection is its Client's.
+    pub(crate) fn connection(&self) -> Option<ConnectionId> {
+        self.connection
+    }
+
     /// The Goodfetch home the engine runs in.
     pub fn home(&self) -> &Home {
-        &self.home
+        &self.limits.home
     }
 
     /// The live Run of `run_id`, as its driver holds it.
@@ -1115,6 +1287,8 @@ struct Live {
 
 struct Registry {
     setup: RunsSetup,
+    /// The gate in admission and the Politeness the engine's Runs share.
+    admitting: Arc<Admitting>,
     owner: TaskOwner,
     ending_owner: TaskOwner,
     /// Where readers of run state run their blocking reads.
@@ -1122,6 +1296,8 @@ struct Registry {
     live: BTreeMap<RunId, Live>,
     ended: BTreeMap<RunId, RunReport>,
     runs: mpsc::WeakSender<Command>,
+    /// What its Runs charge against.
+    limits: Arc<Limits>,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The machine's identity, once read.
     machine: Option<String>,
@@ -1129,6 +1305,7 @@ struct Registry {
 
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+        self.reclaim().await;
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, connection, answer) => {
@@ -1226,6 +1403,22 @@ impl Registry {
             }
         }
         reports
+    }
+
+    /// Reclaims the Slices of every run whose engine is gone, as each engine
+    /// that opens the Usage ledger does (ADR 0041).
+    async fn reclaim(&self) {
+        let ledger = self.limits.ledger.clone();
+        let vfs = self.setup.run_state.vfs.clone();
+        let reclaimed = self
+            .owner
+            .blocking(move || {
+                ledger.reclaim(&|holder| slices::probe(holder, RUN_FILE, vfs.as_deref()))
+            })
+            .await;
+        if let Err(error) = reclaimed {
+            tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+        }
     }
 
     fn reader(&self, run_id: &RunId) -> RunReader {
@@ -1362,6 +1555,33 @@ impl Registry {
             })
     }
 
+    /// Whether a new Run placed at `placement` may start: every Limit that
+    /// holds it has something left, and none it cannot be placed outside of
+    /// is one this engine cannot evaluate (ADR 0041). A ledger that cannot
+    /// be read refuses it.
+    async fn may_start(
+        &self,
+        run_id: &RunId,
+        connection: Option<ConnectionId>,
+    ) -> Result<(), StartError> {
+        let (ledger, now) = (self.limits.ledger.clone(), self.limits.now());
+        let checked = self.limits.placement(connection);
+        let may_start = self
+            .owner
+            .blocking(move || Charging::may_start(&ledger, &checked, now))
+            .await;
+        match may_start {
+            Ok(()) => Ok(()),
+            Err(Refusal::Reached(reached)) => Err(StartError::LimitReached(reached)),
+            Err(Refusal::NotUnderstood(limit)) => Err(StartError::LimitNotUnderstood(limit)),
+            Err(Refusal::Ledger(error)) => Err(StartError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.limits.ledger.path().to_owned(),
+                error: error.to_string(),
+            }),
+        }
+    }
+
     async fn begin(
         &mut self,
         run_id: RunId,
@@ -1375,6 +1595,8 @@ impl Registry {
             folder: folder.clone(),
             error,
         };
+        self.check_index().await?;
+        self.may_start(&run_id, connection).await?;
         let lock = self.lock(&run_id, &folder).await?;
         let writer = Arc::new(self.owner.child());
         let state = RunState::open(
@@ -1482,11 +1704,43 @@ impl Registry {
         }
     }
 
+    /// Refuses a start when the Run index's marker refuses this engine
+    /// (ADR 0098): an engine that finds its lowest minor raised past itself
+    /// takes no new Run. An index that cannot be opened stops no Run; its
+    /// row is restored by `runs reindex`.
+    async fn check_index(&self) -> Result<(), StartError> {
+        let path = self.setup.home.run_index(&self.setup.version);
+        let version = self.setup.version.clone();
+        match self
+            .owner
+            .blocking(move || run_index::check(&path, &version))
+            .await
+        {
+            Err(RunStateError::Format {
+                format,
+                found,
+                compatibility,
+                install,
+            }) => Err(StartError::Format {
+                format,
+                found,
+                compatibility,
+                install,
+            }),
+            Err(error) => {
+                tracing::warn!(%error, "the Run index cannot be read; the Run starts without it");
+                Ok(())
+            }
+            Ok(()) => Ok(()),
+        }
+    }
+
     async fn write_index(&self, row: RunIndexRow) {
         let path = self.setup.home.run_index(&self.setup.version);
+        let version = self.setup.version.clone();
         if let Err(error) = self
             .owner
-            .blocking(move || run_index::write(&path, &row))
+            .blocking(move || run_index::write(&path, &version, &row))
             .await
         {
             tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
@@ -1515,13 +1769,22 @@ impl Registry {
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
     ) -> Run {
+        let epoch = state.epoch();
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
             state,
             clock: self.setup.clock,
-            gates: self.setup.gates.clone(),
-            stop: Arc::new(watch::Sender::new(None)),
+            admitting: Arc::clone(&self.admitting),
+            shared: Arc::new(Shared {
+                stop: watch::Sender::new(None),
+                charging: tokio::sync::Mutex::new(Some(self.limits.charging(
+                    run_id,
+                    folder,
+                    epoch,
+                    self.limits.placement(connection),
+                ))),
+            }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
@@ -1535,8 +1798,8 @@ impl Registry {
                 .upgrade()
                 .expect("invariant: the registry runs while a handle sends to it"),
             settings: self.setup.settings.clone(),
-            home: Arc::new(self.setup.home.clone()),
             connection,
+            limits: Arc::clone(&self.limits),
             drivers: Arc::clone(&self.drivers),
         }
     }
@@ -1570,15 +1833,15 @@ impl Registry {
         let nonce = self.setup.entropy.next_u64();
         let vfs = self.setup.run_state.vfs.clone();
         let events = self.setup.events.clone();
-        let stopping = match end {
-            End::Stopped(cause) if self.live[run_id].run.is_some() => Some(cause),
+        let stopping = match &end {
+            End::Stopped(cause) if self.live[run_id].run.is_some() => Some(cause.clone()),
             _ => None,
         };
-        if let Some(cause) = stopping {
+        if let Some(cause) = &stopping {
             if let StopReason::Abort { by } = cause {
                 let aborting = RunAborting {
                     run_id: run_id.clone(),
-                    by,
+                    by: *by,
                 };
                 events
                     .publish(&RUN_ABORTING, Some(run_id.as_str()), &aborting)
@@ -1586,7 +1849,7 @@ impl Registry {
             }
             let stopping = RunStopping {
                 run_id: run_id.clone(),
-                cause,
+                cause: cause.clone(),
             };
             events
                 .publish(&RUN_STOPPING, Some(run_id.as_str()), &stopping)
@@ -1617,6 +1880,7 @@ impl Registry {
                 last_checkpoint: live.checkpoint.clone(),
             };
             let index = self.setup.home.run_index(&self.setup.version);
+            let version = self.setup.version.clone();
             let registry = self.runs.clone();
             let run_id = run_id.clone();
             self.ending_owner.spawn(async move {
@@ -1629,7 +1893,7 @@ impl Registry {
                     owner: None,
                     ..row
                 };
-                if let Err(error) = run_index::write(&index, &ended) {
+                if let Err(error) = run_index::write(&index, &version, &ended) {
                     tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
                 }
                 events
@@ -1700,6 +1964,7 @@ impl Registry {
             clock: self.setup.clock,
             entropy: self.setup.entropy.fork(),
             index: self.setup.home.run_index(&self.setup.version),
+            version: self.setup.version.clone(),
             events: self.setup.events.clone(),
             forwarder: Arc::clone(&self.setup.forwarder),
             owner: Arc::new(self.ending_owner.child()),
@@ -1974,7 +2239,22 @@ impl Registry {
                     folder,
                     error,
                 },
-                StartError::Conflict { .. } | StartError::Stopped => RunError::Stopped,
+                StartError::Format {
+                    format,
+                    found,
+                    compatibility,
+                    install,
+                } => RunError::Format {
+                    run_id: run_id.clone(),
+                    format,
+                    found,
+                    compatibility,
+                    install,
+                },
+                StartError::Conflict { .. }
+                | StartError::LimitReached(_)
+                | StartError::LimitNotUnderstood(_)
+                | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;
         if let Some(checkpoint) = checkpoint {
@@ -2211,7 +2491,14 @@ impl Closing {
         let written = report.clone();
         let state = run.state.clone();
         let (run_id, folder) = (run.id.clone(), run.folder.clone());
+        let charging = run.shared.charging.lock().await.take();
         drop(run);
+        if let Some(mut charging) = charging {
+            let given = writer.blocking(move || charging.give_back()).await;
+            if let Err(error) = given {
+                tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
+            }
+        }
         let ended = state
             .write(move |connection| write_end(connection, &written))
             .await;
@@ -2249,5 +2536,69 @@ mod folder;
 pub mod outcome;
 mod reader;
 mod reindex;
+mod slices;
 mod takeover;
 mod writer;
+
+/// Why a Run's admission did not open.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum AdmissionError {
+    /// Its run file could not be read.
+    #[error(transparent)]
+    RunState(#[from] RunStateError),
+    /// The Politeness it shares could not be opened.
+    #[error(transparent)]
+    Politeness(#[from] PolitenessError),
+}
+
+/// What a Run's admission opens from: the gate in admission the
+/// composition passes in, if any, and the Politeness the engine's Runs
+/// share.
+struct Admitting {
+    gates: Option<Arc<dyn Gates>>,
+    politeness: SharedPoliteness,
+}
+
+/// The per-user Politeness file the engine's Runs share, opened the first
+/// time one shares it (ADR 0053), as one engine of the user.
+struct SharedPoliteness {
+    file: Arc<tokio::sync::OnceCell<Politeness>>,
+    path: PathBuf,
+    options: PolitenessOptions,
+    tables: Vec<PolitenessTables>,
+    engine: String,
+    owner: Arc<TaskOwner>,
+}
+
+impl SharedPoliteness {
+    /// The file, opened now if it is not yet.
+    async fn file(&self) -> Result<Politeness, PolitenessError> {
+        self.file
+            .get_or_try_init(|| {
+                Politeness::open(
+                    self.path.clone(),
+                    &self.options,
+                    self.tables.clone(),
+                    holder_gone,
+                    self.engine.clone(),
+                    &self.owner,
+                )
+            })
+            .await
+            .cloned()
+    }
+}
+
+/// Whether the Run in `folder` that took Permits under `epoch` is gone
+/// (ADRs 0041 and 0053): its writer lock free, or held while its run file
+/// holds a later epoch. It blocks.
+fn holder_gone(folder: &Path, epoch: u64) -> bool {
+    match test_writer(folder) {
+        Ok(Writer::None) => true,
+        Ok(Writer::Live) => {
+            crate::run_state::epoch_of(&folder.join(RUN_FILE)).is_some_and(|found| found > epoch)
+        }
+        Err(_) => false,
+    }
+}

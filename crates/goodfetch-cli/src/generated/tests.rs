@@ -119,6 +119,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("page.reload", Offer::Command),
             ("page.go_back", Offer::Command),
             ("page.go_forward", Offer::Command),
+            ("page.formats", Offer::Command),
             ("page.body", Offer::Follow),
             ("run.start", Offer::Command),
             ("run.finish", Offer::Command),
@@ -129,6 +130,8 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("run.resume", Offer::Command),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),
+            ("usage.list", Offer::Command),
+            ("usage.set", Offer::Command),
         ]
     );
 }

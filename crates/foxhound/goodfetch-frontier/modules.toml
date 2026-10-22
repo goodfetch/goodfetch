@@ -3,6 +3,7 @@
 admit = ["identity", "url"]
 domain_key = []
 identity = ["url"]
-queues = ["domain_key"]
+politeness = []
+queues = ["domain_key", "politeness"]
 seeds = []
 url = []

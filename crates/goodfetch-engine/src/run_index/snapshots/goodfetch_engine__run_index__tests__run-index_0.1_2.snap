@@ -1,0 +1,6 @@
+---
+source: crates/goodfetch-engine/src/run_index/tests.rs
+assertion_line: 169
+expression: "format!(\"{}: {}\", refusal.code(), refusal.message())"
+---
+format_version_unsupported: The run-index (0.1) was last written by a newer engine and can be used from Goodfetch 1.2 on, newer than this engine; install Goodfetch 1.2 or newer to use it.

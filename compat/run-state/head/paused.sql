@@ -54,6 +54,12 @@ CREATE TABLE seeds (
             answer TEXT NOT NULL
         ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
+CREATE TABLE usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT;
 CREATE TABLE visited (
             identity TEXT NOT NULL PRIMARY KEY,
             crawl_request TEXT NOT NULL

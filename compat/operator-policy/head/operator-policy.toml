@@ -1,4 +1,5 @@
 version = "0.1"
+lowest_minor = 0
 
 [settings.console]
 address = "example"
@@ -60,6 +61,16 @@ handler = 30000
 
 [settings.admission]
 max_requests_per_minute = 4
+
+[settings.version]
+age_notice = true
+
+[settings.politeness]
+sharing = "shared"
+
+[settings.politeness.domain]
+concurrency = 4
+delay = 30000
 
 [settings.crawl]
 sample_pages = 4
@@ -143,6 +154,16 @@ handler = 30000
 [lock.admission]
 max_requests_per_minute = 4
 
+[lock.version]
+age_notice = true
+
+[lock.politeness]
+sharing = "shared"
+
+[lock.politeness.domain]
+concurrency = 4
+delay = 30000
+
 [lock.crawl]
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
@@ -197,3 +218,7 @@ max = 4
 
 [cap.crawl.handler]
 concurrency = 4
+
+[cap.politeness.domain]
+concurrency = 4
+delay = 30000

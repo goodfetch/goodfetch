@@ -38,6 +38,7 @@ use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler}
 use crate::events::Events;
 use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
+use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, DaemonListener, TransportError};
@@ -70,6 +71,10 @@ pub struct DaemonOptions {
     /// How it drains when its starter asks, as `daemon run` does on
     /// `SIGTERM` (ADR 0049); none for a Daemon on the machine.
     pub drain: Option<Drain>,
+    /// The install database it keeps every Run's run state in, in the
+    /// per-install layout (`run_state.layout`, ADR 0002); none in the
+    /// per-run layout.
+    pub install: Option<InstallDatabase>,
 }
 
 /// How a foreground Daemon drains (ADR 0049): once `asked` is cancelled it

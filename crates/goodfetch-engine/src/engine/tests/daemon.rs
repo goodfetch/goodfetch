@@ -74,6 +74,7 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         }),
         console: DaemonConsole::Absent,
         drain: None,
+        install: None,
     }
 }
 

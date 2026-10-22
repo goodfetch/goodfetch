@@ -173,6 +173,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             succession: Arc::new(ThePick),
             console: DaemonConsole::Absent,
             drain: None,
+            install: None,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);
         tokio::select! {

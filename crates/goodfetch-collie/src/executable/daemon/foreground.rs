@@ -44,6 +44,8 @@ struct Configured {
     address: SocketAddr,
     drain_grace: Duration,
     idle_timeout: Duration,
+    /// The machine's settings, which choose the run-state layout.
+    settings: Resolved,
 }
 
 /// Why the foreground Daemon did not start: an Error code and its message.
@@ -75,6 +77,12 @@ pub(in crate::executable) fn run(
             return ExitCode::FAILURE;
         }
     };
+    let install =
+        match super::launched::install_database(machine, &dependencies, Some(&configured.settings))
+        {
+            Ok(install) => install,
+            Err(failure) => return failure.report(),
+        };
     let files = machine.files();
     let token = match files.persistent_token() {
         Ok(token) => token,
@@ -116,6 +124,7 @@ pub(in crate::executable) fn run(
                 asked: asked.clone(),
                 grace: configured.drain_grace,
             }),
+            install,
         };
         tracing::info!(
             %endpoint,
@@ -202,6 +211,7 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         address,
         drain_grace,
         idle_timeout,
+        settings,
     })
 }
 

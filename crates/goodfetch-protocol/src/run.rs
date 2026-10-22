@@ -812,6 +812,55 @@ pub const RUN_STATE_LOCATION: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn full_durability() -> serde_json::Value {
+    serde_json::Value::String(DURABILITY_FULL.to_owned())
+}
+
+/// `run_state.durability`'s default: an acknowledged commit survives a
+/// power cut (ADR 0002).
+pub const DURABILITY_FULL: &str = "full";
+/// `run_state.durability`'s opt-in: an acknowledged commit survives a
+/// process crash only (ADR 0002).
+pub const DURABILITY_FAST: &str = "fast";
+
+fn is_fast(value: &serde_json::Value) -> bool {
+    value.as_str() == Some(DURABILITY_FAST)
+}
+
+/// `run_state.durability` (ADR 0002).
+pub const RUN_STATE_DURABILITY: Setting = Setting {
+    name: "run_state.durability",
+    description: "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+    kind: ValueKind::Choice(&[DURABILITY_FULL, DURABILITY_FAST]),
+    default: full_durability,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(is_fast),
+    arrived_in: ARRIVED_IN,
+};
+
+fn per_run_layout() -> serde_json::Value {
+    serde_json::Value::String(LAYOUT_PER_RUN.to_owned())
+}
+
+/// `run_state.layout`'s default: one SQLite file per Run (ADR 0002).
+pub const LAYOUT_PER_RUN: &str = "per_run";
+/// `run_state.layout`'s operator choice: one database of every Run of the
+/// install and major, written by the Daemon (ADR 0002).
+pub const LAYOUT_PER_INSTALL: &str = "per_install";
+
+/// `run_state.layout` (ADR 0002).
+pub const RUN_STATE_LAYOUT: Setting = Setting {
+    name: "run_state.layout",
+    description: "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+    kind: ValueKind::Choice(&[LAYOUT_PER_RUN, LAYOUT_PER_INSTALL]),
+    default: per_run_layout,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// One row of a Run's run state about itself: its `run` table (ADR 0002).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunStateRow {
@@ -971,7 +1020,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[RUN_STATE_LOCATION],
+    settings: &[RUN_STATE_LOCATION, RUN_STATE_DURABILITY, RUN_STATE_LAYOUT],
     hook_stages: &[],
     shared_type_values: &[],
 };

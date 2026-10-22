@@ -127,5 +127,16 @@ pub enum RunStateLocation {
     Folder(PathBuf),
 }
 
+impl RunStateLocation {
+    /// The folder that holds the run folders of `home`'s major of
+    /// `version`.
+    pub fn folder(&self, home: &Home, version: &ProductVersion) -> PathBuf {
+        match self {
+            Self::PerMajor => home.runs(version),
+            Self::Folder(folder) => folder.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

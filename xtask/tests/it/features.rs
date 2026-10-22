@@ -70,6 +70,57 @@ fn scan_reads_a_test_in_a_tests_folder_below_src_as_a_unit_test() {
     );
 }
 
+/// A module whose file a `#[path]` attribute names is read from that file,
+/// relative to the declaring file's folder, and its own child modules from
+/// the named file's folder, as rustc reads them.
+#[test]
+fn scan_reads_a_module_from_the_file_its_path_attribute_names() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append(
+        "crates/sample/src/store/tests.rs",
+        "#[path = \"elsewhere/away.rs\"]\nmod away;\n",
+    );
+    workspace.write(
+        "crates/sample/src/store/elsewhere/away.rs",
+        b"/// Covers: story:1-2\n#[test]\nfn keeps_away() {}\n\nmod inner;\n",
+    );
+    workspace.write(
+        "crates/sample/src/store/elsewhere/inner.rs",
+        b"/// Covers: story:1-2\n#[test]\nfn keeps_inside() {}\n",
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let names: Vec<&str> = outcome
+        .stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("story:1-2\tunit\tnextest\tsample store::tests::"))
+        .collect();
+    assert_eq!(names, vec!["away::inner::keeps_inside", "away::keeps_away"]);
+}
+
+/// A module with no file fails the scan, rather than leaving its tests'
+/// declarations unread; one behind a `cfg` may lack its file on this
+/// platform, and declares nothing.
+#[rstest]
+#[case::no_file("mod missing;\n", 2)]
+#[case::behind_a_cfg("#[cfg(target_os = \"none\")]\nmod missing;\n", 0)]
+fn scan_fails_on_a_module_with_no_file_unless_a_cfg_hides_it(
+    #[case] declaration: &str,
+    #[case] code: i32,
+) {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", declaration);
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, code, "{}", outcome.stderr);
+    if code != 0 {
+        assert!(outcome.stderr.contains("missing"), "{}", outcome.stderr);
+    }
+}
+
 /// rstest names a `#[values]` test's cases by argument, value number and
 /// sanitized value, one module per argument in order, inside each
 /// `#[case]`'s. The expected names are `cargo nextest list`'s for these

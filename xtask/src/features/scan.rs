@@ -15,7 +15,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 
 use super::rstest_names;
 use crate::metadata;
@@ -259,6 +259,7 @@ impl Target<'_> {
             path,
             children,
             names: module_path,
+            inline: false,
         };
         self.items(&module, &syntax.items, &features, tests)
     }
@@ -297,26 +298,57 @@ impl Target<'_> {
                 path: parent.path,
                 children: &parent.children.join(&name),
                 names: &module_path,
+                inline: true,
             };
             return self.items(&module, items, &inherited, tests);
         }
-        let file = [
-            parent.children.join(format!("{name}.rs")),
-            parent.children.join(&name).join("mod.rs"),
-        ]
-        .into_iter()
-        .find(|path| path.is_file());
-        // A module behind a `cfg` the platform lacks, or generated code
-        // `include!`d elsewhere, may have no file here; it declares nothing.
-        let Some(file) = file else {
-            return Ok(());
-        };
-        let children = if file.file_name() == Some(OsStr::new("mod.rs")) {
-            file.parent().map(Path::to_path_buf)
+        let (file, children) = if let Some(named) = path_attribute(&child.attrs)? {
+            // rustc reads a `#[path]` outside an inline module from the
+            // declaring file's folder, and the named file's children from
+            // its own folder, as a `mod.rs` file's.
+            if parent.inline {
+                bail!(
+                    "{}: module `{name}` has a `#[path]` inside an inline module, which the scan does not read",
+                    parent.path.display()
+                );
+            }
+            let file = parent.path.parent().unwrap_or(Path::new("")).join(named);
+            let children = file.parent().map(Path::to_path_buf).unwrap_or_default();
+            (file, children)
         } else {
-            Some(parent.children.join(&name))
+            let candidates = [
+                parent.children.join(format!("{name}.rs")),
+                parent.children.join(&name).join("mod.rs"),
+            ];
+            let file = candidates
+                .iter()
+                .find(|path| path.is_file())
+                .unwrap_or(&candidates[0])
+                .clone();
+            let children = if file.file_name() == Some(OsStr::new("mod.rs")) {
+                file.parent().map(Path::to_path_buf).unwrap_or_default()
+            } else {
+                parent.children.join(&name)
+            };
+            (file, children)
+        };
+        if !file.is_file() {
+            // A module behind a `cfg` the platform lacks may have no file
+            // here; it declares nothing. Any other would leave its tests'
+            // declarations unread.
+            if child
+                .attrs
+                .iter()
+                .any(|attribute| attribute.path().is_ident("cfg"))
+            {
+                return Ok(());
+            }
+            bail!(
+                "{}: module `{name}` has no file at {}",
+                parent.path.display(),
+                file.display()
+            );
         }
-        .unwrap_or_default();
         self.file(&file, &children, &module_path, &inherited, tests)
     }
 
@@ -367,6 +399,29 @@ struct Module<'a> {
     children: &'a Path,
     /// Its path of module names below the crate root.
     names: &'a [String],
+    /// Whether it is a `mod name { … }` block inside its file.
+    inline: bool,
+}
+
+/// The file a `#[path = "…"]` attribute names, if the module has one.
+fn path_attribute(attributes: &[syn::Attribute]) -> Result<Option<String>> {
+    let Some(attribute) = attributes
+        .iter()
+        .find(|attribute| attribute.path().is_ident("path"))
+    else {
+        return Ok(None);
+    };
+    match &attribute.meta {
+        syn::Meta::NameValue(syn::MetaNameValue {
+            value:
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(named),
+                    ..
+                }),
+            ..
+        }) => Ok(Some(named.value())),
+        _ => bail!("a `#[path]` attribute that names no file"),
+    }
 }
 
 /// The path of `path` from the workspace's root, with `/`.

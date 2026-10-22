@@ -79,11 +79,12 @@ CREATE TABLE work_items (
             lease_epoch INTEGER NOT NULL,
             error_code TEXT,
             domain_key TEXT,
-            priority INTEGER NOT NULL
+            priority INTEGER NOT NULL,
+            forefront INTEGER
         ) STRICT;
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX work_items_by_domain
-            ON work_items (status, domain_key, priority DESC, position);
+            ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);
 CREATE INDEX work_items_unkeyed ON work_items (position)
             WHERE domain_key IS NULL;

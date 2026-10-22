@@ -582,6 +582,14 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 215
+title = "As a crawl developer, I want `priority` within a domain and `forefront` ahead of the domain's pending requests, so that I order work as Crawlee and Spider let me (CO-04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 220
 title = "As a crawl developer, I want a redirect reaching a key admitted for another request to end `skipped` with `duplicate` and run no handler, so that one page is never handled twice (ADR 0120)."
 milestone = "M1 Core"

@@ -123,6 +123,7 @@ fn dependencies(home: &Path) -> Dependencies {
         blocking: BlockingPolicy::Inline,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     }
 }
 
@@ -176,6 +177,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             holds: Holds::new(),
             succession: Arc::new(ThePick),
             console: DaemonConsole::Absent,
+            drain: None,
+            install: None,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);
         tokio::select! {

@@ -527,3 +527,41 @@ fn a_vendors_mere_presence_taken_for_a_challenge_is_a_false_success() {
             "difference": { "at": 0, "expected": "U+006E", "submitted": "U+0063" } }])
     );
 }
+
+/// The identity page asks for every client hint, so the requests its
+/// script makes carry them, and reports what its script reads; the timer
+/// page reports its 100 ms timer's count and the document's focus. Both
+/// answer on every host of the family, `access.localhost` included, a
+/// secure context over plain HTTP where client hints exist (spec #577,
+/// ticket #696).
+#[test]
+fn the_identity_page_asks_for_every_client_hint_and_the_timer_page_reports_its_ticks() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let identity = proving_ground.get(&proving_ground.url("access.localhost", "/identity"));
+    let timer = proving_ground.get(&proving_ground.url("access.test", "/timer"));
+
+    assert_eq!(
+        (
+            identity.status,
+            identity.header("accept-ch").is_some_and(|hints| {
+                [
+                    "Sec-CH-UA-Full-Version-List",
+                    "Sec-CH-UA-Platform-Version",
+                    "Sec-CH-UA-Arch",
+                    "Sec-CH-UA-Bitness",
+                    "Sec-CH-UA-Model",
+                ]
+                .iter()
+                .all(|hint| hints.contains(hint))
+            }),
+            identity.body.contains("full_version_list"),
+            timer.status,
+            timer.body.contains("has_focus"),
+        ),
+        (200, true, true, 200, true),
+        "{}\n{}",
+        identity.body,
+        timer.body
+    );
+}

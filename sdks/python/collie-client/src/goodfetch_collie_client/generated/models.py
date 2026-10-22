@@ -19,6 +19,17 @@ class CollieTypes(BaseModel):
     )
 
 
+class Acted(BaseModel):
+    """
+    What a locator action answers once its input landed on its target:
+    nothing, since no operation returns a handle on an element (ADR 0085).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class ArtifactKind(StrEnum):
     """
     What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
@@ -38,6 +49,11 @@ class ArtifactKind(StrEnum):
     """A full Clean-up rules set (ADR 0047)."""
     mouse_movements = "mouse_movements"
     """Recorded mouse movements (ADR 0035)."""
+
+
+class Asked(RootModel[Literal[True]]):
+    root: Literal[True]
+    """The format, with its default options."""
 
 
 class Completeness(StrEnum):
@@ -166,6 +182,81 @@ class Lifecycle(StrEnum):
     """An error in the engine or the program's code ended it."""
 
 
+class LimitScope(BaseModel):
+    """
+    What a Limit is on: a scope kind, a value of a type both Products share
+    (`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's
+    `partitioned_crawl`), and which one of its kind (ADR 0041). A kind this
+    reader does not know is kept as it is.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """
+    Which one of its kind: the major's name for a Daemon, the person's
+    name, the token's name or the Client connection's ID; empty for the
+    install.
+    """
+    kind: str
+    """The scope's kind."""
+
+
+class LimitSetter(StrEnum):
+    """Who set a Limit, which decides whether it allows paying (ADR 0045)."""
+
+    person = "person"
+    """A person, in the Console or an interactive CLI prompt."""
+    managed_policy = "managed_policy"
+    """A managed Operator policy."""
+    client = "client"
+    """A Client, which only adds a Limit of its own."""
+
+
+class LimitStanding(StrEnum):
+    """What the engine that read a Limit makes of it."""
+
+    held = "held"
+    """It holds its runs to it."""
+    foxhound = "foxhound"
+    """
+    It is on a value only Foxhound carries, such as `paid_fetch`, which
+    a Collie engine keeps untouched (ADR 0098).
+    """
+    not_understood = "not_understood"
+    """It cannot evaluate it: a newer engine wrote it."""
+
+
+class MainContent(StrEnum):
+    """Whether the extractor found the document's main content."""
+
+    found = "found"
+    """It found it."""
+    none = "none"
+    """
+    The document has none: the formats read from it are empty, a value
+    and never the whole page in its place.
+    """
+
+
+class MarkdownContent(StrEnum):
+    """How much of the page a Markdown format holds."""
+
+    main = "main"
+    """The main content the extractor finds, the default."""
+
+
+class MarkdownOptions(BaseModel):
+    """The options of the `markdown` format."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: MarkdownContent
+    """How much of the page it holds."""
+
+
 class PageBodyRead(BaseModel):
     """What `page.body` answers once it sent the last chunk."""
 
@@ -174,6 +265,29 @@ class PageBodyRead(BaseModel):
     )
     size: Annotated[int, Field(ge=0)]
     """The body's size in bytes."""
+
+
+class PageFormats(BaseModel):
+    """
+    What `page.formats` answers: the formats the request asked for, and
+    none it did not, with the document's URL, its base URL and whether it
+    has main content. Text is as the document holds it, never repaired.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    base_url: str
+    """
+    The URL its relative URLs resolve against: its first `<base href>`,
+    else its URL.
+    """
+    main_content: MainContent
+    """Whether it has main content."""
+    markdown: str | None = None
+    """Its content as Markdown, when the request asked for it."""
+    url: str
+    """The document's URL, after redirects."""
 
 
 class PageId(RootModel[str]):
@@ -205,6 +319,17 @@ class PageResponse(BaseModel):
     """Its status text."""
     url: str
     """Its final URL."""
+
+
+class PeriodLength(StrEnum):
+    """How long a period Limit counts before it starts again (ADR 0041)."""
+
+    day = "day"
+    """From one midnight to the next."""
+    week = "week"
+    """From Monday's midnight to the next Monday's."""
+    month = "month"
+    """From the first day's midnight to the next month's."""
 
 
 class PointInTime(RootModel[AwareDatetime]):
@@ -325,10 +450,7 @@ class RunParams(BaseModel):
 
 
 class RunProgress(BaseModel):
-    """
-    A Run's progress as it is now (ADR 0102): what `run.progress` reports.
-    The Run's progress ticket adds the rest of ADR 0102's `RunProgress`.
-    """
+    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
 
     model_config = ConfigDict(
         extra="allow",
@@ -507,6 +629,19 @@ class StopReason4(BaseModel):
     kind: Literal["timeout"]
 
 
+class StopReason5(BaseModel):
+    """
+    Its foreground Daemon drained on `SIGTERM`: checkpointed and
+    stopped, to be resumed by its Run ID on the Daemon's next start
+    (ADR 0049).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["drain"]
+
+
 class StoppedBy(StrEnum):
     """Who stopped a call (ADR 0113)."""
 
@@ -564,6 +699,14 @@ class Tags(RootModel[list[Tag]]):
 
     root: Annotated[list[Tag], Field(max_length=16)]
     """A Run's tags, in the order given."""
+
+
+class UsageListParams(BaseModel):
+    """What `usage.list` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
 
 
 class Verdict(StrEnum):
@@ -874,6 +1017,27 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class Locator(BaseModel):
+    """
+    A locator (ADR 0085): what an action looks for on a page, resolved
+    again at each use, never a handle on an element. This tracer's locators
+    are CSS selectors.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page it looks on."""
+    selector: str
+    """A CSS selector, which also matches inside open shadow roots."""
+
+
+class MarkdownFormat(RootModel[Asked | MarkdownOptions]):
+    root: Asked | MarkdownOptions
+    """The `markdown` format of a request: `true`, or its options."""
+
+
 class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
@@ -924,6 +1088,60 @@ class PageOpened(BaseModel):
     """The page."""
     session_id: SessionId
     """Its Session: the Run's default Session."""
+
+
+class Period(BaseModel):
+    """
+    The period a Limit counts over, in an explicit IANA time zone, so that
+    it never depends on the host's (ADR 0041).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    every: PeriodLength
+    """How long it counts."""
+    time_zone: str
+    """The IANA time zone its midnights are in, such as `Europe/Paris`."""
+
+
+class PressParams(BaseModel):
+    """
+    What `locator.press` takes: the locator whose element gets the key, and
+    the key.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """
+    A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+    Playwright's key names.
+    """
+    locator: Locator
+    """The locator."""
+
+
+class ReachedLimit(BaseModel):
+    """
+    The Limit a Run cannot take more of: what `limit_reached` details, and
+    what a Run stopped for it names (ADR 0041).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    resets_at: PointInTime | None = None
+    """When its period starts again; none for a Limit without one."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
 
 
 class RunAbortParams(BaseModel):
@@ -1086,12 +1304,90 @@ class StopReason1(BaseModel):
     kind: Literal["abort"]
 
 
-class StopReason(RootModel[StopReason1 | StopReason2 | StopReason3 | StopReason4]):
-    root: StopReason1 | StopReason2 | StopReason3 | StopReason4
+class StopReason6(BaseModel):
+    """
+    It could not take another Slice of a Limit, and stopped at its next
+    safe point, resumable once the period starts again or a person
+    raises the Limit (ADR 0041).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    resets_at: PointInTime | None = None
+    """When its period starts again; none for a Limit without one."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
+    kind: Literal["limit"]
+
+
+class StopReason(
+    RootModel[
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+    ]
+):
+    root: (
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+    )
     """
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.
     """
+
+
+class UsageSetParams(BaseModel):
+    """
+    What `usage.set` takes: a Limit of the caller's own, which holds beside
+    the others, so the tightest one holds.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """
+    How much it allows per period: a count of the Usage kind, or
+    millionths of the currency.
+    """
+    currency: str | None = None
+    """The currency it caps the price in, an ISO 4217 code."""
+    period: Period | None = None
+    """The period it counts over; none for a Limit that never starts again."""
+    scope: str
+    """The scope's kind."""
+    scope_id: str | None = None
+    """
+    Which one of its kind; the caller's own when absent (its Client
+    connection, its person, the engine's Daemon, the install).
+    """
+    usage_kind: str
+    """The Usage kind it caps."""
+
+
+class ClickParams(BaseModel):
+    """What `locator.click` takes: the locator whose element it clicks."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
 
 
 class EventBatch(BaseModel):
@@ -1107,6 +1403,98 @@ class EventBatch(BaseModel):
     """Its events."""
     id: RequestId
     """The id of the subscription's `events.subscribe` call."""
+
+
+class FillParams(BaseModel):
+    """
+    What `locator.fill` takes: the locator whose field it fills, and the
+    text.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+    value: str
+    """The text the field holds afterwards; an empty text clears it."""
+
+
+class FormatsRequest(BaseModel):
+    """
+    The formats a `page.formats` call asks for, each `true` or its options:
+    one value, which a Record can carry and a Dataset's schema can be
+    generated from (ADR 0103). A format left out is left out of the result.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    markdown: MarkdownFormat | None = None
+    """The page's content as Markdown, with GFM's tables."""
+
+
+class Limit(BaseModel):
+    """
+    One Limit of the Usage ledger: a generic row, which a newer engine may
+    write with a scope kind, a Usage kind, a currency or a period this one
+    does not know (ADR 0041).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """
+    How much it allows per period: a count of the Usage kind, or
+    millionths of the currency.
+    """
+    currency: str | None = None
+    """
+    The currency it caps the Usage kind's price in, an ISO 4217 code;
+    none for a Limit on the Usage itself.
+    """
+    must_understand: bool
+    """
+    Whether an engine that cannot evaluate it must refuse the runs it
+    cannot place outside it, with `limit_not_understood`.
+    """
+    period: Period | None = None
+    """
+    The period it counts over; none for a Limit that never starts again,
+    such as a Client connection's.
+    """
+    scope: LimitScope
+    """What it is on."""
+    set_by: LimitSetter
+    """Who set it."""
+    usage_kind: str
+    """The Usage kind it caps, a value of a type both Products share."""
+
+
+class LimitUsage(BaseModel):
+    """One Limit with the Usage counted against it in its current period."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    charged: Annotated[int, Field(ge=0)]
+    """
+    The Usage charged in the current period: what ended runs used, and
+    what was reclaimed from dead engines' Slices.
+    """
+    held: Annotated[int, Field(ge=0)]
+    """The Usage live runs hold in Slices they have not returned yet."""
+    left: Annotated[int, Field(ge=0)]
+    """What is left of the amount in the current period."""
+    limit: Limit
+    """The Limit."""
+    period_started_at: PointInTime | None = None
+    """When the current period started; none for a Limit without one."""
+    resets_at: PointInTime | None = None
+    """When the next period starts; none for a Limit without one."""
+    standing: LimitStanding
+    """What the engine that read it makes of it."""
 
 
 class Resync(BaseModel):
@@ -1194,3 +1582,25 @@ class SettingsExplanation(BaseModel):
     """
     settings: list[ExplainedSetting]
     """Each setting, by key."""
+
+
+class UsageListResult(BaseModel):
+    """What `usage.list` answers, and what `usage --json` prints."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    limits: list[LimitUsage]
+    """Every Limit of the Usage ledger, by scope, with its Usage."""
+
+
+class FormatsParams(BaseModel):
+    """What `page.formats` takes: the page, and the formats it asks for."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    formats: FormatsRequest
+    """The formats."""
+    page_id: PageId
+    """The page."""

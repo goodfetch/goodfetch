@@ -94,6 +94,12 @@ impl Attached {
         self.stdout.is_quiet_for(quiet)
     }
 
+    /// Kills the engine (`kill -9`, `TerminateProcess` on Windows) and
+    /// waits for it to exit.
+    pub(crate) fn kill(self) {
+        self.process.stop().unwrap();
+    }
+
     /// Ends the input and waits for the engine to exit.
     pub(crate) fn finish(mut self) -> bool {
         drop(self.stdin.take());

@@ -26,6 +26,7 @@ hyper = { workspace = true, features = ["server", "http1", "http2"] }
 hyper-util = { workspace = true, features = ["tokio", "server-auto", "http1", "http2"] }
 loona-hpack.workspace = true
 p256 = { workspace = true, features = ["ecdsa", "pkcs8", "std"] }
+pulldown-cmark.workspace = true
 rcgen = { workspace = true, features = ["pem"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 serde = { workspace = true, features = ["rc"] }
@@ -37,6 +38,7 @@ time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "macros", "io-util", "time", "sync", "process"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
+url.workspace = true
 toml.workspace = true
 web-bot-auth.workspace = true
 

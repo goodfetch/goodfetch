@@ -7,6 +7,10 @@
 //! they answer with; the rows of run state and of the Run index (ADR 0031),
 //! the two formats this module's rows describe (ADR 0066); and what
 //! `runs reindex --json` prints.
+//!
+//! Size: the contract of one Run's lifecycle and its rows, kept whole so the
+//! operations, their Error codes and the run-state formats they write change
+//! together (ADR 0066).
 
 use std::borrow::Cow;
 use std::fmt;
@@ -360,7 +364,7 @@ impl Completeness {
 
 /// Why a Run stopped (ADR 0102); the other causes join with the tickets that
 /// stop Runs for them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StopReason {
     /// Its program, a person or a Client aborted it, a Connection's close
@@ -379,6 +383,91 @@ pub enum StopReason {
     /// Its `timeout.run` passed, and it stopped at its next safe point,
     /// resumable with a fresh clock (ADR 0080); no Error code of its own.
     Timeout,
+    /// Its foreground Daemon drained on `SIGTERM`: checkpointed and
+    /// stopped, to be resumed by its Run ID on the Daemon's next start
+    /// (ADR 0049).
+    Drain,
+    /// It could not take another Slice of a Limit, and stopped at its next
+    /// safe point, resumable once the period starts again or a person
+    /// raises the Limit (ADR 0041).
+    Limit(ReachedLimit),
+}
+
+/// What a Limit is on: a scope kind, a value of a type both Products share
+/// (`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's
+/// `partitioned_crawl`), and which one of its kind (ADR 0041). A kind this
+/// reader does not know is kept as it is.
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+pub struct LimitScope {
+    /// The scope's kind.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: String,
+    /// Which one of its kind: the major's name for a Daemon, the person's
+    /// name, the token's name or the Client connection's ID; empty for the
+    /// install.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: String,
+}
+
+/// How long a period Limit counts before it starts again (ADR 0041).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PeriodLength {
+    /// From one midnight to the next.
+    Day,
+    /// From Monday's midnight to the next Monday's.
+    Week,
+    /// From the first day's midnight to the next month's.
+    Month,
+}
+
+impl PeriodLength {
+    /// Its name on the wire and in the Usage ledger.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Day => "day",
+            Self::Week => "week",
+            Self::Month => "month",
+        }
+    }
+}
+
+/// The period a Limit counts over, in an explicit IANA time zone, so that
+/// it never depends on the host's (ADR 0041).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct Period {
+    /// How long it counts.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub every: PeriodLength,
+    /// The IANA time zone its midnights are in, such as `Europe/Paris`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time_zone: String,
+}
+
+/// The Limit a Run cannot take more of: what `limit_reached` details, and
+/// what a Run stopped for it names (ADR 0041).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ReachedLimit {
+    /// The Limit's scope.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope: LimitScope,
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps a price in, for a price Limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// Its period; none for a Limit that never starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period: Option<Period>,
+    /// When its period starts again; none for a Limit without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub resets_at: Option<PointInTime>,
 }
 
 /// What kind of Run it is: a Collie Run its program drives, or a crawl
@@ -828,6 +917,55 @@ pub const RUN_STATE_LOCATION: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn full_durability() -> serde_json::Value {
+    serde_json::Value::String(DURABILITY_FULL.to_owned())
+}
+
+/// `run_state.durability`'s default: an acknowledged commit survives a
+/// power cut (ADR 0002).
+pub const DURABILITY_FULL: &str = "full";
+/// `run_state.durability`'s opt-in: an acknowledged commit survives a
+/// process crash only (ADR 0002).
+pub const DURABILITY_FAST: &str = "fast";
+
+fn is_fast(value: &serde_json::Value) -> bool {
+    value.as_str() == Some(DURABILITY_FAST)
+}
+
+/// `run_state.durability` (ADR 0002).
+pub const RUN_STATE_DURABILITY: Setting = Setting {
+    name: "run_state.durability",
+    description: "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+    kind: ValueKind::Choice(&[DURABILITY_FULL, DURABILITY_FAST]),
+    default: full_durability,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(is_fast),
+    arrived_in: ARRIVED_IN,
+};
+
+fn per_run_layout() -> serde_json::Value {
+    serde_json::Value::String(LAYOUT_PER_RUN.to_owned())
+}
+
+/// `run_state.layout`'s default: one SQLite file per Run (ADR 0002).
+pub const LAYOUT_PER_RUN: &str = "per_run";
+/// `run_state.layout`'s operator choice: one database of every Run of the
+/// install and major, written by the Daemon (ADR 0002).
+pub const LAYOUT_PER_INSTALL: &str = "per_install";
+
+/// `run_state.layout` (ADR 0002).
+pub const RUN_STATE_LAYOUT: Setting = Setting {
+    name: "run_state.layout",
+    description: "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+    kind: ValueKind::Choice(&[LAYOUT_PER_RUN, LAYOUT_PER_INSTALL]),
+    default: per_run_layout,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// One row of a Run's run state about itself: its `run` table (ADR 0002).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunStateRow {
@@ -991,7 +1129,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[RUN_STATE_LOCATION],
+    settings: &[RUN_STATE_LOCATION, RUN_STATE_DURABILITY, RUN_STATE_LAYOUT],
     hook_stages: &[],
     shared_type_values: &[],
 };

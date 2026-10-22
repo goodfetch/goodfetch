@@ -9,6 +9,7 @@
 //! in run state.
 
 pub mod admission;
+pub mod age_notice;
 mod attached;
 mod body;
 pub mod browser_cache;
@@ -33,7 +34,10 @@ pub mod http_client;
 mod info;
 pub mod installed;
 pub mod lease;
+pub mod ledger;
+pub mod lowest_minor;
 pub mod pinned_download;
+pub mod politeness;
 mod product;
 pub mod rpc;
 pub mod run;
@@ -43,6 +47,8 @@ pub mod runs;
 pub mod settings;
 pub mod tasks;
 pub mod transport;
+pub mod upgrade;
+mod usage;
 
 pub use composition::{
     CallContext, CallError, Composition, CompositionError, Contribution, Handler,

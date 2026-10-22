@@ -146,6 +146,18 @@ _Avoid_: unstable, nursery
 Turning a page or a response into structured data or clean content.
 _Avoid_: scraping, scraper
 
+**Main content**:
+The part of a page's document a person reads it for, without its navigation, asides, banner and footer; a page with only those has none, a value and never an error.
+_Avoid_: article body, boilerplate-free text
+
+**Extractor**:
+What finds a document's Main content: dom-smoothie by default, trafilatura, or an Extractor Plugin; the step every page format reads the Main content through.
+_Avoid_: content extractor
+
+**Page formats**:
+What `page.formats` answers from one serialization of a page's document: each format the request names, such as its Main content as Markdown, and none it does not.
+_Avoid_: scrape formats, outputs
+
 **Crawl**:
 Discovering and visiting many pages from seeds, within a declared scope.
 _Avoid_: scraping, spidering, scraper
@@ -219,6 +231,10 @@ _Avoid_: run registry, run database, history
 **Usage ledger**:
 The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Connection or a Partitioned crawl and against which they are held.
 _Avoid_: billing, meter, spend log
+
+**Slice**:
+A part of a Limit one run takes from the Usage ledger in one transaction, the smaller of 1 % of the Limit and what is left over twice the live runs, against which it charges the Usage it measures; it gives back what is left when it ends, and the next engine to open the ledger reclaims the Slices of a run whose engine died, from what the run journaled.
+_Avoid_: lease (for a Slice), reservation, quota, chunk
 
 **Effect**:
 An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order; a program's own actions are Effects only when it declares them. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
@@ -310,6 +326,10 @@ _Avoid_: rate limiting, throttling
 The optional store through which engines on several machines share Politeness.
 _Avoid_: rate limiter, Redis
 
+**Permit**:
+One request in flight under a Politeness key, such as a domain key, that an engine takes from the per-user Politeness file before the request starts and gives back once it ended, recording the run and run epoch that hold it, so the count in flight is every sharing run's together.
+_Avoid_: token, slot, lease (a Lease is a work item's)
+
 **Completeness**:
 A run's statement of whether its results cover everything in scope: complete, incomplete (ended early) or unverified (finished, but the engine cannot vouch that nothing was missed).
 _Avoid_: success, done, finished (for coverage)
@@ -321,6 +341,10 @@ _Avoid_: login, profile, context
 **Page**:
 One browser tab of a Session, which a program, an Agent or a crawl handler drives: it navigates, is read and receives gestures, and belongs to its Session for its whole life.
 _Avoid_: tab, target (for a page)
+
+**URL pattern**:
+A glob or a regular expression that a wait, a route or a kept response matches URLs against, in the engine, so that it matches the same URLs from every SDK; a predicate is no URL pattern, since it runs in the program.
+_Avoid_: URL filter, URL match
 
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
@@ -409,6 +433,14 @@ _Avoid_: session recording, replay (for the recording), video
 **Gesture**:
 A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
 _Avoid_: interaction, command (for a gesture)
+
+**Locator**:
+What a page action looks for on a page, such as a CSS selector, resolved again at each use and never a handle on an element; an action needs it to match exactly one element.
+_Avoid_: element handle, query, selector (for the value)
+
+**Guard**:
+The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
+_Avoid_: actionability check, auto-wait
 
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.

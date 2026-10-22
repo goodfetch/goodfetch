@@ -13,12 +13,16 @@
 
 mod checkpoint;
 mod daemon;
+mod durability;
 mod events;
+mod layout;
 mod progress;
 mod refusals;
 mod run;
 mod settings;
 mod takeover;
+mod usage;
+mod versions;
 
 use std::time::Duration;
 
@@ -162,6 +166,7 @@ fn dependencies(env: &TestEnv) -> Dependencies {
         blocking: BlockingPolicy::Inline,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
+        politeness: crate::politeness::PolitenessOptions::default(),
     }
 }
 
@@ -258,7 +263,7 @@ fn an_accepted_hello_answers_the_engines_product_and_versions() {
 
 /// Covers: story:3-132, error:protocol_version_unsupported, format:protocol
 #[rstest]
-#[case::newer_minor("0.2")]
+#[case::newer_preview("0.2")]
 #[case::newer_major("1.0")]
 fn a_hello_of_another_version_is_refused_before_any_other_message_and_closed(
     #[case] protocol_version: &str,

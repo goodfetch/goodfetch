@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
 use goodfetch_protocol::connection::Surface;
@@ -32,6 +32,7 @@ use crate::admission::Gates;
 use crate::client::Client;
 use crate::console::ConsoleBuild;
 use crate::events::{Credits, Events};
+use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
 use crate::runs::{Driver, Runs};
@@ -150,12 +151,13 @@ pub struct CallContext {
 }
 
 /// What every call of one Connection is given: the engine's identity, the
-/// Connection's Client, the engine's Runs and event stream, and on a
-/// Daemon the Daemon itself. The protocol server builds it once per
-/// Connection.
+/// Connection's Client and the surface its `hello` named, the engine's
+/// Runs and event stream, and on a Daemon the Daemon itself. The protocol
+/// server builds it once per Connection and sets the surface at `hello`.
 pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
+    pub(crate) surface: OnceLock<Surface>,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
@@ -225,6 +227,17 @@ impl CallContext {
     /// call sends its handler requests.
     pub fn client(&self) -> &Client {
         &self.connection.client
+    }
+
+    /// The surface the Connection's `hello` named, in whose language the
+    /// engine renders the names and targets its errors show (ADRs 0079 and
+    /// 0099).
+    pub fn surface(&self) -> Surface {
+        self.connection
+            .surface
+            .get()
+            .copied()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }
 
     /// The engine's Runs.
@@ -321,6 +334,7 @@ pub struct Contribution {
     name: &'static str,
     handlers: Vec<Handler>,
     run_state_tables: Vec<RunStateTables>,
+    politeness_tables: Vec<PolitenessTables>,
     drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
 }
@@ -332,6 +346,7 @@ impl Contribution {
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
+            politeness_tables: Vec::new(),
             drivers: Vec::new(),
             admission_gates: None,
         }
@@ -356,6 +371,15 @@ impl Contribution {
     #[must_use]
     pub fn with_run_state_tables(mut self, tables: RunStateTables) -> Self {
         self.run_state_tables.push(tables);
+        self
+    }
+
+    /// The same, adding `tables` to the per-user Politeness file, where a
+    /// rule of its gate in admission keeps its keys' shared state (ADR
+    /// 0053).
+    #[must_use]
+    pub fn with_politeness_tables(mut self, tables: PolitenessTables) -> Self {
+        self.politeness_tables.push(tables);
         self
     }
 
@@ -445,6 +469,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.run_state_tables.iter().copied())
+            .collect()
+    }
+
+    /// The tables every contribution adds to the Politeness file, in order.
+    pub(crate) fn politeness_tables(&self) -> Vec<PolitenessTables> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.politeness_tables.iter().copied())
             .collect()
     }
 

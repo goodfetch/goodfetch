@@ -6,6 +6,7 @@
 //! when the Run stops, the browser is asked to close, then killed if it
 //! does not, its profile removed and its build released.
 
+mod arguments;
 #[cfg(unix)]
 mod pipe;
 
@@ -26,11 +27,13 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
 };
-use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails};
+use goodfetch_protocol::page::{
+    BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
+};
 use goodfetch_protocol::settings::{EGRESS_OFFLINE, NETWORK_RESOLVE};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
@@ -50,49 +53,9 @@ pub(crate) struct Launched {
     pub(crate) exit: watch::Receiver<Option<BrowserExit>>,
     /// Its executable.
     pub(crate) executable: PathBuf,
-}
-
-/// The host resolver rule that keeps every `.invalid` name from resolving
-/// without a DNS query (RFC 6761, section 6.4), after the `resolve`
-/// setting's rules, which come first.
-const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
-
-/// The flags of every launch (#696 owns the rest): the pipe, a profile of
-/// the Run's own, no first-run or default-browser prompt, no background
-/// traffic to Google's services, and the back/forward cache off, so going
-/// back or forward always loads its document again (ADR 0121, with no
-/// setting); and the `resolve` setting's host names.
-fn arguments(profile: &Path, settings: Option<&Resolved>) -> Vec<String> {
-    let mut arguments = vec![
-        "--remote-debugging-pipe".to_owned(),
-        format!("--user-data-dir={}", profile.display()),
-        "--headless".to_owned(),
-        "--no-first-run".to_owned(),
-        "--no-default-browser-check".to_owned(),
-        "--disable-background-networking".to_owned(),
-        "--disable-component-update".to_owned(),
-        "--disable-sync".to_owned(),
-        "--password-store=basic".to_owned(),
-        "--use-mock-keychain".to_owned(),
-        "--disable-back-forward-cache".to_owned(),
-    ];
-    let mut rules: Vec<String> = settings
-        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|(host, addresses)| {
-            let address = addresses.first()?;
-            Some(if address.is_ipv6() {
-                format!("MAP {host} [{address}]")
-            } else {
-                format!("MAP {host} {address}")
-            })
-        })
-        .collect();
-    rules.push(INVALID_NAMES.to_owned());
-    arguments.push(format!("--host-resolver-rules={}", rules.join(", ")));
-    arguments.push("about:blank".to_owned());
-    arguments
+    /// Whether it runs headless, so its pages need the identity it shows
+    /// with a window.
+    pub(crate) headless: bool,
 }
 
 /// The executable of Chrome for Testing's build for `platform`, in the
@@ -250,12 +213,25 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
         })
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
+    let settings = run.settings().map(RunSettings::resolved);
+    let headless = settings
+        .and_then(|settings| settings.boolean(BROWSER_HEADLESS.name))
+        .unwrap_or(true);
+    let resolve = settings
+        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .unwrap_or_default();
+    let built = arguments::arguments(&arguments::Launch {
+        profile: &profile,
+        headless,
+        resolve: &resolve,
+        shared_memory: shared_memory(run).await,
+    });
+    for warning in &built.warnings {
+        tracing::warn!(%warning, "the Run's browser launches degraded");
+    }
     let mut command = Command::new(&executable);
     command
-        .args(arguments(
-            &profile,
-            run.settings().map(RunSettings::resolved),
-        ))
+        .args(&built.arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -274,7 +250,34 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
         connection,
         exit,
         executable,
+        headless,
     })
+}
+
+/// The size of `/dev/shm`, where Linux mounts one of its own.
+#[cfg(target_os = "linux")]
+async fn shared_memory(run: &Run) -> Option<u64> {
+    run.owner()
+        .blocking(|| {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "it runs on the tasks module's blocking policy"
+            )]
+            std::fs::read_to_string("/proc/self/mounts")
+        })
+        .await
+        .ok()
+        .and_then(|mounts| arguments::shared_memory_of(&mounts))
+}
+
+/// No `/dev/shm` to measure outside Linux.
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unused_async,
+    reason = "it stands in for Linux's measure, which reads a file off the async workers"
+)]
+async fn shared_memory(_run: &Run) -> Option<u64> {
+    None
 }
 
 /// The driver of a browser's connection, which its supervisor runs.

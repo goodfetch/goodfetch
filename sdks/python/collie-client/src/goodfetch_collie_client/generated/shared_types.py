@@ -21,11 +21,27 @@ received (ADR 0079).
 - `rate_limit`: The site refused because too many requests came too fast.
 """
 
-UsageKind: TypeAlias = Literal["sample_echoes"] | str
+LimitScope: TypeAlias = Literal["connection", "daemon", "install", "person", "token"] | str
+"""A `limit_scope`, a type both Products share (ADR 0095).
+
+Collie's values below; a value this package does not know is kept as
+received (ADR 0079).
+
+- `connection`: Every run a Client connection starts, while it lasts.
+- `daemon`: Every run a Daemon runs.
+- `install`: Every run of the user on the machine, whichever engine runs it.
+- `person`: Every run a person starts.
+- `token`: Every run a Connection holding a named token starts.
+"""
+
+UsageKind: TypeAlias = Literal["paid_solves", "proxy_bytes", "requests", "sample_echoes"] | str
 """A `usage_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
 received (ADR 0079).
 
+- `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
+- `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
+- `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.
 - `sample_echoes`: Texts the sample operation repeated.
 """

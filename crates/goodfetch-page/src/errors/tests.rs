@@ -88,6 +88,10 @@ fn navigation() -> Call {
     }
 }
 
+fn document() -> Call {
+    Call::Document
+}
+
 fn open_page() -> Call {
     Call::OpenPage {
         executable: "chrome".to_owned(),
@@ -125,6 +129,13 @@ fn open_page() -> Call {
     "page_crashed"
 )]
 #[case::browser_lost_under_a_new_page(open_page(), Browser::Exits, "page_crashed")]
+#[case::unknown_refusal_of_a_document_read(
+    document(),
+    Browser::Refuses("Could not find node with given id"),
+    "page_crashed"
+)]
+#[case::document_read_timeout(document(), Browser::Silent, "page_crashed")]
+#[case::browser_lost_under_a_document_read(document(), Browser::Exits, "page_crashed")]
 fn each_cdp_failure_raises_the_code_of_the_call_that_met_it(
     #[case] call: Call,
     #[case] browser: Browser,

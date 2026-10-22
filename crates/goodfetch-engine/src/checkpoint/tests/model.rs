@@ -142,6 +142,7 @@ impl Subject {
     fn options(&self) -> RunStateOptions {
         RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
+            ..RunStateOptions::default()
         }
     }
 

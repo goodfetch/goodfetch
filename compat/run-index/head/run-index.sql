@@ -1,7 +1,11 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
-CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
-INSERT INTO "format" VALUES('run-index','0.1');
+CREATE TABLE format (
+    name TEXT NOT NULL PRIMARY KEY,
+    version TEXT NOT NULL,
+    lowest_minor INTEGER NOT NULL DEFAULT 0
+) STRICT;
+INSERT INTO "format" VALUES('run-index','0.1',0);
 CREATE TABLE runs (
         run_id TEXT NOT NULL PRIMARY KEY,
         location TEXT NOT NULL,

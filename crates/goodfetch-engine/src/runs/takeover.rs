@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::run::{
     Completeness, Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason, Verdict,
 };
@@ -38,6 +38,9 @@ pub(super) struct TakeOver {
     pub(super) clock: Clock,
     pub(super) entropy: Entropy,
     pub(super) index: PathBuf,
+    /// This engine's Product version, which the Run index's marker holds
+    /// to its lowest minor (ADR 0098).
+    pub(super) version: ProductVersion,
     pub(super) events: Events,
     pub(super) forwarder: Arc<dyn Forwarder>,
     pub(super) owner: Arc<TaskOwner>,
@@ -104,9 +107,10 @@ impl TakeOver {
             progress_message: recorded.progress_message.clone(),
         };
         let index = self.index.clone();
+        let version = self.version.clone();
         if let Err(error) = self
             .owner
-            .blocking(move || run_index::write(&index, &row))
+            .blocking(move || run_index::write(&index, &version, &row))
             .await
         {
             tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
@@ -173,10 +177,11 @@ impl TakeOver {
     /// `None` when the index names none or it did not stop the Run.
     async fn forward(&self) -> Option<RunReport> {
         let index = self.index.clone();
+        let version = self.version.clone();
         let run_id = self.run_id.clone();
         let row = self
             .owner
-            .blocking(move || run_index::read(&index, &run_id))
+            .blocking(move || run_index::read(&index, &version, &run_id))
             .await;
         let owner = match row {
             Ok(row) => row?.owner?,

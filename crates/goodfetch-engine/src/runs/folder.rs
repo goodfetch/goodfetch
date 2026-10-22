@@ -323,7 +323,7 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
         "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5",
         (
             report.lifecycle.as_str(),
-            report.stop_reason.map(|reason| {
+            report.stop_reason.as_ref().map(|reason| {
                 serde_json::to_string(&reason).expect("invariant: a stop reason encodes")
             }),
             report.verdict.as_str(),

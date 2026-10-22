@@ -21,7 +21,7 @@
 //! in the reply to its `hello`.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{
@@ -129,6 +129,7 @@ pub(crate) async fn serve(
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&dispatch.identity),
         client,
+        surface: OnceLock::new(),
         runs,
         events,
         daemon,
@@ -401,6 +402,8 @@ impl Session<'_> {
             Ok((mut accepted, surface)) => {
                 record(HELLO, None);
                 self.opened = true;
+                // A Connection answers one `hello`: the first sets it.
+                let _ = self.connection.surface.set(surface);
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
                 if let Access::Attached(private_endpoint) = &self.access {

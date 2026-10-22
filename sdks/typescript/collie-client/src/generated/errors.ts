@@ -186,6 +186,15 @@ export class ConsolePortInUseError extends UnavailableError {
 }
 
 /**
+ * The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.
+ */
+export class DaemonDrainingError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "daemon_draining", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
  */
 export class EngineExitedError extends UnavailableError {
@@ -236,6 +245,24 @@ export class FileWriteFailedError extends UnavailableError {
 export class FormatVersionUnsupportedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "format_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
+ */
+export class LimitNotUnderstoodError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_not_understood", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.
+ */
+export class LimitReachedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_reached", group: "refused", retryable: false });
   }
 }
 
@@ -299,6 +326,15 @@ export class NotInProductError extends UnavailableError {
 export class PageCrashedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "page_crashed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.
+ */
+export class PatternUnsupportedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "pattern_unsupported", group: "program", retryable: false });
   }
 }
 
@@ -428,6 +464,24 @@ export class SettingUnknownError extends ProgramError {
   }
 }
 
+/**
+ * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
+ */
+export class TargetNotUniqueError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "target_not_unique", group: "page", retryable: false });
+  }
+}
+
+/**
+ * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
+ */
+export class UpgradeSourceUnsupportedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "upgrade_source_unsupported", group: "refused", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
@@ -439,12 +493,15 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   call_cancelled: CallCancelledError,
   closed: ClosedError,
   console_port_in_use: ConsolePortInUseError,
+  daemon_draining: DaemonDrainingError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
+  limit_not_understood: LimitNotUnderstoodError,
+  limit_reached: LimitReachedError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
   navigation_failed: NavigationFailedError,
@@ -452,6 +509,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
+  pattern_unsupported: PatternUnsupportedError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
@@ -466,4 +524,6 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  target_not_unique: TargetNotUniqueError,
+  upgrade_source_unsupported: UpgradeSourceUnsupportedError,
 };

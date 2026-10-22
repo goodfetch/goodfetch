@@ -1,5 +1,9 @@
 {
   "$defs": {
+    "Acted": {
+      "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
+      "type": "object"
+    },
     "ArtifactId": {
       "description": "Which Pinned artifact: its kind, its name and its build.",
       "properties": {
@@ -61,6 +65,10 @@
         }
       ]
     },
+    "Asked": {
+      "const": true,
+      "description": "The format, with its default options."
+    },
     "Checkpoint": {
       "description": "A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a\nconsistent, self-contained copy of a Run's state, complete at its\nlocation before it is reported, from which the Run resumes on this\nmachine or another one.",
       "properties": {
@@ -114,6 +122,21 @@
         "run_epoch",
         "journal_position",
         "time"
+      ],
+      "type": "object"
+    },
+    "ClickParams": {
+      "additionalProperties": false,
+      "description": "What `locator.click` takes: the locator whose element it clicks.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator"
       ],
       "type": "object"
     },
@@ -538,6 +561,67 @@
       ],
       "type": "object"
     },
+    "FillParams": {
+      "additionalProperties": false,
+      "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The text the field holds afterwards; an empty text clears it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator",
+        "value"
+      ],
+      "type": "object"
+    },
+    "FormatsParams": {
+      "additionalProperties": false,
+      "description": "What `page.formats` takes: the page, and the formats it asks for.",
+      "properties": {
+        "formats": {
+          "$ref": "#/$defs/FormatsRequest",
+          "arrived_in": "0.1",
+          "description": "The formats."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "formats"
+      ],
+      "type": "object"
+    },
+    "FormatsRequest": {
+      "additionalProperties": false,
+      "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
+      "properties": {
+        "markdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarkdownFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's content as Markdown, with GFM's tables."
+        }
+      },
+      "type": "object"
+    },
     "GotoParams": {
       "additionalProperties": false,
       "description": "What `page.goto` takes: the page, and the URL it goes to.",
@@ -583,6 +667,268 @@
           "type": "string"
         }
       ]
+    },
+    "Limit": {
+      "description": "One Limit of the Usage ledger: a generic row, which a newer engine may\nwrite with a scope kind, a Usage kind, a currency or a period this one\ndoes not know (ADR 0041).",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the Usage kind's price in, an ISO 4217 code;\nnone for a Limit on the Usage itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "must_understand": {
+          "arrived_in": "0.1",
+          "description": "Whether an engine that cannot evaluate it must refuse the runs it\ncannot place outside it, with `limit_not_understood`.",
+          "type": "boolean"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again,\nsuch as a Client connection's."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "What it is on."
+        },
+        "set_by": {
+          "$ref": "#/$defs/LimitSetter",
+          "arrived_in": "0.1",
+          "description": "Who set it."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps, a value of a type both Products share.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount",
+        "must_understand",
+        "set_by"
+      ],
+      "type": "object"
+    },
+    "LimitScope": {
+      "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind: the major's name for a Daemon, the person's\nname, the token's name or the Client connection's ID; empty for the\ninstall.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    "LimitSetter": {
+      "description": "Who set a Limit, which decides whether it allows paying (ADR 0045).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, in the Console or an interactive CLI prompt.",
+          "type": "string"
+        },
+        {
+          "const": "managed_policy",
+          "description": "A managed Operator policy.",
+          "type": "string"
+        },
+        {
+          "const": "client",
+          "description": "A Client, which only adds a Limit of its own.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitStanding": {
+      "description": "What the engine that read a Limit makes of it.",
+      "oneOf": [
+        {
+          "const": "held",
+          "description": "It holds its runs to it.",
+          "type": "string"
+        },
+        {
+          "const": "foxhound",
+          "description": "It is on a value only Foxhound carries, such as `paid_fetch`, which\na Collie engine keeps untouched (ADR 0098).",
+          "type": "string"
+        },
+        {
+          "const": "not_understood",
+          "description": "It cannot evaluate it: a newer engine wrote it.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitUsage": {
+      "description": "One Limit with the Usage counted against it in its current period.",
+      "properties": {
+        "charged": {
+          "arrived_in": "0.1",
+          "description": "The Usage charged in the current period: what ended runs used, and\nwhat was reclaimed from dead engines' Slices.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held": {
+          "arrived_in": "0.1",
+          "description": "The Usage live runs hold in Slices they have not returned yet.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "left": {
+          "arrived_in": "0.1",
+          "description": "What is left of the amount in the current period.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "$ref": "#/$defs/Limit",
+          "arrived_in": "0.1",
+          "description": "The Limit."
+        },
+        "period_started_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the current period started; none for a Limit without one."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the next period starts; none for a Limit without one."
+        },
+        "standing": {
+          "$ref": "#/$defs/LimitStanding",
+          "arrived_in": "0.1",
+          "description": "What the engine that read it makes of it."
+        }
+      },
+      "required": [
+        "limit",
+        "standing",
+        "charged",
+        "held",
+        "left"
+      ],
+      "type": "object"
+    },
+    "Locator": {
+      "additionalProperties": false,
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page it looks on."
+        },
+        "selector": {
+          "arrived_in": "0.1",
+          "description": "A CSS selector, which also matches inside open shadow roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "selector"
+      ],
+      "type": "object"
+    },
+    "MainContent": {
+      "description": "Whether the extractor found the document's main content.",
+      "oneOf": [
+        {
+          "const": "found",
+          "description": "It found it.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "The document has none: the formats read from it are empty, a value\nand never the whole page in its place.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownContent": {
+      "description": "How much of the page a Markdown format holds.",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownFormat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Asked",
+          "description": "With its default options."
+        },
+        {
+          "$ref": "#/$defs/MarkdownOptions",
+          "description": "With these options."
+        }
+      ],
+      "description": "The `markdown` format of a request: `true`, or its options."
+    },
+    "MarkdownOptions": {
+      "additionalProperties": false,
+      "description": "The options of the `markdown` format.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/MarkdownContent",
+          "arrived_in": "0.1",
+          "description": "How much of the page it holds."
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
     },
     "Navigated": {
       "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, or back or forward from the last entry of the page's\nhistory. A 404 or a 500 is a response, a value.",
@@ -652,6 +998,37 @@
       },
       "required": [
         "size"
+      ],
+      "type": "object"
+    },
+    "PageFormats": {
+      "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
+      "properties": {
+        "base_url": {
+          "arrived_in": "0.1",
+          "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
+          "type": "string"
+        },
+        "main_content": {
+          "$ref": "#/$defs/MainContent",
+          "arrived_in": "0.1",
+          "description": "Whether it has main content."
+        },
+        "markdown": {
+          "arrived_in": "0.1",
+          "description": "Its content as Markdown, when the request asked for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The document's URL, after redirects.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "base_url",
+        "main_content"
       ],
       "type": "object"
     },
@@ -732,6 +1109,46 @@
       ],
       "type": "object"
     },
+    "Period": {
+      "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
+      "properties": {
+        "every": {
+          "$ref": "#/$defs/PeriodLength",
+          "arrived_in": "0.1",
+          "description": "How long it counts."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its midnights are in, such as `Europe/Paris`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "every",
+        "time_zone"
+      ],
+      "type": "object"
+    },
+    "PeriodLength": {
+      "description": "How long a period Limit counts before it starts again (ADR 0041).",
+      "oneOf": [
+        {
+          "const": "day",
+          "description": "From one midnight to the next.",
+          "type": "string"
+        },
+        {
+          "const": "week",
+          "description": "From Monday's midnight to the next Monday's.",
+          "type": "string"
+        },
+        {
+          "const": "month",
+          "description": "From the first day's midnight to the next month's.",
+          "type": "string"
+        }
+      ]
+    },
     "PointInTime": {
       "description": "A point in time in UTC, as RFC 3339.",
       "format": "date-time",
@@ -741,6 +1158,27 @@
       "description": "An event's position among every event of one engine, which only goes up.",
       "minimum": 0,
       "type": "integer"
+    },
+    "PressParams": {
+      "additionalProperties": false,
+      "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by\nPlaywright's key names.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator",
+        "key"
+      ],
+      "type": "object"
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -793,6 +1231,58 @@
       "description": "A version `major.minor` (ADR 0030).",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "type": "string"
+    },
+    "ReachedLimit": {
+      "description": "The Limit a Run cannot take more of: what `limit_reached` details, and\nwhat a Run stopped for it names (ADR 0041).",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When its period starts again; none for a Limit without one."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
+      ],
+      "type": "object"
     },
     "Resync": {
       "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
@@ -1000,7 +1490,7 @@
       "type": "object"
     },
     "RunProgress": {
-      "description": "A Run's progress as it is now (ADR 0102): what `run.progress` reports.\nThe Run's progress ticket adds the rest of ADR 0102's `RunProgress`.",
+      "description": "A Run's progress as it is now (ADR 0102): what `run.progress` reports.",
       "properties": {
         "lifecycle": {
           "$ref": "#/$defs/Lifecycle",
@@ -1544,6 +2034,33 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+          "properties": {
+            "kind": {
+              "const": "drain",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ReachedLimit",
+          "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
+          "properties": {
+            "kind": {
+              "const": "limit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -1573,6 +2090,85 @@
       },
       "maxItems": 16,
       "type": "array"
+    },
+    "UsageListParams": {
+      "additionalProperties": false,
+      "description": "What `usage.list` takes.",
+      "type": "object"
+    },
+    "UsageListResult": {
+      "description": "What `usage.list` answers, and what `usage --json` prints.",
+      "properties": {
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "Every Limit of the Usage ledger, by scope, with its Usage.",
+          "items": {
+            "$ref": "#/$defs/LimitUsage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "limits"
+      ],
+      "type": "object"
+    },
+    "UsageSetParams": {
+      "additionalProperties": false,
+      "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the caller's own when absent (its Client\nconnection, its person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
     },
     "Verdict": {
       "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
@@ -1688,6 +2284,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "daemon_draining",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
       "exit_code": null,
       "group": "deadline_exceeded",
@@ -1753,6 +2359,26 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "format_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_not_understood",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_reached",
       "product": "collie",
       "retryable": false
     },
@@ -1825,6 +2451,16 @@
       "name": "page_crashed",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "pattern_unsupported",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -1963,6 +2599,26 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "setting_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "target_not_unique",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "upgrade_source_unsupported",
       "product": "collie",
       "retryable": false
     }
@@ -2243,6 +2899,63 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.click",
+      "params": {
+        "$ref": "#/$defs/ClickParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.fill",
+      "params": {
+        "$ref": "#/$defs/FillParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.press",
+      "params": {
+        "$ref": "#/$defs/PressParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
@@ -2256,6 +2969,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.formats",
+      "params": {
+        "$ref": "#/$defs/FormatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageFormats"
       },
       "stability": "experimental"
     },
@@ -2540,6 +3272,44 @@
         "$ref": "#/$defs/SampleEchoResult"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
+      "events": [],
+      "kind": "query",
+      "name": "usage.list",
+      "params": {
+        "$ref": "#/$defs/UsageListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.set",
+      "params": {
+        "$ref": "#/$defs/UsageSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
+      },
+      "stability": "experimental"
     }
   ],
   "plugin_kinds": [
@@ -2580,6 +3350,23 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "name": "browser.headless",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },
@@ -2655,6 +3442,42 @@
       ],
       "value": {
         "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "127.0.0.1:7600",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "name": "daemon.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 110000,
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "name": "daemon.drain_grace",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },
@@ -2742,6 +3565,27 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": "shared",
+      "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+      "name": "politeness.sharing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "shared",
+          "per_daemon",
+          "run"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 250,
       "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
       "name": "resolver.attempt_delay",
@@ -2773,6 +3617,46 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "full",
+      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+      "name": "run_state.durability",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "full",
+          "fast"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "per_run",
+      "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+      "name": "run_state.layout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "per_run",
+          "per_install"
+        ]
       },
       "weakens": false
     },
@@ -2842,6 +3726,25 @@
       ],
       "value": {
         "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+      "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },
@@ -2954,6 +3857,23 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+      "name": "version.age_notice",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "operator_policy",
       "clearable": false,
       "default": [],
@@ -3047,10 +3967,31 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Every run a Client connection starts, while it lasts.",
+      "name": "connection",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A wall that asks for consent before it shows the page (ADR 0048).",
       "name": "consent_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Daemon runs.",
+      "name": "daemon",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run of the user on the machine, whichever engine runs it.",
+      "name": "install",
+      "product": "collie",
+      "type": "limit_scope"
     },
     {
       "arrived_in": "0.1",
@@ -3061,10 +4002,31 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
+      "name": "paid_solves",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site asked to be paid for the page (ADR 0045).",
       "name": "payment_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a person starts.",
+      "name": "person",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Bytes a run sent and received through a proxy, per proxy kind.",
+      "name": "proxy_bytes",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",
@@ -3075,10 +4037,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+      "name": "requests",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Connection holding a named token starts.",
+      "name": "token",
+      "product": "collie",
+      "type": "limit_scope"
     }
   ]
 }

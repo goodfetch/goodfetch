@@ -32,7 +32,8 @@ const ANSWERING_AT_ONCE: [&str; 6] = [
     "sample.echo",
 ];
 
-/// An Attached engine that answered `hello`, with its Goodfetch home.
+/// An Attached engine that answered `hello` and finished its startup
+/// writes, with its Goodfetch home.
 struct Fuzzed<'env> {
     engine: Option<Attached<'env>>,
     home: PathBuf,
@@ -47,10 +48,29 @@ impl<'env> Fuzzed<'env> {
         engine.send(&hello("collie", "0.1"));
         let accepted = engine.next().unwrap();
         assert!(accepted.get("result").is_some(), "{accepted}");
-        Self {
+        let mut fuzzed = Self {
             engine: Some(engine),
             home,
-        }
+        };
+        fuzzed.wait_for_the_startup_reclaim();
+        fuzzed
+    }
+
+    /// Waits until the engine's Runs have reclaimed the Slices of dead runs
+    /// from the Usage ledger, which they do once at start, after `hello`
+    /// may have been answered, and before they answer any Run call (ADR
+    /// 0041): until then the ledger's SQLite journal comes and goes in the
+    /// home. A `run.finish` of a Run no engine started is the Run call that
+    /// writes nothing.
+    fn wait_for_the_startup_reclaim(&mut self) {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "run.finish",
+            "params": { "run_id": "never-started" },
+        });
+        let answer = self.call(&request).unwrap();
+        assert_eq!(answer["error"]["data"]["code"], "run_not_found", "{answer}");
     }
 }
 

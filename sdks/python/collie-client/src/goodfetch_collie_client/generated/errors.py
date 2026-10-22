@@ -130,6 +130,14 @@ class ConsolePortInUseError(UnavailableError):
         super().__init__(message, code="console_port_in_use", group="unavailable", retryable=False)
 
 
+class DaemonDrainingError(UnavailableError):
+    """The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="daemon_draining", group="unavailable", retryable=True)
+
+
 class EngineExitedError(UnavailableError):
     """The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr."""
 
@@ -176,6 +184,22 @@ class FormatVersionUnsupportedError(UnavailableError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="format_version_unsupported", group="unavailable", retryable=False)
+
+
+class LimitNotUnderstoodError(RefusedError):
+    """A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="limit_not_understood", group="refused", retryable=False)
+
+
+class LimitReachedError(RefusedError):
+    """A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="limit_reached", group="refused", retryable=False)
 
 
 class NameLookupFailedError(UnavailableError):
@@ -232,6 +256,14 @@ class PageCrashedError(UnavailableError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="page_crashed", group="unavailable", retryable=True)
+
+
+class PatternUnsupportedError(ProgramError):
+    """A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="pattern_unsupported", group="program", retryable=False)
 
 
 class ProtocolVersionUnsupportedError(UnavailableError):
@@ -346,6 +378,22 @@ class SettingUnknownError(ProgramError):
         super().__init__(message, code="setting_unknown", group="program", retryable=False)
 
 
+class TargetNotUniqueError(PageError):
+    """The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="target_not_unique", group="page", retryable=False)
+
+
+class UpgradeSourceUnsupportedError(RefusedError):
+    """`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="upgrade_source_unsupported", group="refused", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
@@ -356,12 +404,15 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "call_cancelled": CallCancelledError,
     "closed": ClosedError,
     "console_port_in_use": ConsolePortInUseError,
+    "daemon_draining": DaemonDrainingError,
     "engine_exited": EngineExitedError,
     "engine_not_found": EngineNotFoundError,
     "engine_output_invalid": EngineOutputInvalidError,
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
+    "limit_not_understood": LimitNotUnderstoodError,
+    "limit_reached": LimitReachedError,
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,
     "navigation_failed": NavigationFailedError,
@@ -369,6 +420,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,
+    "pattern_unsupported": PatternUnsupportedError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,
@@ -383,5 +435,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
+    "target_not_unique": TargetNotUniqueError,
+    "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
 }
 """The exception class of each Error code."""

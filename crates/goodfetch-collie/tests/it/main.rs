@@ -16,13 +16,17 @@ mod commands;
 mod config;
 mod console;
 mod daemon;
+mod daemon_run;
 mod events;
 mod help;
 mod human_output;
 mod invalid_calls;
 mod journeys;
+mod launch;
+mod layout;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+mod locator;
 mod log;
 mod page;
 mod parent_death;
@@ -30,4 +34,8 @@ mod private_endpoint;
 mod run;
 mod service_manager;
 mod settings_flags;
+mod upgrade_files;
+mod usage;
+#[cfg(target_os = "linux")]
+mod virtual_display;
 mod writer_lock;

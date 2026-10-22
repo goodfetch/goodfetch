@@ -4,21 +4,24 @@
 //! the crawl, served round-robin, one request per domain per turn, so a heavy
 //! domain never starves the others and a priority never crosses domains.
 //! A domain waiting out a `Retry-After` or a backoff is not ready: it keeps
-//! its place, holds no capacity, and the next ready domain goes. A domain
+//! its place, holds no capacity, and the next ready domain goes; so is a
+//! domain the per-user Politeness holds, until its deadline or a wake
+//! (the `politeness` module's rule, ADR 0053). A domain
 //! that holds no request, none in flight and no wait is released, so the
 //! state stays bounded.
 //!
 //! The waiting requests are the crawl's pending work items, which the run
 //! file keeps; what the queues add is each domain's wait and backoff, which
 //! they journal in their own table and open again from on a resume. The
-//! backoff is a pure function of the reading it is given: from 2 s,
-//! doubling at each backoff in a row up to 60 s (ADR 0021).
+//! backoff is the `politeness` module's.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::admission::{Admitted, Ended, Gate, Gates, Journal, Waiting};
+use goodfetch_engine::politeness::PermitRule;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::CRAWL_DOMAIN_KEYS;
@@ -26,16 +29,11 @@ use rusqlite::Connection;
 use tokio::time::Instant;
 
 use crate::domain_key::DomainKeys;
+use crate::politeness::{DomainRule, backoff};
 
 /// How many requests one domain's queue holds at most; the rest wait in
 /// the run file until it drains.
 pub(crate) const BOUND: usize = 64;
-
-/// The first backoff of a domain.
-const BACKOFF_INITIAL: Duration = Duration::from_secs(2);
-
-/// The longest backoff of a domain.
-const BACKOFF_MAX: Duration = Duration::from_mins(1);
 
 /// The table the queues journal each domain's wait in.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
@@ -47,15 +45,6 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
         ) STRICT"],
 };
 
-/// How long a domain waits after `backoffs` backoffs in a row, the first
-/// one included: 2 s, then doubling up to 60 s.
-pub(crate) fn backoff(backoffs: u32) -> Duration {
-    let doublings = backoffs.saturating_sub(1).min(31);
-    BACKOFF_INITIAL
-        .saturating_mul(1 << doublings)
-        .min(BACKOFF_MAX)
-}
-
 /// One domain's queue and state.
 #[derive(Debug, Default)]
 struct Domain {
@@ -63,6 +52,9 @@ struct Domain {
     in_flight: usize,
     ready_at: Option<Instant>,
     backoffs: u32,
+    /// Until when the shared Politeness holds it, unless a wake comes
+    /// first; never journaled, since the Politeness file keeps its cause.
+    held_until: Option<Instant>,
     /// Whether the run file holds a row of it.
     journaled: bool,
 }
@@ -70,6 +62,15 @@ struct Domain {
 impl Domain {
     fn is_ready(&self, now: Instant) -> bool {
         self.ready_at.is_none_or(|ready_at| ready_at <= now)
+            && self.held_until.is_none_or(|held_until| held_until <= now)
+    }
+
+    /// The first moment from `now` it is ready.
+    fn ready_from(&self, now: Instant) -> Instant {
+        [self.ready_at, self.held_until]
+            .into_iter()
+            .flatten()
+            .fold(now, Instant::max)
     }
 
     /// Whether it holds nothing more at `now`: no request waiting or in
@@ -174,8 +175,35 @@ impl Gate for DomainQueues {
         self.turns
             .iter()
             .filter_map(|key| self.domains.get(key))
-            .map(|domain| domain.ready_at.map_or(now, |ready_at| ready_at.max(now)))
+            .map(|domain| domain.ready_from(now))
             .min()
+    }
+
+    fn next_key(&self, now: Instant) -> Option<String> {
+        self.turns
+            .iter()
+            .find(|key| {
+                self.domains
+                    .get(*key)
+                    .is_some_and(|domain| domain.is_ready(now))
+            })
+            .cloned()
+    }
+
+    fn hold(&mut self, key: &str, until: Instant) {
+        if let Some(domain) = self.domains.get_mut(key) {
+            domain.held_until = Some(until);
+        }
+    }
+
+    fn wake(&mut self, key: &str) {
+        if let Some(domain) = self.domains.get_mut(key) {
+            domain.held_until = None;
+        }
+    }
+
+    fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {
+        Some(Arc::new(DomainRule::of(settings)))
     }
 
     fn admit(&mut self, now: Instant) -> Option<Admitted> {
@@ -214,6 +242,10 @@ impl Gate for DomainQueues {
                 Some(now + backoff(domain.backoffs))
             }
             Ended::Until(until) => Some(until),
+            Ended::TooManyRequests(until) => {
+                domain.backoffs = domain.backoffs.saturating_add(1);
+                Some(until.unwrap_or(now + backoff(domain.backoffs)))
+            }
         };
         if let Some(until) = wait_until {
             domain.ready_at = Some(

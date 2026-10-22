@@ -37,7 +37,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
 use crate::engine_choice::{self, Answer, CommandCall, Follower};
-use crate::output::Human;
+use crate::output::{ColourFlag, Human};
 use crate::settings_flags::{self, SettingsFlags};
 use crate::{exit_codes, output};
 
@@ -167,9 +167,11 @@ fn spelled(name: &str) -> String {
     name.replace('_', "-")
 }
 
-/// The commands of the group `group`, one per operation of its namespace.
+/// The commands of the group `group`, one per operation of its namespace,
+/// and the group's `--color`, which clap copies into them (see
+/// [`ColourFlag`]).
 fn members(group: Command) -> Command {
-    members_of(group, operations_of(PRODUCT))
+    members_of(ColourFlag::augment_args(group), operations_of(PRODUCT))
 }
 
 /// The commands of the group `group`, one per operation of `operations` in

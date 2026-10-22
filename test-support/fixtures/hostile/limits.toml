@@ -4,40 +4,41 @@
 # `network.max_body_size` 64 MiB of decoded bytes, `network.max_decompression_ratio`
 # 100 once a decoded body passes 1 MiB, `network.max_json_depth` 128), and
 # the JSON-RPC framing's `message_too_large` (16 MiB) and `message_too_deep`
-# (64). The pages that serve a bomb, a huge or endless body and deep JSON end
-# to end are the owner's to build; this table only names them. A layer's
-# runner pairs these with its own positive control: a normal page, and a
-# message within the limits, pass.
+# (64). The decompression-bomb pages are the Proving ground's `bombs` family
+# (`bombs/1` to `bombs/5`); the pages that serve a huge or endless body and
+# deep JSON end to end are still the owner's to build, and this table names
+# them until then. A layer's runner pairs these with its own positive
+# control: a normal page, and a message within the limits, pass.
 
 [[cases]]
 name = "gzip_bomb"
 input = { kind = "decompression_bomb", content_encodings = ["gzip"] }
 expected = { code = "response_limit_exceeded", setting = "network.max_decompression_ratio" }
-served_by = { waiting_on_owner = "a page whose gzip body decodes to more than 100 times its size past 1 MiB" }
+served_by = { page = "bombs/1" }
 
 [[cases]]
 name = "deflate_bomb"
 input = { kind = "decompression_bomb", content_encodings = ["deflate"] }
 expected = { code = "response_limit_exceeded", setting = "network.max_decompression_ratio" }
-served_by = { waiting_on_owner = "a page whose deflate body decodes to more than 100 times its size past 1 MiB" }
+served_by = { page = "bombs/2" }
 
 [[cases]]
 name = "brotli_bomb"
 input = { kind = "decompression_bomb", content_encodings = ["br"] }
 expected = { code = "response_limit_exceeded", setting = "network.max_decompression_ratio" }
-served_by = { waiting_on_owner = "a page whose Brotli body decodes to more than 100 times its size past 1 MiB" }
+served_by = { page = "bombs/3" }
 
 [[cases]]
 name = "zstd_bomb"
 input = { kind = "decompression_bomb", content_encodings = ["zstd"] }
 expected = { code = "response_limit_exceeded", setting = "network.max_decompression_ratio" }
-served_by = { waiting_on_owner = "a page whose zstd body decodes to more than 100 times its size past 1 MiB" }
+served_by = { page = "bombs/4" }
 
 [[cases]]
 name = "stacked_codings_bomb"
 input = { kind = "decompression_bomb", content_encodings = ["gzip", "gzip"] }
 expected = { code = "response_limit_exceeded", setting = "network.max_decompression_ratio" }
-served_by = { waiting_on_owner = "a page whose body is gzip applied twice, decoding to more than 100 times its size past 1 MiB" }
+served_by = { page = "bombs/5" }
 
 [[cases]]
 name = "body_past_64_mib"

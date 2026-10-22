@@ -1579,6 +1579,54 @@
       "start_url": "http://18.downloads.test/download"
     },
     {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a gzip decompression bomb: a few kilobytes that decode to far more, past the engine's decompression-ratio limit. A correct tool refuses it at the limit rather than reading it to the end.",
+      "digest": "e902bbfbe38479b475b50e9247d3cb07353718bdc9553e0990a1dc8da8020517",
+      "family": "bombs",
+      "id": "bombs/1",
+      "kind": "extract",
+      "start_url": "http://1.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a raw deflate decompression bomb, labelled `Content-Encoding: deflate`, that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "52cb429feedeeebe67c522cb7649978f06e40cea434ab9f916b89bc82e452335",
+      "family": "bombs",
+      "id": "bombs/2",
+      "kind": "extract",
+      "start_url": "http://2.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a Brotli decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "9330f9d0157a95c382ede288711c08936b1f44be3a509dbe5773d87d4dd77b2c",
+      "family": "bombs",
+      "id": "bombs/3",
+      "kind": "extract",
+      "start_url": "http://3.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a zstd decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "ec33331dd81fc5b2fc861ffd68a8e7b2ce13444b56edef3860daeddb1b81f993",
+      "family": "bombs",
+      "id": "bombs/4",
+      "kind": "extract",
+      "start_url": "http://4.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is gzip applied twice, labelled `Content-Encoding: gzip, gzip`, and decodes through both codings to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "21814453b973d348173faa8ee886e9d37f53ef6a232f11f741f804ad7b50e2d2",
+      "family": "bombs",
+      "id": "bombs/5",
+      "kind": "extract",
+      "start_url": "http://5.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is legitimately compressed with gzip, well within the engine's decompression-ratio limit: a correct tool keeps it.",
+      "digest": "6dd2fa318ae2001f9fe8669d38431c2e337a40b5764c3be1ddf51b936772ac51",
+      "family": "bombs",
+      "id": "bombs/6",
+      "kind": "extract",
+      "start_url": "http://6.bombs.test/"
+    },
+    {
       "description": "Plant a typed password canary with `POST /canaries` (`{\"kind\": \"typed_password\"}`), log in as the account its answer names, and return the account page's Record with `id` and `word`. The password is a Secret canary: it goes only in the login form.",
       "digest": "f6720d9995780ca3407cf1e9c51cbaaaf8dc6e36b900a24792fc191b91217990",
       "family": "canaries",

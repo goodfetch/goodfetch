@@ -20,7 +20,7 @@ const ARGUMENTS: [&str; 6] = [
     "--json",
 ];
 
-/// Covers: story:11-198, command:events.subscribe
+/// Covers: story:11-198, command:events.subscribe, exit:interrupted
 #[test]
 fn attached() {
     let env = TestEnv::new();

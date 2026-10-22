@@ -58,6 +58,7 @@ mod rendered;
 mod replay;
 mod scale;
 mod schedule;
+mod scope;
 mod serve;
 mod sitemaps;
 mod statuses;

@@ -281,6 +281,7 @@ fn run_row(path: &Path) -> Value {
 /// one: the same test seed would draw the same machine identity.
 fn another_machine(env: &TestEnv) -> crate::engine::Dependencies {
     crate::engine::Dependencies {
+        environment: std::collections::BTreeMap::new(),
         entropy: crate::entropy::Entropy::seeded(env.seed() ^ 1),
         ..dependencies(env)
     }

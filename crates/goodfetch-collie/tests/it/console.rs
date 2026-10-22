@@ -284,7 +284,8 @@ fn a_console_port_another_program_holds_fails_only_the_consoles_start() {
         .run()
         .unwrap();
 
-    assert_eq!(started.exit, Some(12), "{}", started.stderr);
+    // `console_port_in_use` has no row of its own: its group's, `8`.
+    assert_eq!(started.exit, Some(8), "{}", started.stderr);
     let started: Value = serde_json::from_str(&started.stdout).unwrap();
     assert_eq!(
         started["daemon"]["console"]["failed"]["code"],

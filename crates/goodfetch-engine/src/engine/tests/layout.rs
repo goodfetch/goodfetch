@@ -179,6 +179,7 @@ where
             console: DaemonConsole::Absent,
             drain: None,
             install: Some(install),
+            websocket: None,
         };
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)

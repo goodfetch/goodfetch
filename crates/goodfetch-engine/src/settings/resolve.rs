@@ -11,6 +11,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, ValueKind};
+use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
     SettingsFile, SettingsLayer, WeakenedSetting,
@@ -193,6 +194,14 @@ impl Resolved {
     /// `key`'s value as a boolean, `None` when it is not one.
     pub fn boolean(&self, key: &str) -> Option<bool> {
         self.value(key).as_bool()
+    }
+
+    /// `key`'s value as a Secret reference, `None` when it is not one or
+    /// cleared.
+    pub fn secret_reference(&self, key: &str) -> Option<SecretReference> {
+        self.value(key)
+            .as_str()
+            .and_then(|text| SecretReference::parse(text).ok())
     }
 
     /// `key`'s value as host names, each with its addresses, as

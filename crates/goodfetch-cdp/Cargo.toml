@@ -19,6 +19,7 @@ tracing.workspace = true
 goodfetch-test-support.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, features = ["rt", "test-util"] }
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

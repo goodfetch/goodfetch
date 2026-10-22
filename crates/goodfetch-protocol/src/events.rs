@@ -67,14 +67,16 @@ pub struct LastRead {
     pub position: Position,
 }
 
-/// What `$/credit` grants: more events, or chunks, for a streaming call.
+/// What `$/credit` grants: more events, or chunks, for a streaming call;
+/// sent by the engine, more seeds a `run.add_seeds` call takes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreditParams {
     /// The streaming call's id.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub id: RequestId,
-    /// How many more events, or chunks, the Client takes.
+    /// How many more events, or chunks, the Client takes; sent by the
+    /// engine, how many more seeds the call takes.
     #[schemars(extend("arrived_in" = "0.1", "minimum" = 1))]
     pub credits: u32,
 }

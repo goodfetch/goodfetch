@@ -183,3 +183,70 @@ fn events_reach_the_subscribers_of_their_session_only() {
         );
     });
 }
+
+/// Sends the name and fields of each span its subscriber sees open.
+struct Opened(std::sync::mpsc::Sender<(String, String)>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Opened {
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        _: &tracing::span::Id,
+        _: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        struct Fields(Vec<String>);
+        impl tracing::field::Visit for Fields {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                self.0.push(format!("{}={value:?}", field.name()));
+            }
+        }
+        let mut fields = Fields(Vec::new());
+        attributes.record(&mut fields);
+        let _ = self
+            .0
+            .send((attributes.metadata().name().to_owned(), fields.0.join(" ")));
+    }
+}
+
+/// Each command is a span of its own, its method its one field, and never
+/// its params (ADR 0132).
+///
+/// Covers: story:3-105
+#[test]
+fn each_command_is_a_span_that_records_its_method_alone() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    let (opened, spans) = std::sync::mpsc::channel();
+    let subscriber = tracing_subscriber::registry().with(Opened(opened));
+
+    tracing::subscriber::with_default(subscriber, || {
+        runtime().block_on(async {
+            let (connection, driver, mut browser) = connected();
+            tokio::join!(driver.run(), async {
+                let _ = tokio::join!(
+                    connection.send_raw(
+                        "Input.insertText",
+                        None,
+                        json!({ "text": "hunter2" }),
+                        TIMEOUT
+                    ),
+                    async {
+                        let sent = browser.received().await;
+                        browser
+                            .send(&json!({ "id": sent["id"], "result": {} }))
+                            .await;
+                    }
+                );
+                drop(connection);
+            });
+        });
+    });
+
+    assert_eq!(
+        spans.try_iter().collect::<Vec<_>>(),
+        [(
+            "cdp_command".to_owned(),
+            "cdp.method=\"Input.insertText\"".to_owned()
+        )]
+    );
+}

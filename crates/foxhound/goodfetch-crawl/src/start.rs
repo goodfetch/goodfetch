@@ -1,8 +1,8 @@
 //! `crawl.start` and Foxhound's crawl contribution (ADRs 0028, 0087, 0093
 //! and 0102): the start resolves the Run's settings, refused before the Run
-//! begins, begins a crawl's Run through the engine's Runs, each seed
-//! admitted by the Frontier as its first work items, and each seed's
-//! answer kept, in the transaction that records the Run, and hands the Run
+//! begins, begins a crawl's Run through the engine's Runs, its scope
+//! recorded and each seed admitted by the Frontier as its first work items,
+//! and each seed's answer kept, in the transaction that records the Run, and hands the Run
 //! to its delivery on the starting Connection's Client. A start whose
 //! every seed was refused still starts, and its Run finishes at once. A
 //! Run ID that names a crawl of the same seeds returns it as it is; one of
@@ -15,6 +15,7 @@ use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_err
 use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_frontier::Scope;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
 use goodfetch_protocol::run::{
@@ -26,19 +27,21 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::delivery;
 use crate::enqueue;
 use crate::outcomes;
+use crate::seeding;
 use crate::serving::Crawls;
 use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
-/// a handler's enqueue, the reads of its outcomes, the work items',
-/// Records' and outcomes' tables of every run file, and the driver a
-/// resumed crawl starts again with.
+/// a handler's enqueue, the seeds added to a running crawl, the reads of
+/// its outcomes, the work items', Records' and outcomes' tables of every
+/// run file, and the driver a resumed crawl starts again with.
 pub fn contribution() -> Contribution {
     let crawls = Crawls::default();
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
     let resuming = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
+    let [add_seed, add_seeds] = seeding::handlers(&crawls);
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
             start(params, context, crawls.clone())
@@ -47,6 +50,8 @@ pub fn contribution() -> Contribution {
             serve(params, context, serving.clone())
         }))
         .with_handler(enqueue::handler(enqueuing))
+        .with_handler(add_seed)
+        .with_handler(add_seeds)
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
@@ -104,6 +109,7 @@ async fn start(
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
+    let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = BTreeMap::from([(
         StartInput::Seeds,
@@ -119,7 +125,8 @@ async fn start(
             inputs,
             ended_by: EndedBy::Driver,
             initialize: Some(Box::new(move |connection| {
-                let answers = work_items::admit_seeds(connection, &seeds)?;
+                scope.record(connection)?;
+                let answers = work_items::admit_seeds(connection, &scope, &seeds)?;
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
@@ -140,11 +147,11 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
-            let joined = crawls.open(&run).await;
+            let opened = crawls.open(&run).await;
             run.spawn(delivery::drive(
                 run.clone(),
                 context.client().clone(),
-                joined,
+                opened,
                 crawls,
                 settings,
             ));

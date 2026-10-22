@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion};
 use crate::jsonrpc::RequestId;
+use crate::log::LogLevel;
 use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -199,6 +200,12 @@ pub struct HelloParams {
     /// The sender's own Product version.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product_version: ProductVersion,
+    /// The level of the engine's log events the Client receives as `$/log`
+    /// notifications, until `connection.set_log_level` changes it; none,
+    /// as `off`, receives none (ADR 0078).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub log_level: Option<LogLevel>,
 }
 
 /// One engine process, new each time an engine starts (ADR 0031): the

@@ -35,6 +35,10 @@ use goodfetch_protocol::usage::{
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
+use goodfetch_protocol::secrets::{
+    SECRET_DOMAIN_NOT_ALLOWED, SECRET_UNAVAILABLE, SecretDomainNotAllowedDetails,
+    SecretUnavailableDetails,
+};
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
@@ -45,6 +49,7 @@ use crate::composition::{CallContext, CallError, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartError, Started};
+use crate::secrets::SecretError;
 use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
@@ -201,7 +206,52 @@ pub fn start_error(error: StartError) -> CallError {
             }
         }
         StartError::Draining { run_id } => draining(run_id),
+        StartError::Secret(error) => secret_error(&error),
         StartError::Stopped => stopped(),
+    }
+}
+
+/// The failure a call answers with for a Secret reference that gave no
+/// value: each names the placeholder and the reference, never a value
+/// (ADR 0092).
+pub fn secret_error(error: &SecretError) -> CallError {
+    let message = error.to_string();
+    match error {
+        SecretError::Unavailable {
+            placeholder,
+            reference,
+            failure,
+            fix,
+        } => CallError::new(
+            &SECRET_UNAVAILABLE,
+            message,
+            &SecretUnavailableDetails {
+                placeholder: placeholder.clone(),
+                reference: reference.to_string(),
+                provider: reference.provider().as_str().to_owned(),
+                failure: *failure,
+                fix: fix.clone(),
+            },
+        ),
+        SecretError::DomainNotAllowed {
+            placeholder,
+            reference,
+            domain,
+            domains,
+        } => CallError::new(
+            &SECRET_DOMAIN_NOT_ALLOWED,
+            message,
+            &SecretDomainNotAllowedDetails {
+                placeholder: placeholder.clone(),
+                reference: reference.to_string(),
+                domain: domain.clone(),
+                domains: domains.clone(),
+            },
+        ),
+        SecretError::Unrecorded { .. } => {
+            tracing::error!("{error}");
+            internal(message)
+        }
     }
 }
 

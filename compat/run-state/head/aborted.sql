@@ -67,6 +67,19 @@ CREATE TABLE run (
         report TEXT
     ) STRICT;
 INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}]',3,NULL,NULL,0,NULL,NULL,'{"run_id":"aborted","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"weakened":[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}');
+CREATE TABLE scope (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            strategy TEXT NOT NULL,
+            include TEXT NOT NULL,
+            exclude TEXT NOT NULL
+        ) STRICT;
+CREATE TABLE scope_seeds (
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            scheme TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            PRIMARY KEY (host, port, scheme)
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -116,6 +129,7 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;
+CREATE INDEX scope_seeds_by_domain ON scope_seeds (domain);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);

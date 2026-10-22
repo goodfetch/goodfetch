@@ -22,6 +22,7 @@ pub(crate) fn sample(kind: &ValueKind) -> Value {
         ValueKind::List(kind) => json!([sample(kind)]),
         ValueKind::Map(kind) => json!({ "example.test": sample(kind) }),
         ValueKind::Optional(kind) => sample(kind),
+        ValueKind::SecretReference => json!("env:EXAMPLE"),
     }
 }
 

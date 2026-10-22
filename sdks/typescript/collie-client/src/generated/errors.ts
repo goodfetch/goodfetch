@@ -141,6 +141,15 @@ export class BodyNotFoundError extends ProgramError {
 }
 
 /**
+ * The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.
+ */
+export class BrowserHostOutdatedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_host_outdated", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.
  */
 export class BrowserLaunchFailedError extends UnavailableError {
@@ -330,7 +339,7 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
- * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left, and the file there stays as it was. Choose a path this user can write, then make the same call again.
+ * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.
  */
 export class PathNotWritableError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -362,6 +371,15 @@ export class PersonRequiredError extends RefusedError {
 export class ProtocolVersionUnsupportedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.
+ */
+export class ResourcesExhaustedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "resources_exhausted", group: "unavailable", retryable: false });
   }
 }
 
@@ -443,6 +461,33 @@ export class RunStateUnavailableError extends UnavailableError {
 export class SampleRefusedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "sample_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.
+ */
+export class SecretDomainNotAllowedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_domain_not_allowed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
+ */
+export class SecretUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.
+ */
+export class SecretUnboundError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_unbound", group: "program", retryable: false });
   }
 }
 
@@ -533,6 +578,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
   body_not_found: BodyNotFoundError,
+  browser_host_outdated: BrowserHostOutdatedError,
   browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
@@ -558,6 +604,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  resources_exhausted: ResourcesExhaustedError,
   response_truncated: ResponseTruncatedError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
@@ -567,6 +614,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
+  secret_domain_not_allowed: SecretDomainNotAllowedError,
+  secret_unavailable: SecretUnavailableError,
+  secret_unbound: SecretUnboundError,
   session_bound_to_machine: SessionBoundToMachineError,
   setting_invalid: SettingInvalidError,
   setting_locked: SettingLockedError,

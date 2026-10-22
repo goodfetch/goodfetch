@@ -165,6 +165,8 @@ rstest = { version = "0.27.0", default-features = false }
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled", "serialize"] }
 sqlite-plugin = { version = "0.11.0", default-features = false, features = ["static"] }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
+# Credentials held as `SecretString`, zeroized when dropped (STYLE.md).
+secrecy = { version = "0.10.3", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
@@ -185,12 +187,33 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
+# The protocol over WebSocket, an Exposed Daemon's carriage for edge and
+# serverless Clients (ADR 0049): tungstenite's handshake and framing, on
+# Tokio in the engine, and blocking in the endpoint table's runner.
+# futures-util drives its stream of messages and its sink.
+futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 # The settings files, which a rewrite keeps byte for byte but for the
 # value it writes (ADRs 0028, 0098).
 toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
-tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
+# The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
+# 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the
+# SDK's batch processor exports over OTLP/HTTP in protobuf on its own thread,
+# through ureq, the blocking client ureq's users already link.
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "trace"] }
+opentelemetry-http = { version = "0.33.1", default-features = false }
+opentelemetry-proto = { version = "0.33.1", default-features = false, features = ["gen-tonic-messages", "trace"] }
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
+async-trait = { version = "0.1.92", default-features = false }
+bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+http = { version = "1.5.0", default-features = false, features = ["std"] }
+prost = { version = "0.14.1", default-features = false, features = ["std"] }
 # Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).
 ulid = { version = "3.0.0", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }

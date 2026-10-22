@@ -30,16 +30,16 @@ use crate::crawl::Attached;
 const SEED: u64 = 828;
 
 /// A page of the Proving ground as a handler reads it.
-struct Fetched {
+pub(crate) struct Fetched {
     /// The URL it was reached at, after its redirects.
-    url: String,
-    status: u16,
-    body: String,
+    pub(crate) url: String,
+    pub(crate) status: u16,
+    pub(crate) body: String,
 }
 
 /// Fetches `url`, a page of the Proving ground, following its redirects,
 /// as the crawl's handler does: its fragment never sent.
-fn fetch(proving_ground: &ProvingGround, url: &str) -> Fetched {
+pub(crate) fn fetch(proving_ground: &ProvingGround, url: &str) -> Fetched {
     let authority_and_path = url.strip_prefix("http://").unwrap();
     let (authority, path) = authority_and_path.split_at(authority_and_path.find('/').unwrap());
     let path = path.split('#').next().unwrap();
@@ -71,7 +71,7 @@ fn fetch(proving_ground: &ProvingGround, url: &str) -> Fetched {
 }
 
 /// The value of each `name="…"` attribute of `html`, in order.
-fn attributes(html: &str, name: &str) -> Vec<String> {
+pub(crate) fn attributes(html: &str, name: &str) -> Vec<String> {
     let opening = format!("{name}=\"");
     html.match_indices(&opening)
         .map(|(at, _)| {
@@ -84,15 +84,29 @@ fn attributes(html: &str, name: &str) -> Vec<String> {
 /// Crawls `seeds` with one request in flight at a time, answering each
 /// `crawl_request.handle` with `handler`, which may call the engine
 /// itself through the `Inside` it gets; answers `run.finish`'s reply.
-fn crawl(
+pub(crate) fn crawl(
     engine: &mut Attached,
     run_id: &str,
     seeds: &[Value],
     handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
 ) -> Value {
+    crawl_under(engine, run_id, seeds, &json!({}), handler)
+}
+
+/// [`crawl`] under the Run's `crawl` settings `settings` beside the
+/// handler's concurrency of 1.
+pub(crate) fn crawl_under(
+    engine: &mut Attached,
+    run_id: &str,
+    seeds: &[Value],
+    settings: &Value,
+    handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
+) -> Value {
+    let mut crawl = settings.clone();
+    crawl["handler"] = json!({ "concurrency": 1 });
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": run_id, "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } } },
+        "params": { "run_id": run_id, "seeds": seeds, "settings": { "crawl": crawl } },
     }));
     let mut calls = 0;
     loop {
@@ -120,7 +134,7 @@ fn crawl(
 }
 
 /// The engine as a handler reaches it while it handles one request.
-struct Inside<'a> {
+pub(crate) struct Inside<'a> {
     engine: &'a mut Attached,
     calls: &'a mut u32,
 }
@@ -128,7 +142,7 @@ struct Inside<'a> {
 impl Inside<'_> {
     /// Calls `method` and answers its reply; with one request in flight,
     /// nothing else comes meanwhile.
-    fn call(&mut self, method: &str, params: &Value) -> Value {
+    pub(crate) fn call(&mut self, method: &str, params: &Value) -> Value {
         *self.calls += 1;
         let id = format!("inside-{}", self.calls);
         self.engine
@@ -140,7 +154,7 @@ impl Inside<'_> {
 
     /// `ctx.enqueue(url, label)` from the attempt `handle` gave, read on
     /// `document` when given; answers its `Enqueued` or its error.
-    fn enqueue(
+    pub(crate) fn enqueue(
         &mut self,
         handle: &Value,
         url: &str,
@@ -165,11 +179,11 @@ impl Inside<'_> {
     }
 }
 
-fn added(id: &str, url: &str) -> Value {
+pub(crate) fn added(id: &str, url: &str) -> Value {
     json!({ "kind": "added", "id": id, "url": url })
 }
 
-fn not_added(reason: &str, url: &str) -> Value {
+pub(crate) fn not_added(reason: &str, url: &str) -> Value {
     json!({ "kind": "not_added", "reason": reason, "url": url })
 }
 

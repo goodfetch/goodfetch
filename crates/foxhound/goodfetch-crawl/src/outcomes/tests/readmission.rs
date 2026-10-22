@@ -44,6 +44,7 @@ fn crawl_of(count: usize) -> Connection {
         .statements
         .iter()
         .chain(goodfetch_frontier::VISITED_TABLES.statements)
+        .chain(goodfetch_frontier::SCOPE_TABLES.statements)
     {
         connection.execute_batch(statement).unwrap();
     }
@@ -53,12 +54,13 @@ fn crawl_of(count: usize) -> Connection {
             label: "page".to_owned(),
             payload: None,
             priority: 0,
+            forefront: false,
             method: goodfetch_protocol::foxhound::frontier::HttpMethod::get(),
             body: None,
             key: None,
         })
         .collect();
-    work_items::admit_seeds(&connection, &seeds).unwrap();
+    work_items::admit_seeds(&connection, &goodfetch_frontier::Scope::default(), &seeds).unwrap();
     connection
 }
 

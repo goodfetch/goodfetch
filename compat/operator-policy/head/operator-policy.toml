@@ -1,6 +1,12 @@
 version = "0.1"
 lowest_minor = 0
 
+[settings.log]
+format = "text"
+
+[settings.otlp]
+traces_endpoint = "example"
+
 [settings.console]
 address = "example"
 
@@ -23,9 +29,19 @@ headless = true
 location = "example"
 durability = "full"
 layout = "per_run"
+key_reference = "env:EXAMPLE"
 
 [settings.checkpoint]
 interval = 30000
+
+[settings.timeout]
+secret = 30000
+run = 30000
+close = 30000
+action = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
 
 [settings.sample]
 echo_repeats = 4
@@ -66,14 +82,6 @@ by_reference = true
 [settings.webhook]
 signing = true
 
-[settings.timeout]
-run = 30000
-close = 30000
-action = 30000
-navigation = 30000
-first_byte = 30000
-handler = 30000
-
 [settings.admission]
 max_requests_per_minute = 4
 
@@ -99,6 +107,11 @@ handler_failed = true
 [settings.crawl.handler]
 concurrency = 4
 
+[settings.crawl.scope]
+strategy = "same_hostname"
+include = ["example"]
+exclude = ["example"]
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -108,6 +121,12 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[lock.log]
+format = "text"
+
+[lock.otlp]
+traces_endpoint = "example"
 
 [lock.console]
 address = "example"
@@ -131,9 +150,19 @@ headless = true
 location = "example"
 durability = "full"
 layout = "per_run"
+key_reference = "env:EXAMPLE"
 
 [lock.checkpoint]
 interval = 30000
+
+[lock.timeout]
+secret = 30000
+run = 30000
+close = 30000
+action = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
 
 [lock.sample]
 echo_repeats = 4
@@ -174,14 +203,6 @@ by_reference = true
 [lock.webhook]
 signing = true
 
-[lock.timeout]
-run = 30000
-close = 30000
-action = 30000
-navigation = 30000
-first_byte = 30000
-handler = 30000
-
 [lock.admission]
 max_requests_per_minute = 4
 
@@ -207,6 +228,11 @@ handler_failed = true
 [lock.crawl.handler]
 concurrency = 4
 
+[lock.crawl.scope]
+strategy = "same_hostname"
+include = ["example"]
+exclude = ["example"]
+
 [lock.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -231,16 +257,17 @@ attempt_delay = 30000
 [cap.checkpoint]
 interval = 30000
 
-[cap.sample]
-echo_repeats = 4
-
 [cap.timeout]
+secret = 30000
 run = 30000
 close = 30000
 action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000
+
+[cap.sample]
+echo_repeats = 4
 
 [cap.admission]
 max_requests_per_minute = 4

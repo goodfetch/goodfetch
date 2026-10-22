@@ -1903,11 +1903,11 @@
     },
     "CreditParams": {
       "additionalProperties": false,
-      "description": "What `$/credit` grants: more events, or chunks, for a streaming call.",
+      "description": "What `$/credit` grants: more events, or chunks, for a streaming call;\nsent by the engine, more seeds a `run.add_seeds` call takes.",
       "properties": {
         "credits": {
           "arrived_in": "0.1",
-          "description": "How many more events, or chunks, the Client takes.",
+          "description": "How many more events, or chunks, the Client takes; sent by the\nengine, how many more seeds the call takes.",
           "format": "uint32",
           "minimum": 1,
           "type": "integer"
@@ -2416,6 +2416,30 @@
         }
       ]
     },
+    "EnqueuedBatch": {
+      "additionalProperties": false,
+      "description": "What `$/enqueued` carries: the answer of each seed of one `$/seeds`\nbatch, in the batch's order.",
+      "properties": {
+        "answers": {
+          "arrived_in": "0.1",
+          "description": "Each seed's answer.",
+          "items": {
+            "$ref": "#/$defs/Enqueued"
+          },
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `run.add_seeds` call."
+        }
+      },
+      "required": [
+        "id",
+        "answers"
+      ],
+      "type": "object"
+    },
     "ErrorData": {
       "additionalProperties": true,
       "description": "What a failure's `data` holds: its Error code, whether the same call may\nsucceed when made again, and the code's own details.",
@@ -2878,6 +2902,18 @@
       "additionalProperties": false,
       "description": "What a `hello` says.",
       "properties": {
+        "log_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LogLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The level of the engine's log events the Client receives as `$/log`\nnotifications, until `connection.set_log_level` changes it; none,\nas `off`, receives none (ADR 0078)."
+        },
         "needs": {
           "anyOf": [
             {
@@ -3836,6 +3872,86 @@
         "page_id",
         "selector"
       ],
+      "type": "object"
+    },
+    "LogEvent": {
+      "additionalProperties": false,
+      "description": "What `$/log` carries: one log event of the engine.",
+      "properties": {
+        "dropped": {
+          "arrived_in": "0.1",
+          "description": "How many log events the Connection was too slow to receive since the\none before: logs are telemetry, and never slow a Run.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fields": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its fields, by name: Experimental (ADR 0132).",
+          "type": "object"
+        },
+        "level": {
+          "$ref": "#/$defs/LogLevel",
+          "arrived_in": "0.1",
+          "description": "Its level, never `off`."
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Its message.",
+          "type": "string"
+        },
+        "target": {
+          "arrived_in": "0.1",
+          "description": "Where in the engine it comes from, such as `goodfetch::rpc::dispatch`:\nExperimental (ADR 0132).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "target",
+        "message"
+      ],
+      "type": "object"
+    },
+    "LogLevel": {
+      "description": "The level of the engine's log events a Connection receives: those at\nit and above; `off`, the default, receives none.",
+      "oneOf": [
+        {
+          "const": "off",
+          "description": "No log event.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "Errors only.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Warnings and errors.",
+          "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "State changes, warnings and errors: what `info` logs.",
+          "type": "string"
+        },
+        {
+          "const": "debug",
+          "description": "Also a line per request, fetch or command.",
+          "type": "string"
+        },
+        {
+          "const": "trace",
+          "description": "Everything the engine logs.",
+          "type": "string"
+        }
+      ]
+    },
+    "LogLevelSet": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` answers: nothing more.",
       "type": "object"
     },
     "MainContent": {
@@ -5491,6 +5607,54 @@
       ],
       "type": "object"
     },
+    "RunAddSeedParams": {
+      "additionalProperties": false,
+      "description": "What `run.add_seed` takes: one seed for a running crawl.",
+      "properties": {
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeedAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The attempt that adds it, when a handler adds it through its\ncontext's `run`; absent, the program adds it from outside any\nattempt."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "seed": {
+          "$ref": "#/$defs/Seed",
+          "arrived_in": "0.1",
+          "description": "The seed."
+        }
+      },
+      "required": [
+        "run_id",
+        "seed"
+      ],
+      "type": "object"
+    },
+    "RunAddSeedsParams": {
+      "additionalProperties": false,
+      "description": "What `run.add_seeds` takes: the running crawl its Client streams seeds\nto.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -6148,6 +6312,30 @@
       ],
       "type": "object"
     },
+    "RunSeedsAdded": {
+      "description": "What `run.add_seeds` answers once its stream ended: how many of the\nseeds it took were added, and how many were not.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "The seeds added.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_added": {
+          "arrived_in": "0.1",
+          "description": "The seeds not added, each with its reason in its answer.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "added",
+        "not_added"
+      ],
+      "type": "object"
+    },
     "RunSeedsParams": {
       "additionalProperties": false,
       "description": "What `run.seeds` takes.",
@@ -6768,6 +6956,11 @@
           "arrived_in": "0.1",
           "description": "The body it is sent with, if any."
         },
+        "forefront": {
+          "arrived_in": "0.1",
+          "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first; `false` by default.",
+          "type": "boolean"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
@@ -6805,6 +6998,58 @@
       "required": [
         "url",
         "label"
+      ],
+      "type": "object"
+    },
+    "SeedAttempt": {
+      "additionalProperties": false,
+      "description": "The attempt a seed is added from: a handler's `ctx.run`, which is bound\nto its attempt (ADR 0093).",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt adds the seed.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "crawl_request_id",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
+    "SeedBatch": {
+      "additionalProperties": false,
+      "description": "What `$/seeds` carries: the next seeds a Client streams to a\n`run.add_seeds` call, never more than the credits the call granted.",
+      "properties": {
+        "end": {
+          "arrived_in": "0.1",
+          "description": "Whether they are the stream's last: the call answers once it\nanswered them.",
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `run.add_seeds` call."
+        },
+        "seeds": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "The seeds, in order.",
+          "items": {
+            "$ref": "#/$defs/Seed"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
       ],
       "type": "object"
     },
@@ -6865,6 +7110,21 @@
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
+    },
+    "SetLogLevelParams": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` takes.",
+      "properties": {
+        "log_level": {
+          "$ref": "#/$defs/LogLevel",
+          "arrived_in": "0.1",
+          "description": "The Connection's new level."
+        }
+      },
+      "required": [
+        "log_level"
+      ],
+      "type": "object"
     },
     "SettingsExplanation": {
       "description": "What `config.explain` answers and `config explain --json` prints:\nevery setting's effective value, the layer that set it and the layer\nthat locked it (ADR 0028), and the files read.",
@@ -7986,6 +8246,11 @@
         "$ref": "#/$defs/CreditParams"
       }
     },
+    "enqueued": {
+      "params": {
+        "$ref": "#/$defs/EnqueuedBatch"
+      }
+    },
     "events": {
       "params": {
         "$ref": "#/$defs/EventBatch"
@@ -8002,6 +8267,16 @@
     "key": {
       "params": {
         "$ref": "#/$defs/KeyValueStoreKey"
+      }
+    },
+    "log": {
+      "params": {
+        "$ref": "#/$defs/LogEvent"
+      }
+    },
+    "seeds": {
+      "params": {
+        "$ref": "#/$defs/SeedBatch"
       }
     }
   },
@@ -8361,6 +8636,11 @@
                       }
                     ],
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+                  },
+                  "secret": {
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -8506,6 +8786,35 @@
                     "description": "How many pages the sample crawl visits.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "scope": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "exclude": {
+                        "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, none of which a link may match, besides `crawl.scope.strategy` and `crawl.scope.include`. None by default. Fixed for a Run's life.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "include": {
+                        "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, of which a link must match one when there are any, besides `crawl.scope.strategy`, which they never replace. None by default. Fixed for a Run's life.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "strategy": {
+                        "description": "What a crawl's links are measured by against every seed, on every enqueue, redirect and Hook rewrite: `same_hostname` (Crawlee's default), `same_domain` (the registrable domain under the Public Suffix List), `same_origin` or `all`. One leading `www.` label is ignored, and under `same_origin` an `http` seed also admits its host's `https` origin on the same port. A link outside it is not added with `out_of_scope`. Fixed for a Run's life.",
+                        "enum": [
+                          "same_hostname",
+                          "same_domain",
+                          "same_origin",
+                          "all"
+                        ]
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -8567,6 +8876,26 @@
                 },
                 "type": "object"
               },
+              "log": {
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "network": {
                 "additionalProperties": false,
                 "properties": {
@@ -8580,6 +8909,23 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "traces_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -8693,6 +9039,19 @@
                       "full",
                       "fast"
                     ]
+                  },
+                  "key_reference": {
+                    "anyOf": [
+                      {
+                        "description": "A Secret reference, such as `env:NAME`.",
+                        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
                   },
                   "layout": {
                     "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
@@ -8819,6 +9178,11 @@
                       }
                     ],
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+                  },
+                  "secret": {
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -9057,6 +9421,35 @@
                     "description": "How many pages the sample crawl visits.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "scope": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "exclude": {
+                        "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, none of which a link may match, besides `crawl.scope.strategy` and `crawl.scope.include`. None by default. Fixed for a Run's life.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "include": {
+                        "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, of which a link must match one when there are any, besides `crawl.scope.strategy`, which they never replace. None by default. Fixed for a Run's life.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "strategy": {
+                        "description": "What a crawl's links are measured by against every seed, on every enqueue, redirect and Hook rewrite: `same_hostname` (Crawlee's default), `same_domain` (the registrable domain under the Public Suffix List), `same_origin` or `all`. One leading `www.` label is ignored, and under `same_origin` an `http` seed also admits its host's `https` origin on the same port. A link outside it is not added with `out_of_scope`. Fixed for a Run's life.",
+                        "enum": [
+                          "same_hostname",
+                          "same_domain",
+                          "same_origin",
+                          "all"
+                        ]
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -9118,6 +9511,26 @@
                 },
                 "type": "object"
               },
+              "log": {
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "network": {
                 "additionalProperties": false,
                 "properties": {
@@ -9131,6 +9544,23 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "traces_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -9244,6 +9674,19 @@
                       "full",
                       "fast"
                     ]
+                  },
+                  "key_reference": {
+                    "anyOf": [
+                      {
+                        "description": "A Secret reference, such as `env:NAME`.",
+                        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
                   },
                   "layout": {
                     "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
@@ -9370,6 +9813,11 @@
                       }
                     ],
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+                  },
+                  "secret": {
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -9624,6 +10072,35 @@
                     "description": "How many pages the sample crawl visits.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "scope": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "exclude": {
+                        "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, none of which a link may match, besides `crawl.scope.strategy` and `crawl.scope.include`. None by default. Fixed for a Run's life.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "include": {
+                        "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, of which a link must match one when there are any, besides `crawl.scope.strategy`, which they never replace. None by default. Fixed for a Run's life.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "strategy": {
+                        "description": "What a crawl's links are measured by against every seed, on every enqueue, redirect and Hook rewrite: `same_hostname` (Crawlee's default), `same_domain` (the registrable domain under the Public Suffix List), `same_origin` or `all`. One leading `www.` label is ignored, and under `same_origin` an `http` seed also admits its host's `https` origin on the same port. A link outside it is not added with `out_of_scope`. Fixed for a Run's life.",
+                        "enum": [
+                          "same_hostname",
+                          "same_domain",
+                          "same_origin",
+                          "all"
+                        ]
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -9685,6 +10162,26 @@
                 },
                 "type": "object"
               },
+              "log": {
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "network": {
                 "additionalProperties": false,
                 "properties": {
@@ -9698,6 +10195,23 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "traces_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -9811,6 +10325,19 @@
                       "full",
                       "fast"
                     ]
+                  },
+                  "key_reference": {
+                    "anyOf": [
+                      {
+                        "description": "A Secret reference, such as `env:NAME`.",
+                        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
                   },
                   "layout": {
                     "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
@@ -9937,6 +10464,11 @@
                       }
                     ],
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+                  },
+                  "secret": {
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"

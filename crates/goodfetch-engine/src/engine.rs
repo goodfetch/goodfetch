@@ -9,6 +9,7 @@
 //! major's pick (the `daemon` module).
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::sync::Arc;
 
 use goodfetch_protocol::connection::EngineInstance;
@@ -26,6 +27,7 @@ use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::home::{Home, RunStateLocation};
+use crate::log::LogEvents;
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
@@ -70,6 +72,9 @@ pub struct Dependencies {
     pub run_state: RunStateOptions,
     /// How the per-user Politeness file opens.
     pub politeness: PolitenessOptions,
+    /// The engine's environment map, which `main` reads once (ADR 0083)
+    /// and `env:` Secret references resolve in.
+    pub environment: BTreeMap<OsString, OsString>,
 }
 
 impl Engine {
@@ -79,6 +84,7 @@ impl Engine {
             dispatch: Arc::new(Dispatch {
                 identity: Arc::new(identity),
                 handlers: composition.handlers()?,
+                log_events: LogEvents::new(),
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
@@ -88,6 +94,19 @@ impl Engine {
             events: EventsOptions::default(),
             console: composition.console(),
         })
+    }
+
+    /// The same, each of its Connections receiving the log events of
+    /// `log_events`, whose layer the process's `tracing` subscriber holds,
+    /// at the level the Connection asks for.
+    #[must_use]
+    pub fn with_log_events(mut self, log_events: LogEvents) -> Self {
+        self.dispatch = Arc::new(Dispatch {
+            identity: Arc::clone(&self.dispatch.identity),
+            handlers: self.dispatch.handlers.clone(),
+            log_events,
+        });
+        self
     }
 
     /// The same, its event stream's buffers sized by `options`.
@@ -250,6 +269,7 @@ impl Engine {
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),
+                environment: dependencies.environment,
             },
             owner,
         );

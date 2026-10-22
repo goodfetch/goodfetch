@@ -45,6 +45,12 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub priority: i64,
+    /// Whether it goes ahead of every request its domain holds pending,
+    /// whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    /// such requests, the later goes first; `false` by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub forefront: bool,
     /// The method it is sent with: `GET` by default.
     #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -59,6 +65,14 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key: Option<String>,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 #[expect(

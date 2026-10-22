@@ -550,6 +550,29 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 208
+title = "As a crawl developer, I want `run.addSeed(url, label, payload?, options)` and `run.addSeed(sitemap(...))` to add a seed to a running crawl, committed at once, or staged with the attempt through `ctx.run`, so that new work reaches a running crawl (CO-03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 209
+title = "As a crawl developer, I want `run.addSeeds(source)` to take a list, an iterable or an async iterable of seeds and send them under the connection's credits, yielding each seed's answer in order, so that a million-URL input never sits in memory (CO-02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 210
+title = "As a crawl developer, I want a keep-alive crawl (`crawl.keep_alive`) to take seeds from `addSeed` and `addSeeds` while idle, so that a crawl in a service waits for work (RT-12, golden scenario 12)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
 id = 211
 title = "As a crawl developer, I want every URL a crawl meets (seeds, enqueues, `href`s, sitemap entries, `Location`s, Hook rewrites) parsed once by the WHATWG URL Standard on every tier, so that the crawl sees the links a browser sees (ADR 0120; pitfall U07)."
 milestone = "M1 Core"
@@ -592,6 +615,30 @@ status = "active"
 [[story]]
 id = 220
 title = "As a crawl developer, I want a redirect reaching a key admitted for another request to end `skipped` with `duplicate` and run no handler, so that one page is never handled twice (ADR 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 224
+title = "As a crawl developer, I want `crawl.scope.strategy` (`same_hostname` by default, or `same_domain`, `same_origin` or `all`) measured against every seed and checked on every enqueue, redirect and Hook rewrite, so that a crawl never leaks off-site (CO-05, ADRs 0093, 0104; pitfall U15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 225
+title = "As a crawl developer, I want `crawl.scope.include` and `crawl.scope.exclude` patterns to narrow the strategy and never replace it, and `enqueueLinks`'s own `include` and `exclude` to narrow further, so that patterns never widen a crawl (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 226
+title = "As a crawl developer, I want the scope to ignore one leading `www.` label, and an `http` seed under `same_origin` to admit its host's `https` origin, so that the scope does not wait for evidence (ADR 0120)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

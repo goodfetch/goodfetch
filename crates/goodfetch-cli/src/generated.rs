@@ -18,9 +18,12 @@
 //! one JSON object per line under `--json`, until the call ends. A failure
 //! prints its message, code, retryability and `fix` on stderr, or under
 //! `--json` [`CommandFailed`] on stdout, and exits with its row of
-//! [`exit_codes`]; an interrupt exits with [`exit_codes::INTERRUPTED`]. A
-//! deprecated command warns on stderr with ADR 0030's text, which its
-//! `--help` shows too.
+//! [`exit_codes`]. A command whose operation answers a Run report exits by
+//! how the Run ended ([`exit_codes::of_report`]): `20` for a Run that ended
+//! `stopped`, and under its `--require-verified` `21` for a Verdict other
+//! than `verified`. An interrupt exits with [`exit_codes::INTERRUPTED`],
+//! `SIGTERM` with [`exit_codes::TERMINATED`]. A deprecated command warns on
+//! stderr with ADR 0030's text, which its `--help` shows too.
 
 use std::fmt::Write as _;
 use std::marker::PhantomData;
@@ -36,6 +39,7 @@ use goodfetch_protocol::cli::{CommandError, CommandFailed};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::events::EVENTS;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
+use goodfetch_protocol::run::RunReport;
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
@@ -53,6 +57,14 @@ const JSON: &str = "json";
 
 /// The flag that runs a sequence, printing what it sends as it arrives.
 const FOLLOW: &str = "follow";
+
+/// The flag of a command that answers a Run report that exits `21` when
+/// the Run's Verdict is not `verified` (ADR 0069).
+const REQUIRE_VERIFIED: &str = "require-verified";
+
+/// The type in the bundle's `$defs` of a Run report, by which a command's
+/// exit code follows how its Run ended.
+const RUN_REPORT: &str = "RunReport";
 
 /// The param that is a call's own timeout (ADR 0080): an operation that may
 /// wait takes it, in milliseconds or `null` for none, and one that never
@@ -362,7 +374,18 @@ fn command(operation: &'static Operation) -> Command {
                 .long(JSON)
                 .action(ArgAction::SetTrue)
                 .help(json_help),
+        );
+    let command = if answers_a_run_report(operation) {
+        command.arg(
+            Arg::new(REQUIRE_VERIFIED)
+                .long(REQUIRE_VERIFIED)
+                .action(ArgAction::SetTrue)
+                .help("Exits 21 when the Run ended with a Verdict other than `verified`"),
         )
+    } else {
+        command
+    };
+    let command = command
         // After the settings flags, whose derived arguments set an `about`
         // of their own.
         .about(sentence(operation.description));
@@ -550,6 +573,13 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
     parameters
 }
 
+/// Whether `operation` answers a Run report, by which its command exits.
+fn answers_a_run_report(operation: &Operation) -> bool {
+    let mut generator = SchemaSettings::draft2020_12().into_generator();
+    let result = Value::from((operation.result)(&mut generator));
+    result["$ref"].as_str() == Some(&format!("#/$defs/{RUN_REPORT}"))
+}
+
 /// The fields of `operation`'s result that are points in time, from its
 /// result's JSON Schema (`format: date-time`).
 fn times(operation: &Operation) -> Vec<String> {
@@ -603,6 +633,9 @@ pub struct Call {
     params: Map<String, Value>,
     json: bool,
     follow: bool,
+    /// Whether it answers a Run report, and if so whether
+    /// `--require-verified` was given.
+    report: Option<bool>,
 }
 
 impl Call {
@@ -620,6 +653,7 @@ impl Call {
             params,
             json: matches.get_flag(JSON),
             follow: offer(operation) == Some(Offer::Follow) && matches.get_flag(FOLLOW),
+            report: answers_a_run_report(operation).then(|| matches.get_flag(REQUIRE_VERIFIED)),
         }
     }
 
@@ -649,14 +683,29 @@ impl Call {
                 if !self.follow {
                     self.print(&result, human);
                 }
-                ExitCode::from(exit_codes::SUCCESS)
+                ExitCode::from(self.exit_of(result))
             }
             Answer::Error(error) => self.fail(error, human),
             Answer::Unanswered(problem) => {
                 tracing::error!("{problem}");
                 ExitCode::from(exit_codes::unanswered())
             }
-            Answer::Interrupted => ExitCode::from(exit_codes::INTERRUPTED),
+            Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
+        }
+    }
+
+    /// The exit code of a call that answered `result`: by how the Run ended
+    /// when it is a Run report, else success.
+    fn exit_of(&self, result: Value) -> u8 {
+        let Some(require_verified) = self.report else {
+            return exit_codes::SUCCESS;
+        };
+        match serde_json::from_value::<RunReport>(result) {
+            Ok(report) => exit_codes::of_report(&report, require_verified),
+            Err(problem) => {
+                tracing::error!(%problem, "the engine answered no Run report");
+                exit_codes::unanswered()
+            }
         }
     }
 

@@ -2,13 +2,15 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
   "crawl.serve": { params: RunParams; result: CrawlRunReport };
   "crawl.start": { params: CrawlStartParams; result: RunStarted };
   "crawl_request.enqueue": { params: CrawlRequestEnqueueParams; result: Enqueued };
+  "run.add_seed": { params: RunAddSeedParams; result: Enqueued };
+  "run.add_seeds": { params: RunAddSeedsParams; result: RunSeedsAdded };
   "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
   "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
@@ -48,6 +50,24 @@ export class FoxhoundOperations {
    */
   crawlRequestEnqueue(params: CrawlRequestEnqueueParams): Promise<Enqueued> {
     return this.#caller.call("crawl_request.enqueue", params, {});
+  }
+
+  /**
+   * Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  runAddSeed(params: RunAddSeedParams): Promise<Enqueued> {
+    return this.#caller.call("run.add_seed", params, {});
+  }
+
+  /**
+   * Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  runAddSeeds(params: RunAddSeedsParams, options: CallOptions = {}): Promise<RunSeedsAdded> {
+    return this.#caller.call("run.add_seeds", params, options);
   }
 
   /**

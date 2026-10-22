@@ -85,6 +85,23 @@ CREATE TABLE run (
         report TEXT
     ) STRICT;
 INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',41,NULL,NULL,0,NULL,NULL,'{"run_id":"crawl","lifecycle":"finished","verdict":"verified","completeness":"complete","started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":5,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","records":[{"committed":3,"dataset":"links","dropped":0,"rejected":0},{"committed":3,"dataset":"pages","dropped":0,"rejected":0}],"requests":{"blocked":1,"by_block_cause":[{"count":1,"name":"ip_block"}],"by_error_code":[{"count":1,"name":"deadline_exceeded"}],"failed":1,"pending":0,"skipped":0,"succeeded":3}}');
+CREATE TABLE scope (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            strategy TEXT NOT NULL,
+            include TEXT NOT NULL,
+            exclude TEXT NOT NULL
+        ) STRICT;
+INSERT INTO "scope" VALUES(1,'all','["**/sale"]','["**/admin/**"]');
+CREATE TABLE scope_seeds (
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            scheme TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            PRIMARY KEY (host, port, scheme)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "scope_seeds" VALUES('api.test',0,'https','api.test');
+INSERT INTO "scope_seeds" VALUES('guarded.test',0,'https','guarded.test');
+INSERT INTO "scope_seeds" VALUES('shop.test',0,'https','shop.test');
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -151,6 +168,7 @@ INSERT INTO "work_items" VALUES('5',5,'https://outlet.test/sale','GET',NULL,'hom
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;
+CREATE INDEX scope_seeds_by_domain ON scope_seeds (domain);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);

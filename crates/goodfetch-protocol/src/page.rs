@@ -431,6 +431,17 @@ pub const BROWSER_LAUNCH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Browser host older than the engine that reaches it can drive (ADRs
+/// 0035 and 0096).
+pub const BROWSER_HOST_OUTDATED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_host_outdated",
+    description: "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: Some(12),
+    arrived_in: ARRIVED_IN,
+};
+
 /// A locator (ADR 0085): what an action looks for on a page, resolved
 /// again at each use, never a handle on an element. This tracer's locators
 /// are CSS selectors.
@@ -919,6 +930,7 @@ pub const ENTRIES: Entries = Entries {
         RESPONSE_TRUNCATED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
+        BROWSER_HOST_OUTDATED,
         TARGET_NOT_UNIQUE,
         PATTERN_UNSUPPORTED,
     ],

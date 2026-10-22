@@ -18,7 +18,7 @@
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Declared, Url, admit};
+use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
@@ -151,6 +151,7 @@ pub(crate) struct Adding<'a> {
 /// when added, and answers each seed's answer, in order.
 pub(crate) fn admit_seeds(
     connection: &Connection,
+    scope: &Scope,
     seeds: &[Seed],
 ) -> rusqlite::Result<Vec<Enqueued>> {
     seeds
@@ -165,7 +166,7 @@ pub(crate) fn admit_seeds(
                 url: &seed.url,
                 declared,
             };
-            admit(connection, candidate, |url| {
+            admit(connection, scope, candidate, |url| {
                 add(
                     connection,
                     url,
@@ -175,7 +176,7 @@ pub(crate) fn admit_seeds(
                         label: &seed.label,
                         payload: seed.payload.as_ref(),
                         priority: seed.priority,
-                        forefront: false,
+                        forefront: seed.forefront,
                         depth: 0,
                     },
                 )
@@ -227,15 +228,18 @@ pub(crate) fn attempt(
         .optional()
 }
 
-/// Each work item not keyed yet, in order: its URL, and how it waits once
-/// keyed, its key still empty.
-pub(crate) fn unkeyed(connection: &Connection) -> rusqlite::Result<Vec<(String, Waiting)>> {
+/// The first `limit` work items not keyed yet, in order: each one's URL,
+/// and how it waits once keyed, its key still empty.
+pub(crate) fn unkeyed(
+    connection: &Connection,
+    limit: usize,
+) -> rusqlite::Result<Vec<(String, Waiting)>> {
     connection
         .prepare(
             "SELECT url, id, priority, position, forefront IS NOT NULL FROM work_items
-             WHERE domain_key IS NULL ORDER BY position",
+             WHERE domain_key IS NULL ORDER BY position LIMIT ?1",
         )?
-        .query_map([], |row| {
+        .query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
             Ok((
                 row.get(0)?,
                 Waiting {

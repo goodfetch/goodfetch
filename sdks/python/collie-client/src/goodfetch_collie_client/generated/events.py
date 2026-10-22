@@ -10,10 +10,11 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import DownloadProgress, PageDownload, RequestFailed, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed
+from .models import DownloadProgress, PageDownload, RequestFailed, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed, SystemInfo
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
+    "engine.system_info": SystemInfo,
     "events.resync": Resync,
     "page.download": PageDownload,
     "page.request_failed": RequestFailed,
@@ -28,6 +29,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 """The payload type of each event:
 
 - `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
+- `engine.system_info`: The engine's Resource governor sampled: its Memory allowance and what set it, the memory the engine and its children use, the host's pressure, CPU and Tokio saturation, its level and what holds it there, and each kind's concurrency. Telemetry: a newer sample replaces an unsent one.
 - `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.
 - `page.download`: A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.
 - `page.request_failed`: A request of the run failed while no call waited for it, such as one the egress policy refused with `egress_refused`: the Run trace records it, so a refusal is never a timeout. Names the request's URL and method, and the failure's Error code with its details.
@@ -41,6 +43,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 """
 
 EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
+    "engine.system_info",
     "events.resync",
     "page.download",
     "page.request_failed",

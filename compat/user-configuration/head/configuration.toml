@@ -23,6 +23,26 @@ drain_grace = 30000
 [settings.ops]
 address = "example"
 
+[settings.governor]
+memory_allowance = 4
+pressure = 4
+critical = 4
+sample_interval = 30000
+last_resort_after = 30000
+run_share = 4
+
+[settings.governor.http]
+floor = 4
+ceiling = 4
+
+[settings.governor.browser_page]
+floor = 4
+ceiling = 4
+
+[settings.governor.model_call]
+floor = 4
+ceiling = 4
+
 [settings.browser_cache]
 max_unused_age = 30000
 

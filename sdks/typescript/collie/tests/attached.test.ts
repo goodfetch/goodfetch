@@ -7,7 +7,8 @@ import { dirname, join } from "node:path";
 import { once } from "node:events";
 import { Worker } from "node:worker_threads";
 import { Collie, type Logger } from "@goodfetch/collie";
-import { scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { scriptedEngineEnv, test, type Exit, type ProcessRecord } from "@goodfetch/test-support";
+import { Schema } from "@goodfetch/test-support/protocol-contract";
 import { describe, expect } from "vitest";
 import { startAndFinish } from "./programs/tracer.ts";
 
@@ -319,24 +320,93 @@ describe("the goodfetch-collie bin", () => {
     "runs Collie's executable with its arguments and exit code",
     { tags: ["story:11-2"] },
     async ({ env, processes }) => {
-      const bin = processes.spawn(
-        process.execPath,
-        [join(import.meta.dirname, "..", "src", "bin.ts"), "--version"],
-        { env },
-      );
-      const stdout: Buffer[] = [];
-      bin.child.stdout.on("data", (bytes: Buffer) => stdout.push(bytes));
-      bin.child.stdin.end();
+      const { exit, stdout } = await runBin(processes, ["--version"], env);
 
-      const exit = await bin.exit;
-
-      expect({ exit, stdout: Buffer.concat(stdout).toString() }).toEqual({
+      expect({ exit, stdout }).toEqual({
         exit: { code: 0, signal: null },
         stdout: "goodfetch-collie 0.0.0\n",
       });
     },
   );
+
+  test(
+    "exits 8, unavailable's row, with the failure and its fix on stderr when no executable is installed",
+    { tags: ["story:11-205"] },
+    async ({ env, processes }) => {
+      const { GOODFETCH_COLLIE_ENGINE_PATH: _named, ...unset } = env;
+      const platformPackage = `@goodfetch/collie-${process.platform}-${process.arch}`;
+
+      const ran = await runBin(processes, ["--version"], unset);
+
+      expect(ran).toEqual({
+        exit: { code: 8, signal: null },
+        stdout: "",
+        stderr: [
+          `Collie's engine is not installed: no ${platformPackage}`,
+          "code: engine_not_found",
+          "retryable: false",
+          `fix: Install @goodfetch/collie with its optional dependencies, which hold its engine in ${platformPackage}, or set GOODFETCH_COLLIE_ENGINE_PATH to Collie's executable.`,
+          "",
+        ].join("\n"),
+      });
+    },
+  );
+
+  test(
+    "prints the failure as one JSON value on stdout under --json when the named executable is missing",
+    { tags: ["story:11-204", "story:11-205"] },
+    async ({ env, testEnv, processes }) => {
+      const missing = join(testEnv.folder, "no-such-goodfetch-collie");
+
+      const ran = await runBin(processes, ["run", "finish", "missing", "--json"], {
+        ...env,
+        GOODFETCH_COLLIE_ENGINE_PATH: missing,
+      });
+
+      expect({ ...ran, stdout: JSON.parse(ran.stdout) as unknown }).toEqual({
+        exit: { code: 8, signal: null },
+        stdout: {
+          error: {
+            code: "engine_not_found",
+            group: "unavailable",
+            retryable: false,
+            message: `spawn ${missing} ENOENT`,
+            fix: `GOODFETCH_COLLIE_ENGINE_PATH names ${missing}, which is no executable file: point it at Collie's executable, goodfetch-collie, or leave it unset to use the one @goodfetch/collie installed.`,
+          },
+        },
+        stderr: "",
+      });
+      expect(ran.stdout.endsWith("}\n")).toBe(true);
+      expect(new Schema({ $ref: "#/$defs/CommandFailed" }).problems(JSON.parse(ran.stdout))).toBe(
+        undefined,
+      );
+    },
+  );
 });
+
+/** Runs the goodfetch-collie bin with `args` and `env`, keeping what it wrote. */
+async function runBin(
+  processes: ProcessRecord,
+  args: readonly string[],
+  env: Readonly<Record<string, string>>,
+): Promise<{ readonly exit: Exit; readonly stdout: string; readonly stderr: string }> {
+  const bin = processes.spawn(
+    process.execPath,
+    [join(import.meta.dirname, "..", "src", "bin.ts"), ...args],
+    { env },
+  );
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  bin.child.stdout.on("data", (bytes: Buffer) => stdout.push(bytes));
+  bin.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
+  bin.child.stdin.end();
+  const exit = await bin.exit;
+  return {
+    exit,
+    stdout: Buffer.concat(stdout).toString(),
+    stderr: Buffer.concat(stderr).toString(),
+  };
+}
 
 describe("a worker_threads worker", () => {
   test(

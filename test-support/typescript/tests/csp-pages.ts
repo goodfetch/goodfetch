@@ -10,7 +10,7 @@ import { extname, join } from "node:path";
 import { text } from "node:stream/consumers";
 import { WebSocketServer } from "ws";
 
-/** The Console's Content Security Policy, as ADR 0031 describes it. */
+/** The Console's Content Security Policy (ADR 0031); `production-csp.spec.ts` holds it to the executable's. */
 export const PRODUCTION_CSP: string = [
   "default-src 'none'",
   "script-src 'self'",
@@ -18,6 +18,7 @@ export const PRODUCTION_CSP: string = [
   "img-src 'self'",
   "font-src 'self'",
   "connect-src 'self'",
+  "manifest-src 'self'",
   "base-uri 'none'",
   "form-action 'self'",
   "frame-ancestors 'none'",

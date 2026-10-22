@@ -150,16 +150,27 @@ fn a_negative_answer_carries_the_declared_ttl_in_its_soa(
 }
 
 #[test]
-fn an_alternating_name_answers_a_server_failure_and_a_name_error_in_their_turn() {
+fn an_alternating_name_answers_a_server_failure_a_name_error_and_its_address_in_their_turn() {
     let proving_ground = ProvingGround::start(SEED);
     let dns = proving_ground.dns();
     let name = "servfail.nx.127-0-0-1.alternating.dns.test";
 
-    let rcodes: Vec<_> = (0..4)
-        .map(|_| clients::dns_query(&dns, name, RecordType::A).rcode)
+    let answers: Vec<_> = (0..4)
+        .map(|_| {
+            let answer = clients::dns_query(&dns, name, RecordType::A);
+            (answer.rcode, answer.answers)
+        })
         .collect();
 
-    assert_eq!(rcodes, [2, 3, 0, 2]);
+    assert_eq!(
+        answers,
+        [
+            (2, Vec::new()),
+            (3, Vec::new()),
+            (0, vec![(0, address("127.0.0.1"))]),
+            (2, Vec::new()),
+        ]
+    );
 }
 
 #[test]

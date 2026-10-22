@@ -23,8 +23,9 @@
 //!   cases and every one passed, and `unproved` otherwise, so a capability
 //!   the suite did not reach is never `proved` (ADR 0033);
 //! - a Journey variant is `proved` when every automated step and every check
-//!   passed and every named task is `verified`, a `manual` step aside, and
-//!   `failed` otherwise (ADR 0063).
+//!   passed, every named task is `verified` and no error failed its test
+//!   outside them (`test_errors`), a `manual` step aside, and `failed`
+//!   otherwise (ADR 0063).
 //!
 //! The oracle's answers and the server-side observations are the Proving
 //! ground's own JSON (it depends on no Goodfetch crate); this module reads
@@ -816,6 +817,12 @@ pub struct JourneyFacts {
     /// check naming it, each with the answer to that check's submission in
     /// the checks' order, or once when no check names it.
     pub tasks: Vec<TaskResult>,
+    /// Each error that failed the variant's test outside its steps, checks
+    /// and tasks, with its Error code: a page error or an accessibility
+    /// violation the test found once its body had ended (ADR 0068). A
+    /// variant with one is `failed`, whatever its steps and checks say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub test_errors: Vec<String>,
 }
 
 /// The executable a Journey variant drove: its Product and the Product
@@ -938,8 +945,8 @@ impl JourneyDocument {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum JourneyOutcome {
-    /// Every automated step and check passed and every named task is
-    /// `verified`.
+    /// Every automated step and check passed, every named task is
+    /// `verified` and no error failed the test outside them.
     Proved,
     /// Anything else.
     Failed,
@@ -969,7 +976,7 @@ fn journey_outcome(facts: &JourneyFacts) -> JourneyOutcome {
             .as_ref()
             .is_some_and(|answer| answer.outcome == OracleOutcome::Verified)
     });
-    if steps && checks && tasks {
+    if steps && checks && tasks && facts.test_errors.is_empty() {
         JourneyOutcome::Proved
     } else {
         JourneyOutcome::Failed

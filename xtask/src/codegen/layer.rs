@@ -96,6 +96,11 @@ pub(super) struct ErrorGroup {
     pub(super) description: String,
     /// The JSON-RPC error code the wire carries for the group's codes.
     pub(super) json_rpc_class: i64,
+    /// The CLI's exit code for the group's codes without a row of their own:
+    /// the group's row of ADR 0069's table, which the projection lists as
+    /// `exit_codes`; `None` when it lists none, as the codegen fixture's.
+    #[serde(skip)]
+    pub(super) exit_code: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +110,9 @@ pub(super) struct ErrorCode {
     pub(super) description: String,
     pub(super) group: String,
     pub(super) retryable: bool,
+    /// The code's own row of ADR 0069's exit-code table, when it has one.
+    #[serde(default)]
+    pub(super) exit_code: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,12 +190,23 @@ struct Projection {
     events: Vec<Event>,
     error_groups: Vec<ErrorGroup>,
     error_codes: Vec<ErrorCode>,
+    /// ADR 0069's exit-code table; absent from the codegen fixture's.
+    #[serde(default)]
+    exit_codes: Vec<ExitCodeRow>,
     plugin_kinds: Vec<PluginKind>,
     /// Absent from a catalog that defines no shared type.
     #[serde(default)]
     shared_type_values: Vec<SharedTypeValue>,
     #[serde(rename = "$defs")]
     definitions: Map<String, Value>,
+}
+
+/// A row of ADR 0069's exit-code table: an outcome's, a group's or an Error
+/// code's exit code, by its name.
+#[derive(Deserialize)]
+struct ExitCodeRow {
+    name: String,
+    code: u8,
 }
 
 /// One SDK package's layer.
@@ -239,6 +258,13 @@ impl Layer {
                 without_meta(&mut definitions);
                 definitions.sort_keys();
                 let shared_types = shared_types(&collie.shared_type_values, |_| true, |_| false);
+                for group in &mut collie.error_groups {
+                    group.exit_code = collie
+                        .exit_codes
+                        .iter()
+                        .find(|row| row.name == group.name)
+                        .map(|row| row.code);
+                }
                 Ok(Self {
                     product,
                     protocol_version: collie.protocol_version,

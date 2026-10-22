@@ -23,6 +23,7 @@ const READ: &str = env!("CARGO_BIN_EXE_goodfetch-conformance");
 fn document(outcome: OracleOutcome) -> ResultDocument {
     let task = TaskId::try_from("catalog/2".to_owned()).unwrap();
     ResultDocument::Journey(JourneyDocument::new(JourneyFacts {
+        test_errors: Vec::new(),
         journey_id: JourneyId::try_from("J-004".to_owned()).unwrap(),
         surface: "sdk-python".to_owned(),
         executable: Executable {
@@ -97,6 +98,7 @@ const READ_STEP: &str = "Read every product the catalog lists, from its first li
 fn j951_document(steps: &[&str]) -> ResultDocument {
     let task = TaskId::try_from("catalog/1".to_owned()).unwrap();
     ResultDocument::Journey(JourneyDocument::new(JourneyFacts {
+        test_errors: Vec::new(),
         journey_id: JourneyId::try_from("J-951".to_owned()).unwrap(),
         surface: "cli".to_owned(),
         executable: Executable {

@@ -3,13 +3,14 @@
 // streams pushed events by position across a dropped Connection, and serves
 // bodies by handle. A tiny Client written here drives it through its
 // `transport` and `bodyFetcher`, until area 12's Console Client exists.
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
-import { test } from "@goodfetch/test-support";
+import { test, type ProcessRecord } from "@goodfetch/test-support";
 import {
   createProtocolAdapter,
   failure,
@@ -245,6 +246,61 @@ describe("createProtocolAdapter", () => {
   });
 });
 
+/** The generated refusal vectors of a Client's `hello`, which the Rust engine's own test plays too. */
+const HELLO_VECTORS = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "crates",
+  "goodfetch-protocol",
+  "generated",
+  "refusals",
+  "protocol",
+);
+
+interface HelloVector {
+  readonly name: string;
+  readonly found: string;
+  readonly hello: {
+    readonly engine: "collie" | "foxhound";
+    readonly needs: "collie" | "foxhound";
+    readonly reply:
+      | { readonly accepted: { readonly protocol_version: string } }
+      | { readonly refused: { readonly error_code: string } };
+  };
+}
+
+const helloVectors: HelloVector[] = readdirSync(HELLO_VECTORS)
+  .filter((name) => name.startsWith("client-"))
+  .map((name) => ({ name, ...JSON.parse(readFileSync(join(HELLO_VECTORS, name), "utf8")) }));
+
+describe("ProtocolAdapter hello", () => {
+  test.for(helloVectors)("answers $name as the engine does", async ({ found, hello }) => {
+    const adapter = createProtocolAdapter({ product: hello.engine });
+    const client = new TinyClient(adapter.transport);
+
+    const reply = await client.call(0, "hello", {
+      protocol_version: found,
+      surface: "console",
+      needs: hello.needs,
+      product_version: "0.1.0",
+    });
+
+    const answered =
+      "accepted" in hello.reply
+        ? { protocol_version: hello.reply.accepted.protocol_version }
+        : { code: hello.reply.refused.error_code };
+    const result = reply["result"];
+    const error = reply["error"];
+    expect(
+      isFields(result)
+        ? { protocol_version: result["protocol_version"] }
+        : { code: isFields(error) && isFields(error["data"]) ? error["data"]["code"] : undefined },
+    ).toEqual(answered);
+  });
+});
+
 describe("ProtocolAdapter events", () => {
   test("streams pushed events to a subscription, never more than its credits", async () => {
     const adapter = createProtocolAdapter();
@@ -404,6 +460,28 @@ const vitest = join(
 );
 const fixture = fileURLToPath(new URL("fixtures/protocol-adapter/", import.meta.url));
 
+/** Runs the tests of the fixture project the pattern names in their own Vitest, and gives each one's `ran:` line. */
+async function runFixture(
+  processes: ProcessRecord,
+  pattern: string,
+  onTestFinished: (cleanup: () => Promise<void>) => void,
+): Promise<string[]> {
+  const output = await mkdtemp(join(tmpdir(), "goodfetch-protocol-adapter-"));
+  onTestFinished(() => rm(output, { recursive: true, force: true }));
+  const run = processes.spawn(
+    process.execPath,
+    [vitest, "run", "--config", "vitest.config.ts", "--root", ".", `--testNamePattern=${pattern}`],
+    { env: { ...process.env, GOODFETCH_FIXTURE_OUTPUT: output }, cwd: fixture },
+  );
+  let stdout = "";
+  run.child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  run.child.stderr.resume();
+  await run.exit;
+  return stdout.split("\n").filter((line) => line.startsWith("ran: "));
+}
+
 // Each case runs one test of the fixture project of fixtures/protocol-adapter/
 // in its own Vitest, and reads how it ended and the codes that failed it.
 describe("ProtocolAdapter failing the test", () => {
@@ -423,21 +501,26 @@ describe("ProtocolAdapter failing the test", () => {
       ran: "ran: a call answered as the bundle allows passed ",
     },
   ])("$name", async ({ name, ran }, { processes, onTestFinished }) => {
-    const output = await mkdtemp(join(tmpdir(), "goodfetch-protocol-adapter-"));
-    onTestFinished(() => rm(output, { recursive: true, force: true }));
-    const run = processes.spawn(
-      process.execPath,
-      [vitest, "run", "--config", "vitest.config.ts", "--root", ".", `--testNamePattern=^${name}$`],
-      { env: { ...process.env, GOODFETCH_FIXTURE_OUTPUT: output }, cwd: fixture },
+    const lines = await runFixture(processes, `^${name}$`, onTestFinished);
+
+    expect(lines).toEqual([ran]);
+  });
+});
+
+describe("ProtocolAdapter once its test ended", () => {
+  test("closes its Connections, so a late answer reaches no Client in the next test", async ({
+    processes,
+    onTestFinished,
+  }) => {
+    const lines = await runFixture(
+      processes,
+      "^(a test ending before its answer comes|the test after it)$",
+      onTestFinished,
     );
-    let stdout = "";
-    run.child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    run.child.stderr.resume();
 
-    await run.exit;
-
-    expect(stdout.split("\n").filter((line) => line.startsWith("ran: "))).toEqual([ran]);
+    expect(lines).toEqual([
+      "ran: a test ending before its answer comes passed ",
+      "ran: the test after it passed ",
+    ]);
   });
 });

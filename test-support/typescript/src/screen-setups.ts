@@ -1,7 +1,8 @@
 // The screens' setup file, `console/screens.toml` (ADR 0073): how each
 // Console screen's generated keyboard walk opens it, one `[[screen]]` entry
 // each, naming the screen's Feature, the route it opens at with every
-// parameter filled, and whether a person is signed in. Area 12 fills it;
+// parameter filled, whether a person is signed in, and its keyboard walk:
+// each stop's role and accessible name, in Tab order. Area 12 fills it;
 // `testEachScreen` reads it. A field not given yet is `undefined` here, so
 // that screen's case fails by name rather than the whole file.
 import { readFileSync } from "node:fs";
@@ -25,9 +26,11 @@ export interface ScreenSetup {
   readonly route: string | undefined;
   /** `signed-in` follows the executable's single-user sign-in link before the screen opens. */
   readonly signIn: SignInState | undefined;
+  /** Its keyboard walk, each stop as `<role> <accessible name>`, in Tab order: `link Runs`. */
+  readonly walk: readonly string[] | undefined;
 }
 
-const FIELDS: readonly string[] = ["feature", "route", "sign_in"];
+const FIELDS: readonly string[] = ["feature", "route", "sign_in", "walk"];
 
 /**
  * The entries of a screen setup file's text, by Feature; fails with
@@ -83,7 +86,7 @@ function setupAt(entry: unknown, position: number): ScreenSetup {
   if (unknownFields.length > 0) {
     throw invalid(`has fields it does not define: ${unknownFields.join(", ")}`);
   }
-  const { feature, route, sign_in: signIn } = fields;
+  const { feature, route, sign_in: signIn, walk } = fields;
   if (typeof feature !== "string" || !feature.startsWith("screen:")) {
     throw invalid("names no `screen:` Feature");
   }
@@ -94,7 +97,13 @@ function setupAt(entry: unknown, position: number): ScreenSetup {
   if (signIn !== undefined && state === undefined) {
     throw invalid(`gives ${feature} a sign-in state other than ${SIGN_IN_STATES.join(" or ")}`);
   }
-  return { feature, route, signIn: state };
+  if (
+    walk !== undefined &&
+    (!Array.isArray(walk) || !walk.every((stop) => typeof stop === "string" && stop !== ""))
+  ) {
+    throw invalid(`gives ${feature} a walk that is no list of \`<role> <name>\` stops`);
+  }
+  return { feature, route, signIn: state, walk };
 }
 
 /** The entries of the screen setup file of the workspace at `root`; `screen_setups_invalid` when it cannot be read. */

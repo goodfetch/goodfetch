@@ -127,7 +127,7 @@ pub use journey_run::{
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
-pub use locales::{TimeZoneCase, locales, time_zones};
+pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -154,7 +154,7 @@ pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{
     ConsoleState, DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
-    RuntimeFileError, SCRIPTED_DAEMON_TOKEN,
+    RuntimeFileError, SCRIPTED_DAEMON_TOKEN, SOCKET_FOLDER_PREFIX,
 };
 pub use script::{
     Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
@@ -170,7 +170,8 @@ pub use ssrf::{
     Miss, Outcome, Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
 };
 pub use strict_stdout::{
-    Line, MESSAGE_DEADLINE, STDERR_GRACE, StrictStdout, StrictStdoutError, StrictStdoutErrorKind,
+    Line, MESSAGE_DEADLINE, STDERR_GRACE, STDERR_LIMIT, StrictStdout, StrictStdoutError,
+    StrictStdoutErrorKind,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};

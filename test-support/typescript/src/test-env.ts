@@ -71,7 +71,11 @@ export interface TestEnvStart {
   readonly provingGroundSeed?: number | undefined;
   /** The Product whose Daemon to start in the test's home, when given. */
   readonly daemon?: Product | undefined;
-  /** How long teardown waits for `goodfetch-test-env` to end once its stdin closes, 10 s unless a test sets a shorter one. */
+  /**
+   * How long, in milliseconds, `goodfetch-test-env` has to tear down once
+   * its stdin closes; ten seconds when absent. A test of a teardown past the
+   * deadline sets a short one, so it waits no real ten seconds.
+   */
   readonly teardownDeadlineMs?: number | undefined;
 }
 
@@ -87,8 +91,7 @@ export interface StartedTestEnv {
   close(outcome?: { readonly failed: boolean }): Promise<void>;
 }
 
-/** How long `goodfetch-test-env` has to tear down once its stdin closes. */
-/** How long teardown waits for `goodfetch-test-env` to end, unless the start sets another. */
+/** How long `goodfetch-test-env` has to tear down once its stdin closes, unless the start says otherwise. */
 const TEARDOWN_DEADLINE_MS = 10_000;
 
 const TOOLS_VARIABLE = "GOODFETCH_TEST_TOOLS";

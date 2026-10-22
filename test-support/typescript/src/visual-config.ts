@@ -73,10 +73,13 @@ export type Repeatability =
   /** A run gave other pixels: the browser stays out until 20 runs repeat, `tracking` says where that is followed. */
   | { readonly verdict: "differs"; readonly runs: string; readonly tracking: string };
 
-/** The measurement every browser's verdict rests on. */
+/** The measurements every browser's verdict rests on. */
 const MEASURED =
   "2026-10-20, `just visual-repeatability` on 7504f560: every Playwright visual case (1, the pinned image's fixture page) " +
-  "repeated its pixels in 20 of 20 runs, in the pinned image on an Apple M3 Max through Docker Desktop's Rosetta for Linux";
+  "repeated its pixels in 20 of 20 runs, in the pinned image on an Apple M3 Max through Docker Desktop's Rosetta for Linux. " +
+  "2026-10-22, `just visual-repeatability chromium,firefox,webkit` on e966a3b6: both Playwright visual cases, the fixture page " +
+  "and a page served under the production CSP (`tests/csp-page.visual.spec.ts`), repeated their pixels in 20 of 20 runs each, " +
+  "in the pinned image under rootless Podman on an AMD EPYC-Milan (Linux x86-64, no emulation)";
 
 /**
  * Each browser's screenshot repeatability in the pinned image, with the runs
@@ -91,9 +94,9 @@ export const REPEATABILITY: Readonly<Record<VisualBrowser, Repeatability>> = {
   webkit: {
     verdict: "repeats",
     runs:
-      `${MEASURED}. A probe of a page served under the production CSP also gave the same pixels in 20 of 20 runs, ` +
-      "but each run failed `failOnErrors`: before a WebKit screenshot Playwright adds an inline <style>, which " +
-      "style-src refuses (csp_violation style-src-elem; #381's report). A served visual case on WebKit fails until that changes.",
+      `${MEASURED}. On WebKit, Playwright adds an inline <style> before each screenshot, which the production CSP ` +
+      "refuses; the shared screenshot helper tolerates exactly that refusal as a known Playwright issue (`known-issues.ts`), " +
+      "so the served case passes `failOnErrors` there, as the 2026-10-22 measurement shows.",
   },
 };
 

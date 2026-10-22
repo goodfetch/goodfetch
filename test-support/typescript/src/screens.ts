@@ -4,12 +4,19 @@
 // opens its screen on its own Daemon, run by the executable of the screen's
 // Product (Collie's for a screen both Products carry, Foxhound's for
 // Foxhound's screens, ADR 0094), at the route and in the sign-in state area
-// 12 gives it in `console/screens.toml`, runs `keyboardWalk` and
-// `focusChecks`, and ends with the axe fixture's pass.
+// 12 gives it in `console/screens.toml`, runs `keyboardWalk`, whose stops
+// must be the walk recorded there (`keyboard_walk_changed`), and never none
+// (`keyboard_walk_empty`), then `focusChecks`, and ends with the axe
+// fixture's pass.
 //
-// A screen without a route or a sign-in state fails its case by name with
-// `screen_setup_missing`; it is never skipped. The cases declare no Feature:
+// A screen without a route, a sign-in state or a walk fails its case by name
+// with `screen_setup_missing`; it is never skipped. A setup whose screen the
+// inventory does not list fails by its Feature (`screen_setup_orphaned`),
+// and a Console with routes whose inventory names no screen fails as a case
+// of its own (`screens_missing`), so no screen drops out unseen. The cases declare no Feature:
 // they check how a screen is built, not the outcome its Feature names.
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { TestSupportError } from "./errors.ts";
 import { readScreens, type Screen } from "./features.ts";
 import { focusChecks, keyboardWalk } from "./focus.ts";
@@ -31,26 +38,65 @@ export {
  */
 export function testEachScreen(root: string): void {
   const setups = readScreenSetups(root);
-  for (const screen of readScreens(root)) {
+  const screens = readScreens(root);
+  for (const screen of screens) {
     test.describe(() => {
       test.use({ product: screen.product });
       caseOf(screen, setups.get(screen.feature));
     });
   }
+  const listed = new Set(screens.map(({ feature }) => feature));
+  for (const feature of setups.keys()) {
+    if (!listed.has(feature)) {
+      test(feature, () => {
+        throw new TestSupportError(
+          "screen_setup_orphaned",
+          `${SCREEN_SETUPS_FILE} sets up ${feature}, which is no active \`screen:\` Feature of the inventory: remove its entry, or run \`just codegen\``,
+        );
+      });
+    }
+  }
+  const routeLists = consoleRouteLists(root);
+  if (screens.length === 0 && routeLists.length > 0) {
+    test("every screen", () => {
+      throw new TestSupportError(
+        "screens_missing",
+        `the Console has routes (${routeLists.join(", ")}), and the inventory names no \`screen:\` Feature: run \`just codegen\``,
+      );
+    });
+  }
+}
+
+/** The route lists the Console's packages commit, `console/<package>/routes.json`, from which `screen:` Features come. */
+function consoleRouteLists(root: string): string[] {
+  const folder = join(root, "console");
+  if (!existsSync(folder)) {
+    return [];
+  }
+  return readdirSync(folder, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join("console", entry.name, "routes.json"))
+    .filter((path) => existsSync(join(root, path)));
 }
 
 function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
   const route = setup?.route;
   const signInState = setup?.signIn;
-  if (route === undefined || signInState === undefined) {
+  const walk = setup?.walk;
+  if (route === undefined || signInState === undefined || walk === undefined) {
     const missing = [
       ...(route === undefined ? ["no route"] : []),
       ...(signInState === undefined ? ["no sign-in state"] : []),
+      ...(walk === undefined ? ["no keyboard walk"] : []),
     ];
+    const listed =
+      missing.length === 1
+        ? missing[0]
+        : `${missing.slice(0, -1).join(", ")} and ${missing.at(-1) ?? ""}`;
     test(screen.feature, () => {
       throw new TestSupportError(
         "screen_setup_missing",
-        `${screen.feature} has ${missing.join(" and ")} in ${SCREEN_SETUPS_FILE}, where area 12 gives each screen both`,
+        `${screen.feature} has ${listed} in ${SCREEN_SETUPS_FILE}, where area 12 gives each screen all three`,
       );
     });
     return;
@@ -72,6 +118,19 @@ function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
       body: JSON.stringify(stops, null, 2),
       contentType: "application/json",
     });
+    if (stops.length === 0) {
+      throw new TestSupportError(
+        "keyboard_walk_empty",
+        `${screen.feature} has no stop for the keyboard: Tab reaches nothing on it`,
+      );
+    }
+    const walked = stops.map(({ role, name }) => `${role} ${name}`);
+    if (JSON.stringify(walked) !== JSON.stringify(walk)) {
+      throw new TestSupportError(
+        "keyboard_walk_changed",
+        `${screen.feature}'s keyboard walk is ${JSON.stringify(walked)}, not the ${JSON.stringify(walk)} ${SCREEN_SETUPS_FILE} records; fix the screen, or record the new walk`,
+      );
+    }
     await test.step("focusChecks", () => focusChecks(page));
     // The axe fixture's pass ends the case, once it has passed.
   });

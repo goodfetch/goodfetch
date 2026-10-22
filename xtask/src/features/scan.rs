@@ -178,6 +178,10 @@ pub(crate) struct Test {
     pub(crate) path: String,
     /// The Features its `Covers:` lines and its modules' declare.
     pub(crate) features: Vec<String>,
+    /// What may keep it from running, on it or an enclosing module: each
+    /// `cfg` predicate but `test`, as `cfg(unix)`, a `cfg_attr`, and
+    /// `ignore` for an `#[ignore]`d test.
+    pub(crate) gates: Vec<String>,
 }
 
 /// Every Rust test of the workspace at `root`, read from each Cargo target's
@@ -204,7 +208,7 @@ pub(crate) fn tests(cargo: &OsStr, root: &Path, packages: Option<&[&str]>) -> Re
             };
             let source = &target.src_path;
             let folder = source.parent().context("a crate root sits in a folder")?;
-            context.file(source, folder, &[], &[], &mut tests)?;
+            context.file(source, folder, &[], &Inherited::default(), &mut tests)?;
         }
     }
     Ok(tests)
@@ -237,44 +241,62 @@ struct Target<'a> {
     binary: &'a str,
 }
 
+/// What a module gives every test in it.
+#[derive(Clone, Default)]
+struct Inherited {
+    /// The Features its `Covers:` lines declare.
+    features: Vec<String>,
+    /// Its gates, as [`Test::gates`] holds them.
+    gates: Vec<String>,
+}
+
+impl Inherited {
+    /// What a module or function with these attributes gives within it.
+    fn within(&self, attributes: &[syn::Attribute]) -> Self {
+        let mut within = self.clone();
+        within.features.extend(covers(attributes));
+        within.gates.extend(gates(attributes));
+        within
+    }
+}
+
 impl Target<'_> {
     /// Reads the module in `path`, whose child modules' files sit in
     /// `children`, at `module_path` below the crate root, with the Features
-    /// its enclosing modules declare for every test in them.
+    /// and gates its enclosing modules give every test in them.
     fn file(
         &self,
         path: &Path,
         children: &Path,
         module_path: &[String],
-        inherited: &[String],
+        inherited: &Inherited,
         tests: &mut Vec<Test>,
     ) -> Result<()> {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let syntax =
             syn::parse_file(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let mut features = inherited.to_vec();
-        features.extend(covers(&syntax.attrs));
+        let within = inherited.within(&syntax.attrs);
         let module = Module {
             path,
             children,
             names: module_path,
             inline: false,
         };
-        self.items(&module, &syntax.items, &features, tests)
+        self.items(&module, &syntax.items, &within, tests)
     }
 
     fn items(
         &self,
         module: &Module<'_>,
         items: &[syn::Item],
-        features: &[String],
+        inherited: &Inherited,
         tests: &mut Vec<Test>,
     ) -> Result<()> {
         for item in items {
             match item {
-                syn::Item::Fn(function) => self.function(module, function, features, tests)?,
-                syn::Item::Mod(child) => self.module(module, child, features, tests)?,
+                syn::Item::Fn(function) => self.function(module, function, inherited, tests)?,
+                syn::Item::Mod(child) => self.module(module, child, inherited, tests)?,
                 _ => {}
             }
         }
@@ -285,14 +307,13 @@ impl Target<'_> {
         &self,
         parent: &Module<'_>,
         child: &syn::ItemMod,
-        features: &[String],
+        inherited: &Inherited,
         tests: &mut Vec<Test>,
     ) -> Result<()> {
         let name = child.ident.to_string();
         let mut module_path = parent.names.to_vec();
         module_path.push(name.clone());
-        let mut inherited = features.to_vec();
-        inherited.extend(covers(&child.attrs));
+        let inherited = inherited.within(&child.attrs);
         if let Some((_, items)) = &child.content {
             let module = Module {
                 path: parent.path,
@@ -356,15 +377,14 @@ impl Target<'_> {
         &self,
         module: &Module<'_>,
         function: &syn::ItemFn,
-        features: &[String],
+        inherited: &Inherited,
         tests: &mut Vec<Test>,
     ) -> Result<()> {
         let attributes = &function.attrs;
         if !is_test(attributes) {
             return Ok(());
         }
-        let mut all = features.to_vec();
-        all.extend(covers(attributes));
+        let within = inherited.within(attributes);
         let mut name = module.names.to_vec();
         name.push(function.sig.ident.to_string());
         let base = name.join("::");
@@ -386,7 +406,8 @@ impl Target<'_> {
             name,
             package: self.package.to_owned(),
             path: path.clone(),
-            features: all.clone(),
+            features: within.features.clone(),
+            gates: within.gates.clone(),
         }));
         Ok(())
     }
@@ -444,6 +465,29 @@ fn is_test(attributes: &[syn::Attribute]) -> bool {
             .last()
             .is_some_and(|segment| segment.ident == "test" || segment.ident == "rstest")
     })
+}
+
+/// What among `attributes` may keep a test from running: each `cfg`
+/// predicate but `test`, which holds wherever tests run, as `cfg(<predicate>)`;
+/// a `cfg_attr`, whose attribute may be `ignore`; and `ignore`.
+fn gates(attributes: &[syn::Attribute]) -> Vec<String> {
+    attributes
+        .iter()
+        .filter_map(|attribute| {
+            let path = attribute.path();
+            if path.is_ident("ignore") {
+                return Some("ignore".to_owned());
+            }
+            if !path.is_ident("cfg") && !path.is_ident("cfg_attr") {
+                return None;
+            }
+            let predicate = match &attribute.meta {
+                syn::Meta::List(list) => list.tokens.to_string(),
+                _ => String::new(),
+            };
+            (predicate != "test").then(|| format!("{}({predicate})", path.segments[0].ident))
+        })
+        .collect()
 }
 
 /// The Feature IDs of the `Covers:` lines among doc attributes.

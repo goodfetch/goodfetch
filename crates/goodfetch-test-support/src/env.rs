@@ -18,8 +18,11 @@ use std::time::{Duration, SystemTime};
 
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
 use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
+use crate::locales::{LocaleTableError, table_lang, table_zone};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
-use crate::runtime_file::major_folder;
+use crate::runtime_file::{
+    DaemonEndpoint, RUNTIME_FILE, RuntimeFile, SOCKET_FOLDER_PREFIX, major_folder,
+};
 use crate::variables::{
     COVERAGE_VARIABLE, SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test,
 };
@@ -155,19 +158,26 @@ impl TestEnv {
         })
     }
 
-    /// The same setup with `LANG` for this locale tag (`tr-TR` becomes
-    /// `tr_TR.UTF-8`).
-    #[must_use]
-    pub fn with_locale(mut self, tag: &str) -> Self {
-        self.env.insert("LANG".to_owned(), posix_locale(tag));
-        self
+    /// The same setup with `LANG` for this locale of the shared table
+    /// (ADR 0073), given by its BCP 47 tag (`tr-TR` becomes `tr_TR.UTF-8`).
+    ///
+    /// # Errors
+    ///
+    /// [`LocaleTableError::LocaleUnknown`] for a tag outside the table.
+    pub fn with_locale(mut self, tag: &str) -> Result<Self, LocaleTableError> {
+        self.env.insert("LANG".to_owned(), table_lang(tag)?);
+        Ok(self)
     }
 
-    /// The same setup with `TZ` for this time zone.
-    #[must_use]
-    pub fn with_time_zone(mut self, zone: &str) -> Self {
-        self.env.insert("TZ".to_owned(), zone.to_owned());
-        self
+    /// The same setup with `TZ` for this time zone of the shared table.
+    ///
+    /// # Errors
+    ///
+    /// [`LocaleTableError::TimeZoneUnknown`] for a zone outside the table.
+    pub fn with_time_zone(mut self, zone: &str) -> Result<Self, LocaleTableError> {
+        self.env
+            .insert("TZ".to_owned(), table_zone(zone)?.to_owned());
+        Ok(self)
     }
 
     /// The same setup with one more variable in the map every child gets,
@@ -302,6 +312,7 @@ impl Drop for TestEnv {
         // Children first, so a browser that crashes while it is stopped has
         // finished writing its dump.
         let alive = self.processes.stop_alive();
+        remove_socket_folders_outside(&self.home);
         let panicking = std::thread::panicking();
         let recorded = self.record.as_ref().map_or(Ok(()), |record| {
             record.append_logs(self.folder.path(), &self.home)
@@ -355,15 +366,35 @@ impl Drop for TestEnv {
     }
 }
 
+/// Removes each socket folder a Daemon of `home` made under `/tmp`, its
+/// socket's path in the home being too long for the OS, and left behind
+/// when it was killed: a folder named `SOCKET_FOLDER_PREFIX…` that holds the
+/// socket a runtime file of the home names.
+fn remove_socket_folders_outside(home: &Path) {
+    let Ok(majors) = std::fs::read_dir(home) else {
+        return;
+    };
+    for major in majors.flatten() {
+        let Ok(found) = RuntimeFile::read(&major.path().join(RUNTIME_FILE)) else {
+            continue;
+        };
+        if let DaemonEndpoint::Unix(socket) = found.endpoint
+            && !socket.starts_with(home)
+            && let Some(folder) = socket.parent()
+            && folder
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(SOCKET_FOLDER_PREFIX))
+        {
+            // Best effort: a folder another test removed is fine.
+            let _ = std::fs::remove_dir_all(folder);
+        }
+    }
+}
+
 /// An `assert_cmd` command with the environment cleared and the test's map
 /// applied, run in the test's folder.
 pub fn command(env: &TestEnv, program: impl AsRef<OsStr>) -> assert_cmd::Command {
     assert_cmd::Command::from_std(env.process_command(program))
-}
-
-/// The `LANG` value of a BCP 47 locale tag: `tr-TR` is `tr_TR.UTF-8`.
-pub(crate) fn posix_locale(tag: &str) -> String {
-    format!("{}.UTF-8", tag.replace('-', "_"))
 }
 
 /// The test's name as a folder name every OS accepts.

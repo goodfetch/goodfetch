@@ -28,6 +28,8 @@ struct JourneyVector {
     steps: Vec<StepOutcome>,
     checks: Vec<CheckOutcome>,
     tasks: Vec<Option<OracleOutcome>>,
+    #[serde(default)]
+    test_errors: Vec<String>,
     outcome: JourneyOutcome,
 }
 
@@ -128,6 +130,7 @@ fn journey_facts(
     tasks: &[Option<OracleOutcome>],
 ) -> JourneyFacts {
     JourneyFacts {
+        test_errors: Vec::new(),
         journey_id: JourneyId::try_from("J-002".to_owned()).unwrap(),
         surface: "cli".to_owned(),
         executable: Executable {
@@ -327,8 +330,10 @@ fn the_journey_constructor_gives_each_vectors_outcome(
 ) {
     let vector: JourneyVector = read_vector(&path);
 
-    let document =
-        JourneyDocument::new(journey_facts(&vector.steps, &vector.checks, &vector.tasks));
+    let document = JourneyDocument::new(JourneyFacts {
+        test_errors: vector.test_errors,
+        ..journey_facts(&vector.steps, &vector.checks, &vector.tasks)
+    });
 
     assert_eq!(document.outcome(), vector.outcome);
 }

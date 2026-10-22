@@ -154,6 +154,10 @@ fn a_fetch_reaches_a_listed_host_and_its_subdomain_and_another_host_is_refused_b
 }
 
 /// The Run trace's request log, as lines of JSON.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Run trace the engine wrote, outside any async worker"
+)]
 fn request_log_lines(run_folder: &std::path::Path) -> Vec<Value> {
     match std::fs::read_to_string(run_folder.join("trace/requests.jsonl")) {
         Ok(text) => text

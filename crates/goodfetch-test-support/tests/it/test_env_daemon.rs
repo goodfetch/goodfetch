@@ -14,8 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use goodfetch_test_support::{
-    DAEMON_DEADLINE, Daemon, DaemonError, Process, Product, RuntimeFile, TOOLS_VARIABLE, TestEnv,
-    Tool, command, tools,
+    Daemon, Process, Product, RuntimeFile, TOOLS_VARIABLE, TestEnv, Tool, command, tools,
 };
 use serde_json::{Value, json};
 
@@ -284,13 +283,14 @@ fn a_stopped_daemon_leaves_no_runtime_file_in_the_home() {
 fn stopping_a_daemon_that_leaves_its_runtime_file_fails() {
     let env = TestEnv::new();
     let program = stand_in(&env, "leaving-daemon", LEAVES_ITS_RUNTIME_FILE, "");
-    let daemon = Daemon::start_program(&env, &program, DAEMON_DEADLINE).unwrap();
+    let daemon =
+        Daemon::start_program(&env, &program, goodfetch_test_support::DAEMON_DEADLINE).unwrap();
     let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
 
     let stopped = daemon.stop(&env);
 
     assert!(
-        matches!(&stopped, Err(DaemonError::RuntimeFileLeft(path)) if *path == runtime_file),
+        matches!(&stopped, Err(goodfetch_test_support::DaemonError::RuntimeFileLeft(path)) if *path == runtime_file),
         "{stopped:?}"
     );
 }

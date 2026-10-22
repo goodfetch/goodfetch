@@ -30,16 +30,16 @@
     }
   },
   "test-support/python/src/goodfetch_test_support/generated/result_document.py": {
-    "input": "49d724450afbe1426c69bb2da329e1a0bda0e8802ca7808a2e22e41d2fcca109",
-    "output": "e3c437f9a8caf934bc6e146123e2c3b7107585a263dc71e347717e021426f43c",
+    "input": "1a1f34813a52b94d1391d2b9d04ed7bd1e4201b671c4d22c78f8fde0ab6a5f40",
+    "output": "47c0860918773a4fbfea4198bf297f2a834f1d3e9b63a5f7cbe6e135631e180a",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "test-support/typescript/src/generated/result-document.ts": {
-    "input": "a806fccbca88473e1a7906ac9bb8568b0b9964f756d316a19bdfc46bab975f31",
-    "output": "7c7f7f00ceabc5bc9c76a09d2cd63d0d66f79c143305b4eb3e6625a015dacf3a",
+    "input": "8257d9a62da200f1bef58fcab00c7fdd12142a0dc8465ac3a6d3ca0dfc86992a",
+    "output": "91dbb41f42509aa0c116c3bb208e1cf64990969fbd44196cfd097bd6c29e4e30",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

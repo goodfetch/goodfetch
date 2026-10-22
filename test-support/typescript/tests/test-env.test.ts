@@ -79,23 +79,6 @@ describe.concurrent("testEnv of two tests running at once", () => {
   }
 });
 
-describe("testEnv with a goodfetch-test-env that stays alive", () => {
-  test("fails its test at teardown with processes_alive", async () => {
-    const processes = new ProcessRecord();
-    const started = await startTestEnv({
-      processes,
-      testName: "stays alive",
-      toolManifest: undefined,
-      program: fake("stays-alive"),
-      teardownDeadlineMs: 200,
-    });
-
-    await started.close();
-
-    await expect(processes.close()).rejects.toMatchObject({ code: "processes_alive" });
-  });
-});
-
 describe("startTestEnv", () => {
   test("gives two setups started at once different folders and homes", async ({
     processes,
@@ -168,6 +151,22 @@ describe("startTestEnv", () => {
 
     await expect(closed).rejects.toMatchObject({ code: "teardown_failed" });
     await processes.close();
+  });
+
+  test("leaves a goodfetch-test-env alive past the teardown deadline to the process record", async () => {
+    const processes = new ProcessRecord();
+    const started = await startTestEnv({
+      processes,
+      testName: "a teardown past its deadline",
+      toolManifest: undefined,
+      program: fake("stays-alive"),
+      teardownDeadlineMs: 100,
+    });
+    await started.close();
+
+    const closed = processes.close();
+
+    await expect(closed).rejects.toMatchObject({ code: "processes_alive" });
   });
 
   test("fails without a test tool manifest", async () => {

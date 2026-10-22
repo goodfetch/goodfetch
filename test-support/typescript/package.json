@@ -12,6 +12,7 @@
     "./journey": "./src/journey.ts",
     "./playwright": "./src/playwright.ts",
     "./protocol-adapter": "./src/protocol-adapter.ts",
+    "./protocol-contract": "./src/protocol-contract.ts",
     "./result-document-reporter": "./src/result-document-reporter.ts",
     "./screens": "./src/screens.ts",
     "./screenshot": "./src/screenshot.ts",

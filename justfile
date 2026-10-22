@@ -720,8 +720,9 @@ release:
 # linux-arm64-gnu, linux-arm64-musl, windows-x64, macos-arm64, macos-x64. On
 # `main`, `commit` is a commit of `main` to test, its head by default, and the
 # macOS cells run on the owner's machine; off `main` the run tests the
-# branch's pushed head with the hosted cells alone. On `main`, the commit's
-# verdict across all its dispatches follows the run's.
+# branch's pushed head with the hosted cells alone. The commit's verdict
+# across all its dispatches follows the run's, naming each cell not green on
+# it, the skipped ones included.
 release-ci cells="all" commit="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -758,12 +759,13 @@ release-ci cells="all" commit="":
     fi
     status=0
     gh run watch "$run" --exit-status || status=$?
-    if [[ "$branch" == main ]]; then
-      [[ -n "$commit" ]] || commit=$(gh run view "$run" --json headSha --jq .headSha)
-      echo "Commit $commit across its dispatches:"
-      GITHUB_TOKEN=$(gh auth token) cargo run --quiet -p xtask -- release-suite verdict \
-        --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
-    fi
+    # A green run may hold skipped cells (the macOS ones off `main`, those not
+    # asked for): the verdict names every cell not green on the commit, so
+    # none passes unnoticed.
+    [[ -n "$commit" ]] || commit=$(gh run view "$run" --json headSha --jq .headSha)
+    echo "Commit $commit across its dispatches:"
+    GITHUB_TOKEN=$(gh auth token) cargo run --quiet -p xtask -- release-suite verdict \
+      --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
     exit "$status"
 
 # The resident-memory check (ADRs 0071, 0094 and 0134): builds both Products'

@@ -89,12 +89,21 @@ fn file_formats() -> serde_json::Value {
     ])
 }
 
+/// The formats of the registry that are settings files, by name.
+const SETTINGS_FILES: [&str; 2] = ["operator-policy", "user-configuration"];
+
 #[test]
 fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
-    let mut formats = emitted.bundle["formats"].as_array().unwrap().clone();
-    let settings_files: Vec<serde_json::Value> = formats
-        .drain(8..)
+    let (settings_files, formats): (Vec<serde_json::Value>, Vec<serde_json::Value>) = emitted
+        .bundle["formats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .cloned()
+        .partition(|format| SETTINGS_FILES.contains(&format["name"].as_str().unwrap()));
+    let settings_files: Vec<serde_json::Value> = settings_files
+        .into_iter()
         .map(|format| {
             json!({
                 "name": format["name"],
@@ -325,7 +334,7 @@ fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
     );
     assert_eq!(
         emitted.bundle["$defs"]["CommandError"]["required"],
-        json!(["code", "group", "retryable", "message", "operation"])
+        json!(["code", "group", "retryable", "message"])
     );
 }
 

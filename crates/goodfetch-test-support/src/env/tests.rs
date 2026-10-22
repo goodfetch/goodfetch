@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::SystemTime;
 
+use crate::locales::LocaleTableError;
 use crate::variables::Variables;
 
 use super::TestEnv;
@@ -152,16 +153,42 @@ fn time_zone_and_locale_default_to_utc_and_c_utf8() {
 fn with_locale_replaces_lang() {
     let env = test_env("env::tests::locale");
 
-    let env = env.with_locale("tr-TR");
+    let env = env.with_locale("tr-TR").unwrap();
 
     assert_eq!(env.env()["LANG"], "tr_TR.UTF-8");
+}
+
+#[test]
+fn with_locale_refuses_a_tag_outside_the_shared_table() {
+    let env = test_env("env::tests::unknown_locale");
+
+    let refused = env.with_locale("tr_TR.UTF-8");
+
+    assert!(
+        matches!(&refused, Err(LocaleTableError::LocaleUnknown { tag }) if tag == "tr_TR.UTF-8"),
+        "{:?}",
+        refused.map(|_| ())
+    );
+}
+
+#[test]
+fn with_time_zone_refuses_a_zone_outside_the_shared_table() {
+    let env = test_env("env::tests::unknown_time_zone");
+
+    let refused = env.with_time_zone("Europe/Berlin");
+
+    assert!(
+        matches!(&refused, Err(LocaleTableError::TimeZoneUnknown { zone }) if zone == "Europe/Berlin"),
+        "{:?}",
+        refused.map(|_| ())
+    );
 }
 
 #[test]
 fn with_time_zone_replaces_tz() {
     let env = test_env("env::tests::time_zone");
 
-    let env = env.with_time_zone("Asia/Kathmandu");
+    let env = env.with_time_zone("Asia/Kathmandu").unwrap();
 
     assert_eq!(env.env()["TZ"], "Asia/Kathmandu");
 }

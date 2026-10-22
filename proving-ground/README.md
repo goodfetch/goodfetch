@@ -33,6 +33,8 @@ The one address serves plain text and TLS: a connection whose first byte starts 
 
 TLS comes from a certificate authority the Proving ground makes from its seed (ADR 0059's one seeded authority): the same seed gives the same authority byte for byte, its keys derived from the seed and every signature RFC 6979's deterministic ECDSA on P-256. `GET /certificate-authority` serves it as PEM. A client trusts it explicitly (the engine's per-domain `trusted_cas`, ADR 0042, or a competitor's documented option); nothing turns verification off. Each host name below has its own leaf certificate, never a wildcard, dated from the clock and valid for 397 days, since some platforms refuse a longer-lived server certificate.
 
+The `certificates` family's host names are pitfall H03's certificates a client must refuse (ADR 0042), each failing verification in one way only, and each answering any path with a page naming its defect to a client an exception lets through: `expired.certificates.test` (signed by the seed's authority, its validity ended the day before `serve` started), `not-yet-valid.certificates.test` (valid from 30 days after), `unknown-issuer.certificates.test` (signed by a second authority from the seed, never published), `name-mismatch.certificates.test` (a leaf for `elsewhere.certificates.test` alone) and `self-signed.certificates.test` (signed by its own key).
+
 ## Page families
 
 Each family is served on its own host name, and each of its tasks on a host name of its own, `<ordinal>.<family host>`, which serves the same pages, so every request names its task. A client maps them to the bound address (the `resolve` setting, ADR 0059):

@@ -25,6 +25,7 @@ use tokio::io::AsyncWriteExt as _;
 use crate::clock::Clock;
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, Resolve, Server};
+use crate::tls::Trust;
 
 /// The user agent of every pinned download: the same for every install and
 /// version (ADR 0043).
@@ -289,9 +290,10 @@ pub(crate) async fn download(
         .header(hyper::header::USER_AGENT, USER_AGENT)
         .body(Empty::<Bytes>::new())
         .map_err(|_| Failure::Network)?;
+    let trust = Trust::endpoint(&fetching.trusted_certificates);
     let network = http_client::Network {
         resolve: &fetching.resolve,
-        trusted_certificates: &fetching.trusted_certificates,
+        trust: &trust,
         clock: fetching.clock,
         delays: fetching.delays,
     };

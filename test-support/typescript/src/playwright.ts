@@ -200,11 +200,15 @@ export const test: TestType<
         oidc: oidcProvider,
       });
       await use(started.daemon);
-      // The pages are audited, then closed, before their Daemon stops, so
-      // no Console tries to reach a Daemon the harness stopped.
-      await auditOnce(context, testInfo);
-      await Promise.all(context.pages().map(async (page) => page.close()));
-      await started.close();
+      try {
+        // The pages are audited, then closed, before their Daemon stops, so
+        // no Console tries to reach a Daemon the harness stopped; a failed
+        // audit still stops it.
+        await auditOnce(context, testInfo);
+      } finally {
+        await Promise.all(context.pages().map(async (page) => page.close()));
+        await started.close();
+      }
     } finally {
       await processes.close();
     }

@@ -8,18 +8,19 @@ Collie, Goodfetch's Product for browser automation.
 Usage: goodfetch-collie [OPTIONS] <COMMAND>
 
 Commands:
-  browsers       Manages the browser builds this version pins in the Browser cache
-  config         Shows the settings and where each value comes from
-  daemon         Starts, stops and shows the Daemon of this executable's major, which both Products share
-  runs           Works on the runs of this executable's major, of both Products
-  upgrade-files  Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
-  engine         Calls the catalog's `engine` operations
-  events         Calls the catalog's `events` operations
-  run            Calls the catalog's `run` operations
-  page           Calls the catalog's `page` operations
-  locator        Calls the catalog's `locator` operations
-  sample         Calls the catalog's `sample` operations
-  usage          Calls the catalog's `usage` operations
+  browsers         Manages the browser builds this version pins in the Browser cache
+  config           Shows the settings and where each value comes from
+  daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
+  runs             Works on the runs of this executable's major, of both Products
+  upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+  engine           Calls the catalog's `engine` operations
+  events           Calls the catalog's `events` operations
+  run              Calls the catalog's `run` operations
+  page             Calls the catalog's `page` operations
+  locator          Calls the catalog's `locator` operations
+  key-value-store  Calls the catalog's `key_value_store` operations
+  sample           Calls the catalog's `sample` operations
+  usage            Calls the catalog's `usage` operations
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -569,6 +570,71 @@ Options:
       --json               Prints the result as JSON
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
+
+$ goodfetch-collie key-value-store --help
+Calls the catalog's `key_value_store` operations
+
+Usage: goodfetch-collie key-value-store [OPTIONS] <COMMAND>
+
+Commands:
+  get     Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
+  set     Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
+  delete  Removes a key from a live Run's Key-value store and answers whether it existed
+  keys    Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie key-value-store get --help
+Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
+
+Usage: goodfetch-collie key-value-store get [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store set --help
+Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
+
+Usage: goodfetch-collie key-value-store set [OPTIONS] --key <KEY> --run-id <RUN_ID> --value <VALUE>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --value <VALUE>    The value: any JSON but a top-level null, which `value_invalid` refuses; a nested null is kept
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store delete --help
+Removes a key from a live Run's Key-value store and answers whether it existed
+
+Usage: goodfetch-collie key-value-store delete [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store keys --help
+Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+
+Usage: goodfetch-collie key-value-store keys [OPTIONS] --follow --run-id <RUN_ID>
+
+Options:
+      --follow           Prints what the call sends as it arrives, until it ends
+      --prefix <PREFIX>  The prefix of the keys it sends; every key when left out
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints what the call sends as one JSON object per line
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
 
 $ goodfetch-collie sample --help
 Calls the catalog's `sample` operations

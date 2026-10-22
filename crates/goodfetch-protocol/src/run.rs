@@ -7,6 +7,10 @@
 //! they answer with; the rows of run state and of the Run index (ADR 0031),
 //! the two formats this module's rows describe (ADR 0066); and what
 //! `runs reindex --json` prints.
+//!
+//! Size: the contract of one Run's lifecycle and its rows, kept whole so the
+//! operations, their Error codes and the run-state formats they write change
+//! together (ADR 0066).
 
 use std::borrow::Cow;
 use std::fmt;

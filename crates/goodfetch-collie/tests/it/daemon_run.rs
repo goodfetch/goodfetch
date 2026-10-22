@@ -292,11 +292,48 @@ fn on_sigterm_daemon_run_checkpoints_each_run_and_its_next_start_resumes_them() 
 /// The foreground Daemon as PID 1 of a container (ADR 0049).
 #[cfg(target_os = "linux")]
 mod pid_one {
+    use std::path::Path;
+    use std::process::Stdio;
     use std::time::{Duration, Instant};
 
     use goodfetch_test_support::TestEnv;
 
     use super::{COLLIE, Foreground, free_address};
+
+    /// The test-only copy of util-linux's `unshare` that `ci/os-services.sh
+    /// setup` installs, root-owned, with an AppArmor profile that gives it
+    /// user namespaces under Ubuntu's restriction on unprivileged ones, which
+    /// stays on for every other program, `/usr/bin/unshare` included (ADR
+    /// 0049; TESTING.md, Storage, network and OS services).
+    const TEST_UNSHARE: &str = "/usr/local/libexec/goodfetch-test-tools/unshare";
+
+    /// A command running the setup's `unshare`, or the one on `PATH` on a
+    /// host the setup never ran on. It fails the test at once, naming the
+    /// restriction, when that `unshare` cannot map the test's user to root
+    /// in a user namespace of its own, rather than leave a Daemon that never
+    /// started.
+    fn unshare(env: &TestEnv) -> std::process::Command {
+        let program = if Path::new(TEST_UNSHARE).exists() {
+            TEST_UNSHARE
+        } else {
+            "unshare"
+        };
+        let probe = env
+            .process_command(program)
+            .args(["--user", "--map-root-user", "true"])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap_or_else(|error| panic!("`{program}` did not run: {error}"));
+        assert!(
+            probe.status.success(),
+            "`{program}` cannot map the test's user to root in a user namespace of its own \
+             ({}). On Ubuntu, `kernel.apparmor_restrict_unprivileged_userns=1` refuses it to \
+             every program that no AppArmor profile gives `userns`: run `ci/os-services.sh \
+             setup`, which installs `{TEST_UNSHARE}` with such a profile",
+            String::from_utf8_lossy(&probe.stderr).trim()
+        );
+        env.process_command(program)
+    }
 
     /// How long the test waits for every orphan to be reaped; a failure,
     /// never a measure.
@@ -356,7 +393,7 @@ mod pid_one {
     fn as_pid_one_of_a_container_daemon_run_reaps_every_orphan() {
         let env = TestEnv::new();
         env.user_configuration(&format!("daemon.address = \"{}\"\n", free_address()));
-        let mut command = env.process_command("unshare");
+        let mut command = unshare(&env);
         command
             .args([
                 "--user",

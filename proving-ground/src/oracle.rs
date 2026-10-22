@@ -66,6 +66,10 @@ struct SubmittedError {
     /// The rule an egress refusal names, such as `private_address`.
     #[serde(default)]
     rule: Option<String>,
+    /// The engine setting a `response_limit_exceeded` names, such as
+    /// `network.max_decompression_ratio`.
+    #[serde(default)]
+    setting: Option<String>,
 }
 
 /// A file a tool returns: its name and its bytes in lowercase or uppercase
@@ -470,6 +474,9 @@ pub(crate) fn judge(
                 && named
                     .rule
                     .is_none_or(|rule| error.rule.as_deref() == Some(rule))
+                && named
+                    .setting
+                    .is_none_or(|setting| error.setting.as_deref() == Some(setting))
         });
         (!matches && submission.status == ToolStatus::Failure).then(|| WrongError {
             expected: named.clone(),

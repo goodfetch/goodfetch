@@ -1,8 +1,6 @@
 //! One page's pipeline: each request its target pauses goes through the
 //! steps the interception lists, in order, as a task of the page's Run.
-//! Steps 4 to 6 and the Secret placeholders and credentials of step 7 are
-//! the places the tickets that build them fill; each is marked where it
-//! goes.
+//! Steps 3 to 8 for what the last route sends on are [`steps`]'s.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -16,7 +14,7 @@ use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
-use goodfetch_engine::egress::{self, Judgment, Policy, RequestKind};
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
@@ -27,8 +25,9 @@ use goodfetch_protocol::page::route::{
 use goodfetch_protocol::page::{PageId, RequestFailed};
 use tokio::sync::oneshot;
 
-use super::answers::{Answer, Answers, Fulfillment, Overrides, Reply, already_handled};
+use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
 use super::routes::Route;
+use super::steps::{self, Overrides, entries};
 use super::{PageState, lock};
 use crate::driver::PageDriver;
 
@@ -122,11 +121,7 @@ impl Held {
 
     /// Takes `overrides` over its own, part by part.
     fn apply(&mut self, overrides: Overrides) {
-        let own = &mut self.overrides;
-        own.url = overrides.url.or(own.url.take());
-        own.method = overrides.method.or(own.method.take());
-        own.headers = overrides.headers.or(own.headers.take());
-        own.post_data = overrides.post_data.or(own.post_data.take());
+        self.overrides = std::mem::take(&mut self.overrides).then(overrides);
     }
 
     /// The request as a route sees it.
@@ -410,55 +405,29 @@ impl PageContext {
     /// the Run trace records it.
     async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
         let id = &held.paused.request_id;
-        // Step 3: the egress check and the domain policy.
-        let request = egress::Request {
-            url: held.url(),
-            kind: RequestKind::Page,
-        };
-        if let Judgment::Refused(refused) = egress::judge(&request, &self.policy) {
-            if held.navigation {
-                // It waits before the navigation fails, so the navigation
-                // raises it.
-                self.state.leave(refused.error());
-                self.fail(id, network::ErrorReason::BlockedByClient).await;
-            } else {
-                self.fail(id, network::ErrorReason::BlockedByClient).await;
-                let failed = RequestFailed {
-                    url: held.url().to_owned(),
-                    method: held.method().to_owned(),
-                    failure: refused.failure(),
-                };
-                if let Err(error) = self.log.request_failed(&failed).await {
-                    tracing::warn!(%error, "the Run trace did not take a refused request");
+        let command = match steps::send_on(id, held.url(), &held.overrides, &self.policy, fetch) {
+            Ok(command) => command,
+            Err(refused) => {
+                if held.navigation {
+                    // It waits before the navigation fails, so the
+                    // navigation raises it.
+                    self.state.leave(refused.error());
+                    self.fail(id, network::ErrorReason::BlockedByClient).await;
+                } else {
+                    self.fail(id, network::ErrorReason::BlockedByClient).await;
+                    let failed = RequestFailed {
+                        url: held.url().to_owned(),
+                        method: held.method().to_owned(),
+                        failure: refused.failure(),
+                    };
+                    if let Err(error) = self.log.request_failed(&failed).await {
+                        tracing::warn!(%error, "the Run trace did not take a refused request");
+                    }
                 }
+                return Err(refused.error());
             }
-            return Err(refused.error());
-        }
-        // Step 4: the never-block list, the Filter lists and
-        // `browser.block_resources` (#713).
-        // Step 5: the Response cache and a replaying Run's Response
-        // recording (area 6).
-        // Step 6: the page's navigation gate, then its lease check (#720).
-        // Step 7: the engine's own additions, which no route read. The
-        // Session's cookies are the browser's own: it puts them on the
-        // request as it sends it on, whatever headers a route set, and the
-        // routes' view leaves them out. Secret placeholders and the
-        // Session's credentials (#654, #733) are resolved here.
-        let overrides = &held.overrides;
-        let headers = overrides.headers.as_ref().map(entries);
-        // Step 8: the network.
-        let continued = self
-            .driver
-            .command(&fetch::ContinueRequestParams {
-                request_id: id.clone(),
-                url: overrides.url.clone(),
-                method: overrides.method.clone(),
-                post_data: overrides.post_data.clone(),
-                headers,
-                intercept_response: fetch.then_some(true),
-            })
-            .await;
-        if let Err(failure) = continued {
+        };
+        if let Err(failure) = self.driver.command(&command).await {
             tracing::debug!(?failure, "a paused request went before it was sent on");
         }
         Ok(())
@@ -512,17 +481,6 @@ impl PageContext {
             tracing::debug!(?failure, "a paused response went before it was sent on");
         }
     }
-}
-
-/// Headers as the browser takes them.
-fn entries(headers: &BTreeMap<String, String>) -> Vec<fetch::HeaderEntry> {
-    headers
-        .iter()
-        .map(|(name, value)| fetch::HeaderEntry {
-            name: name.clone(),
-            value: value.clone(),
-        })
-        .collect()
 }
 
 /// The browser's network error for `reason`.

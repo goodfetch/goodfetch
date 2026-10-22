@@ -18,9 +18,10 @@ world = []
 
 # Which of `interception`'s own modules may import which.
 [submodules.interception]
-answers = []
-pipeline = ["answers", "routes"]
+answers = ["steps"]
+pipeline = ["answers", "routes", "steps"]
 routes = []
+steps = []
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]

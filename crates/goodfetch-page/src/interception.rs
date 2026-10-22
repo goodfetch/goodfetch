@@ -5,6 +5,8 @@
 //! Playwright's routing will (A05-45). The steps, each at its place in
 //! [`pipeline`]:
 //!
+//! Steps 3 to 8, for what the last route sends on, are [`steps`]'s.
+//!
 //! 1. A crawl request's own document fetch has its Hooks applied already
 //!    (ADR 0104); nothing here runs a Hook.
 //! 2. Page routes, later first, then Session routes; `fulfill` and `abort`
@@ -34,6 +36,7 @@
 mod answers;
 mod pipeline;
 mod routes;
+mod steps;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};

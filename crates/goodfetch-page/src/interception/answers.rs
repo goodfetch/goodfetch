@@ -20,17 +20,7 @@ use goodfetch_protocol::page::route::{
 use tokio::sync::{mpsc, oneshot};
 
 use super::lock;
-
-/// What to send instead of what a request carries; each part replaces the
-/// request's whole.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Overrides {
-    pub(crate) url: Option<String>,
-    pub(crate) method: Option<String>,
-    pub(crate) headers: Option<BTreeMap<String, String>>,
-    /// In Base64.
-    pub(crate) post_data: Option<String>,
-}
+pub(crate) use super::steps::Overrides;
 
 /// A response of the program's own.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -2,11 +2,11 @@
 // uses it, against the real `goodfetch-test-env` the tool manifest names;
 // and `startTestEnv`, on which it is built, against a stand-in that
 // misbehaves (`fixtures/fake-test-env.mjs`).
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
-import { ProcessRecord, startTestEnv, test, type Program } from "@goodfetch/test-support";
+import { ProcessRecord, redact, startTestEnv, test, type Program } from "@goodfetch/test-support";
 
 const FAKE_TEST_ENV = fileURLToPath(new URL("fixtures/fake-test-env.mjs", import.meta.url));
 
@@ -22,6 +22,18 @@ describe("testEnv", () => {
     expect(testEnv.env["GOODFETCH_HOME"]).toBe(testEnv.home);
     expect(testEnv.env["TZ"]).toBe("UTC");
     expect(testEnv.start_time).toBe("2026-01-05T09:00:00Z");
+  });
+
+  test("its folder redacts in a snapshot as written, canonical and in JSON", ({ testEnv }) => {
+    const output = [
+      `${testEnv.folder}/a`,
+      `${realpathSync(testEnv.folder)}/b`,
+      JSON.stringify({ path: join(testEnv.folder, "c") }),
+    ].join(" ");
+
+    expect(redact(output, { folder: testEnv.folder })).toBe(
+      `[FOLDER]/a [FOLDER]/b ${JSON.stringify({ path: join("[FOLDER]", "c") })}`,
+    );
   });
 
   test("teardown removes the folder once goodfetch-test-env has ended", ({

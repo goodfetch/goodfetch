@@ -804,6 +804,27 @@ fn a_foxhound_key_given_explicitly_to_a_collie_engine_is_not_in_product(
     );
 }
 
+/// A `Retry-After`'s bound is a crawl's key (ADR 0118), which a Collie
+/// engine refuses.
+///
+/// Covers: story:3-155, setting:politeness.retry_after.max, error:not_in_product
+#[test]
+fn the_bound_on_a_sites_retry_after_is_not_in_product_on_a_collie_engine() {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "politeness": { "retry_after": { "max": 60_000 } } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: "politeness.retry_after.max".to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
 /// Covers: story:3-143
 #[test]
 fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {

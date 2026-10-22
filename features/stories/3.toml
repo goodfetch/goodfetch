@@ -1197,3 +1197,27 @@ milestone = "M1 Core"
 journey = false
 not_journey = "actor"
 status = "active"
+
+[[story]]
+id = 153
+title = "As a site owner, I want a domain's backoff drawn with decorrelated jitter, each wait between `politeness.backoff.initial` and three times the previous one (the first between `initial` and three times it), never below `initial` nor above `politeness.backoff.max`, so that domains behind one origin that back off together come back apart (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 154
+title = "As a site owner, I want my `Retry-After`, in seconds or as an HTTP-date measured against my response's `Date`, waited out by every run on my domain key, past `politeness.backoff.max` and up to `politeness.retry_after.max`, a value that does not parse, `0` or a date already past adding no wait, so that a crawl sends me nothing before the time I asked (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 155
+title = "As a user, I want a request that a site's `Retry-After` holds further away than `politeness.retry_after.max`, the request whose response asked and each one admitted to the domain meanwhile, to end `failed` with `response_unavailable`, unsent and never waited for, its error carrying `retryAfter` and a `fix` naming the setting, a Collie engine refusing the key with `not_in_product`, so that one site's maintenance window never holds my crawl for hours and `run.retry_failed` re-admits those requests once the site is back (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

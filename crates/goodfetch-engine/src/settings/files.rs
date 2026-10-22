@@ -172,17 +172,42 @@ impl SettingsFiles {
 impl SettingsFiles {
     /// The Operator policy of the newest older major in Goodfetch home, if
     /// any: during `0.y` previews each `0.y` minor counts as a major (ADR
-    /// 0030).
+    /// 0030), older than every release major.
+    ///
+    /// The older majors are looked up by their folders' names, newest first,
+    /// so the usual start, with no Operator policy anywhere, never lists
+    /// Goodfetch home (a directory stream's 32 KiB buffer at every engine's
+    /// start). Only a release major without an older major's policy lists
+    /// it, since the previews before it have no known count.
     fn older_operator_policy(&self) -> Option<PathBuf> {
-        let current = major_order(&major_name(&self.version))?;
+        let (major, minor) = major_order(&major_name(&self.version))?;
+        let policy = |folder: String| {
+            Some(self.root.join(folder).join(OPERATOR_POLICY_FILE)).filter(|path| path.is_file())
+        };
+        if major == 0 {
+            return (0..minor)
+                .rev()
+                .find_map(|older| policy(format!("0.{older}")));
+        }
+        (1..major)
+            .rev()
+            .find_map(|older| policy(older.to_string()))
+            .or_else(|| self.newest_preview_operator_policy())
+    }
+
+    /// The Operator policy of the newest `0.y` preview in Goodfetch home, if
+    /// any, found by listing it.
+    fn newest_preview_operator_policy(&self) -> Option<PathBuf> {
         let entries = std::fs::read_dir(&self.root).ok()?;
         entries
             .filter_map(Result::ok)
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                let order = major_order(&name)?;
+                let order @ (0, _) = major_order(&name)? else {
+                    return None;
+                };
                 let policy = entry.path().join(OPERATOR_POLICY_FILE);
-                (order < current && policy.is_file()).then_some((order, policy))
+                policy.is_file().then_some((order, policy))
             })
             .max_by_key(|(order, _)| *order)
             .map(|(_, policy)| policy)

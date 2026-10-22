@@ -19,9 +19,10 @@
 #     ci/commit-leaks.sh (story 1-112);
 #   - the supply-chain and boundary gates (#133): cargo-deny's license
 #     allowlist (ADR 0018), sources, advisories and ADR 0087's workspace-wide
-#     direction; each Product's bans (ci/deny/products.sh); cargo-audit, pnpm
-#     audit and pip-audit (ci/audit.sh, which need their advisory databases,
-#     so this runs before the egress deny); cargo-hack over feature
+#     direction; each Product's bans (ci/deny/products.sh); cargo-audit and
+#     OSV-Scanner over the pinned advisory snapshot (ci/audit.sh, which
+#     downloads it on its first run, so this runs before the egress deny);
+#     cargo-hack over feature
 #     combinations; the MSRV build; cargo-shear on an unused dependency; the
 #     Console packages (ADR 0087).
 set -uo pipefail
@@ -113,29 +114,32 @@ else
   fail product-bans "banned per Product: ${codes:-none}"
 fi
 
-# RustSec's advisories, through cargo-deny and cargo-audit both.
+# The gate's advisories, against the pinned snapshot, offline (ADR 0064):
+# RustSec's through cargo-deny and cargo-audit both, OSV's npm and PyPI
+# databases through OSV-Scanner. `just audit-live`'s own tools have their
+# proofs in ci/proofs/live.sh.
 output=$(ci/audit.sh rust ci/proofs/advisories/Cargo.toml 2>&1)
 status=$?
 if [[ $status -ne 0 ]] && grep -q '^error\[vulnerability\]' <<<"$output" && grep -q '^Crate: *smallvec' <<<"$output"; then
-  pass "cargo-deny and cargo-audit refuse a crate version with a RustSec advisory"
+  pass "cargo-deny and cargo-audit refuse a crate version with an advisory in the pinned RustSec commit"
 else
   fail rust-advisories "exit $status; cargo-deny and cargo-audit must each report smallvec"
 fi
 
-if output=$(ci/audit.sh npm ci/proofs/npm-audit 2>&1); then
-  fail npm-audit "the audit passed"
-elif grep -q 'lodash' <<<"$output"; then
-  pass "pnpm audit refuses a package version with a published advisory"
+if output=$(ci/audit.sh npm ci/proofs/npm-audit/pnpm-lock.yaml 2>&1); then
+  fail npm-advisories "the audit passed"
+elif grep -q '| npm .*| lodash *| 4.17.11 ' <<<"$output"; then
+  pass "OSV-Scanner refuses a pnpm-locked package version with an advisory in the pinned npm database"
 else
-  fail npm-audit "the audit failed without naming lodash"
+  fail npm-advisories "the audit failed without naming lodash 4.17.11"
 fi
 
-if output=$(ci/audit.sh python ci/proofs/pip-audit/requirements.txt 2>&1); then
-  fail pip-audit "the audit passed"
-elif grep -q '^urllib3 *1.24.1' <<<"$output"; then
-  pass "pip-audit refuses a package version with a published advisory"
+if output=$(ci/audit.sh python ci/proofs/uv-audit/uv.lock 2>&1); then
+  fail python-advisories "the audit passed"
+elif grep -q '| PyPI .*| urllib3 *| 1.24.1 ' <<<"$output"; then
+  pass "OSV-Scanner refuses a uv-locked package version with an advisory in the pinned PyPI database"
 else
-  fail pip-audit "the audit failed without naming urllib3"
+  fail python-advisories "the audit failed without naming urllib3 1.24.1"
 fi
 
 # cargo-hack: two features of Collie's SDK crate that clash only together.

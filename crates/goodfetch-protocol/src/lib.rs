@@ -33,6 +33,7 @@ pub mod journey;
 pub mod jsonrpc;
 pub mod key_value_store;
 pub mod log;
+pub mod ops;
 pub mod page;
 pub mod politeness;
 pub mod refusals;

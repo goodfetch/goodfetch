@@ -59,7 +59,7 @@ lint: fmt-check
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
     ci/tool.sh gitleaks ci/canary-rule.sh
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
     ci/tool.sh cargo-shear cargo shear
@@ -897,9 +897,9 @@ screenshots-fetch run:
 # the advisories of every lockfile, the MSRV build, cargo-hack over each
 # Product's SDK crate, Miri and the notice inventory's license check, and the
 # security parts it carries (ADR 0067): `gitleaks` over the change's commits
-# and `cargo fuzz check`. The audits read public advisory databases, so CI
-# runs this before any egress deny. `pre-merge` runs the same parts,
-# cheapest first.
+# and `cargo fuzz check`. The audit downloads its pinned advisory snapshot
+# on its first run, so CI runs this before any egress deny. `pre-merge` runs
+# the same parts, cheapest first.
 supply-chain: audit commit-leaks fuzz-check msrv feature-combinations miri notices
 
 # Scans paths a job uploads (its logs, test reports, snapshots and
@@ -958,12 +958,29 @@ zap phase="scan":
 notices *arguments:
     cargo run --quiet -p xtask -- notices {{ arguments }}
 
-# The security advisories of the Cargo, pnpm and uv lockfiles: cargo-deny's
-# and cargo-audit's (RustSec), pnpm audit's and pip-audit's (ci/audit.sh).
+# The security advisories of the Cargo, pnpm and uv lockfiles, against the
+# advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
+# cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
+# over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
+# downloads the snapshot into target/advisories/; a fail is always the
+# commit's.
 audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
-    ci/audit.sh npm
-    ci/audit.sh python
+    ci/tool.sh osv-scanner ci/audit.sh npm
+    ci/tool.sh osv-scanner ci/audit.sh python
+
+# The live advisory audit, a Live check (ADR 0064) that runs daily on
+# `main`'s head (from the server's cron while the hosted workflows are off):
+# the same lockfiles against the newest RustSec, npm registry and PyPI
+# advisories, through cargo-deny, cargo-audit, pnpm audit and pip-audit
+# (ci/audit.sh live), then the proofs that pnpm audit and pip-audit still
+# refuse a published advisory (ci/proofs/live.sh). A fail is answered by a
+# pull request that fixes the dependency and refreshes the snapshot.
+audit-live:
+    ci/tool.sh cargo-audit ci/audit.sh live rust
+    ci/audit.sh live npm
+    ci/audit.sh live python
+    ci/proofs/live.sh
 
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).
@@ -1109,6 +1126,11 @@ _tlc all:
 _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
+
+# Starts and checks the real OS services the tests use (ci/os-services.sh),
+# which `just pre-merge` runs first on a Linux host.
+_os-services:
+    ci/os-services.sh setup
 
 _skips-report:
     #!/usr/bin/env bash

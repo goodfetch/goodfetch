@@ -11,9 +11,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::sync::Arc;
-use std::time::Duration;
 
-use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::log::{ClockTime, LogEvents};
@@ -28,10 +26,8 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
+use super::otlp::{EXPORT_TIMEOUT, Ureq};
 use super::{Command, DaemonCommand, LOG_FOLDER, LOG_OUTPUT_VARIABLE, Parsed};
-
-/// How long one export to the collector may take.
-const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Where `parsed`'s logs go: whether to their file by default, as a Daemon
 /// a start launched does, which has no terminal (ADR 0122); and to stdout
@@ -222,14 +218,9 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
 
 /// The export of every span to the OTLP/HTTP collector at `endpoint`.
 fn export(endpoint: &str, product: Product) -> Result<SdkTracerProvider, String> {
-    let agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .timeout_global(Some(EXPORT_TIMEOUT))
-        .build()
-        .new_agent();
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_http_client(Ureq(agent))
+        .with_http_client(Ureq::new())
         .with_endpoint(endpoint)
         .with_timeout(EXPORT_TIMEOUT)
         .build()
@@ -241,22 +232,4 @@ fn export(endpoint: &str, product: Product) -> Result<SdkTracerProvider, String>
         .with_batch_exporter(exporter)
         .with_resource(resource)
         .build())
-}
-
-/// The OTLP export's HTTP client: ureq, blocking, on the batch processor's
-/// own thread, which waits on each export.
-#[derive(Debug)]
-struct Ureq(ureq::Agent);
-
-#[async_trait::async_trait]
-impl opentelemetry_http::HttpClient for Ureq {
-    async fn send_bytes(
-        &self,
-        request: http::Request<Bytes>,
-    ) -> Result<http::Response<Bytes>, opentelemetry_http::HttpError> {
-        let response = self.0.run(request.map(|body| body.to_vec()))?;
-        let (parts, mut body) = response.into_parts();
-        let body = body.read_to_vec()?;
-        Ok(http::Response::from_parts(parts, Bytes::from(body)))
-    }
 }

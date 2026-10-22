@@ -97,6 +97,7 @@ use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::ledger::{Charged, Charging, Ledger, Refusal, Reservation};
+use crate::metrics::Metrics;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
 use crate::run_state::install::InstallDatabase;
@@ -174,6 +175,8 @@ pub(crate) struct RunsSetup {
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: BTreeMap<RunKind, Driver>,
+    /// The runtime's metrics, which count the live Runs and their ends.
+    pub(crate) metrics: Metrics,
 }
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
@@ -614,6 +617,7 @@ enum Command {
         oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>,
     ),
     LiveCount(oneshot::Sender<usize>),
+    Health(oneshot::Sender<RegistryHealth>),
     Folder(RunId, oneshot::Sender<PathBuf>),
     Live(RunId, oneshot::Sender<Result<Run, RunError>>),
     Checkpoint(
@@ -636,6 +640,15 @@ enum Command {
     Machine(oneshot::Sender<Result<String, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
+}
+
+/// What the registry answers about the engine's health (ADR 0050): whether
+/// it drains, and the folder its run folders go in.
+pub(crate) struct RegistryHealth {
+    /// Whether the engine drains, taking no Run (ADR 0049).
+    pub(crate) draining: bool,
+    /// The folder of the run folders.
+    pub(crate) folder: PathBuf,
 }
 
 /// Whether a wait for a Run's end lets it finish (ADR 0102): `run.finish`
@@ -707,6 +720,8 @@ struct Shared {
     finish: watch::Sender<bool>,
     /// Its Slices of the Limits that hold it, until it ends.
     charging: tokio::sync::Mutex<Option<Charging>>,
+    /// The runtime's metrics.
+    metrics: Metrics,
     /// Its `tracing` span, a root of its own (ADR 0132), which each of its
     /// tasks runs in.
     span: tracing::Span,
@@ -732,6 +747,12 @@ impl Run {
     /// Its run state's writer.
     pub fn state(&self) -> &RunState {
         &self.state
+    }
+
+    /// The runtime's metrics, which what the Run runs records in (ADR
+    /// 0050).
+    pub fn metrics(&self) -> &Metrics {
+        &self.shared.metrics
     }
 
     /// Its folder, which holds its state and its Run trace.
@@ -1596,6 +1617,18 @@ impl Runs {
         answered.await.unwrap_or(0)
     }
 
+    /// Whether the engine drains and where its run folders go, answered by
+    /// the registry itself: `None` once it stopped or stopped answering.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub(crate) async fn health(&self) -> Option<RegistryHealth> {
+        let (answer, answered) = oneshot::channel();
+        self.commands.send(Command::Health(answer)).await.ok()?;
+        answered.await.ok()
+    }
+
     /// Drains the engine (ADR 0049): from now on it takes no Run, starting
     /// or resuming, and each live Run stops at its next safe point with a
     /// Checkpoint, `stopped` and resumable by its Run ID; answers once the
@@ -1775,6 +1808,15 @@ impl Registry {
                 Command::LiveCount(answer) => {
                     let _ = answer.send(self.live.len());
                 }
+                Command::Health(answer) => {
+                    let _ = answer.send(RegistryHealth {
+                        draining: self.draining,
+                        folder: self
+                            .setup
+                            .location
+                            .folder(&self.setup.home, &self.setup.version),
+                    });
+                }
                 Command::Folder(run_id, answer) => {
                     let _ = answer.send(self.folder(&run_id));
                 }
@@ -1893,9 +1935,11 @@ impl Registry {
             let Live {
                 report: waiters,
                 lock,
+                kind,
                 ..
             } = live;
             drop(lock);
+            self.setup.metrics.run_ended(kind, &report);
             waiters.send_replace(Some(report.clone()));
         }
         self.ended.insert(run_id, report);
@@ -2185,6 +2229,7 @@ impl Registry {
         self.write_index(row).await;
         let run = live.run.clone().expect("invariant: a Run begins live");
         run.watch_safe_points(start.timeout, start.ended_by);
+        self.setup.metrics.run_live(live.kind);
         self.live.insert(run_id.clone(), live);
         if let Some(interval) = start.checkpoint_interval {
             run.spawn(periodic_checkpoints(run.clone(), interval));
@@ -2365,6 +2410,7 @@ impl Registry {
                     epoch,
                     self.limits.placement(connection),
                 ))),
+                metrics: self.setup.metrics.clone(),
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),
                 secrets,
             }),
@@ -2735,6 +2781,7 @@ impl Registry {
         let run = live.run.clone().expect("invariant: a Run resumes live");
         run.watch_safe_points(timeout, live.ended_by);
         let (kind, needs) = (live.kind, live.needs);
+        self.setup.metrics.run_live(kind);
         self.live.insert(run_id.clone(), live);
         self.setup
             .events

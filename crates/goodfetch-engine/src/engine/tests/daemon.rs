@@ -25,6 +25,7 @@ use super::{Client, attached_on, dependencies, engine, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::Engine;
+use crate::ops::Ops;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
@@ -75,6 +76,7 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         console: DaemonConsole::Absent,
         drain: None,
         install: None,
+        ops: Ops::default(),
         websocket: None,
     }
 }
@@ -147,12 +149,12 @@ pub(super) fn hello_with(
     json!({ "jsonrpc": "2.0", "id": 0, "method": "hello", "params": params })
 }
 
-fn cli_hello() -> Value {
+pub(super) fn cli_hello() -> Value {
     hello_with("collie", "0.1", "cli", Some(TOKEN))
 }
 
 /// A Client that said `hello` with the token.
-async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
+pub(super) async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
     let mut client = connect(dialer).await;
     client.send(&[hello]).await;
     let answer = client.next().await.unwrap();
@@ -551,7 +553,7 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
-fn stuck() -> Contribution {
+pub(super) fn stuck() -> Contribution {
     Contribution::new("test-stuck").with_handler(Handler::new(
         &STUCK,
         |params: Value, context: CallContext| async move {
@@ -586,7 +588,7 @@ fn stuck() -> Contribution {
 
 /// The pick, kept alive as `daemon run` is, draining once `asked` is
 /// cancelled, with the default drain grace.
-fn draining(asked: &CancellationToken) -> DaemonOptions {
+pub(super) fn draining(asked: &CancellationToken) -> DaemonOptions {
     DaemonOptions {
         keep_alive: true,
         drain: Some(Drain {

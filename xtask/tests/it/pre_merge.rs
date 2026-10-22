@@ -43,7 +43,17 @@ const STEPS: [&str; 22] = [
 /// The steps that need Linux, run beside the host's.
 const BESIDE: [&str; 3] = ["perf", "linux", "visual"];
 
-/// A stand-in `just` that appends its arguments to `calls` and fails with
+/// The OS-service setup the suite runs first on a Linux host, which runs the
+/// tests only Linux decides itself (`ci/linux.sh`); elsewhere `just linux`'s
+/// container sets the services up for them.
+const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
+    &["_os-services"]
+} else {
+    &[]
+};
+
+/// A stand-in `just` that appends its arguments to `calls`, and them with
+/// the OS services' variables it was given to `variables`, and fails with
 /// status 3 when they are `failing`'s content.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
@@ -51,11 +61,13 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let script = format!(
         r#"#!/bin/sh
 echo "$*" >>"{calls}"
+echo "$*|${{DBUS_SESSION_BUS_ADDRESS:-}}|${{GOODFETCH_OS_SERVICES:-}}|${{GOODFETCH_TEST_DNS_NAMESPACE:-}}" >>"{variables}"
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
   exit 3
 fi
 "#,
         calls = folder.join("calls").display(),
+        variables = folder.join("variables").display(),
         failing = folder.join("failing").display(),
     );
     let just = folder.join("just");
@@ -70,24 +82,53 @@ fi
 struct Run {
     code: Option<i32>,
     calls: Vec<String>,
+    /// Each call as `<arguments>|<session bus>|<GOODFETCH_OS_SERVICES>|<GOODFETCH_TEST_DNS_NAMESPACE>`.
+    variables: Vec<String>,
     stderr: String,
 }
+
+/// The session bus that the stand-in setup's environment file names.
+const BUS: &str = "unix:path=/stand-in/bus";
 
 /// Runs the repository's `ci/pre-merge.sh` in the workspace, with the
 /// stand-in first on `PATH`.
 fn pre_merge(workspace: &Workspace, stand_in: &Path, args: &[&str]) -> Run {
+    pre_merge_with_env(workspace, stand_in, args, &[])
+}
+
+/// Runs `ci/pre-merge.sh` with these variables added, and the environment
+/// file `ci/os-services.sh setup` writes in the workspace's temporary folder.
+fn pre_merge_with_env(
+    workspace: &Workspace,
+    stand_in: &Path,
+    args: &[&str],
+    variables: &[(&str, &str)],
+) -> Run {
+    workspace.write(
+        "runner-temp/goodfetch-os-services/env",
+        format!("DBUS_SESSION_BUS_ADDRESS={BUS}\n").as_bytes(),
+    );
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/pre-merge.sh");
     let path = format!("{}:/usr/bin:/bin", stand_in.display());
     let output = workspace
         .command(script)
         .args(args)
         .env("PATH", path)
+        .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
+        .envs(variables.iter().copied())
         .output()
         .unwrap();
-    let calls = std::fs::read_to_string(stand_in.join("calls")).unwrap_or_default();
+    let read = |file: &str| -> Vec<String> {
+        std::fs::read_to_string(stand_in.join(file))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    };
     Run {
         code: output.status.code(),
-        calls: calls.lines().map(str::to_owned).collect(),
+        calls: read("calls"),
+        variables: read("variables"),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     }
 }
@@ -103,7 +144,11 @@ fn every_pre_merge_check_runs_and_the_skipped_parts_are_listed_last() {
     let mut ran = run.calls.clone();
     assert_eq!(ran.pop().as_deref(), Some("_skips-report"));
     ran.sort();
-    let mut expected = STEPS.map(str::to_owned).to_vec();
+    let mut expected: Vec<String> = HOST_SETUP
+        .iter()
+        .chain(&STEPS)
+        .map(|step| (*step).to_owned())
+        .collect();
     expected.sort();
     assert_eq!(ran, expected);
     let host: Vec<&String> = run
@@ -113,8 +158,9 @@ fn every_pre_merge_check_runs_and_the_skipped_parts_are_listed_last() {
         .collect();
     assert_eq!(
         host,
-        STEPS[..STEPS.len() - BESIDE.len()]
+        HOST_SETUP
             .iter()
+            .chain(&STEPS[..STEPS.len() - BESIDE.len()])
             .collect::<Vec<_>>()
     );
 }
@@ -130,8 +176,9 @@ fn without_all_the_suites_run_over_what_changed() {
     let mut ran = run.calls;
     ran.sort();
     // The same steps, `all` left empty: `just _suite quick ""`.
-    let mut expected: Vec<String> = STEPS
+    let mut expected: Vec<String> = HOST_SETUP
         .iter()
+        .chain(&STEPS)
         .map(|step| step.replace(" all", " "))
         .chain(["_skips-report".to_owned()])
         .collect();
@@ -160,7 +207,11 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
     let run = pre_merge(&workspace, &stand_in, &["quick"]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let mut expected: Vec<String> = QUICK_STEPS.map(str::to_owned).to_vec();
+    let mut expected: Vec<String> = HOST_SETUP
+        .iter()
+        .chain(&QUICK_STEPS)
+        .map(|step| (*step).to_owned())
+        .collect();
     expected.push("_skips-report".to_owned());
     assert_eq!(run.calls, expected);
 }
@@ -215,4 +266,67 @@ fn a_failed_stress_run_stops_the_suite_before_the_later_steps() {
         run.calls
     );
     assert_eq!(run.calls.last().map(String::as_str), Some("_skips-report"));
+}
+
+/// On a Linux host every step after the setup meets the services it
+/// started, and runs where a missing one fails instead of skipping its
+/// tests (`ci/os-services.sh skipped`), with the DNS namespace's way
+/// declared, so a silent fallback fails too.
+#[cfg(target_os = "linux")]
+#[rstest]
+#[case::all("all")]
+#[case::quick("quick")]
+fn on_linux_every_step_runs_with_the_os_services_set_up(#[case] form: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge(&workspace, &stand_in, &[form]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.calls.first().map(String::as_str), Some("_os-services"));
+    let steps: Vec<(&str, &str)> = run
+        .variables
+        .iter()
+        .filter_map(|line| line.split_once('|'))
+        .filter(|(call, _)| !["_os-services", "_skips-report"].contains(call))
+        .collect();
+    assert!(steps.len() > 1, "{:?}", run.variables);
+    for (call, variables) in steps {
+        assert_eq!(variables, format!("{BUS}|required|sudo"), "{call}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn on_linux_a_declared_dns_namespace_way_is_kept() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge_with_env(
+        &workspace,
+        &stand_in,
+        &["quick"],
+        &[("GOODFETCH_TEST_DNS_NAMESPACE", "user_namespace")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert!(
+        run.variables
+            .contains(&format!("lint|{BUS}|required|user_namespace")),
+        "{:?}",
+        run.variables
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn on_linux_a_failed_os_service_setup_stops_the_suite_before_any_step() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), "_os-services").unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert_eq!(run.calls, ["_os-services", "_skips-report"]);
 }

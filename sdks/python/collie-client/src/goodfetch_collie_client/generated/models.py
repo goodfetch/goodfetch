@@ -200,6 +200,22 @@ class EngineInstance(RootModel[str]):
     """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
 
 
+class Enqueued1(BaseModel):
+    """The Frontier admitted it as a crawl request."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """The crawl request's ID within the Run."""
+    kind: Literal["added"]
+    url: str
+    """
+    Its URL as the WHATWG URL Standard parsed it, resolved against
+    its base: the URL its handler receives.
+    """
+
+
 class ErrorData(BaseModel):
     """
     What a failure's `data` holds: its Error code, whether the same call may
@@ -213,6 +229,16 @@ class ErrorData(BaseModel):
     """The Error code, or the name of the protocol failure."""
     retryable: bool
     """Whether the same call may succeed when made again."""
+
+
+class HttpBody(RootModel[str]):
+    root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
+    """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
+
+
+class HttpMethod(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
+    """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
 class KeyValueStoreDeleted(BaseModel):
@@ -373,6 +399,43 @@ class MarkdownOptions(BaseModel):
     )
     content: MarkdownContent
     """How much of the page it holds."""
+
+
+class NotAddedReason(StrEnum):
+    """Why the Frontier did not add a request (ADRs 0093 and 0120)."""
+
+    duplicate = "duplicate"
+    """
+    The Frontier already admitted a request of the same identity: its
+    method, its URL's key and its body's hash, or its declared `key`.
+    """
+    out_of_scope = "out_of_scope"
+    """Its URL is outside the crawl's scope (`crawl.scope.*`)."""
+    domain_policy = "domain_policy"
+    """The Run's domain policy refuses its host."""
+    max_depth = "max_depth"
+    """It is deeper than `crawl.max_depth`."""
+    max_requests = "max_requests"
+    """The crawl already admitted `crawl.max_requests` requests."""
+    unsupported_scheme = "unsupported_scheme"
+    """
+    Its URL's scheme is one the crawl cannot fetch: only `http` and
+    `https` are.
+    """
+    invalid_url = "invalid_url"
+    """
+    The WHATWG URL Standard's parser refuses its URL, or it is relative
+    where nothing gives it a base, as a seed is.
+    """
+    max_url_length = "max_url_length"
+    """Its URL is longer than `crawl.max_url_length`."""
+    max_path_segments = "max_path_segments"
+    """Its URL's path has more segments than `crawl.max_path_segments`."""
+    max_segment_repeats = "max_segment_repeats"
+    """
+    A segment of its URL's path repeats more than
+    `crawl.max_segment_repeats`.
+    """
 
 
 class PageBodyRead(BaseModel):
@@ -695,6 +758,65 @@ class SampleStorePutResult(BaseModel):
     """Whether a value was already kept under the key."""
 
 
+class Seed(BaseModel):
+    """
+    One request a crawl starts from (ADR 0093): a URL, the Label that picks
+    its handler and its Payload, and how it is sent and identified.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    forefront: bool | None = None
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first; `false` by default.
+    """
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
+    label: str
+    """Its Label."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
+    payload: Any | None = None
+    """The data the program attaches for its handler."""
+    priority: int | None = None
+    """
+    Its priority among the requests of its domain: higher goes first,
+    and a priority never orders requests of different domains (ADR
+    0004); 0 by default.
+    """
+    url: str
+    """Its URL."""
+
+
+class SeedBatch(BaseModel):
+    """
+    What `$/seeds` carries: the next seeds a Client streams to a
+    `run.add_seeds` call, never more than the credits the call granted.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: bool | None = None
+    """
+    Whether they are the stream's last: the call answers once it
+    answered them.
+    """
+    id: RequestId
+    """The id of the `run.add_seeds` call."""
+    seeds: Annotated[list[Seed] | None, Field(validate_default=True)] = []
+    """The seeds, in order."""
+
+
 class SessionId(RootModel[str]):
     root: str
     """A Session of a Run, named by the engine when it opens it."""
@@ -856,6 +978,20 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class Unready(StrEnum):
+    """
+    Why a Daemon cannot take a new Run now, as its ops listener's
+    `/readyz` and `daemon health` check it (ADR 0050).
+    """
+
+    draining = "draining"
+    """It drains, taking no Run (ADR 0049)."""
+    run_state_not_writable = "run_state_not_writable"
+    """Its run state cannot be written."""
+    browsers_missing = "browsers_missing"
+    """A browser its configuration uses is not installed."""
+
+
 class UsageListParams(BaseModel):
     """What `usage.list` takes."""
 
@@ -992,15 +1128,42 @@ class ConfigExplainParams(BaseModel):
 
 
 class CreditParams(BaseModel):
-    """What `$/credit` grants: more events, or chunks, for a streaming call."""
+    """
+    What `$/credit` grants: more events, or chunks, for a streaming call;
+    sent by the engine, more seeds a `run.add_seeds` call takes.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     credits: Annotated[int, Field(ge=1)]
-    """How many more events, or chunks, the Client takes."""
+    """
+    How many more events, or chunks, the Client takes; sent by the
+    engine, how many more seeds the call takes.
+    """
     id: RequestId
     """The streaming call's id."""
+
+
+class DaemonHealth(BaseModel):
+    """
+    What `daemon.health` answers: what the ops listener's `/livez` and
+    `/readyz` check (ADR 0050). In a Daemon group, readiness ignores the
+    Lead Daemon's reachability.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    live: bool
+    """
+    Whether it is live: its runtime and its Runs' registry, which writes
+    their run state, respond.
+    """
+    ready: bool
+    """Whether it is ready: live, and able to take a new Run."""
+    unready: list[Unready]
+    """Why it is not ready, when it is not; empty when it is."""
 
 
 class DaemonStatus(BaseModel):
@@ -1062,6 +1225,42 @@ class EngineInfo(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class Enqueued2(BaseModel):
+    """The Frontier did not admit it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its URL as it was given."""
+
+
+class Enqueued(RootModel[Enqueued1 | Enqueued2]):
+    root: Enqueued1 | Enqueued2
+    """
+    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+    value, never an error, since a request is one among many.
+    """
+
+
+class EnqueuedBatch(BaseModel):
+    """
+    What `$/enqueued` carries: the answer of each seed of one `$/seeds`
+    batch, in the batch's order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answers: list[Enqueued]
+    """Each seed's answer."""
+    id: RequestId
+    """The id of the `run.add_seeds` call."""
 
 
 class EventEnvelope(BaseModel):

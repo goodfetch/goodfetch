@@ -132,6 +132,17 @@
       ]
     },
     {
+      "id": "command:daemon.health",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:daemon.install",
       "kind": "command",
       "area": 3,
@@ -1728,6 +1739,17 @@
       ]
     },
     {
+      "id": "operation:daemon.health",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:daemon.status",
       "kind": "operation",
       "area": 3,
@@ -1922,6 +1944,26 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.add_seed",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.add_seeds",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -4233,6 +4275,28 @@
     },
     {
       "id": "setting:network.resolve",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:ops.address",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:otlp.metrics_endpoint",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -15078,10 +15142,43 @@
       ]
     },
     {
+      "id": "story:6-208",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-209",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-21",
       "kind": "story",
       "area": 6,
       "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-210",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",

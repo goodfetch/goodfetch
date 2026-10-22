@@ -9,6 +9,7 @@
 //! store's readers (`allure`, `ceiling`, `scan`), so their dispatch is here.
 
 mod acceptance;
+mod advisories;
 mod affected;
 mod all_green;
 mod allure;
@@ -85,6 +86,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// The pinned advisory snapshot the gate's `just audit` reads offline
+    /// (ADR 0064).
+    Advisories {
+        #[command(subcommand)]
+        command: advisories::Command,
+    },
     /// Prints which jobs of the pull-request tier a change needs and what
     /// each test runner selects, as `key=value` lines (ADRs 0032 and 0061).
     Affected(affected::Arguments),
@@ -417,6 +424,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
     let root = environment.root.as_path();
     let cargo = environment.cargo.as_os_str();
     match command {
+        Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
         Command::AxeExceptions { command } => axe_exceptions::run(command, environment),

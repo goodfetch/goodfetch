@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, AuditVerified, AuditVerifyParams, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -58,6 +58,10 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return LogLevelSet.model_construct(**_fields(await self._caller.call("connection.set_log_level", params)))
+
+    async def daemon_health(self, params: DaemonParams) -> DaemonHealth:
+        """Says whether the Daemon is live and ready to take a new Run, and why not: what its ops listener's `/livez` and `/readyz` answer with a status alone."""
+        return DaemonHealth.model_construct(**_fields(await self._caller.call("daemon.health", params)))
 
     async def daemon_status(self, params: DaemonParams) -> DaemonStatus:
         """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""
@@ -281,6 +285,10 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return LogLevelSet.model_construct(**_fields(self._caller.call("connection.set_log_level", params)))
+
+    def daemon_health(self, params: DaemonParams) -> DaemonHealth:
+        """Says whether the Daemon is live and ready to take a new Run, and why not: what its ops listener's `/livez` and `/readyz` answer with a status alone."""
+        return DaemonHealth.model_construct(**_fields(self._caller.call("daemon.health", params)))
 
     def daemon_status(self, params: DaemonParams) -> DaemonStatus:
         """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""

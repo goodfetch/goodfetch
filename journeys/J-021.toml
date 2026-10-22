@@ -10,7 +10,7 @@ serve work as it arrives (ADR 0102)."""
 area = 3
 product = "foxhound"
 status = "active"
-covers = ["row:RT-12", "story:3-128"]
+covers = ["row:RT-12", "story:3-128", "story:6-210"]
 
 [proving_ground]
 seed = 21

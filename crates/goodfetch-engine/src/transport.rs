@@ -9,9 +9,10 @@
 //! Daemon a service manager started at the first connection takes the
 //! listening socket it was handed instead (launchd's, systemd's).
 //! This is the only module that opens stdin, stdout, the protocol's sockets,
-//! the Console's listener and the Politeness file's wake endpoints (a Unix
-//! socket on macOS and Linux, a named pipe on Windows, ADR 0053); the other
-//! listeners join here with the tickets that add them.
+//! the Console's listener, the ops listener (ADR 0050) and the Politeness
+//! file's wake endpoints (a Unix socket on macOS and Linux, a named pipe on
+//! Windows, ADR 0053); the other listeners join here with the tickets that
+//! add them.
 //! The engine's own outbound connections, which the Simulation never
 //! carries, open in `http_client`.
 
@@ -514,6 +515,95 @@ impl AsyncRead for ConsoleStream {
 }
 
 impl AsyncWrite for ConsoleStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(context, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(context)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(context)
+    }
+}
+
+/// The ops listener (ADR 0050): TCP at `ops.address`, on which a Daemon
+/// serves its probes and `/metrics` over HTTP.
+pub struct OpsListener(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpListener,
+);
+
+/// One connection a probe or a scraper opened to the ops listener.
+pub struct OpsStream(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpStream,
+);
+
+/// Listens for probes and scrapers at `address`; port 0 takes a free port,
+/// which [`OpsListener::local_address`] answers.
+///
+/// # Errors
+///
+/// When the OS refuses the address, such as a port another program holds
+/// (`AddrInUse`).
+///
+/// # Cancel safety
+///
+/// Dropping the future before it resolves leaves no listener.
+pub async fn listen_ops(address: std::net::SocketAddr) -> io::Result<OpsListener> {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    Ok(OpsListener(listener))
+}
+
+impl OpsListener {
+    /// The address it listens at, its port the one the OS chose for port 0.
+    ///
+    /// # Errors
+    ///
+    /// When the OS cannot say.
+    pub fn local_address(&self) -> io::Result<std::net::SocketAddr> {
+        self.0.local_addr()
+    }
+
+    /// The next connection.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no connection.
+    pub(crate) async fn accept(&self) -> io::Result<OpsStream> {
+        let (stream, _) = self.0.accept().await?;
+        stream.set_nodelay(true)?;
+        Ok(OpsStream(stream))
+    }
+}
+
+impl AsyncRead for OpsStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(context, buffer)
+    }
+}
+
+impl AsyncWrite for OpsStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,

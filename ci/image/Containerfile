@@ -86,6 +86,16 @@ RUN curl -fsSLo /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/relea
  && tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks \
  && rm /tmp/gitleaks.tar.gz
 
+# OSV-Scanner, which `just audit` checks the pnpm and uv lockfiles with
+# against OSV's pinned databases, offline (ci/audit.sh, ADR 0064), at
+# ci/host/osv-scanner.sh's version (ci/tool-versions.sh checks they agree).
+ARG OSV_SCANNER_VERSION=2.7.0
+ARG OSV_SCANNER_SHA256=160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+RUN curl -fsSLo /tmp/osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" \
+ && echo "${OSV_SCANNER_SHA256}  /tmp/osv-scanner" | sha256sum -c - \
+ && install -m 0755 /tmp/osv-scanner /usr/local/bin/osv-scanner \
+ && rm /tmp/osv-scanner
+
 # Test builds link with mold, as the hosted Linux jobs do through the
 # host-tools action; local builds keep the default linker. Rust's own
 # default on this target is rust-lld, which `-fuse-ld=mold` replaces.

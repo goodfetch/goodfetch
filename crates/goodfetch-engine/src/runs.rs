@@ -42,6 +42,7 @@
 //! whole so every change to a Run's state passes through one loop.
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -63,6 +64,7 @@ use goodfetch_protocol::run::{
     RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, StartInput, StartedAs,
     StopReason, Tags, Verdict,
 };
+use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
 use goodfetch_protocol::settings::SettingLimit;
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
@@ -100,6 +102,7 @@ use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
 };
+use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
 use crate::transition;
@@ -120,6 +123,9 @@ const COMMANDS: usize = 256;
 
 /// What the registry starts from.
 pub(crate) struct RunsSetup {
+    /// The engine's environment map, which `env:` Secret references
+    /// resolve in.
+    pub(crate) environment: BTreeMap<OsString, OsString>,
     /// The Goodfetch home.
     pub(crate) home: Home,
     /// The engine's Product version, which names its per-major folder.
@@ -346,6 +352,10 @@ pub enum StartError {
         /// The refused transition.
         message: String,
     },
+    /// The Secret reference a start resolves, its key-encryption key's
+    /// (`run_state.key_reference`), gave no value.
+    #[error(transparent)]
+    Secret(SecretError),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -574,7 +584,7 @@ impl End {
 /// start or report box it: each is sent once per Run.
 enum Command {
     Start(
-        Box<Start>,
+        Box<(Start, RunSecrets)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Started, StartError>>,
     ),
@@ -659,7 +669,8 @@ pub struct Runs {
     settings: Settings,
     connection: Option<ConnectionId>,
     limits: Arc<Limits>,
-    audit: Arc<AuditLog>,
+    /// The Secret-provider driver, which holds the user's Audit log.
+    secrets: Secrets,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
 }
 
@@ -695,6 +706,8 @@ struct Shared {
     finish: watch::Sender<bool>,
     /// Its Slices of the Limits that hold it, until it ends.
     charging: tokio::sync::Mutex<Option<Charging>>,
+    /// What it resolves its Secret references through.
+    secrets: RunSecrets,
 }
 
 impl std::fmt::Debug for Run {
@@ -725,6 +738,12 @@ impl Run {
     /// The settings it was started with, when its start resolved them.
     pub fn settings(&self) -> Option<&RunSettings> {
         self.settings.as_deref()
+    }
+
+    /// What it resolves its Secret references through, holding every value
+    /// it resolved.
+    pub fn secrets(&self) -> &RunSecrets {
+        &self.shared.secrets
     }
 
     /// The engine's clock.
@@ -1102,6 +1121,14 @@ impl Run {
     }
 }
 
+/// The `timeout.secret` of a Run whose settings resolved as `settings`,
+/// its default when none did.
+fn secret_timeout(settings: Option<&RunSettings>) -> Duration {
+    settings
+        .and_then(|settings| settings.resolved().duration(TIMEOUT_SECRET.name))
+        .unwrap_or(Duration::from_secs(30))
+}
+
 impl Runs {
     /// Starts the registry as a task of `owner`, each Run's tasks under a
     /// child of it.
@@ -1118,12 +1145,18 @@ impl Runs {
             daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
                 .then(|| major_name(&setup.version)),
         };
+        let secrets = Secrets::new(
+            std::mem::take(&mut setup.environment),
+            Arc::new(AuditLog::of(&setup.home, setup.ledger_vfs.clone())),
+            Arc::clone(&readers),
+            setup.clock,
+        );
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
             connection: None,
             limits: Arc::new(limits),
-            audit: Arc::new(AuditLog::of(&setup.home, setup.ledger_vfs.clone())),
+            secrets,
             drivers: Arc::new(setup.drivers.clone()),
         };
         let politeness = SharedPoliteness {
@@ -1148,7 +1181,7 @@ impl Runs {
             ended: BTreeMap::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
-            audit: Arc::clone(&runs.audit),
+            secrets: runs.secrets.clone(),
             drivers: Arc::clone(&runs.drivers),
             machine: None,
             draining: false,
@@ -1175,7 +1208,7 @@ impl Runs {
     /// The user's Audit log, to which this engine's Runs record their
     /// security events.
     pub(crate) fn audit(&self) -> &AuditLog {
-        &self.audit
+        self.secrets.audit()
     }
 
     /// The Daemon's Connection these Runs belong to; none on an Attached
@@ -1217,9 +1250,39 @@ impl Runs {
     ///
     /// Dropping the future after the start was sent still starts the Run.
     pub async fn start(&self, start: Start) -> Result<Started, StartError> {
+        let secrets = self
+            .secrets
+            .for_run(secret_timeout(start.settings.as_ref()));
+        if let Some((reference, layer)) = start.settings.as_ref().and_then(|settings| {
+            let resolved = settings.resolved();
+            Some((
+                resolved.secret_reference(RUN_STATE_KEY_REFERENCE.name)?,
+                resolved.get(RUN_STATE_KEY_REFERENCE.name)?.layer,
+            ))
+        }) {
+            // The key-encryption key is used as the Run starts, to wrap its
+            // data key (ADR 0015), so it resolves now, before the Run exists.
+            secrets
+                .resolve(
+                    &reference,
+                    &Purpose {
+                        placeholder: RUN_STATE_KEY_REFERENCE.name,
+                        domain: None,
+                        domains: &[],
+                        layer: Some(layer),
+                        run_id: start.run_id.as_ref(),
+                    },
+                )
+                .await
+                .map_err(StartError::Secret)?;
+        }
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Start(Box::new(start), self.connection, answer))
+            .send(Command::Start(
+                Box::new((start, secrets)),
+                self.connection,
+                answer,
+            ))
             .await
             .map_err(|_| StartError::Stopped)?;
         answered.await.map_err(|_| StartError::Stopped)?
@@ -1636,7 +1699,7 @@ struct Registry {
     runs: mpsc::WeakSender<Command>,
     /// What its Runs charge against.
     limits: Arc<Limits>,
-    audit: Arc<AuditLog>,
+    secrets: Secrets,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The machine's identity, once read.
     machine: Option<String>,
@@ -1655,6 +1718,7 @@ impl Registry {
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, _, answer) if self.draining => {
+                    let (start, _) = *start;
                     let _ = answer.send(Err(StartError::Draining {
                         run_id: start.run_id,
                     }));
@@ -1666,7 +1730,8 @@ impl Registry {
                     let _ = answer.send(self.drain().await);
                 }
                 Command::Start(start, connection, answer) => {
-                    let started = self.start(*start, connection).await;
+                    let (start, secrets) = *start;
+                    let started = self.start(start, secrets, connection).await;
                     let _ = answer.send(started);
                 }
                 Command::Finish(run_id, letting, answer) => {
@@ -1906,6 +1971,7 @@ impl Registry {
     async fn start(
         &mut self,
         start: Start,
+        secrets: RunSecrets,
         connection: Option<ConnectionId>,
     ) -> Result<Started, StartError> {
         let run_id = match &start.run_id {
@@ -1948,7 +2014,7 @@ impl Registry {
                 needs: found.needs,
             }));
         }
-        self.begin(run_id, start, inputs, connection).await
+        self.begin(run_id, start, inputs, secrets, connection).await
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its
@@ -2029,6 +2095,7 @@ impl Registry {
         run_id: RunId,
         start: Start,
         inputs: String,
+        secrets: RunSecrets,
         connection: Option<ConnectionId>,
     ) -> Result<Started, StartError> {
         let folder = self.folder(&run_id);
@@ -2085,7 +2152,7 @@ impl Registry {
             .map_err(|error| unavailable(error.to_string()))?;
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(&run_id, &folder, state, connection, start.settings)),
+            run: Some(self.new_run(&run_id, &folder, state, connection, start.settings, secrets)),
             folder,
             kind: start.kind,
             needs: start.needs,
@@ -2260,7 +2327,8 @@ impl Registry {
 
     /// A handle to the registry for a Run of `connection`.
     /// The live Run `run_id` as its driver holds it, writing `state` in
-    /// `folder`, under its resolved `settings`.
+    /// `folder`, under its resolved `settings`, resolving its Secret
+    /// references through `secrets`.
     fn new_run(
         &mut self,
         run_id: &RunId,
@@ -2268,6 +2336,7 @@ impl Registry {
         state: RunState,
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
+        secrets: RunSecrets,
     ) -> Run {
         let epoch = state.epoch();
         Run {
@@ -2285,6 +2354,7 @@ impl Registry {
                     epoch,
                     self.limits.placement(connection),
                 ))),
+                secrets,
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
@@ -2302,7 +2372,7 @@ impl Registry {
             settings: self.setup.settings.clone(),
             connection,
             limits: Arc::clone(&self.limits),
-            audit: Arc::clone(&self.audit),
+            secrets: self.secrets.clone(),
             drivers: Arc::clone(&self.drivers),
         }
     }
@@ -2616,6 +2686,7 @@ impl Registry {
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());
+        let secrets = self.secrets.for_run(secret_timeout(settings.as_ref()));
         let (lock, writer, state) = self
             .reopen(&run_id, held.lifecycle, checkpoint, &options)
             .await?;
@@ -2623,7 +2694,7 @@ impl Registry {
         self.ended.remove(&run_id);
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(&run_id, &folder, state, connection, settings)),
+            run: Some(self.new_run(&run_id, &folder, state, connection, settings, secrets)),
             folder,
             kind: recorded.kind,
             needs: recorded.needs,
@@ -2779,6 +2850,7 @@ impl Registry {
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
                 | StartError::Draining { .. }
+                | StartError::Secret(_)
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;

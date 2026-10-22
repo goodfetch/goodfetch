@@ -36,10 +36,11 @@ pinned_download = ["clock", "happy_eyeballs", "http_client"]
 politeness = ["tasks", "transport"]
 product = []
 rpc = ["body", "client", "composition", "events", "product", "runs", "tasks", "transition", "transport"]
-run = ["composition", "product", "runs", "settings"]
+run = ["composition", "product", "runs", "secrets", "settings"]
 run_index = ["lowest_minor", "run_state"]
 run_state = ["home", "lowest_minor", "tasks"]
-runs = ["admission", "audit", "body", "checkpoint", "client", "clock", "entropy", "events", "home", "ledger", "politeness", "run_index", "run_state", "settings", "tasks", "transition"]
+secrets = ["audit", "clock", "tasks"]
+runs = ["admission", "audit", "body", "checkpoint", "client", "clock", "entropy", "events", "home", "ledger", "politeness", "run_index", "run_state", "secrets", "settings", "tasks", "transition"]
 settings = ["home", "lowest_minor", "tasks"]
 tasks = []
 transition = []
@@ -54,6 +55,11 @@ files = ["error", "keys", "resolve", "values"]
 keys = []
 resolve = ["error", "keys", "values"]
 values = ["error", "keys"]
+
+# Which of `secrets`'s own modules may import which: each provider fills the
+# driver's primitives and imports no other.
+[submodules.secrets]
+environment = []
 
 # Which of `daemon`'s own modules may import which.
 [submodules.daemon]

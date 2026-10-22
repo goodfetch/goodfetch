@@ -9,6 +9,7 @@
 //! major's pick (the `daemon` module).
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::sync::Arc;
 
 use goodfetch_protocol::connection::EngineInstance;
@@ -69,6 +70,9 @@ pub struct Dependencies {
     pub run_state: RunStateOptions,
     /// How the per-user Politeness file opens.
     pub politeness: PolitenessOptions,
+    /// The engine's environment map, which `main` reads once (ADR 0083)
+    /// and `env:` Secret references resolve in.
+    pub environment: BTreeMap<OsString, OsString>,
 }
 
 impl Engine {
@@ -240,6 +244,7 @@ impl Engine {
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),
+                environment: dependencies.environment,
             },
             owner,
         );

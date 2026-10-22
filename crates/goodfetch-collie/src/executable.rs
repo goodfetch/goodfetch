@@ -477,6 +477,7 @@ pub fn main(start: &Start) -> ExitCode {
         }
     };
     let dependencies = Dependencies {
+        environment: environment.clone(),
         home,
         clock: Clock::system(),
         entropy,

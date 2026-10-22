@@ -3,10 +3,6 @@
 //! holds back none of Collie's Runs; its full queue falls behind, and once
 //! it grants credits it reads the axes of every Run in one `events.resync`
 //! (ADR 0024). Credits are granted, never timed (ADR 0064).
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use std::collections::BTreeSet;
 
@@ -18,7 +14,7 @@ use crate::attached::{Attached, hello};
 /// How many lossless events a subscription's queue holds by default.
 const QUEUE: usize = 64;
 
-/// Covers: story:3-8, operation:events.subscribe, event:run.axes_changed, event:events.resync
+/// Covers: story:3-8, operation:events.subscribe, event:events.resync
 #[test]
 fn a_subscriber_that_grants_no_credits_holds_back_none_of_collies_runs_and_then_reads_their_axes_in_a_resync()
  {

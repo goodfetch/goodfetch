@@ -1,9 +1,12 @@
 //! The log events each Client of one Daemon receives as `$/log`, over the
 //! in-memory network (spec #213's Seam 3): at the level its `hello` names,
 //! which `connection.set_log_level` changes without a new `hello` (ADR
-//! 0078).
+//! 0078). Each test installs its own subscriber, which keeps the dispatch
+//! records out of its exercise record, so none declares
+//! `connection.set_log_level`: Collie's executable's test of `$/log`
+//! does (ADR 0072).
 //!
-//! Covers: story:3-105, operation:connection.set_log_level
+//! Covers: story:3-105
 
 use std::collections::BTreeMap;
 use std::fmt;

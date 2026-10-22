@@ -87,7 +87,9 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
     Sighting, gitleaks_rule,
 };
-pub use cli::{Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command};
+pub use cli::{
+    Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
+};
 pub use colour::{ColourError, ColourProperty};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{

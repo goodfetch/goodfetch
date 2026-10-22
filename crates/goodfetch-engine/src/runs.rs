@@ -556,7 +556,7 @@ impl End {
                 StopReason::Migrate => RunEvent::Migrate,
                 StopReason::Timeout => RunEvent::Timeout,
                 StopReason::Limit(_) => RunEvent::Limit,
-                StopReason::Drain => RunEvent::Pause,
+                StopReason::Drain => RunEvent::Drain,
             },
         }
     }

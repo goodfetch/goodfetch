@@ -9,7 +9,7 @@
 //! | `Start` | — | — | — | — |
 //! | `Resume` | `running` | `running` | — | `running` |
 //! | `Checkpoint` | — | — | — | — |
-//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `ResourcesExhausted`, `EngineLost` | `stopped` | — | — | — |
+//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `ResourcesExhausted`, `EngineLost`, `Drain` | `stopped` | — | — | — |
 //! | `Finish` | `finished` | — | — | — |
 //! | `Fail` | `failed` | — | — | — |
 //! | `RetryFailed` | — | `running` | `running` | `running` |
@@ -57,6 +57,9 @@ pub enum RunEvent {
     ResourcesExhausted,
     /// Its engine is gone: its state says `running` and no writer holds it.
     EngineLost,
+    /// Its Daemon drains (ADR 0049): checkpointed and stopped, to be
+    /// resumed by its Run ID.
+    Drain,
     /// It reached its end: its program finished it, or its driver's work
     /// is done.
     Finish,
@@ -98,7 +101,8 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Timeout
             | RunEvent::Limit
             | RunEvent::ResourcesExhausted
-            | RunEvent::EngineLost => Ok(Next::To(Lifecycle::Stopped)),
+            | RunEvent::EngineLost
+            | RunEvent::Drain => Ok(Next::To(Lifecycle::Stopped)),
             RunEvent::Finish => Ok(Next::To(Lifecycle::Finished)),
             RunEvent::Fail => Ok(Next::To(Lifecycle::Failed)),
             RunEvent::WriterFound => in_use,
@@ -114,6 +118,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Limit
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
+            | RunEvent::Drain
             | RunEvent::Finish
             | RunEvent::Fail => Ok(Next::Unchanged),
             RunEvent::WriterFound => in_use,
@@ -130,6 +135,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Limit
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
+            | RunEvent::Drain
             | RunEvent::Finish
             | RunEvent::Fail => Ok(Next::Unchanged),
             RunEvent::WriterFound => in_use,

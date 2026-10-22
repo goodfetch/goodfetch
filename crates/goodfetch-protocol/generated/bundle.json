@@ -2238,7 +2238,7 @@
     },
     "GotoParams": {
       "additionalProperties": false,
-      "description": "What `page.goto` takes: the page, and the URL it goes to.",
+      "description": "What `page.goto` takes: the page, the URL it goes to, and when it\nanswers.",
       "properties": {
         "page_id": {
           "$ref": "#/$defs/PageId",
@@ -2249,6 +2249,18 @@
           "arrived_in": "0.1",
           "description": "The URL.",
           "type": "string"
+        },
+        "wait_until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WaitUntil"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the navigation answers; `load` when absent."
         }
       },
       "required": [
@@ -3309,7 +3321,7 @@
       ]
     },
     "Navigated": {
-      "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, or back or forward from the last entry of the page's\nhistory. A 404 or a 500 is a response, a value.",
+      "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, to a file the browser downloads instead of showing, which\n`page.download` reports, or back or forward from the last entry of the\npage's history. A 404 or a 500 is a response, a value.",
       "properties": {
         "response": {
           "anyOf": [
@@ -3669,6 +3681,32 @@
       ],
       "type": "object"
     },
+    "PageDownload": {
+      "description": "What `page.download` reports: a navigation of a page that the browser\nturned into a download.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page whose navigation it was."
+        },
+        "suggested_filename": {
+          "arrived_in": "0.1",
+          "description": "The file name the browser suggests for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The file's URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "url",
+        "suggested_filename"
+      ],
+      "type": "object"
+    },
     "PageFormats": {
       "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
       "properties": {
@@ -3742,6 +3780,14 @@
     "PageResponse": {
       "description": "The response to a request of a page, such as a navigation's document.",
       "properties": {
+        "encoding": {
+          "arrived_in": "0.1",
+          "description": "For a navigation's document, the encoding the browser decoded it\nwith, as `document.characterSet` names it, such as `Shift_JIS` (ADR\n0119); none for another response, and for a navigation that answered\nat `commit`, before its document was decoded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "headers": {
           "additionalProperties": {
             "type": "string"
@@ -6379,6 +6425,26 @@
         {
           "const": "needs_review",
           "description": "Everything else: a person reviews it.",
+          "type": "string"
+        }
+      ]
+    },
+    "WaitUntil": {
+      "description": "When a navigation answers, by the state its document reached\n(Playwright's `waitUntil`).",
+      "oneOf": [
+        {
+          "const": "commit",
+          "description": "Once the browser committed the document, its response received: a\nbody cut after that is left to the body's read.",
+          "type": "string"
+        },
+        {
+          "const": "domcontentloaded",
+          "description": "Once the document fired `DOMContentLoaded`.",
+          "type": "string"
+        },
+        {
+          "const": "load",
+          "description": "Once the document fired `load`.",
           "type": "string"
         }
       ]

@@ -1262,7 +1262,7 @@
     },
     "GotoParams": {
       "additionalProperties": false,
-      "description": "What `page.goto` takes: the page, and the URL it goes to.",
+      "description": "What `page.goto` takes: the page, the URL it goes to, and when it\nanswers.",
       "properties": {
         "page_id": {
           "$ref": "#/$defs/PageId",
@@ -1273,6 +1273,18 @@
           "arrived_in": "0.1",
           "description": "The URL.",
           "type": "string"
+        },
+        "wait_until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WaitUntil"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the navigation answers; `load` when absent."
         }
       },
       "required": [
@@ -1719,7 +1731,7 @@
       "type": "object"
     },
     "Navigated": {
-      "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, or back or forward from the last entry of the page's\nhistory. A 404 or a 500 is a response, a value.",
+      "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, to a file the browser downloads instead of showing, which\n`page.download` reports, or back or forward from the last entry of the\npage's history. A 404 or a 500 is a response, a value.",
       "properties": {
         "response": {
           "anyOf": [
@@ -1983,6 +1995,32 @@
       ],
       "type": "object"
     },
+    "PageDownload": {
+      "description": "What `page.download` reports: a navigation of a page that the browser\nturned into a download.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page whose navigation it was."
+        },
+        "suggested_filename": {
+          "arrived_in": "0.1",
+          "description": "The file name the browser suggests for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The file's URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "url",
+        "suggested_filename"
+      ],
+      "type": "object"
+    },
     "PageFormats": {
       "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
       "properties": {
@@ -2056,6 +2094,14 @@
     "PageResponse": {
       "description": "The response to a request of a page, such as a navigation's document.",
       "properties": {
+        "encoding": {
+          "arrived_in": "0.1",
+          "description": "For a navigation's document, the encoding the browser decoded it\nwith, as `document.characterSet` names it, such as `Shift_JIS` (ADR\n0119); none for another response, and for a navigation that answered\nat `commit`, before its document was decoded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "headers": {
           "additionalProperties": {
             "type": "string"
@@ -3622,6 +3668,26 @@
           "type": "string"
         }
       ]
+    },
+    "WaitUntil": {
+      "description": "When a navigation answers, by the state its document reached\n(Playwright's `waitUntil`).",
+      "oneOf": [
+        {
+          "const": "commit",
+          "description": "Once the browser committed the document, its response received: a\nbody cut after that is left to the body's read.",
+          "type": "string"
+        },
+        {
+          "const": "domcontentloaded",
+          "description": "Once the document fired `DOMContentLoaded`.",
+          "type": "string"
+        },
+        {
+          "const": "load",
+          "description": "Once the document fired `load`.",
+          "type": "string"
+        }
+      ]
     }
   },
   "error_codes": [
@@ -3967,6 +4033,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_truncated",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
       "exit_code": null,
       "group": "refused",
@@ -4117,6 +4193,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "too_many_redirects",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
       "exit_code": null,
       "group": "refused",
@@ -4201,6 +4287,18 @@
       "name": "events.resync",
       "payload": {
         "$ref": "#/$defs/Resync"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.",
+      "name": "page.download",
+      "payload": {
+        "$ref": "#/$defs/PageDownload"
       },
       "product": "collie",
       "stability": "experimental"
@@ -4722,8 +4820,10 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
-      "events": [],
+      "description": "Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.",
+      "events": [
+        "page.download"
+      ],
       "kind": "round_trip",
       "name": "page.goto",
       "params": {

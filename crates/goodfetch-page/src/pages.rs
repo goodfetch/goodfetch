@@ -4,7 +4,8 @@
 //! later one, and each open page by its ID. A Run's pages and Session leave
 //! with it: when it stops, its browser closes and its entries go. A locator
 //! action reaches its page's driver through the guard, under the Run's
-//! `timeout.action`.
+//! `timeout.action`. A navigation the browser turns into a download answers
+//! no response and publishes `page.download` on the engine's event stream.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use std::time::Duration;
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::events::Events;
 use goodfetch_engine::runs::{Run, RunError};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_extractor::{Context, Document};
@@ -20,9 +22,9 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
-    LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK, PAGE_GO_FORWARD,
-    PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageOpened, PageParams, PressParams, RUN_NEW_PAGE,
-    SessionId,
+    LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_FORMATS, PAGE_GO_BACK,
+    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageDownload, PageFormats, PageId, PageOpened,
+    PageParams, PressParams, RUN_NEW_PAGE, SessionId, WaitUntil,
 };
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::{
@@ -31,7 +33,7 @@ use goodfetch_protocol::settings::{
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use crate::driver::{Destination, LocalBrowser, PageDriver, SessionDriver};
+use crate::driver::{Arrived, Destination, LocalBrowser, PageDriver, SessionDriver};
 use crate::guard::{self, Action, Request, Window};
 
 /// A navigation's deadline when the Run's settings name none: 30 s.
@@ -75,34 +77,66 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
         ))
         .with_handler(Handler::new(
             &PAGE_GOTO,
-            move |params: GotoParams, _context: CallContext| {
+            move |params: GotoParams, context: CallContext| {
                 let pages = going.clone();
                 async move {
                     pages
-                        .navigate(&params.page_id, Destination::Url(&params.url))
+                        .navigate(
+                            &params.page_id,
+                            Destination::Url(&params.url),
+                            params.wait_until.unwrap_or_default(),
+                            context.events(),
+                        )
                         .await
                 }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_RELOAD,
-            move |params: PageParams, _context: CallContext| {
+            move |params: PageParams, context: CallContext| {
                 let pages = reloading.clone();
-                async move { pages.navigate(&params.page_id, Destination::Reload).await }
+                async move {
+                    pages
+                        .navigate(
+                            &params.page_id,
+                            Destination::Reload,
+                            WaitUntil::Load,
+                            context.events(),
+                        )
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_GO_BACK,
-            move |params: PageParams, _context: CallContext| {
+            move |params: PageParams, context: CallContext| {
                 let pages = going_back.clone();
-                async move { pages.navigate(&params.page_id, Destination::Back).await }
+                async move {
+                    pages
+                        .navigate(
+                            &params.page_id,
+                            Destination::Back,
+                            WaitUntil::Load,
+                            context.events(),
+                        )
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_GO_FORWARD,
-            move |params: PageParams, _context: CallContext| {
+            move |params: PageParams, context: CallContext| {
                 let pages = going_forward.clone();
-                async move { pages.navigate(&params.page_id, Destination::Forward).await }
+                async move {
+                    pages
+                        .navigate(
+                            &params.page_id,
+                            Destination::Forward,
+                            WaitUntil::Load,
+                            context.events(),
+                        )
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -280,15 +314,37 @@ impl Pages {
         opened
     }
 
-    /// Navigates the page `page_id` to `destination`.
+    /// Navigates the page `page_id` to `destination`, answering once its
+    /// document reached the state `wait_until` names; a download it turns
+    /// into is published on `events`.
     async fn navigate(
         &self,
         page_id: &PageId,
         destination: Destination<'_>,
+        wait_until: WaitUntil,
+        events: &Events,
     ) -> Result<Navigated, CallError> {
         let page = self.open(page_id).await?;
-        let response = page.driver.navigate(destination).await?;
-        Ok(Navigated { response })
+        match page.driver.navigate(destination, wait_until).await? {
+            Arrived::Document(response) => Ok(Navigated { response }),
+            Arrived::Download {
+                url,
+                suggested_filename,
+            } => {
+                events
+                    .publish(
+                        &PAGE_DOWNLOAD,
+                        Some(&page_id.0),
+                        &PageDownload {
+                            page_id: page_id.clone(),
+                            url,
+                            suggested_filename,
+                        },
+                    )
+                    .await;
+                Ok(Navigated { response: None })
+            }
+        }
     }
 
     /// Performs `action` on the element `locator` matches, through the

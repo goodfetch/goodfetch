@@ -352,6 +352,13 @@ class PageResponse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    encoding: str | None = None
+    """
+    For a navigation's document, the encoding the browser decoded it
+    with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
+    0119); none for another response, and for a navigation that answered
+    at `commit`, before its document was decoded.
+    """
     headers: dict[str, str]
     """Its headers, their names lower-cased, as the browser received them."""
     status: Annotated[int, Field(ge=0, le=65535)]
@@ -764,6 +771,23 @@ class Verdict(StrEnum):
     """Everything else: a person reviews it."""
 
 
+class WaitUntil(StrEnum):
+    """
+    When a navigation answers, by the state its document reached
+    (Playwright's `waitUntil`).
+    """
+
+    commit = "commit"
+    """
+    Once the browser committed the document, its response received: a
+    body cut after that is left to the body's read.
+    """
+    domcontentloaded = "domcontentloaded"
+    """Once the document fired `DOMContentLoaded`."""
+    load = "load"
+    """Once the document fired `load`."""
+
+
 class ArtifactId(BaseModel):
     """Which Pinned artifact: its kind, its name and its build."""
 
@@ -1006,7 +1030,10 @@ class ExplainedSetting(BaseModel):
 
 
 class GotoParams(BaseModel):
-    """What `page.goto` takes: the page, and the URL it goes to."""
+    """
+    What `page.goto` takes: the page, the URL it goes to, and when it
+    answers.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -1015,6 +1042,8 @@ class GotoParams(BaseModel):
     """The page."""
     url: str
     """The URL."""
+    wait_until: WaitUntil | None = None
+    """When the navigation answers; `load` when absent."""
 
 
 class HelloParams(BaseModel):
@@ -1142,8 +1171,9 @@ class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
     navigation within the same document, to a URL no server answers, such as
-    `about:blank`, or back or forward from the last entry of the page's
-    history. A 404 or a 500 is a response, a value.
+    `about:blank`, to a file the browser downloads instead of showing, which
+    `page.download` reports, or back or forward from the last entry of the
+    page's history. A 404 or a 500 is a response, a value.
     """
 
     model_config = ConfigDict(
@@ -1173,6 +1203,23 @@ class PageBodyParams(BaseModel):
     """Its ID."""
     run_id: RunId
     """The Run whose folder holds it."""
+
+
+class PageDownload(BaseModel):
+    """
+    What `page.download` reports: a navigation of a page that the browser
+    turned into a download.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page whose navigation it was."""
+    suggested_filename: str
+    """The file name the browser suggests for it."""
+    url: str
+    """The file's URL."""
 
 
 class PageOpened(BaseModel):

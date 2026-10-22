@@ -5,6 +5,7 @@
 //! merge base with `origin/main`. Both modes feed the same rules.
 
 mod git;
+mod imports;
 mod selection;
 mod workspace;
 
@@ -54,10 +55,20 @@ pub(crate) fn select(cargo: &OsStr, root: &Path, range: &Range) -> Result<Select
     Ok(selection::select(&workspace, &paths))
 }
 
+/// The files under `folder` with one of `extensions`, outside installed
+/// packages, build outputs and caches.
+pub(crate) fn source_files(folder: &Path, extensions: &[&str]) -> Result<Vec<std::path::PathBuf>> {
+    imports::files(folder, extensions)
+}
+
 /// The paths `range` changes in the repository at `root`.
 pub(crate) fn changed_paths(root: &Path, range: &Range) -> Result<Vec<RepoPath>> {
     git::changed_paths(root, range)
 }
+
+/// The pseudo-member that names the tests no workspace member owns, such as
+/// `console/screens.spec.ts`, where a member's name is taken.
+pub(crate) const UNOWNED: &str = ":unowned";
 
 /// Which runners test a member of the workspaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,6 +110,22 @@ impl WorkspaceMembers {
             (package.folder.as_str().to_owned(), kind)
         });
         crates.chain(packages)
+    }
+
+    /// The folder of the member named `name`, as a repository path.
+    pub(crate) fn folder(&self, name: &str) -> Option<String> {
+        self.workspace
+            .crates
+            .iter()
+            .find(|krate| krate.name == name)
+            .map(|krate| krate.folder.as_str().to_owned())
+            .or_else(|| {
+                self.workspace
+                    .packages
+                    .iter()
+                    .find(|package| package.folder.as_str() == name)
+                    .map(|package| package.folder.as_str().to_owned())
+            })
     }
 
     /// The member that owns `path`, a repository path: the one whose folder

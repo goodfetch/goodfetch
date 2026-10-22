@@ -10,7 +10,7 @@ use rstest::rstest;
 
 use super::RepoPath;
 use super::selection::{Selection, select};
-use super::workspace::{Crate, Ecosystem, Package, Workspace};
+use super::workspace::{Crate, Ecosystem, Embedded, Package, Workspace};
 
 fn names(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
@@ -67,6 +67,7 @@ fn package(ecosystem: Ecosystem, name: &str, folder: &str, dependencies: &[&str]
         folder: RepoPath::new(folder),
         dependencies: names(dependencies),
         runs: BTreeSet::new(),
+        loaded_by_every_run: false,
     }
 }
 
@@ -91,6 +92,7 @@ fn fixture() -> Workspace {
         packages: packages(),
         visual_tests: vec![RepoPath::new("console/src/screens/run.visual.test.tsx")],
         models: Vec::new(),
+        embedded: Vec::new(),
     }
 }
 
@@ -491,4 +493,60 @@ fn workspace_input_change_selects_everything() {
     models=
     gate=full
     "#);
+}
+
+/// The fixture with the test-support packages loaded into every run of
+/// their runners: the root Vitest and Playwright configs import the
+/// TypeScript one, and the Python one is a pytest plugin.
+fn with_test_support_in_every_run() -> Workspace {
+    let mut workspace = fixture();
+    for package in &mut workspace.packages {
+        if package.folder.is_in("test-support") {
+            package.loaded_by_every_run = true;
+        }
+    }
+    workspace
+}
+
+#[rstest]
+#[case::typescript(
+    "test-support/typescript/src/errors.ts",
+    "vitest-packages",
+    "console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript"
+)]
+#[case::python(
+    "test-support/python/src/goodfetch_test_support/plugin.py",
+    "pytest-packages",
+    "sdks/python/collie sdks/python/collie-client sdks/python/foxhound test-support/python"
+)]
+fn a_package_every_run_of_its_runner_loads_reaches_every_package_of_its_ecosystem(
+    #[case] path: &str,
+    #[case] key: &str,
+    #[case] expected: &str,
+) {
+    let selection = select(&with_test_support_in_every_run(), &[RepoPath::new(path)]);
+
+    assert_eq!(value(&selection, key), expected);
+}
+
+/// Collie's executable embeds the Console's build (ADR 0057): a change to
+/// the Console changes the executable, and so reaches what runs it.
+#[test]
+fn a_console_change_reaches_the_crate_that_embeds_its_build_and_what_runs_it() {
+    let mut workspace = fixture();
+    workspace.embedded = vec![Embedded {
+        package: RepoPath::new("console"),
+        krate: "goodfetch-collie".to_owned(),
+    }];
+
+    let selection = select(&workspace, &[RepoPath::new("console/src/app.tsx")]);
+
+    assert_eq!(
+        value(&selection, "crates"),
+        "goodfetch-collie goodfetch-conformance"
+    );
+    assert_eq!(
+        value(&selection, "vitest-packages"),
+        "console test-support/typescript"
+    );
 }

@@ -292,6 +292,19 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             .filter(|package| in_scope(&package.folder))
             .collect();
     }
+    // A crate that embeds a package's build changes with that package and
+    // with what the package depends on (ADR 0057's Console in Collie).
+    let reached_packages: BTreeSet<RepoPath> = [Ecosystem::TypeScript, Ecosystem::Python]
+        .into_iter()
+        .flat_map(|ecosystem| dependant_folders(workspace, &changed.packages, ecosystem))
+        .collect();
+    changed.crates.extend(
+        workspace
+            .embedded
+            .iter()
+            .filter(|embedded| reached_packages.contains(&embedded.package))
+            .map(|embedded| embedded.krate.clone()),
+    );
     // A crate's executable changes with it and with what its build depends
     // on, not with its dev-dependencies; a crate or package whose tests run
     // a changed executable through the test tool manifest is reached by it.
@@ -321,8 +334,34 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
 }
 
 /// The folders of the changed packages of one ecosystem and of their
-/// dependants.
+/// dependants; every package of the ecosystem when they reach one that every
+/// run of its runner loads.
 fn package_folders(
+    workspace: &Workspace,
+    changed: &[&Package],
+    ecosystem: Ecosystem,
+) -> BTreeSet<RepoPath> {
+    let reached = dependant_folders(workspace, changed, ecosystem);
+    let loaded_by_every_run = workspace.packages.iter().any(|package| {
+        package.ecosystem == ecosystem
+            && package.loaded_by_every_run
+            && reached.contains(&package.folder)
+    });
+    if loaded_by_every_run {
+        workspace
+            .packages
+            .iter()
+            .filter(|package| package.ecosystem == ecosystem)
+            .map(|package| package.folder.clone())
+            .collect()
+    } else {
+        reached
+    }
+}
+
+/// The folders of the changed packages of one ecosystem and of the packages
+/// that depend on them.
+fn dependant_folders(
     workspace: &Workspace,
     changed: &[&Package],
     ecosystem: Ecosystem,

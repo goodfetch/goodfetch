@@ -109,6 +109,7 @@ Commands:
   stop          Stops the Daemon; its live Runs stop with it
   restart       Stops the Daemon, then starts the major's pick
   status        Shows whether the Daemon runs, as which Product, and its Clients
+  health        Says whether the Daemon of the major, or the foreground Daemon at `daemon.address`, is ready to take a run, as its ops listener's `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1 when it is not or none answers
   install       Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
   uninstall     Removes the major's per-user service, stopping its Daemon
   rotate-token  Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
@@ -156,6 +157,17 @@ Shows whether the Daemon runs, as which Product, and its Clients
 Usage: goodfetch-collie daemon status [OPTIONS]
 
 Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon health --help
+Says whether the Daemon of the major, or the foreground Daemon at `daemon.address`, is ready to take a run, as its ops listener's `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1 when it is not or none answers
+
+Usage: goodfetch-collie daemon health [OPTIONS]
+
+Options:
+      --live          Says whether it is live instead, as `/livez` does
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help

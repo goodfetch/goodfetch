@@ -31,6 +31,7 @@ mod layout;
 mod lazyfs;
 mod locator;
 mod log;
+mod ops;
 mod page;
 mod parent_death;
 mod private_endpoint;

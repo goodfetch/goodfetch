@@ -104,6 +104,28 @@ export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchErro
   internal: InternalError,
 };
 
+/** The CLI's exit code of a failure with each group's Error codes, unless the code has a row of its own (ADR 0069). */
+export const errorGroupExitCodes: Readonly<Record<ErrorGroup, number>> = {
+  program: 3,
+  refused: 4,
+  page: 5,
+  model: 6,
+  deadline_exceeded: 7,
+  unavailable: 8,
+  internal: 1,
+};
+
+/** The Error codes with an exit code of their own, which wins over their group's (ADR 0069). */
+export const errorCodeExitCodes: Readonly<Record<string, number>> = {
+  browser_host_outdated: 12,
+  file_write_failed: 14,
+  limit_reached: 16,
+  not_in_product: 10,
+  path_not_writable: 13,
+  protocol_version_unsupported: 11,
+  resources_exhausted: 15,
+};
+
 /**
  * The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.
  */

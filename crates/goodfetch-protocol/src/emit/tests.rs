@@ -325,7 +325,7 @@ fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
     );
     assert_eq!(
         emitted.bundle["$defs"]["CommandError"]["required"],
-        json!(["code", "group", "retryable", "message", "operation"])
+        json!(["code", "group", "retryable", "message"])
     );
 }
 

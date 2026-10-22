@@ -133,6 +133,10 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("run.pause", Offer::Command),
             ("run.migrate", Offer::Command),
             ("run.resume", Offer::Command),
+            ("key_value_store.get", Offer::Command),
+            ("key_value_store.set", Offer::Command),
+            ("key_value_store.delete", Offer::Command),
+            ("key_value_store.keys", Offer::Follow),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),
             ("usage.list", Offer::Command),
@@ -151,7 +155,16 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
     assert_eq!(
         names,
         [
-            "daemon", "engine", "events", "run", "page", "locator", "sample", "config", "usage"
+            "daemon",
+            "engine",
+            "events",
+            "run",
+            "page",
+            "locator",
+            "key_value_store",
+            "sample",
+            "config",
+            "usage"
         ]
     );
     assert_eq!(

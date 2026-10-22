@@ -240,3 +240,6 @@ concurrency = 4
 [cap.politeness.domain]
 concurrency = 4
 delay = 30000
+
+[managed]
+install_limits = [{ usage_kind = "paid_solves", currency = "USD", period = { every = "month", time_zone = "UTC" }, amount = 20000000 }]

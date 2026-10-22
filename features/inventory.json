@@ -242,6 +242,50 @@
       ]
     },
     {
+      "id": "command:key-value-store.delete",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:key-value-store.get",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:key-value-store.keys",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:key-value-store.set",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:locator.click",
       "kind": "command",
       "area": 11,
@@ -463,6 +507,17 @@
     },
     {
       "id": "command:usage.list",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:usage.raise",
       "kind": "command",
       "area": 3,
       "milestone": null,
@@ -831,6 +886,17 @@
       ]
     },
     {
+      "id": "error:person_required",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:protocol_version_unsupported",
       "kind": "error",
       "area": 3,
@@ -1009,6 +1075,17 @@
       "id": "error:upgrade_source_unsupported",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:value_invalid",
+      "kind": "error",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1299,6 +1376,50 @@
       ]
     },
     {
+      "id": "operation:key_value_store.delete",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:key_value_store.get",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:key_value_store.keys",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:key_value_store.set",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:locator.click",
       "kind": "operation",
       "area": 5,
@@ -1538,6 +1659,17 @@
     },
     {
       "id": "operation:usage.list",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:usage.raise",
       "kind": "operation",
       "area": 3,
       "milestone": null,

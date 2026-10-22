@@ -66,6 +66,17 @@ pub(super) struct Operation {
     pub(super) cancellable: bool,
     pub(super) stability: Stability,
     pub(super) deprecated: Option<Deprecation>,
+    /// Which surfaces offer it; absent from a catalog that marks none.
+    #[serde(default)]
+    reach: Option<String>,
+}
+
+impl Operation {
+    /// Whether an SDK offers it: not a person's answer, which only the
+    /// Console and the CLI's interactive prompt give (ADR 0041).
+    fn offered(&self) -> bool {
+        self.reach.as_deref() != Some("person_only")
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -228,7 +239,11 @@ impl Layer {
                 Ok(Self {
                     product,
                     protocol_version: collie.protocol_version,
-                    operations: collie.operations,
+                    operations: collie
+                        .operations
+                        .into_iter()
+                        .filter(Operation::offered)
+                        .collect(),
                     events: collie.events,
                     error_groups: collie.error_groups,
                     error_codes: collie.error_codes,
@@ -245,7 +260,7 @@ impl Layer {
                 let operations: Vec<Operation> = all
                     .operations
                     .into_iter()
-                    .filter(|entry| own(entry.product))
+                    .filter(|entry| own(entry.product) && entry.offered())
                     .collect();
                 let events: Vec<Event> = all
                     .events
@@ -370,5 +385,72 @@ fn replace_collie_references(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_protocol::catalog::Product;
+    use serde_json::{Value, json};
+
+    use super::Layer;
+
+    /// An operation of a projection, offered on the surfaces `reach` names.
+    fn operation(name: &str, product: &str, reach: &str) -> Value {
+        json!({
+            "name": name,
+            "product": product,
+            "description": "An operation.",
+            "reach": reach,
+            "params": { "$ref": "#/$defs/Empty" },
+            "result": { "$ref": "#/$defs/Empty" },
+            "cancellable": false,
+            "stability": "experimental",
+            "deprecated": null,
+        })
+    }
+
+    fn projection(operations: &[Value]) -> Value {
+        json!({
+            "protocol_version": "0.1",
+            "operations": operations,
+            "events": [],
+            "error_groups": [],
+            "error_codes": [],
+            "plugin_kinds": [],
+            "$defs": { "Empty": { "type": "object" } },
+        })
+    }
+
+    /// Covers: story:3-75
+    #[test]
+    fn an_sdk_layer_offers_no_persons_answer() {
+        let collie = projection(&[
+            operation("widget.spin", "collie", "all_surfaces"),
+            operation("widget.lend", "collie", "sdk_only"),
+            operation("widget.raise", "collie", "person_only"),
+        ]);
+        let foxhound = projection(&[
+            operation("crawl.spin", "foxhound", "all_surfaces"),
+            operation("crawl.accept", "foxhound", "person_only"),
+        ]);
+        let bundle = json!({ "$defs": {} });
+
+        let offered = |product| {
+            Layer::new(&bundle, &collie, &foxhound, product)
+                .unwrap()
+                .operations
+                .into_iter()
+                .map(|operation| operation.name)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            (offered(Product::Collie), offered(Product::Foxhound)),
+            (
+                vec!["widget.spin".to_owned(), "widget.lend".to_owned()],
+                vec!["crawl.spin".to_owned()]
+            )
+        );
     }
 }

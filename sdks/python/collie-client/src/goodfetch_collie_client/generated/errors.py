@@ -266,6 +266,14 @@ class PatternUnsupportedError(ProgramError):
         super().__init__(message, code="pattern_unsupported", group="program", retryable=False)
 
 
+class PersonRequiredError(RefusedError):
+    """Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="person_required", group="refused", retryable=False)
+
+
 class ProtocolVersionUnsupportedError(UnavailableError):
     """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
 
@@ -394,6 +402,14 @@ class UpgradeSourceUnsupportedError(RefusedError):
         super().__init__(message, code="upgrade_source_unsupported", group="refused", retryable=False)
 
 
+class ValueInvalidError(ProgramError):
+    """The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="value_invalid", group="program", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
@@ -421,6 +437,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,
     "pattern_unsupported": PatternUnsupportedError,
+    "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,
@@ -437,5 +454,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_unknown": SettingUnknownError,
     "target_not_unique": TargetNotUniqueError,
     "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
+    "value_invalid": ValueInvalidError,
 }
 """The exception class of each Error code."""

@@ -648,6 +648,123 @@
       ],
       "type": "object"
     },
+    "KeyValueStoreDeleted": {
+      "description": "What `key_value_store.delete` answers once the key is gone.",
+      "properties": {
+        "existed": {
+          "arrived_in": "0.1",
+          "description": "Whether the key existed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "existed"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeyParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.get` and `key_value_store.delete` take: the Run\nand the key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysEnded": {
+      "description": "What `key_value_store.keys` answers once it sent its last key.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many keys it sent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.keys` takes: the Run, and the prefix every key it\nsends starts with.",
+      "properties": {
+        "prefix": {
+          "arrived_in": "0.1",
+          "description": "The prefix of the keys it sends; every key when left out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreSet": {
+      "description": "What `key_value_store.set` answers once the value is committed.",
+      "type": "object"
+    },
+    "KeyValueStoreSetParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.set` takes: the Run, the key and its value.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value: any JSON but a top-level null, which `value_invalid`\nrefuses; a nested null is kept."
+        }
+      },
+      "required": [
+        "run_id",
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreValue": {
+      "description": "What `key_value_store.get` answers: the key's committed value, or null\nwhen the key is absent.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value, or null for an absent key."
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
     "LastRead": {
       "additionalProperties": false,
       "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
@@ -843,6 +960,14 @@
           "arrived_in": "0.1",
           "description": "The Limit."
         },
+        "managed_major": {
+          "arrived_in": "0.1",
+          "description": "The major of the managed Operator policy whose row it is; none for\na row no managed policy wrote.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "period_started_at": {
           "anyOf": [
             {
@@ -986,6 +1111,46 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "NotUnderstoodLimit": {
+      "description": "A Limit flagged *must understand* that a Run's engine cannot evaluate,\nas the Run stopped for it names it (ADR 0041): its scope, Usage kind,\ncurrency and period as the ledger holds them.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
       ],
       "type": "object"
     },
@@ -1570,6 +1735,11 @@
           "arrived_in": "0.1",
           "description": "Why it stopped, when it did."
         },
+        "uncapped": {
+          "arrived_in": "0.1",
+          "description": "Whether it spent, or reserved, money in a currency no Limit holding\nit caps (ADR 0041): *uncapped*.",
+          "type": "boolean"
+        },
         "verdict": {
           "$ref": "#/$defs/Verdict",
           "arrived_in": "0.1",
@@ -2029,6 +2199,20 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "$ref": "#/$defs/NotUnderstoodLimit",
+          "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+          "properties": {
+            "kind": {
+              "const": "limit_not_understood",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -2078,6 +2262,63 @@
       },
       "required": [
         "limits"
+      ],
+      "type": "object"
+    },
+    "UsageRaiseParams": {
+      "additionalProperties": false,
+      "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period from now on: a count of the Usage\nkind, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the person's own when absent (their Client\nconnection, their person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
       ],
       "type": "object"
     },
@@ -2432,6 +2673,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "person_required",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
       "exit_code": 11,
       "group": "unavailable",
@@ -2587,6 +2838,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "upgrade_source_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "value_invalid",
       "product": "collie",
       "retryable": false
     }
@@ -2849,6 +3110,82 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a key from a live Run's Key-value store and answers whether it existed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.delete",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.get",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreValue"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.",
+      "events": [],
+      "kind": "sequence",
+      "name": "key_value_store.keys",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeysParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreKeysEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.set",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreSet"
       },
       "stability": "experimental"
     },
@@ -3224,6 +3561,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.raise",
+      "params": {
+        "$ref": "#/$defs/UsageRaiseParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
       },
       "stability": "experimental"
     },

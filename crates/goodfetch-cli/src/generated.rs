@@ -110,42 +110,92 @@ pub fn namespaces_source() -> String {
 
 /// The generated commands beside an executable's hand-written ones.
 pub struct Generated {
-    /// The namespaces they cover.
+    /// The namespaces they cover with groups of their own.
     namespaces: Vec<&'static Namespace>,
+    /// The namespaces whose group is hand-written, which their generated
+    /// commands join, each with the names of the group's own commands,
+    /// which win over a generated one of the same name: a person-only
+    /// prompt such as `usage raise` beside `usage list`.
+    joined: Vec<(&'static Namespace, Vec<String>)>,
 }
 
 impl Generated {
-    /// The commands of every namespace no command group of `hand_written`
-    /// takes.
+    /// The commands of every namespace: a group of its own when no command
+    /// group of `hand_written` takes it, else those the hand-written group
+    /// lacks, in that group.
     pub fn beside(hand_written: &Command) -> Self {
-        let namespaces = NAMESPACES
-            .iter()
-            .filter(|namespace| hand_written.find_subcommand(namespace.spelled).is_none())
-            .collect();
-        Self { namespaces }
+        let mut namespaces = Vec::new();
+        let mut joined = Vec::new();
+        for namespace in NAMESPACES {
+            match hand_written.find_subcommand(namespace.spelled) {
+                None => namespaces.push(namespace),
+                Some(group) => {
+                    // A derived group adds its commands only once built.
+                    let mut group = group.clone();
+                    group.build();
+                    joined.push((
+                        namespace,
+                        group
+                            .get_subcommands()
+                            .map(|command| command.get_name().to_owned())
+                            .collect(),
+                    ));
+                }
+            }
+        }
+        Self { namespaces, joined }
     }
 
     /// `command` with a command group per namespace, whose commands are
-    /// built only when clap reaches the group.
+    /// built only when clap reaches the group, and each hand-written group
+    /// of a namespace with the generated commands it lacks.
     #[must_use]
     pub fn add_to(&self, command: Command) -> Command {
-        command.subcommands(self.namespaces.iter().map(|namespace| {
+        let command = command.subcommands(self.namespaces.iter().map(|namespace| {
             Command::new(namespace.spelled)
                 .about(namespace.about)
                 .subcommand_required(true)
                 .defer(members)
-        }))
+        }));
+        self.joined
+            .iter()
+            .fold(command, |command, (namespace, own)| {
+                let joining =
+                    |operation: &&'static Operation| !own.contains(&spelled(member(operation)));
+                // A group with nothing to join is left as it is, in its place.
+                if !commands()
+                    .filter(|operation| self::namespace(operation) == namespace.name)
+                    .any(|operation| joining(&operation))
+                {
+                    return command;
+                }
+                command.mut_subcommand(namespace.spelled, |group| {
+                    members_of(group, operations_of(PRODUCT).filter(joining))
+                })
+            })
     }
 
     /// The call a parse of the command line asks for, when its command is
     /// generated.
     pub fn call(&self, matches: &ArgMatches) -> Option<Call> {
         let (group, group_matches) = matches.subcommand()?;
-        let namespace = self
+        let (member, member_matches) = group_matches.subcommand()?;
+        let separate = self
             .namespaces
             .iter()
-            .find(|namespace| namespace.spelled == group)?;
-        let (member, member_matches) = group_matches.subcommand()?;
+            .find(|namespace| namespace.spelled == group);
+        let namespace = if let Some(namespace) = separate {
+            namespace
+        } else {
+            let (namespace, own) = self
+                .joined
+                .iter()
+                .find(|(namespace, _)| namespace.spelled == group)?;
+            if own.iter().any(|own| own == member) {
+                return None;
+            }
+            namespace
+        };
         let name = format!("{}.{}", namespace.name, member.replace('-', "_"));
         let operation = commands().find(|operation| operation.name == name)?;
         Some(Call::of(operation, member_matches))
@@ -496,6 +546,11 @@ pub struct Call {
 }
 
 impl Call {
+    /// The operation it calls.
+    pub fn operation(&self) -> &'static Operation {
+        self.operation
+    }
+
     /// The call of `operation` that its command's parse `matches` gives.
     fn of(operation: &'static Operation, matches: &ArgMatches) -> Self {
         let params = parameters(operation)
@@ -653,7 +708,7 @@ fn text(value: &Value) -> String {
 
 /// The group of `error`: its numeric class's, or for a failure of the
 /// protocol itself, the one ADR 0079 gives it.
-fn group(error: &ErrorObject) -> ErrorGroup {
+pub fn group(error: &ErrorObject) -> ErrorGroup {
     ErrorGroup::ALL
         .into_iter()
         .find(|group| group.json_rpc_class() == error.code)

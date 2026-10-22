@@ -1,8 +1,9 @@
 //! The Usage ledger's writer for the Compatibility corpus (ADR 0066):
 //! through the engine's own ledger at ADR 0059's test `Clock` start, adds a
-//! monthly install Limit a person set, a daily Daemon Limit in Paris that a
-//! managed Operator policy set, a Client connection's own Limit and
-//! Foxhound's `paid_fetch` Limit in dollars; then one run gives back what
+//! monthly install Limit a person set, a daily Daemon Limit in Paris that
+//! the operator set, a Client connection's own Limit, Foxhound's
+//! `paid_fetch` Limit in dollars and a weekly install Limit in Tokyo that
+//! major 0.0's managed Operator policy names; then one run gives back what
 //! it did not use, one whose engine died is reclaimed from what it
 //! journaled, one whose state cannot be read is charged in full for review,
 //! and one still holds its Slice. It writes the ledger, as SQL text, into
@@ -19,7 +20,7 @@ use std::path::PathBuf;
 use goodfetch_engine::ledger::{Charging, Holder, Ledger, Placement, Probed, SliceSizing};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength};
-use goodfetch_protocol::usage::{Limit, LimitSetter};
+use goodfetch_protocol::usage::{Limit, LimitSetter, ManagedLimit};
 
 /// ADR 0059's test `Clock` start.
 const START: &str = "2026-01-05T09:00:00Z";
@@ -34,17 +35,9 @@ fn scope(kind: &str, id: &str) -> LimitScope {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output = PathBuf::from(
-        std::env::args_os()
-            .nth(1)
-            .expect("invariant: xtask compat passes the output folder"),
-    );
-    let scratch = tempfile::tempdir()?;
-    let path = scratch.path().join("usage-ledger.sqlite");
-    let ledger = Ledger::at(path.clone(), None);
-    let start: jiff::Timestamp = START.parse()?;
-    let limits = [
+/// The Limits it adds, each as its setter wrote it.
+fn limits() -> [Limit; 4] {
+    [
         Limit {
             scope: scope("install", ""),
             usage_kind: "requests".to_owned(),
@@ -67,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
             amount: 20_000,
             must_understand: true,
-            set_by: LimitSetter::ManagedPolicy,
+            set_by: LimitSetter::Person,
         },
         Limit {
             scope: scope("connection", "corpus-connection"),
@@ -90,10 +83,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             must_understand: true,
             set_by: LimitSetter::Person,
         },
-    ];
+    ]
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let output = PathBuf::from(
+        std::env::args_os()
+            .nth(1)
+            .expect("invariant: xtask compat passes the output folder"),
+    );
+    let scratch = tempfile::tempdir()?;
+    let path = scratch.path().join("usage-ledger.sqlite");
+    let ledger = Ledger::at(path.clone(), None);
+    let start: jiff::Timestamp = START.parse()?;
+    let limits = limits();
     for limit in &limits {
         ledger.add_limit(limit, start)?;
     }
+    let managed = ManagedLimit {
+        usage_kind: "requests".to_owned(),
+        currency: None,
+        period: Some(Period {
+            every: PeriodLength::Week,
+            time_zone: "Asia/Tokyo".to_owned(),
+        }),
+        amount: 50_000,
+    };
+    ledger.write_managed("0.0", &[managed.limit()], start)?;
     let placement = Placement {
         product: Product::Foxhound,
         scopes: vec![scope("install", ""), scope("daemon", "0.0")],

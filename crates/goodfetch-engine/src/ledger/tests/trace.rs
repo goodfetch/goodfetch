@@ -71,9 +71,7 @@ fn the_ledger_traces_each_transition_the_slices_model_names() {
             "give_back",
             "give_back",
             "take_slice",
-            "take_slice",
             "charge",
-            "mark_for_review",
             "mark_for_review",
         ]
     );

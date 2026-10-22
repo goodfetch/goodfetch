@@ -339,6 +339,15 @@ export class PatternUnsupportedError extends ProgramError {
 }
 
 /**
+ * Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.
+ */
+export class PersonRequiredError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "person_required", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError {
@@ -482,6 +491,15 @@ export class UpgradeSourceUnsupportedError extends RefusedError {
   }
 }
 
+/**
+ * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.
+ */
+export class ValueInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "value_invalid", group: "program", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
@@ -510,6 +528,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
   pattern_unsupported: PatternUnsupportedError,
+  person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
@@ -526,4 +545,5 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_unknown: SettingUnknownError,
   target_not_unique: TargetNotUniqueError,
   upgrade_source_unsupported: UpgradeSourceUnsupportedError,
+  value_invalid: ValueInvalidError,
 };

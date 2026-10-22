@@ -52,9 +52,9 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RUN_STATE_DURABILITY, ReachedLimit,
-    RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs,
-    StopReason, Tags, Verdict,
+    Checkpoint, Completeness, Lifecycle, NotUnderstoodLimit, PointInTime, Presence,
+    RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunReport,
+    RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
 use goodfetch_protocol::usage::Limit;
@@ -84,7 +84,7 @@ use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::home::{Home, RunStateLocation, major_name};
-use crate::ledger::{Charging, Ledger, Refusal};
+use crate::ledger::{Charged, Charging, Ledger, Refusal, Reservation};
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
 use crate::run_state::install::InstallDatabase;
@@ -824,8 +824,9 @@ impl Run {
     /// another Slice in one ledger transaction when they run out, then
     /// journaled in its run state under its run epoch, from which an engine
     /// reclaiming its Slices after a crash charges them. A Run with nothing
-    /// left of a Limit is asked to stop at its next safe point, `stopped`
-    /// for that Limit, and must not use what it was refused.
+    /// left of a Limit, or covered by a Limit flagged *must understand*
+    /// that this engine cannot evaluate, is asked to stop at its next safe
+    /// point for that Limit, and must not use what it was refused.
     ///
     /// # Errors
     ///
@@ -838,32 +839,131 @@ impl Run {
     /// Dropping the future may leave a Slice taken or the charge journaled,
     /// never more charged than the Run used.
     pub async fn charge(&self, usage_kind: &str, amount: u64) -> Result<(), ChargeError> {
+        let kind = usage_kind.to_owned();
+        self.charged(move |charging, now| {
+            charging
+                .charge(&kind, amount, now)
+                .map(|charged| ((), charged))
+        })
+        .await
+        .map(drop)
+    }
+
+    /// Reserves `worst`, the worst case of a cost the Run is about to pay
+    /// in `currency`, such as a model call or a paid solve, against every
+    /// Limit on `usage_kind` in that currency that holds it (ADR 0041):
+    /// taken in one ledger transaction and journaled in its run state
+    /// before the Run pays, so that an engine reclaiming its Slices after a
+    /// crash charges it at its worst case. A currency no Limit holding the
+    /// Run caps marks it *uncapped* in its Run report. A refusal asks the
+    /// Run to stop as [`Run::charge`]'s does.
+    ///
+    /// # Errors
+    ///
+    /// As [`Run::charge`]: the cost must not be paid then.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::charge`]'s.
+    pub async fn reserve(
+        &self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        worst: u64,
+    ) -> Result<Reservation, ChargeError> {
+        let kind = usage_kind.to_owned();
+        let currency = currency.map(str::to_owned);
+        self.charged(move |charging, now| charging.reserve(&kind, currency.as_deref(), worst, now))
+            .await
+            .map(Option::unwrap_or_default)
+    }
+
+    /// Who allows the Run to pay for `usage_kind` in `currency`, as
+    /// [`Charging::allowed_by`] answers (ADR 0045): a person or a managed
+    /// Operator policy, or none, when the Run must not pay. A refusal asks
+    /// the Run to stop as [`Run::charge`]'s does.
+    ///
+    /// # Errors
+    ///
+    /// As [`Run::charge`].
+    pub async fn allowed_by(
+        &self,
+        usage_kind: &str,
+        currency: &str,
+    ) -> Result<Option<goodfetch_protocol::usage::LimitSetter>, ChargeError> {
+        let (kind, currency) = (usage_kind.to_owned(), currency.to_owned());
+        self.charged(move |charging, _| {
+            charging
+                .allowed_by(&kind, &currency)
+                .map(|setter| (setter, Charged::default()))
+        })
+        .await
+        .map(Option::flatten)
+    }
+
+    /// Settles `reservation` at `cost`, what the Run paid, which its worst
+    /// case bounds: the rest is the Run's to use again, journaled as such.
+    ///
+    /// # Errors
+    ///
+    /// `State` when the run state could not journal it: the reservation
+    /// then stays charged at its worst case.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::charge`]'s.
+    pub async fn settle(&self, reservation: Reservation, cost: u64) -> Result<(), ChargeError> {
+        self.charged(move |charging, _| Ok(((), charging.settle(reservation, cost))))
+            .await
+            .map(drop)
+    }
+
+    /// Runs `change` on the Run's charging under the ledger's blocking
+    /// calls, journals what it charged, and asks the Run to stop at its next
+    /// safe point when a Limit refused it; answers none once the Run ended.
+    async fn charged<T, F>(&self, change: F) -> Result<Option<T>, ChargeError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Charging, jiff::Timestamp) -> Result<(T, Charged), Refusal> + Send + 'static,
+    {
         let mut held = self.shared.charging.lock().await;
         let Some(mut charging) = held.take() else {
-            return Ok(());
+            return Ok(None);
         };
         let now = self.runs.limits.now();
-        let kind = usage_kind.to_owned();
-        let (charging, charged) = self
+        let (charging, changed) = self
             .owner
             .blocking(move || {
-                let charged = charging.charge(&kind, amount, now);
-                (charging, charged)
+                let changed = change(&mut charging, now);
+                (charging, changed)
             })
             .await;
+        let uncapped = charging.uncapped();
         *held = Some(charging);
-        match charged {
-            Ok(charged) if charged.used.is_empty() => Ok(()),
-            Ok(charged) => {
-                let epoch = self.state.epoch();
-                self.state
-                    .write(move |connection| slices::journal(connection, epoch, &charged.used))
-                    .await?;
-                Ok(())
+        match changed {
+            Ok((value, journaled)) => {
+                if !journaled.used.is_empty() || uncapped {
+                    let epoch = self.state.epoch();
+                    self.state
+                        .write(move |connection| {
+                            slices::journal(connection, epoch, &journaled.used, uncapped)
+                        })
+                        .await?;
+                }
+                Ok(Some(value))
             }
             Err(Refusal::Reached(reached)) => {
                 self.stop_at_safe_point(StopReason::Limit(ReachedLimit::clone(&reached)));
                 Err(Refusal::Reached(reached).into())
+            }
+            Err(Refusal::NotUnderstood(limit)) => {
+                self.stop_at_safe_point(StopReason::LimitNotUnderstood(NotUnderstoodLimit {
+                    scope: limit.scope.clone(),
+                    usage_kind: limit.usage_kind.clone(),
+                    currency: limit.currency.clone(),
+                    period: limit.period.clone(),
+                }));
+                Err(Refusal::NotUnderstood(limit).into())
             }
             Err(refusal) => Err(refusal.into()),
         }
@@ -1372,8 +1472,10 @@ struct Registry {
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         // No command is answered before the reclaim ends, so a Run starts
-        // on a ledger rid of dead runs' Slices, and an answered Run call
-        // says the engine's startup writes are done.
+        // on a ledger holding its major's managed Limits and rid of dead
+        // runs' Slices, and an answered Run call says the engine's startup
+        // writes are done.
+        self.write_managed().await;
         self.reclaim().await;
         while let Some(command) = mailbox.recv().await {
             match command {
@@ -1502,6 +1604,37 @@ impl Registry {
             }
         }
         reports
+    }
+
+    /// Writes the install Limits the managed Operator policy of the
+    /// engine's major names as that major's managed rows, as each engine
+    /// does when it starts (ADR 0041); a policy that names none, or none
+    /// at all, leaves that major no managed row.
+    async fn write_managed(&self) {
+        let machine = match self.setup.settings.machine().await {
+            Ok(machine) => machine,
+            Err(error) => {
+                tracing::warn!(%error, "the Operator policy could not be read to write its managed Limits");
+                return;
+            }
+        };
+        let limits: Vec<goodfetch_protocol::usage::Limit> = machine
+            .operator_policy
+            .managed
+            .iter()
+            .flat_map(|managed| managed.install_limits.iter())
+            .map(goodfetch_protocol::usage::ManagedLimit::limit)
+            .collect();
+        let ledger = self.limits.ledger.clone();
+        let major = major_name(&self.setup.version);
+        let now = self.limits.now();
+        let written = self
+            .owner
+            .blocking(move || ledger.write_managed(&major, &limits, now))
+            .await;
+        if let Err(error) = written {
+            tracing::warn!(%error, "the Usage ledger could not be opened to write the managed Operator policy's Limits");
+        }
     }
 
     /// Reclaims the Slices of every run whose engine is gone, as each engine
@@ -2579,6 +2712,7 @@ impl Closing {
             End::Failed => (Lifecycle::Failed, None, Completeness::Incomplete),
             End::Stopped(reason) => (Lifecycle::Stopped, Some(reason), Completeness::Incomplete),
         };
+        let charging = run.shared.charging.lock().await.take();
         let mut report = RunReport {
             run_id: run.id.clone(),
             lifecycle,
@@ -2590,11 +2724,11 @@ impl Closing {
             policy_version,
             weakened_by,
             checkpoint: last_checkpoint,
+            uncapped: charging.as_ref().is_some_and(Charging::uncapped),
         };
         let written = report.clone();
         let state = run.state.clone();
         let (run_id, folder) = (run.id.clone(), run.folder.clone());
-        let charging = run.shared.charging.lock().await.take();
         drop(run);
         if let Some(mut charging) = charging {
             let given = writer.blocking(move || charging.give_back()).await;

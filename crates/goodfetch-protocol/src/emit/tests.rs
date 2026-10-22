@@ -45,7 +45,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "storage": "toml",
                 "rule": "shared_store",
                 "hello_from": [],
-                "tables": ["cap", "lock", "lowest_minor", "settings", "version"],
+                "tables": ["cap", "lock", "lowest_minor", "managed", "settings", "version"],
             }),
             json!({
                 "name": "user-configuration",

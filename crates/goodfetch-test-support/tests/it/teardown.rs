@@ -6,8 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
 use goodfetch_test_support::{
-    CRASH_DUMP_VARIABLE, ConsoleState, CrashDumps, DAEMON_SOCKET, DaemonEndpoint, ProcessesAlive,
-    RuntimeFile, TOOLS_VARIABLE, TestEnv,
+    CRASH_DUMP_VARIABLE, CrashDumps, ProcessesAlive, TOOLS_VARIABLE, TestEnv,
 };
 
 use crate::{TEST_ENV, manifest, probe, shell};
@@ -148,6 +147,8 @@ fn a_child_that_exited_passes_teardown() {
 #[cfg(unix)]
 #[test]
 fn the_socket_folder_a_killed_daemon_left_outside_the_home_goes_at_teardown() {
+    use goodfetch_test_support::{ConsoleState, DAEMON_SOCKET, DaemonEndpoint, RuntimeFile};
+
     let outside = tempfile::Builder::new()
         .prefix("goodfetch é ")
         .tempdir_in("/tmp")

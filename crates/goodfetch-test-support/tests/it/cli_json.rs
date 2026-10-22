@@ -5,7 +5,7 @@
 //! home, which it stops afterwards, so one rstest case per mode shares one
 //! snapshot.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use goodfetch_test_support::{
     Cli, CliError, Mode, RuntimeFile, TestEnv, Tool, assert_cli_snapshot, cli, tools,
@@ -13,16 +13,12 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::cli::unrecorded;
+use crate::cli::{collie, unrecorded};
 #[cfg(unix)]
 use crate::test_env_daemon::{LEAVES_ITS_RUNTIME_FILE, stand_in};
 
 /// An explanation of no setting, valid against `SettingsExplanation`.
 const EXPLANATION: &str = r#"{"files":[],"settings":[]}"#;
-
-fn collie() -> PathBuf {
-    tools().unwrap().path(Tool::Collie).unwrap().to_owned()
-}
 
 /// The CLI helper running the Scripted engine as a fixture command whose
 /// stdout is `stdout`, written as it is, and whose exit code is 0.

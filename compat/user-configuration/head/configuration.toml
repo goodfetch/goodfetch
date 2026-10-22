@@ -22,6 +22,11 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
+[settings.egress]
+allowed_domains = ["example"]
+blocked_domains = ["example"]
+offline = true
+
 [settings.browser]
 headless = true
 
@@ -44,9 +49,6 @@ handler = 30000
 
 [settings.sample]
 echo_repeats = 4
-
-[settings.egress]
-offline = true
 
 [settings.network]
 resolve = { "example.test" = ["127.0.0.1"] }

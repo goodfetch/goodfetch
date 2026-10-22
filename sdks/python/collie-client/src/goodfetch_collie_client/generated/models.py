@@ -200,6 +200,21 @@ class EngineInstance(RootModel[str]):
     """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
 
 
+class ErrorData(BaseModel):
+    """
+    What a failure's `data` holds: its Error code, whether the same call may
+    succeed when made again, and the code's own details.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The Error code, or the name of the protocol failure."""
+    retryable: bool
+    """Whether the same call may succeed when made again."""
+
+
 class KeyValueStoreDeleted(BaseModel):
     """What `key_value_store.delete` answers once the key is gone."""
 
@@ -514,6 +529,26 @@ class ProjectSettings(BaseModel):
 class ProtocolVersion(RootModel[str]):
     root: Annotated[str, Field(pattern="^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")]
     """A version `major.minor` (ADR 0030)."""
+
+
+class RequestFailed(BaseModel):
+    """
+    What `page.request_failed` reports: a request of the run that failed
+    while no call waited for it, such as one the egress policy refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: ErrorData
+    """
+    Why it failed: the Error code a call waiting for it would have
+    raised, with its details, such as `egress_refused`.
+    """
+    method: str
+    """Its method, such as `GET`."""
+    url: str
+    """The request's URL, as the run gave it."""
 
 
 class RequestId(RootModel[int | str]):

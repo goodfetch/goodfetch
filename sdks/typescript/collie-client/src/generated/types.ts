@@ -703,6 +703,24 @@ export interface EngineInfo {
  */
 export interface EngineInfoParams {}
 /**
+ * What a failure's `data` holds: its Error code, whether the same call may
+ * succeed when made again, and the code's own details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ErrorData".
+ */
+export interface ErrorData {
+  /**
+   * The Error code, or the name of the protocol failure.
+   */
+  code: string;
+  /**
+   * Whether the same call may succeed when made again.
+   */
+  retryable: boolean;
+  [k: string]: unknown;
+}
+/**
  * What `$/events` carries: a batch of one subscription's events, in the
  * order of their positions.
  *
@@ -1643,6 +1661,39 @@ export interface LimitScope3 {
    * The scope's kind.
    */
   kind: string;
+}
+/**
+ * What `page.request_failed` reports: a request of the run that failed
+ * while no call waited for it, such as one the egress policy refused.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RequestFailed".
+ */
+export interface RequestFailed {
+  failure: ErrorData1;
+  /**
+   * Its method, such as `GET`.
+   */
+  method: string;
+  /**
+   * The request's URL, as the run gave it.
+   */
+  url: string;
+}
+/**
+ * Why it failed: the Error code a call waiting for it would have
+ * raised, with its details, such as `egress_refused`.
+ */
+export interface ErrorData1 {
+  /**
+   * The Error code, or the name of the protocol failure.
+   */
+  code: string;
+  /**
+   * Whether the same call may succeed when made again.
+   */
+  retryable: boolean;
+  [k: string]: unknown;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream

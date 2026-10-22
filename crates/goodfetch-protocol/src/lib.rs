@@ -20,6 +20,7 @@ pub mod connection;
 pub mod console;
 pub mod daemon;
 pub mod dns;
+pub mod egress;
 pub mod emit;
 pub mod engine;
 pub mod entries;

@@ -26,6 +26,7 @@ pub mod crash_report;
 pub mod daemon;
 pub mod deadline;
 pub mod dns;
+pub mod egress;
 mod engine;
 pub mod entropy;
 pub mod events;

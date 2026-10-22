@@ -33,9 +33,10 @@ use goodfetch_protocol::browser_cache::{
     PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{EGRESS_OFFLINE, SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 pub use artifact::{BuildPlatform, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};

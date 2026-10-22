@@ -32,10 +32,11 @@ use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
 };
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
 };
-use goodfetch_protocol::settings::{EGRESS_OFFLINE, NETWORK_RESOLVE};
+use goodfetch_protocol::settings::NETWORK_RESOLVE;
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
 

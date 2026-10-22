@@ -142,6 +142,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "egress_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
       "exit_code": null,
       "group": "unavailable",
@@ -668,6 +678,18 @@
       "name": "page.download",
       "payload": {
         "$ref": "#/$defs/PageDownload"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A request of the run failed while no call waited for it, such as one the egress policy refused with `egress_refused`: the Run trace records it, so a refusal is never a timeout. Names the request's URL and method, and the failure's Error code with its details.",
+      "name": "page.request_failed",
+      "payload": {
+        "$ref": "#/$defs/RequestFailed"
       },
       "product": "collie",
       "stability": "experimental"
@@ -2123,6 +2145,48 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [
+        "*"
+      ],
+      "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+      "name": "egress.allowed_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+      "name": "egress.blocked_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "weakens": false
     },

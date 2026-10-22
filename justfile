@@ -333,20 +333,31 @@ build profile="dev":
 test suite *packages:
     #!/usr/bin/env bash
     set -euo pipefail
-    packages=() vitest=() pytest=()
+    packages=() vitest=() pytest=() vitest_files=() playwright_files=()
     for package in {{ packages }}; do
       if [[ -f "$package/package.json" ]]; then vitest+=("$package/")
       elif [[ -f "$package/pyproject.toml" ]]; then pytest+=("$package")
+      # A test file that no package owns, as the incremental gate passes
+      # them (ADR 0135), runs in its own runner only.
+      elif [[ -f "$package" && "$package" == *.spec.ts ]]; then playwright_files+=("$package")
+      elif [[ -f "$package" && "$package" == *.py ]]; then pytest+=("$package")
+      elif [[ -f "$package" ]]; then vitest_files+=("$package")
       else packages+=(-p "$package"); fi
     done
-    rust=true typescript=true python=true
+    rust=true typescript=true python=true vitest_given=true playwright_given=true
     if [[ -n "{{ packages }}" ]]; then
       [[ ${#packages[@]} -gt 0 ]] || rust=false
-      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+      [[ ${#vitest[@]} -gt 0 || ${#vitest_files[@]} -gt 0 ]] || vitest_given=false
+      [[ ${#vitest[@]} -gt 0 || ${#playwright_files[@]} -gt 0 ]] || playwright_given=false
+      $vitest_given || $playwright_given || typescript=false
       [[ ${#pytest[@]} -gt 0 ]] || python=false
     else
       packages=(--workspace)
     fi
+    # Vitest takes the package folders and its own files; Playwright the
+    # folders and its own files.
+    vitest_folders=(${vitest[@]+"${vitest[@]}"})
+    vitest+=(${vitest_files[@]+"${vitest_files[@]}"})
     # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
     # the commit's executables through the test tool manifest (ADRs 0062 and
     # 0094): those the workspace has, built here with the tests' profile.
@@ -362,7 +373,8 @@ test suite *packages:
       echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
     fi
     select_nextest=() select_vitest=() select_playwright=() select_pytest=()
-    vitest_runs=$typescript playwright_runs=$typescript
+    vitest_runs=$vitest_given playwright_runs=$playwright_given
+    $typescript || vitest_runs=false playwright_runs=false
     if [[ -n "${GOODFETCH_TEST_SELECTION:-}" ]]; then
       if [[ "{{ suite }}" == quick ]]; then
         echo "error: a selection runs in the pre-merge or release suite, where Journey tests run" >&2
@@ -420,7 +432,7 @@ test suite *packages:
             --test-runner nextest --nextest-profile quick --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
         fi
-        if $typescript; then
+        if $vitest_runs; then
           pnpm exec vitest run --project unit --slowTestThreshold=1000 "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
@@ -477,7 +489,7 @@ test suite *packages:
           pnpm exec vitest run "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         if $playwright_runs; then
-          pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+          pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest_folders[@]+"${vitest_folders[@]}"} ${playwright_files[@]+"${playwright_files[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
           uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
@@ -607,11 +619,22 @@ repeat count *selection:
 # target/junit/repeat-<count>/, which the results store's ingest reads as run
 # that many times. Nothing skips it and no count is lowered; it counts
 # against the Pre-merge budget.
-stress base="":
+#
+# The incremental gate (ADR 0135) narrows it: with `within` workspace members (crates
+# by name, pnpm and uv packages by folder), only their new and changed
+# tests run, plus each test whose file changed `since` the earlier gate
+# run's head.
+# Stresses new and changed tests: `just stress [base] [since] [within…]`.
+[positional-arguments]
+stress base="" since="" *within:
     #!/usr/bin/env bash
     set -euo pipefail
+    shift 2
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    narrowing=()
+    for member in "$@"; do narrowing+=(--within "$member"); done
+    [[ -z "{{ since }}" ]] || narrowing+=(--since "{{ since }}")
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
     # Vitest lists a file's tests by loading it, as a run does, so the
     # listings get the variables `just repeat` runs the tests with.
@@ -619,7 +642,8 @@ stress base="":
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     selection=$(cargo run --quiet -p xtask -- stress select --base "$base" \
-      --saved "$target/stress-listings" --cargo-profile {{ test_profile }})
+      --saved "$target/stress-listings" --cargo-profile {{ test_profile }} \
+      ${narrowing[@]+"${narrowing[@]}"})
     echo "Stressed tests (<count>, <runner>, <test ID>):"
     echo "$selection"
     # The JUnit files an earlier step of the job wrote stay where they are.
@@ -689,7 +713,10 @@ quick *all:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073). The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). `quick` runs only the
-# checks every change needs, for a change no test reads (ADR 0135).
+# checks every change needs, for a change no test reads (ADR 0135). `all`
+# on a head descending from a head whose gate ran reruns only the steps and
+# members' tests the change since then reaches, with every whole-change
+# check, and reuses the other green results (ADR 0135, `xtask gate`).
 pre-merge *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/pre-merge.sh {{ all }}
 
@@ -1192,6 +1219,30 @@ _tlc all:
 _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
+
+# The incremental gate's plan for HEAD (ADR 0135), from the results earlier
+# gate runs recorded in target/gate-runs/, which `just merge` keeps between
+# gates; GOODFETCH_GATE_FULL=1 reuses nothing.
+# Vitest's and Playwright's listings since a recorded head, the evidence of
+# what the TypeScript tests read, load each test file, which reads only the
+# keys of the test tool manifest: an empty one serves.
+_gate-plan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/gate-runs
+    echo '{}' >target/gate-runs/listing-tools.json
+    # The variables that change what the steps run or how join the host
+    # fingerprint, so a result counts only for a run in the same environment.
+    variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
+    GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
+      cargo run --quiet -p xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \
+      --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
+
+# Records a gate step's result (`pass` or `fail`) for the head the plan was
+# made for, which must still be checked out on a clean tree (ADR 0135).
+_gate-record head step status:
+    cargo run --quiet -p xtask -- gate record --records target/gate-runs --head {{ head }} \
+      --now "$(date +%s)" --step {{ step }} --status {{ status }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

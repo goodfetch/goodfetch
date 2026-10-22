@@ -31,6 +31,7 @@ mod evict_caches;
 mod features;
 mod fixture_size;
 mod foxhound_side;
+mod gate;
 mod github;
 mod image_pins;
 mod issues;
@@ -169,6 +170,13 @@ enum Command {
     /// used ones that are not the pull-request tier's Linux caches until they
     /// fit (ADR 0061).
     EvictCaches(evict_caches::Arguments),
+    /// The incremental local gate (ADR 0135): which steps of `just
+    /// pre-merge all` a run on a descendant of a gated head reruns, and
+    /// each step's recorded result.
+    Gate {
+        #[command(subcommand)]
+        command: gate::Command,
+    },
     /// The Feature inventory's declarations and its Feature check (ADRs 0072
     /// and 0075).
     Features {
@@ -449,6 +457,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Egress { command } => egress::run(command, environment),
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::Features { command } => features::run(command, environment),
+        Command::Gate { command } => gate::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::ImagePins => Ok(check::report(&image_pins::check(root)?)),
         Command::Journeys { command } => {

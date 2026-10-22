@@ -230,9 +230,8 @@ fn a_later_run_reruns_what_the_change_since_the_first_reaches_and_every_red_resu
     let second = plan(&workspace, &records);
 
     assert_eq!(second.previous, first);
-    // What `xtask affected` selects, plus, failing closed, the pnpm packages
-    // and the tests no member owns: the fixture installs no Vitest, so no
-    // listing shows what their tests read.
+    // What `xtask affected` selects, plus the pnpm packages, which
+    // Vitest and Playwright rerun in the head's order in every run.
     let mut expected = affected_members(&workspace, &first);
     assert_eq!(
         expected,
@@ -248,7 +247,7 @@ fn a_later_run_reruns_what_the_change_since_the_first_reaches_and_every_red_resu
     assert_eq!(action(&second, "pre-merge").0, "part");
     assert_eq!(members(&second, "pre-merge"), expected);
     assert!(
-        second.why["pre-merge"].contains("listing since"),
+        second.why["pre-merge"].contains("in the head's test order"),
         "{}",
         second.why["pre-merge"]
     );

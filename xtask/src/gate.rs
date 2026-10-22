@@ -192,6 +192,16 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
     if !unowned.is_empty() {
         members.insert(UNOWNED.to_owned());
     }
+    // The members whose tests Vitest, Playwright or pytest run, ordered by
+    // the head's seed: every run reruns them in that order.
+    let mut shuffled: BTreeSet<String> = members_read
+        .all()
+        .filter(|(_, kind)| *kind != affected::Kind::Crate)
+        .map(|(name, _)| name)
+        .collect();
+    if !unowned.is_empty() {
+        shuffled.insert(UNOWNED.to_owned());
+    }
     let (previous, no_previous) = if options.full {
         (
             None,
@@ -205,6 +215,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             &Head {
                 base: &base,
                 members: &members,
+                shuffled: &shuffled,
                 host: &host,
                 now: options.now,
             },
@@ -234,6 +245,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         &Head {
             base: &base,
             members: &members,
+            shuffled: &shuffled,
             host: &host,
             now: options.now,
         },

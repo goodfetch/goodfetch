@@ -385,7 +385,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         );
     }
     for rerun in [
-        "test quick a b console/screens.spec.ts",
+        "test quick --shuffled-all a b console/screens.spec.ts",
         "stress  earlier a :unowned",
         "lint",
         "linux",
@@ -539,6 +539,39 @@ fn a_whole_workspace_gate_run_that_narrows_what_runs_is_refused(#[case] variable
         run.calls.iter().all(|call| call == "_skips-report") && run.gate.is_empty(),
         "{:?} {:?}",
         run.calls,
+        run.gate
+    );
+}
+
+/// Every gate run reruns the Vitest, Playwright and pytest tests of the
+/// suites in the head's order, with every one of those runners' tests
+/// (`--shuffled-all`), so a test that passed in an earlier run's order and
+/// fails in the head's fails the gate (the owner's F8, option B).
+#[test]
+fn the_shuffling_runners_rerun_in_the_heads_order_and_their_failure_fails_the_gate() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(
+        stand_in.join("plan"),
+        "previous\tearlier
+head\tplanned
+members\tcrate test-support/typescript
+unowned\t-
+pre-merge\tpart\ttest-support/typescript\tVitest, Playwright and pytest rerun every member in the head's test order
+",
+    )
+    .unwrap();
+    let call = "test pre-merge --shuffled-all test-support/typescript";
+    std::fs::write(stand_in.join("failing"), call).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert!(run.calls.iter().any(|ran| ran == call), "{:?}", run.calls);
+    assert!(
+        run.gate
+            .contains(&"_gate-record planned pre-merge fail".to_owned()),
+        "{:?}",
         run.gate
     );
 }

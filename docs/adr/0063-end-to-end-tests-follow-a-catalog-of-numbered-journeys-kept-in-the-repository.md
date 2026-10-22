@@ -39,7 +39,7 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
   | `[proving_ground]` | `seed` (an unsigned 64-bit integer) and `tasks`, each Proving ground task it uses as `{ id, digest }`; the whole table is left out when the goal touches no page |
   | `[surfaces]` | Each surface the goal is reachable on, with the milestone (`M1` to `M4`) by which that surface must prove it |
   | `[[steps]]` | Each step in declarative words (Cucumber's rule: the wording survives a change of implementation); `on` pins a step to one surface; `manual` gives the reason a step needs a person |
-  | `[[expect]]` | Each check of the outcome; `task` asks the oracle to answer `verified` for that task |
+  | `[[expect]]` | Each check of the outcome; `task` asks the oracle to answer `verified` for that task; `surfaces` scopes it to those variants (agent decision pending owner review, spec #325's review M9: an SDK package's install checks belong to the `sdk-*` variants only, so J-002's `cli` variant never proves them) |
 
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): a Journey also names its `product`: Collie when Collie carries every step, Foxhound otherwise.
 

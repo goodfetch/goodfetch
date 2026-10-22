@@ -36,7 +36,7 @@ use serde_json::{Map, Value};
 use schemars::JsonSchema;
 
 use crate::catalog::Product;
-use crate::journey::{FeatureId, Journey, JourneyId, TaskId};
+use crate::journey::{Check, FeatureId, Journey, JourneyId, TaskId};
 use crate::releases::Sha256;
 
 /// One result document, of either kind.
@@ -181,10 +181,16 @@ pub fn read_journey_document(
             });
         }
     }
+    // The variant's checks: those its Journey scopes to other variants'
+    // surfaces are not its own.
+    let checks: Vec<&Check> = journey
+        .expect
+        .iter()
+        .filter(|check| check.belongs_to(&facts.surface))
+        .collect();
     compare(
         JourneyPart::Check,
-        &journey
-            .expect
+        &checks
             .iter()
             .map(|check| (check.text.as_str(), check.task.as_ref()))
             .collect::<Vec<_>>(),
@@ -202,12 +208,11 @@ pub fn read_journey_document(
         .iter()
         .flat_map(|proving_ground| proving_ground.tasks.iter().map(|task| &task.id))
         .flat_map(|id| {
-            let checks = journey
-                .expect
+            let naming = checks
                 .iter()
                 .filter(|check| check.task.as_ref() == Some(id))
                 .count();
-            std::iter::repeat_n(id, checks.max(1))
+            std::iter::repeat_n(id, naming.max(1))
         })
         .collect();
     compare(

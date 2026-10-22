@@ -187,6 +187,7 @@ fn check(text: &str, task_id: Option<&str>) -> Check {
     Check {
         text: text.to_owned(),
         task: task_id.map(task),
+        surfaces: Vec::new(),
     }
 }
 

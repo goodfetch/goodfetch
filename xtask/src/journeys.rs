@@ -57,7 +57,10 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
 
-use goodfetch_protocol::journey::{Journey, JourneyCatalog, JourneyId, Milestone, Status, Surface};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::journey::{
+    Journey, JourneyCatalog, JourneyId, Milestone, Status, Surface, TaskId,
+};
 
 use crate::check::Finding;
 use crate::environment::Environment;
@@ -574,6 +577,7 @@ fn file_findings(
             ));
         }
     }
+    findings.extend(check_findings(journey, &file.path));
     let has_reason = journey
         .reason
         .as_deref()
@@ -584,6 +588,48 @@ fn file_findings(
             subject(),
             "a retired Journey keeps its file and gives its `reason`",
         ));
+    }
+    findings
+}
+
+/// The rules on a Journey's checks: each surface a check is scoped to is
+/// one of the Journey's variants, and each task a check names is pinned.
+fn check_findings(journey: &Journey, subject: &str) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let pinned: Vec<&TaskId> = journey
+        .proving_ground
+        .iter()
+        .flat_map(|table| table.tasks.iter().map(|task| &task.id))
+        .collect();
+    for check in &journey.expect {
+        // A check scoped to a surface the Journey has no variant on belongs
+        // to no variant; `foxhound-cli` is a Collie Journey's `cli` variant.
+        for surface in &check.surfaces {
+            let variant = journey.surfaces.contains_key(surface)
+                || (surface == variants::FOXHOUND_CLI
+                    && journey.product == Product::Collie
+                    && journey.surfaces.contains_key("cli"));
+            if !variant {
+                findings.push(Finding::new(
+                    "check-surface",
+                    subject.to_owned(),
+                    format!(
+                        "check `{}` is scoped to `{surface}`, on which the Journey has no variant",
+                        check.text
+                    ),
+                ));
+            }
+        }
+        if let Some(task) = check.task.as_ref().filter(|task| !pinned.contains(task)) {
+            findings.push(Finding::new(
+                "check-task-unpinned",
+                subject.to_owned(),
+                format!(
+                    "check `{}` names task `{task}`, which the Journey's `[proving_ground]` does not pin",
+                    check.text
+                ),
+            ));
+        }
     }
     findings
 }

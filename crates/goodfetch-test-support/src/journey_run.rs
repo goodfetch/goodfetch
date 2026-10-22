@@ -22,6 +22,8 @@
 //! - at `finish`, each step never called is recorded, after those called, as
 //!   `not_reached` (`manual` for a manual one), so a run that skips a step
 //!   writes a document every reader refuses;
+//! - a check the file scopes to other variants' surfaces is not the
+//!   variant's: it is neither run nor written;
 //! - checks and tasks are written in the file's order, a check never called
 //!   `not_reached` and a task never judged with no answer;
 //! - each check naming a task is judged on its own submission, so a task two
@@ -108,6 +110,22 @@ struct CheckEntry {
     text: String,
     #[serde(default)]
     task: Option<String>,
+    /// The surfaces of the variants the check belongs to; every variant's
+    /// when empty.
+    #[serde(default)]
+    surfaces: Vec<String>,
+}
+
+impl CheckEntry {
+    /// Whether the check belongs to the variant on `surface`, a
+    /// `foxhound-cli` variant taking the `cli` variant's checks.
+    fn belongs_to(&self, surface: &str) -> bool {
+        self.surfaces.is_empty()
+            || self
+                .surfaces
+                .iter()
+                .any(|listed| listed == surface || (surface == FOXHOUND_CLI && listed == "cli"))
+    }
 }
 
 impl JourneyFile {
@@ -227,11 +245,14 @@ impl<C> JourneyRun<C> {
             path: file.to_owned(),
             source,
         })?;
-        let journey: JourneyFile =
+        let mut journey: JourneyFile =
             toml::from_str(&text).map_err(|source| JourneyRunError::Invalid {
                 path: file.to_owned(),
                 source: Box::new(source),
             })?;
+        // The variant's own checks: those scoped to other variants' surfaces
+        // are not run, and not recorded.
+        journey.expect.retain(|check| check.belongs_to(surface));
         if !journey.lists(surface) {
             return Err(JourneyRunError::UnlistedSurface {
                 journey: journey.id,

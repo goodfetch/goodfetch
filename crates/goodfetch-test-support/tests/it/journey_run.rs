@@ -397,6 +397,33 @@ fn a_submission_for_a_check_that_names_no_task_or_was_judged_fails_the_run(
     );
 }
 
+/// A check the Journey scopes to other variants' surfaces is not the
+/// variant's: J-901's `sdk-rust` check is neither run nor recorded in its
+/// `cli` variant's document.
+#[test]
+fn a_check_of_other_variants_is_not_the_variants_own() {
+    let mut run = JourneyRun::start_file(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    )
+    .unwrap();
+
+    run.check("The Rust crate reports the executable's version", |_| ());
+    let finished = run.finish().unwrap();
+
+    let document = written(finished.path());
+    assert_eq!(
+        outcomes(&document, "checks"),
+        [
+            r#"not_reached "The version names the Product""#,
+            r#"failed "The Rust crate reports the executable's version""#,
+        ]
+    );
+    assert_eq!(finished.failures().len(), 1, "{:?}", finished.failures());
+}
+
 #[test]
 fn a_run_records_the_executable_it_was_given_with_its_product_version() {
     let run = JourneyRun::start_file(

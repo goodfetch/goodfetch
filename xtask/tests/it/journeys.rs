@@ -204,6 +204,52 @@ fn surface_adr_0063_does_not_list_fails(#[case] from: &str, #[case] to: &str) {
     assert_eq!(outcome.code, 1);
 }
 
+/// A check scoped to surfaces its Journey has no variant on belongs to no
+/// variant.
+#[rstest]
+#[case::unlisted_by_adr_0063("[\"desktop\"]")]
+#[case::not_a_variant_of_the_journey("[\"console\"]")]
+fn check_scoped_to_a_surface_the_journey_has_no_variant_on_fails(#[case] surfaces: &str) {
+    let workspace = catalog();
+    workspace.edit(
+        "journeys/J-003.toml",
+        "task = \"catalog/1\"",
+        &format!("task = \"catalog/1\"\nsurfaces = {surfaces}"),
+    );
+
+    let outcome = check(&workspace);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("check-surface", "journeys/J-003.toml")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A check that names a task its Journey does not pin asks the oracle for
+/// a task no variant can reach.
+#[test]
+fn check_naming_a_task_the_journey_does_not_pin_fails() {
+    let workspace = catalog();
+    workspace.edit(
+        "journeys/J-003.toml",
+        "task = \"catalog/1\"",
+        "task = \"catalog/2\"",
+    );
+
+    let outcome = check(&workspace);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("check-task-unpinned", "journeys/J-003.toml")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 #[rstest]
 #[case::sdk_before_m2("sdk-rust = \"M2\"", "sdk-rust = \"M1\"")]
 #[case::adapter_before_m4("adapter-langchain = \"M4\"", "adapter-langchain = \"M3\"")]

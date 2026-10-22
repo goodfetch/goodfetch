@@ -11,6 +11,8 @@
 //   `not_reached` (`manual` for a manual one), so a run that skips a step
 //   gives a document every reader refuses; a step or check still running is
 //   recorded `failed`;
+// - a check the file scopes to other variants' surfaces is not the
+//   variant's: it is neither run nor written;
 // - checks and tasks are written in the file's order, a check never called
 //   `not_reached` and a task never judged with no answer;
 // - each check naming a task is judged on its own submission, so a task two
@@ -18,7 +20,7 @@
 // It records facts only: the document's outcome is derived from them by
 // `journeyDocument`.
 import type { JourneyFacts } from "./journey-document.ts";
-import { namedTasks, type JourneyFile } from "./journey-file.ts";
+import { belongsTo, namedTasks, type JourneyFile } from "./journey-file.ts";
 import type { CheckOutcome, OracleAnswer, StepOutcome } from "./generated/result-document.ts";
 
 /** A step's or check's body: it fails when it throws or rejects. */
@@ -79,9 +81,12 @@ export class JourneyRun {
   #facts: JourneyFacts | undefined;
 
   constructor(start: JourneyRunStart) {
-    this.#start = start;
+    // The variant's own checks: those scoped to other variants' surfaces
+    // are neither run nor recorded.
+    const expect = (start.journey.expect ?? []).filter((check) => belongsTo(check, start.surface));
+    this.#start = { ...start, journey: { ...start.journey, expect } };
     this.#taken = start.journey.steps.map(() => false);
-    this.#checks = (start.journey.expect ?? []).map(() => undefined);
+    this.#checks = expect.map(() => undefined);
   }
 
   /** Each failure the run recorded: a failed step or check, an answer that is not `verified`, or a step, check or task the Journey does not hold in that place. */

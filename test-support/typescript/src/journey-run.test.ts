@@ -113,6 +113,28 @@ describe("JourneyRun", () => {
     expect(outcomes(facts.checks)).toEqual([`not_reached ${NAMES}`]);
   });
 
+  test("leaves out a check its Journey scopes to other variants' surfaces", async () => {
+    const journey = readJourneyFile(J961);
+    const run = new JourneyRun({
+      journey: {
+        ...journey,
+        expect: [
+          ...(journey.expect ?? []),
+          { text: "The SDK reports it", surfaces: ["sdk-typescript"] },
+        ],
+      },
+      surface: "console",
+      executable: { product: "collie", version: "0.0.0" },
+      platform: { os: "linux", arch: "x86_64" },
+      runtime: "chromium-141",
+      provingGround: undefined,
+    });
+
+    const facts = run.facts();
+
+    expect(outcomes(facts.checks)).toEqual([`not_reached ${NAMES}`]);
+  });
+
   test("records a step still running when the run ends as failed", async () => {
     const run = start();
 

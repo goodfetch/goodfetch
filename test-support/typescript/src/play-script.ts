@@ -156,6 +156,11 @@ class Player implements PlayedScript {
       const index = this.#index;
       const step = this.#steps[index];
       if (step === undefined) throw new Error("invariant: the index is within the steps");
+      // As the executable does, an `await_reply` with no request sent
+      // before it fails at once.
+      if ("await_reply" in step && this.#awaiting === undefined) {
+        return this.#fail(nothingToAnswer(index));
+      }
       if ("expect" in step || "await_reply" in step || "stall" in step) return;
       this.#index += 1;
       if ("reply" in step) {
@@ -183,10 +188,18 @@ class Player implements PlayedScript {
   /** Takes one line the Client wrote. */
   #read(line: string): void {
     if (this.#outcome !== undefined) return;
-    const message = parse(line);
+    const parsed = parse(line);
     this.messages.push(
-      message === undefined ? { from: "client", raw: line } : { from: "client", message },
+      parsed === undefined
+        ? { from: "client", raw: line }
+        : { from: "client", message: parsed.value },
     );
+    // The real engine refuses what is not one JSON-RPC 2.0 message: a
+    // missing or other `jsonrpc`, a reply with both `result` and `error`.
+    const message =
+      parsed !== undefined && isObject(parsed.value) && isJsonRpc(parsed.value)
+        ? parsed.value
+        : undefined;
     const index = this.#index;
     const step = this.#steps[index];
     if (step === undefined || "stall" in step) {
@@ -197,7 +210,7 @@ class Player implements PlayedScript {
       return this.#fail(unexpected(undefined, expected, message, line));
     }
     if (message === undefined) {
-      return this.#fail(unexpected(index, "a JSON-RPC message", message, line));
+      return this.#fail(unexpected(index, "a JSON-RPC 2.0 message", message, line));
     }
     if ("expect" in step) {
       const wanted = step.expect;
@@ -216,7 +229,7 @@ class Player implements PlayedScript {
     } else if ("await_reply" in step) {
       const id = this.#awaiting;
       this.#awaiting = undefined;
-      if (id === undefined) return this.#fail(nothingToAnswer(index));
+      if (id === undefined) throw new Error("invariant: #advance stops at an awaited reply only");
       const [key, value] = Object.entries(step.await_reply)[0] ?? [];
       if (key === undefined) throw new Error("invariant: a reply holds a result or an error");
       const matches =
@@ -274,14 +287,52 @@ class Player implements PlayedScript {
   }
 }
 
-/** A line's JSON object, or `undefined` when it is not one. */
-function parse(line: string): Record<string, unknown> | undefined {
+/** A line's JSON value, or `undefined` when it is not JSON. */
+function parse(line: string): { readonly value: unknown } | undefined {
   try {
-    const value: unknown = JSON.parse(line);
-    return isObject(value) ? value : undefined;
+    return { value: JSON.parse(line) };
   } catch {
     return undefined;
   }
+}
+
+/** Whether `id` is a JSON-RPC request's ID: a string or a number. */
+function isId(id: unknown): boolean {
+  return typeof id === "string" || typeof id === "number";
+}
+
+/**
+ * Whether `message` is one JSON-RPC 2.0 message, as the executable's player
+ * judges it: a request or notification (`method`, an optional string or
+ * number `id`, object or array `params`) or a reply (`id` and exactly one of
+ * `result` and an `error` object), with no other member.
+ */
+function isJsonRpc(message: Record<string, unknown>): boolean {
+  const only = (members: readonly string[]): boolean =>
+    Object.keys(message).every((key) => members.includes(key));
+  if (message["jsonrpc"] !== "2.0") return false;
+  if ("method" in message) {
+    return (
+      typeof message["method"] === "string" &&
+      (!("id" in message) || isId(message["id"])) &&
+      (!("params" in message) || isObject(message["params"]) || Array.isArray(message["params"])) &&
+      only(["jsonrpc", "method", "id", "params"])
+    );
+  }
+  const error = message["error"];
+  const outcome =
+    "result" in message
+      ? !("error" in message)
+      : isObject(error) &&
+        Number.isInteger(error["code"]) &&
+        typeof error["message"] === "string" &&
+        Object.keys(error).every((key) => ["code", "message", "data"].includes(key));
+  return (
+    "id" in message &&
+    (isId(message["id"]) || message["id"] === null) &&
+    outcome &&
+    only(["jsonrpc", "id", "result", "error"])
+  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

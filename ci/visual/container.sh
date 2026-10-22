@@ -6,8 +6,11 @@
 #                                  screenshot, as CI's `visual` job does in
 #                                  the job's VM (ci/vm/visual.sh install, then
 #                                  test)
+#                                  (`GOODFETCH_TEST_SUITE=release` adds the
+#                                  Release suite's Firefox and WebKit ones)
 #   ci/visual/container.sh update  `just screenshots-update`: rewrites the
-#                                  changed or missing ones in the image
+#                                  changed or missing ones of every browser
+#                                  in the image, as the Release suite reads them
 #                                  (ci/visual/run.sh update) and copies them
 #                                  into the working tree, while GitHub Actions
 #                                  is off and the `update-screenshots`
@@ -79,6 +82,18 @@ mkdir -p "$output/visual"
 # here, where ci/visual/run.sh test reads them (ADR 0064).
 cargo run --quiet --locked -p xtask -- quarantine exclude >"$output/visual/quarantine.tsv"
 
+environment=(--env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST")
+if [[ "$mode" == update ]]; then
+  # Every browser's References, as the `update-screenshots` workflow writes
+  # them: the Release suite's visual job compares Firefox's and WebKit's too
+  # (ADR 0073).
+  environment+=(--env GOODFETCH_TEST_SUITE=release)
+elif [[ -n "${GOODFETCH_TEST_SUITE:-}" ]]; then
+  # `GOODFETCH_TEST_SUITE=release just visual` compares as the Release
+  # suite's visual job does (ci/vm/visual.sh).
+  environment+=(--env "GOODFETCH_TEST_SUITE=$GOODFETCH_TEST_SUITE")
+fi
+
 git ls-files -z --cached --others --exclude-standard |
   while IFS= read -r -d '' file; do
     if [[ -e "$file" || -L "$file" ]]; then printf '%s\0' "$file"; fi
@@ -86,7 +101,7 @@ git ls-files -z --cached --others --exclude-standard |
   COPYFILE_DISABLE=1 tar -c --no-xattrs --null -T - -f - |
   "$engine" run --rm --interactive --init --platform linux/amd64 --ipc=host \
     --volume "$output:/work/target" --volume goodfetch-visual-pnpm:/var/tmp/pnpm-store \
-    --env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST" \
+    "${environment[@]}" \
     "$PLAYWRIGHT_IMAGE" bash -c "mkdir -p /work && tar -x -C /work && exec /work/ci/visual/container.sh in-image $mode"
 
 if [[ "$mode" == update ]]; then

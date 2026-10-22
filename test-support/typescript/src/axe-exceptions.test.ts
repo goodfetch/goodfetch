@@ -42,6 +42,16 @@ describe("parseAxeExceptions", () => {
     expect(parsing).toThrow(expect.objectContaining({ code: "axe_exceptions_invalid" }));
   });
 
+  test.for<[string, string, string]>([
+    ["rule", 'rule = "color-contrast"', 'rule = ""'],
+    ["selector", 'selector = "#brand"', 'selector = "  "'],
+    ["reason", 'reason = "axe reads the gradient behind the text as its colour"', 'reason = " "'],
+  ])("refuses an entry whose %s is blank with axe_exceptions_invalid", ([, line, blank]) => {
+    const parsing = () => parseAxeExceptions(ENTRY.replace(line, blank));
+
+    expect(parsing).toThrow(expect.objectContaining({ code: "axe_exceptions_invalid" }));
+  });
+
   test("refuses an entry naming no page with axe_exceptions_invalid", () => {
     const text = ENTRY.replace('pages = ["/runs/:run_id"]', "pages = []");
 

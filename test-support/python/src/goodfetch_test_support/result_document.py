@@ -41,12 +41,14 @@ def write_journey_document(
     tasks: Sequence[TaskResult],
     surface_package: SurfacePackage | None = None,
     proving_ground: ProvingGroundCopy | None = None,
+    test_errors: Sequence[str] = (),
 ) -> JourneyOutcome:
     """Writes the document of a variant run to `path` as JSON.
 
     The variant is `proved` when every step passed or is `manual`, every
-    check passed and every named task's oracle answered `verified`, and
-    `failed` otherwise. No argument sets the outcome.
+    check passed, every named task's oracle answered `verified` and
+    `test_errors` (what failed the test outside them) is empty, and `failed`
+    otherwise. No argument sets the outcome.
 
     Returns:
         The outcome it derived.
@@ -61,6 +63,7 @@ def write_journey_document(
             task.answer is not None and task.answer.outcome == OracleOutcome.verified
             for task in tasks
         )
+        and not test_errors
         else JourneyOutcome.failed
     )
     document = JourneyDocument(
@@ -74,6 +77,7 @@ def write_journey_document(
         steps=list(steps),
         checks=list(checks),
         tasks=list(tasks),
+        test_errors=list(test_errors) or None,
         outcome=outcome,
     )
     # Fields left unset stay out, as Rust leaves them out; the oracle's
@@ -82,7 +86,7 @@ def write_journey_document(
         "kind": "journey",
         **document.model_dump(mode="json", exclude_unset=True),
     }
-    for absent in ("surface_package", "proving_ground"):
+    for absent in ("surface_package", "proving_ground", "test_errors"):
         if written[absent] is None:
             del written[absent]
     path.write_text(json.dumps(written, indent=2) + "\n", "utf-8")

@@ -56,11 +56,14 @@ fn check(root: &Path, api: &Api<'_>, repository: &str) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for (index, entry) in file.exception.iter().enumerate() {
         let subject = format!("exception {}", index + 1);
+        // A blank string names nothing, as the axe fixture reads it.
+        let blank =
+            |text: &Option<String>| text.as_deref().is_none_or(|text| text.trim().is_empty());
         let missing: Vec<&str> = [
-            ("rule", entry.rule.is_none()),
-            ("selector", entry.selector.is_none()),
+            ("rule", blank(&entry.rule)),
+            ("selector", blank(&entry.selector)),
             ("pages", entry.pages.as_ref().is_none_or(Vec::is_empty)),
-            ("reason", entry.reason.is_none()),
+            ("reason", blank(&entry.reason)),
             ("issue", entry.issue.is_none()),
         ]
         .into_iter()

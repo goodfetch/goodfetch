@@ -93,6 +93,30 @@ fn entry_missing_a_field_fails(#[case] removed: &str) {
     assert_eq!(outcome.code, 1);
 }
 
+#[rstest]
+#[case::rule("rule = \"color-contrast\"", "rule = \"\"")]
+#[case::selector("selector = \"#brand\"", "selector = \"  \"")]
+#[case::reason(
+    "reason = \"axe reads the gradient behind the text as its colour\"",
+    "reason = \"\""
+)]
+fn entry_with_an_empty_field_fails(#[case] field: &str, #[case] empty: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "console/axe-exceptions.toml",
+        ENTRY.replace(field, empty).as_bytes(),
+    );
+    let github = GitHub::serving(&[(ISSUE, OPEN_ISSUE)]);
+
+    let outcome = check(&workspace, &github);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("axe-exception-field-missing", "exception 1")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 #[test]
 fn entry_naming_no_page_fails() {
     let workspace = Workspace::from_fixture("empty");

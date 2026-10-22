@@ -108,6 +108,41 @@ fn check_notes_each_listed_surface_whose_tests_it_does_not_read_yet() {
         ),
     ],
 )]
+#[case::test_behind_a_cfg_its_case_does_not_declare(
+    ATTACHED_ENGINE_STOPS,
+    "#[test]\nfn attached() {}\n",
+    "#[cfg(unix)]\n#[test]\nfn attached() {}\n",
+    vec![
+        finding("gated", "goodfetch-collie::it client_conformance::attached_engine_stops::attached"),
+        finding("missing", "attached-engine-stops cli attached"),
+    ],
+)]
+#[case::module_behind_a_cfg_its_case_does_not_declare(
+    COLLIE_CASES,
+    "mod hello_refused;\n",
+    "#[cfg(unix)]\nmod hello_refused;\n",
+    vec![
+        finding(
+            "gated",
+            "goodfetch-collie::it client_conformance::hello_refused::refuses_a_newer_major::case_1_attached",
+        ),
+        finding(
+            "gated",
+            "goodfetch-collie::it client_conformance::hello_refused::refuses_a_newer_major::case_2_daemon",
+        ),
+        finding("missing", "hello-refused cli attached"),
+        finding("missing", "hello-refused cli daemon"),
+    ],
+)]
+#[case::ignored_test(
+    ATTACHED_ENGINE_STOPS,
+    "#[test]\nfn attached() {}\n",
+    "#[test]\n#[ignore = \"flaky\"]\nfn attached() {}\n",
+    vec![
+        finding("gated", "goodfetch-collie::it client_conformance::attached_engine_stops::attached"),
+        finding("missing", "attached-engine-stops cli attached"),
+    ],
+)]
 #[case::two_cases_with_one_id(
     CASES,
     "id = \"start-a-run\"",
@@ -132,6 +167,37 @@ fn check_fails_on_each_cause(
     let outcome = workspace.xtask(&["clients", "check"]);
 
     assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn a_test_behind_the_cfg_its_case_declares_implements_it() {
+    let workspace = Workspace::from_fixture("clients");
+    workspace.edit(
+        CASES,
+        "modes = [\"attached\"]",
+        "modes = [\"attached\"]\nplatforms = [\"unix\"]",
+    );
+    workspace.edit(
+        ATTACHED_ENGINE_STOPS,
+        "#[test]\nfn attached() {}\n",
+        "#[cfg(unix)]\n#[test]\nfn attached() {}\n",
+    );
+
+    let outcome = workspace.xtask(&["clients", "check"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+#[test]
+fn check_fails_when_the_case_list_is_missing() {
+    let workspace = Workspace::from_fixture("clients");
+    workspace.remove(CASES);
+
+    let outcome = workspace.xtask(&["clients", "check"]);
+
+    assert_eq!(outcome.findings(), vec![finding("missing-list", CASES)]);
     assert_eq!(outcome.code, 1);
 }
 
@@ -211,6 +277,15 @@ fn check_with_listings_notes_only_the_surfaces_whose_tests_it_does_not_read_yet(
         "no-mode",
         "vitest sdks/typescript/collie-client/src/framing.test.ts > frames a message",
     )],
+)]
+#[case::skipped_test_carrying_a_case(
+    VITEST,
+    "\"tags\": [\"client_case/start-a-run\", \"daemon\"]",
+    "\"tags\": [\"client_case/start-a-run\", \"daemon\"],\n    \"mode\": \"skip\"",
+    vec![
+        finding("gated", "vitest sdks/typescript/collie-client/tests/runs.test.ts > runs > starts a run on a Daemon"),
+        finding("missing", "start-a-run sdk-typescript daemon"),
+    ],
 )]
 #[case::test_carrying_two_modes(
     VITEST,

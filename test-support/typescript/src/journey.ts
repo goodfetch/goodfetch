@@ -141,8 +141,9 @@ export function journey(
     variantTest.use({
       journeyVariant: { journey: read, surface },
       product: read.product,
-      // The Journey's own seed, never the test's (ADR 0063).
-      provingGroundSeed: read.proving_ground?.seed ?? undefined,
+      // The Journey's own seed, never the test's (ADR 0063); `null`, not
+      // `undefined`, for none, which would take the project's seed.
+      provingGroundSeed: read.proving_ground?.seed ?? null,
       ...(options.engine === undefined ? {} : { engine: options.engine }),
     });
     variantTest(

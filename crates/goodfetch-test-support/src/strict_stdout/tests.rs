@@ -92,6 +92,51 @@ fn a_failure_shows_the_stderr_of_the_child() {
     );
 }
 
+/// A child's stderr that never goes quiet: a log line every 100 ms, forever,
+/// as an engine logging at `trace` mid-Run writes it.
+struct Chatty;
+
+impl std::io::Read for Chatty {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the stand-in child's stderr, read on the helper's own reader thread"
+        )]
+        std::thread::sleep(Duration::from_millis(100));
+        let line = b"2026-01-05T09:00:00Z TRACE goodfetch::run: fetched\n";
+        let written = line.len().min(buffer.len());
+        buffer[..written].copy_from_slice(&line[..written]);
+        Ok(written)
+    }
+}
+
+#[test]
+fn a_failure_returns_with_the_stderr_so_far_while_the_child_keeps_logging() {
+    let (sent, received) = std::sync::mpsc::channel();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test bounds a call that hangs when the helper is broken"
+    )]
+    std::thread::spawn(move || {
+        let mut stdout = StrictStdout::new(Cursor::new(b"engine ready\n".to_vec()), Chatty);
+        let _ = sent.send(stdout.try_next());
+    });
+
+    let returned = received
+        .recv_timeout(super::STDERR_LIMIT + Duration::from_secs(5))
+        .expect("try_next returns while the child keeps writing its stderr");
+
+    let error = returned.unwrap_err();
+    assert!(
+        matches!(error.kind, StrictStdoutErrorKind::NotJson(_)),
+        "{error}"
+    );
+    assert!(
+        error.stderr.contains("TRACE goodfetch::run: fetched"),
+        "{error}"
+    );
+}
+
 #[rstest]
 #[case::plain_log_line(b"2026-01-05T09:00:00Z INFO engine ready")]
 #[case::ansi_escape(b"\x1b[32mINFO\x1b[0m engine ready")]

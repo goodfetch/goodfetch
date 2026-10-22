@@ -34,25 +34,31 @@ pub(crate) fn unrecorded() -> TestEnv {
     TestEnv::create(&current_test(), &variables).unwrap()
 }
 
-/// The CLI helper running one probe of `probe.rs`, this test binary run as a
-/// child, as the fixture command.
-fn probe_cli<'env>(env: &'env TestEnv, name: &str) -> goodfetch_test_support::Cli<'env> {
-    cli(env, std::env::current_exe().unwrap()).args([
+/// The arguments that run one probe of `probe.rs`, this test binary run as
+/// a child, as the fixture command.
+pub(crate) fn probe_arguments(name: &str) -> [&str; 6] {
+    [
         "--exact",
         name,
         "--ignored",
         "--nocapture",
         "--test-threads",
         "1",
-    ])
+    ]
 }
 
-fn collie() -> PathBuf {
+/// The CLI helper running one probe of `probe.rs` as the fixture command.
+fn probe_cli<'env>(env: &'env TestEnv, name: &str) -> goodfetch_test_support::Cli<'env> {
+    cli(env, std::env::current_exe().unwrap()).args(probe_arguments(name))
+}
+
+/// The commit's Collie executable, from the test tool manifest.
+pub(crate) fn collie() -> PathBuf {
     tools().unwrap().path(Tool::Collie).unwrap().to_owned()
 }
 
 /// Every JSON line of the file at `path`.
-fn json_lines(path: &Path) -> Vec<Value> {
+pub(crate) fn json_lines(path: &Path) -> Vec<Value> {
     std::fs::read_to_string(path)
         .unwrap()
         .lines()

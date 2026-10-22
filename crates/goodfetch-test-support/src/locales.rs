@@ -34,6 +34,48 @@ pub struct TimeZoneCase {
     pub dst_overlap: Option<Date>,
 }
 
+/// A locale or time zone outside the shared table (ADR 0073).
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum LocaleTableError {
+    /// The locale is not one of the shared table's.
+    #[error("the locale {tag} is not in the shared locale table")]
+    LocaleUnknown {
+        /// Its tag.
+        tag: String,
+    },
+    /// The time zone is not one of the shared table's.
+    #[error("the time zone {zone} is not in the shared locale table")]
+    TimeZoneUnknown {
+        /// Its name.
+        zone: String,
+    },
+}
+
+/// The `LANG` of the shared table's locale `tag`, given by its BCP 47 tag:
+/// `tr-TR` gives `tr_TR.UTF-8`. The one place a locale is checked against
+/// the table, for `TestEnv` and `Cli` alike.
+pub(crate) fn table_lang(tag: &str) -> Result<String, LocaleTableError> {
+    if locales().iter().any(|locale| locale == tag) {
+        Ok(format!("{}.UTF-8", tag.replace('-', "_")))
+    } else {
+        Err(LocaleTableError::LocaleUnknown {
+            tag: tag.to_owned(),
+        })
+    }
+}
+
+/// The shared table's time zone `zone`, or why it is not one.
+pub(crate) fn table_zone(zone: &str) -> Result<&str, LocaleTableError> {
+    if time_zones().iter().any(|case| case.name == zone) {
+        Ok(zone)
+    } else {
+        Err(LocaleTableError::TimeZoneUnknown {
+            zone: zone.to_owned(),
+        })
+    }
+}
+
 /// The committed table's text.
 const COMMITTED: &str = include_str!("../../../test-support/fixtures/locales.json");
 

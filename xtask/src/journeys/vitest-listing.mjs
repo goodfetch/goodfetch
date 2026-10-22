@@ -2,7 +2,8 @@
 // --json` leaves out, for `xtask journeys listings` (ADR 0063). It runs as
 // `node --input-type=module --eval` from the workspace's folder, so `vitest`
 // resolves from that folder's packages and Vitest reads its configuration
-// there. It writes `[{ name, file, tags }]` to the path it is given.
+// there. It writes `[{ name, file, tags, mode }]` to the path it is given,
+// `mode` being Vitest's: `run`, `only`, `skip` or `todo`.
 import { writeFileSync } from "node:fs";
 import { createVitest } from "vitest/node";
 
@@ -17,6 +18,7 @@ try {
       name: test.fullName,
       file: testModule.moduleId,
       tags: test.tags,
+      mode: test.options.mode,
     })),
   );
   writeFileSync(out, `${JSON.stringify(tests, null, 2)}\n`);

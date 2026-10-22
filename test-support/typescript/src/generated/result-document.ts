@@ -438,6 +438,13 @@ export interface JourneyDocument {
    * Each Proving ground task the Journey names.
    */
   tasks: TaskResult[];
+  /**
+   * Each error that failed the variant's test outside its steps, checks
+   * and tasks, with its Error code: a page error or an accessibility
+   * violation the test found once its body had ended (ADR 0068). A
+   * variant with one is `failed`, whatever its steps and checks say.
+   */
+  test_errors?: string[];
 }
 /**
  * The executable the variant drove.

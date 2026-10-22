@@ -13,6 +13,7 @@
 // body while the page still has it means focus fell there. WebKit's Tab
 // skips links and buttons, as macOS does by default, so on WebKit a walk
 // presses Alt+Tab, which reaches them.
+import { toleratingToolIssues } from "./known-issues.ts";
 import { expect, type ElementHandle, type Page } from "@playwright/test";
 import { TestSupportError, type TestSupportErrorCode } from "./errors.ts";
 
@@ -55,25 +56,22 @@ export async function keyboardWalk(page: Page): Promise<readonly FocusStop[]> {
 /**
  * Walks the page forward and fails at the first stop that is entirely
  * covered by other content (`focus_obscured`: no point of a 5 × 5 grid over
- * it shows the stop on top through `elementsFromPoint`) or whose screenshot,
- * with a margin of 8 CSS pixels for its focus ring, is the same focused and
- * unfocused (`focus_not_visible`). A walk's own failures fail it too.
- *
- * On WebKit it checks only that focus is not obscured: Playwright adds a
- * style element to the page before each WebKit screenshot, which the
- * production CSP refuses, so `failOnErrors` would fail every test.
+ * it shows the stop on top through `elementsFromPoint`), whose screenshot,
+ * with a margin of 8 CSS pixels for its focus ring, changes while it stays
+ * unfocused (`focus_not_visible_unstable`: something there, such as an
+ * animation that never ends, would pass for a focus ring), or is the same
+ * focused and unfocused (`focus_not_visible`). A walk's own failures fail it
+ * too. On WebKit, the style Playwright adds before each screenshot, which the
+ * production CSP refuses, is tolerated as a known issue (`known-issues.ts`).
  */
 export async function focusChecks(page: Page): Promise<void> {
-  const screenshots = browserName(page) !== "webkit";
   // Tab out of the page from wherever focus is, so the next walk starts at its top.
   await walk(page, "forward");
   await walk(page, "forward", async (stop) => {
     if (await stop.evaluate(isEntirelyCovered)) {
       throw new TestSupportError("focus_obscured", `${await describe(stop)} is entirely covered`);
     }
-    if (screenshots) {
-      await expectFocusVisible(page, stop);
-    }
+    await expectFocusVisible(page, stop);
   });
 }
 
@@ -88,17 +86,27 @@ async function expectFocusVisible(page: Page, stop: ElementHandle<Element>): Pro
   // hidden through the CSSOM instead, which the CSP allows.
   const screenshot = { clip, animations: "allow", caret: "initial", scale: "css" } as const;
   const caret = await stop.evaluate(hideCaret);
+  const shot = async (): Promise<Buffer> => {
+    await page.evaluate(finishAnimations);
+    return toleratingToolIssues(page, () => page.screenshot(screenshot));
+  };
   let focused: Buffer;
   let unfocused: Buffer;
+  let unfocusedAgain: Buffer;
   try {
-    await page.evaluate(finishAnimations);
-    focused = await page.screenshot(screenshot);
+    focused = await shot();
     await stop.evaluate(blur);
-    await page.evaluate(finishAnimations);
-    unfocused = await page.screenshot(screenshot);
+    unfocused = await shot();
+    unfocusedAgain = await shot();
     await stop.evaluate(focus);
   } finally {
     await stop.evaluate(showCaret, caret);
+  }
+  if (!unfocused.equals(unfocusedAgain)) {
+    throw new TestSupportError(
+      "focus_not_visible_unstable",
+      `the area of ${await describe(stop)} changes while it stays unfocused, so a change on focus would prove no focus ring; stop what moves there`,
+    );
   }
   if (focused.equals(unfocused)) {
     throw new TestSupportError(

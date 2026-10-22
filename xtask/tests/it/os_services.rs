@@ -12,7 +12,7 @@ use rstest::rstest;
 use crate::workspace::{Workspace, finding};
 
 #[test]
-fn test_jobs_that_set_up_the_services_before_the_deny_pass() {
+fn jobs_that_set_up_the_services_before_the_deny_pass() {
     let workspace = Workspace::from_fixture("os-services");
 
     let outcome = workspace.xtask(&["os-services", "workflows"]);
@@ -25,7 +25,7 @@ fn test_jobs_that_set_up_the_services_before_the_deny_pass() {
 #[case::without_the_setup("without-setup.yml", "missing-os-services-setup")]
 #[case::setup_after_a_test_step("setup-after-test.yml", "os-services-setup-after-test")]
 #[case::setup_after_the_deny("setup-after-deny.yml", "os-services-setup-after-deny")]
-fn test_job_without_the_services_before_its_tests_fails(
+fn a_test_job_without_the_services_before_its_tests_fails(
     #[case] workflow: &str,
     #[case] kind: &str,
 ) {

@@ -4,7 +4,11 @@
 //! This is no retry: every run counts, and a pass changes no verdict. Each
 //! runner gets the arguments that select the tests and repeat them; the
 //! `justfile`'s `repeat` recipe appends them to the runner's command:
-//! - nextest: `--stress-count`, with a filterset of the tests;
+//! - nextest: `--stress-count`, with a filterset of the tests, and
+//!   `--ignore-default-filter` when they hold LazyFS power cuts
+//!   (`lazyfs::`), which the profiles' default filter leaves out (ADR 0060):
+//!   they run only where `GOODFETCH_LAZYFS` names a LazyFS build, and
+//!   elsewhere the selection fails rather than drop them;
 //! - Vitest: `--repeats`, one less than the count, since it counts the runs
 //!   after the first, and a name pattern. Its JUnit file reports the test
 //!   once, with one `<failure>` per failed run;
@@ -16,7 +20,7 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::process::ExitCode;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 
 use crate::environment::Environment;
 use crate::output;
@@ -39,11 +43,13 @@ fn parse_test(value: &str) -> Result<(Runner, TestId)> {
     Ok((runner, TestId::parse(runner, id)?))
 }
 
-/// Each runner's arguments, as `(runner, argument)` pairs in order.
+/// Each runner's arguments, as `(runner, argument)` pairs in order;
+/// `lazyfs` says whether the host has a LazyFS build.
 pub(crate) fn arguments(
     root: &Path,
     selection: Selection,
     count: NonZeroU32,
+    lazyfs: bool,
 ) -> Result<Vec<(&'static str, String)>> {
     let tests = match selection {
         Selection::Tests(tests) => tests,
@@ -81,6 +87,18 @@ pub(crate) fn arguments(
             .collect::<Vec<_>>()
             .join(" | ");
         arguments.push(("nextest", "--no-fail-fast".to_owned()));
+        if let Some(power_cut) = nextest
+            .iter()
+            .find(|test| test.nextest_name().starts_with("lazyfs::"))
+        {
+            if !lazyfs {
+                bail!(
+                    "`{}` is a LazyFS power cut, which runs only where GOODFETCH_LAZYFS names a LazyFS build (`just lazyfs-test` on Linux); repeat it there rather than drop it",
+                    power_cut.as_str()
+                );
+            }
+            arguments.push(("nextest", "--ignore-default-filter".to_owned()));
+        }
         arguments.push(("nextest", format!("--stress-count={count}")));
         arguments.push(("nextest", format!("--filterset={filter}")));
     }
@@ -148,7 +166,12 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         Some(limit) => Selection::Quarantined(limit),
         None => Selection::Tests(arguments.test),
     };
-    for (runner, argument) in self::arguments(&environment.root, selection, arguments.count)? {
+    for (runner, argument) in self::arguments(
+        &environment.root,
+        selection,
+        arguments.count,
+        environment.lazyfs,
+    )? {
         output::line(&format!("{runner}\t{argument}"));
     }
     Ok(ExitCode::SUCCESS)

@@ -25,6 +25,11 @@ pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 /// (ADR 0060).
 pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
 
+/// The executable a skew run of `just journeys --engine <path>` drives
+/// (ADR 0066): when it is set, every Journey variant runs it in place of the
+/// executable its test passes.
+pub const ENGINE_VARIABLE: &str = "GOODFETCH_TEST_ENGINE";
+
 /// The folder each Journey variant run also writes its result document
 /// into, beside the test's own folder, which `just test` sets.
 pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
@@ -82,6 +87,7 @@ impl Variables {
             TOOLS_VARIABLE,
             LAZYFS_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
+            ENGINE_VARIABLE,
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,
             TEST_NAME_VARIABLE,
@@ -121,7 +127,9 @@ impl Variables {
             None | Some("quick") => Ok(Suite::Quick),
             Some("pre-merge") => Ok(Suite::PreMerge),
             Some("release") => Ok(Suite::Release),
-            Some(other) => Err(SuiteError(other.to_owned())),
+            Some(other) => Err(SuiteError {
+                value: other.to_owned(),
+            }),
         }
     }
 }
@@ -190,8 +198,12 @@ pub enum SeedError {
 
 /// `GOODFETCH_TEST_SUITE` names no suite.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("{SUITE_VARIABLE} is `{0}`, not quick, pre-merge or release")]
-pub struct SuiteError(pub String);
+#[error("{SUITE_VARIABLE} is `{value}`, not quick, pre-merge or release")]
+#[non_exhaustive]
+pub struct SuiteError {
+    /// The value it holds.
+    pub value: String,
+}
 
 #[cfg(test)]
 mod tests;

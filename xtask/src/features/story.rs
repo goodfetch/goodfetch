@@ -1,12 +1,13 @@
 //! The `story:` Features: each story of `features/stories/<area>.toml`, as
-//! `story:<area>-<n>`, with its milestone and status.
+//! `story:<area>-<n>`, with its milestone, its status and, for a story of
+//! Foxhound's part, the one Product that carries it.
 
 use std::path::Path;
 
 use anyhow::{Result, bail};
 
 use super::entry::{Carriers, Entry, unreadable};
-use super::files::{self, Kind, StoryFile};
+use super::files::{self, Kind, OnlyProduct, StoryFile};
 
 pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
     let mut entries = Vec::new();
@@ -22,7 +23,10 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
             area: Some(area),
             milestone: Some(story.milestone),
             status: story.status,
-            carriers: Carriers::Both,
+            carriers: match story.product {
+                Some(OnlyProduct::Foxhound) => Carriers::Foxhound,
+                None => Carriers::Both,
+            },
         }));
     }
     Ok(entries)

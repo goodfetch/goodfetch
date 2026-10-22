@@ -8,8 +8,10 @@
 //! match of a pattern (ULIDs and Schedule IDs, RFC 3339 instants, durations,
 //! port numbers on loopback hosts). Values go first, then patterns, each in
 //! the file's order. Patterns keep to the syntax Rust's `regex`, JavaScript
-//! and Python's `re` read alike, and replacements are literal text, holding
-//! neither `$` nor `\`.
+//! and Python's `re` read alike, with ASCII's word boundary in all three
+//! (JavaScript's own), and replacements are literal text, holding neither
+//! `$` nor `\`. The test's folder is matched as its path, its canonical path
+//! and each written inside a JSON string, the forms an output prints it in.
 
 use insta::Settings;
 use schemars::JsonSchema;
@@ -106,18 +108,60 @@ impl SnapshotValues {
 /// `values` and the committed patterns. A test binds them around its
 /// snapshot assertions.
 pub fn snapshot_settings(values: &SnapshotValues) -> Settings {
-    let filters: SnapshotFilters = serde_json::from_str(COMMITTED)
-        .expect("invariant: the committed snapshot filters parse, which the Quick suite checks");
     let mut settings = Settings::clone_current();
-    for filter in &filters.values {
-        if let Some(value) = values.get(filter.value) {
-            settings.add_filter(&regex::escape(value), filter.replacement.as_str());
-        }
-    }
-    for filter in &filters.patterns {
-        settings.add_filter(&filter.pattern, filter.replacement.as_str());
+    for (pattern, replacement) in rules(values) {
+        settings.add_filter(&pattern, replacement);
     }
     settings
+}
+
+/// The shared rules for `values` as insta's filters take them, a pattern
+/// and its literal replacement each, in the order they apply: each value,
+/// matched literally, then the committed patterns.
+fn rules(values: &SnapshotValues) -> Vec<(String, String)> {
+    let filters: SnapshotFilters = serde_json::from_str(COMMITTED)
+        .expect("invariant: the committed snapshot filters parse, which the Quick suite checks");
+    let mut rules = Vec::new();
+    for filter in &filters.values {
+        if let Some(value) = values.get(filter.value) {
+            let forms = match filter.value {
+                RunValue::Folder => folder_forms(value),
+                RunValue::ProductVersion | RunValue::Commit => vec![value.to_owned()],
+            };
+            for form in forms {
+                rules.push((regex::escape(&form), filter.replacement.clone()));
+            }
+        }
+    }
+    // `(?-u)`: a word boundary is ASCII's, as JavaScript's and Python's
+    // under `re.ASCII` are.
+    for filter in filters.patterns {
+        rules.push((format!("(?-u){}", filter.pattern), filter.replacement));
+    }
+    rules
+}
+
+/// The forms an output prints a folder in, longest first so a longer form
+/// is replaced before a shorter one inside it: the path, its canonical path
+/// when it has another, and each written inside a JSON string.
+fn folder_forms(folder: &str) -> Vec<String> {
+    let mut paths = vec![folder.to_owned()];
+    if let Ok(canonical) = std::fs::canonicalize(folder) {
+        paths.push(canonical.display().to_string());
+    }
+    let mut forms: Vec<String> = paths
+        .iter()
+        .flat_map(|path| {
+            let escaped = serde_json::to_string(path)
+                .expect("invariant: a string serializes to JSON")
+                .trim_matches('"')
+                .to_owned();
+            [path.clone(), escaped]
+        })
+        .collect();
+    forms.sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+    forms.dedup();
+    forms
 }
 
 #[cfg(test)]

@@ -209,7 +209,17 @@ journeys *arguments:
       rm -rf "$scratch"
     }
     trap cleanup EXIT
-    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} > "$scratch/selection"
+    # The working tree's listings name each chosen variant no test carries,
+    # and fail a choice none of whose variants has one; a tag's tests are
+    # its own, so a `--tag` run lists none.
+    listings=()
+    if [[ -z "$tag" ]]; then
+      cargo run --quiet -p xtask -- journeys listings --out "$scratch/listings" \
+        --cargo-profile {{ test_profile }}
+      listings=(--listings "$scratch/listings")
+    fi
+    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} \
+      ${listings[@]+"${listings[@]}"} > "$scratch/selection"
     if [[ ! -s "$scratch/selection" ]]; then
       echo "No chosen variant has a runner yet."
       exit 0
@@ -232,12 +242,14 @@ journeys *arguments:
       "$just" test pre-merge
     fi
 
-# What the changed packages declare, then the Feature check's verdict (ADR
-# 0072): the Features each crate `xtask affected` selects declares, one
-# `<feature> <level> <source> <test>` line each, and the check's findings over
-# the workspace, which are the Features missing a test, an exception or an
-# area. It reads no runner listing, so it notes rather than fails a generated
-# Feature only a Vitest, Playwright or pytest test might declare; `just
+# What the changed packages declare and miss (ADR 0072): the Features each
+# crate, npm package and Python package `xtask affected` selects declares,
+# one `<feature> <level> <source> <test>` line each, then the Feature check's
+# findings for those packages: the Features their tests declare that the
+# inventory lacks, and the generated Features their sources define with no
+# test, exception or area, with any finding on the `features/` files. It
+# reads no runner listing, so it notes rather than fails a generated Feature
+# only a Vitest, Playwright or pytest test might declare; `just
 # features-tests` reads those too. Takes `xtask affected`'s change, `--local`
 # by default.
 features *change:
@@ -246,15 +258,19 @@ features *change:
     change=({{ change }})
     [[ ${#change[@]} -gt 0 ]] || change=(--local)
     selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
-    read -ra crates <<< "$(sed -n 's/^crates=//p' <<< "$selection")"
-    if [[ ${#crates[@]} -gt 0 ]]; then
-      echo "Declared by ${crates[*]}:"
-      cargo run --quiet -p xtask -- features scan "${crates[@]/#/--package=}"
-    else
-      echo "The change reaches no crate."
+    selected() { sed -n "s/^$1=//p" <<< "$selection"; }
+    read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "The change reaches no package."
+      exit 0
     fi
+    echo "Declared by ${packages[*]}:"
+    cargo run --quiet -p xtask -- features scan "${packages[@]/#/--package=}"
     echo "Missing:"
-    cargo run --quiet -p xtask -- features check && echo "nothing"
+    status=0
+    missing=$(cargo run --quiet -p xtask -- features check "${packages[@]/#/--package=}") || status=$?
+    if [[ -n "$missing" ]]; then echo "$missing"; else echo "nothing"; fi
+    exit "$status"
 
 # ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
 # Pre-merge suite's tests of what changed, or of the whole workspace with
@@ -371,6 +387,11 @@ test suite *packages:
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
+    # The arguments that order each runner's tests by that seed, one source
+    # for every recipe (ci/order-arguments.sh, which xtask's stress tests run).
+    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
+    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
+    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     # Each runner skips the tests on the test quarantine list through its own
     # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
     # nextest's arguments, which also skip the tests of an OS service a local
@@ -400,11 +421,11 @@ test suite *packages:
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
         fi
         if $typescript; then
-          pnpm exec vitest run --project unit --slowTestThreshold=1000 ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+          pnpm exec vitest run --project unit --slowTestThreshold=1000 "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
@@ -453,13 +474,13 @@ test suite *packages:
           fi
         fi
         if $vitest_runs; then
-          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+          pnpm exec vitest run "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         if $playwright_runs; then
-          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+          pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
-          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)
@@ -545,6 +566,11 @@ repeat count *selection:
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
+    # The arguments that order each runner's tests by that seed, one source
+    # for every recipe (ci/order-arguments.sh, which xtask's stress tests run).
+    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
+    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
+    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     nextest=() vitest=() playwright=() pytest=()
     arguments=$(cargo run --quiet -p xtask -- repeat --count "{{ count }}" "$@")
     while IFS=$'\t' read -r runner argument; do
@@ -562,13 +588,13 @@ repeat count *selection:
       cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${nextest[@]}" || status=$?
     fi
     if [[ ${#vitest[@]} -gt 0 ]]; then
-      pnpm exec vitest run "${vitest[@]}" || status=$?
+      pnpm exec vitest run "${vitest_order[@]}" "${vitest[@]}" || status=$?
     fi
     if [[ ${#playwright[@]} -gt 0 ]]; then
-      pnpm exec playwright test --shuffle="$GOODFETCH_ORDER_SEED" "${playwright[@]}" || status=$?
+      pnpm exec playwright test "${playwright_order[@]}" "${playwright[@]}" || status=$?
     fi
     if [[ ${#pytest[@]} -gt 0 ]]; then
-      uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" "${pytest[@]}" || status=$?
+      uv run pytest "${pytest_order[@]}" "${pytest[@]}" || status=$?
     fi
     exit "$status"
 
@@ -983,6 +1009,44 @@ audit-live:
     ci/audit.sh live npm
     ci/audit.sh live python
     ci/proofs/live.sh
+
+# The daily Feature and Journey reports (ADRs 0063 and 0072), from the
+# server's cron on `main`'s head while the hosted workflows are off (ADR
+# 0135): every runner's listings on this build, then `xtask features report`
+# at the gate of `milestone`, the milestone whose owner test comes next, and
+# `xtask journeys report` with that owner test's "Journeys to try", both from
+# `main`'s latest Release run in the results store checked out at `store`.
+# Each day's reports are scanned for secrets, then committed into the store
+# under `reports/<date>/` and pushed, so the reports keep a history (ADR
+# 0072, Reports). The store's checkout keeps the credential that pushes.
+reports store milestone="M1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    store=$(cd "{{ store }}" && pwd)
+    git -C "$store" pull --quiet --ff-only
+    day=$(date -u +%F)
+    out="$store/reports/$day"
+    rm -rf "$out"
+    mkdir -p "$out"
+    {{ just_executable() }} console-build
+    cargo run --quiet --locked -p xtask -- journeys listings --out target/journey-listings \
+      --cargo-profile {{ test_profile }}
+    cargo run --quiet --locked -p xtask -- features report --milestone "{{ milestone }}" \
+      --store "$store" --listings target/journey-listings --out "$out/features" >"$out/features.txt"
+    cargo run --quiet --locked -p xtask -- journeys report --store "$store" \
+      --listings target/journey-listings --out "$out/journeys" >"$out/journeys.md"
+    cargo run --quiet --locked -p xtask -- journeys report --owner-test "{{ milestone }}" \
+      >"$out/journeys/journeys-to-try.md"
+    {{ just_executable() }} leaks "$out"
+    cat "$out/features.txt"
+    git -C "$store" add "reports/$day"
+    if git -C "$store" diff --cached --quiet; then
+      echo "The store already holds the reports of $day."
+      exit 0
+    fi
+    git -C "$store" commit --quiet --message "Reports of $day"
+    git -C "$store" push --quiet origin HEAD
+    echo "Reports of $day written into $out and pushed."
 
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).

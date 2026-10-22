@@ -84,10 +84,11 @@ export interface StartedTestEnv {
   readonly description: TestEnvDescription;
   /**
    * Closes `goodfetch-test-env`'s stdin and waits for it to tear the setup
-   * down. Fails with `teardown_failed` when it exits with a failure; one
-   * still running after the deadline is left to the process record.
+   * down, keeping the test's folder when `failed` is set. Fails with
+   * `teardown_failed` when it exits with a failure; one still running after
+   * the deadline is left to the process record.
    */
-  close(): Promise<void>;
+  close(outcome?: { readonly failed: boolean }): Promise<void>;
 }
 
 /** How long `goodfetch-test-env` has to tear down once its stdin closes, unless the start says otherwise. */
@@ -135,11 +136,12 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
     const exit = await started.exit;
     throw new TestSupportError(
       "start_failed",
-      `goodfetch-test-env exited (code ${exit.code}, signal ${exit.signal}) before describing the test's setup: ${stderr().trim()}`,
+      `goodfetch-test-env exited (code ${exit.code}, signal ${exit.signal}) before describing the test's setup: ${exit.error?.message ?? stderr().trim()}`,
+      exit.error === undefined ? undefined : { cause: exit.error },
     );
   }
-  const deadlineMs = start.teardownDeadlineMs ?? TEARDOWN_DEADLINE_MS;
-  const close = (): Promise<void> => teardown(started, deadlineMs);
+  const close = (outcome?: { readonly failed: boolean }): Promise<void> =>
+    teardown(started, start.teardownDeadlineMs ?? TEARDOWN_DEADLINE_MS, outcome?.failed ?? false);
   const description = parseDescription(line);
   if (description === undefined) {
     await close();
@@ -213,8 +215,13 @@ function parseDescription(line: string): TestEnvDescription | undefined {
   return isDescription(description) ? description : undefined;
 }
 
-async function teardown(started: RecordedProcess, deadlineMs: number): Promise<void> {
-  started.child.stdin.end();
+async function teardown(
+  started: RecordedProcess,
+  deadlineMs: number,
+  failed: boolean,
+): Promise<void> {
+  // A failed test's folder stays for its evidence, as a Rust test's does.
+  started.child.stdin.end(failed ? "failed\n" : undefined);
   const deadline = new AbortController();
   const exit = await Promise.race([
     started.exit,

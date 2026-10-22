@@ -4,6 +4,13 @@
       "additionalProperties": false,
       "description": "One check of a Journey's outcome.",
       "properties": {
+        "surfaces": {
+          "description": "The surfaces of the variants the check belongs to, when it belongs\nto some only, such as an SDK package's install checks; every variant\nwhen empty. A `foxhound-cli` variant takes the `cli` variant's.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "task": {
           "anyOf": [
             {

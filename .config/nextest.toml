@@ -6,7 +6,9 @@ nextest-version = { required = "0.9.131" }
 # The LazyFS power cuts (`lazyfs::` in an integration-test binary) run only in
 # the Release suite on Linux x64 (ADR 0060), where `just lazyfs-test` builds
 # LazyFS and selects them with `--ignore-default-filter`; every other run
-# leaves them out.
+# leaves them out. `just repeat` (and so `just stress`) lifts the filter for
+# a selected `lazyfs::` test where GOODFETCH_LAZYFS names a LazyFS build, and
+# fails elsewhere rather than drop it (`xtask repeat`).
 
 # Local runs without a suite: the Pre-merge caps.
 [profile.default]

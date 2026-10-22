@@ -1,5 +1,35 @@
-use super::{SnapshotValues, snapshot_settings};
+use serde::Deserialize;
+
+use super::{SnapshotValues, rules, snapshot_settings};
 use crate::env::TestEnv;
+
+/// The shared cases every language's `redact` passes.
+const CASES: &str = include_str!("../../../../test-support/fixtures/snapshot-filter-cases.json");
+
+#[derive(Deserialize)]
+struct Cases {
+    cases: Vec<Case>,
+}
+
+#[derive(Deserialize)]
+struct Case {
+    description: String,
+    output: String,
+    redacted: String,
+}
+
+/// `text` under the rules insta's settings take for `values`, applied as
+/// insta applies them.
+fn redact(text: &str, values: &SnapshotValues) -> String {
+    rules(values)
+        .into_iter()
+        .fold(text.to_owned(), |text, (pattern, replacement)| {
+            regex::Regex::new(&pattern)
+                .unwrap()
+                .replace_all(&text, replacement.as_str())
+                .into_owned()
+        })
+}
 
 /// One run's values, as an output would print them.
 struct Run<'a> {
@@ -85,4 +115,68 @@ fn a_value_outside_the_shared_rules_stays_in_the_snapshot() {
     snapshot_settings(&SnapshotValues::of(&env)).bind(|| {
         insta::assert_snapshot!(output, @"proxy https://example.com:8443/ answered token 7c1f in state succeeded");
     });
+}
+
+#[test]
+fn each_shared_case_redacts_as_its_file_says() {
+    let cases: Cases = serde_json::from_str(CASES).unwrap();
+
+    let failed: Vec<String> = cases
+        .cases
+        .iter()
+        .filter_map(|case| {
+            let redacted = redact(&case.output, &SnapshotValues::default());
+            (redacted != case.redacted).then(|| format!("{}: {redacted:?}", case.description))
+        })
+        .collect();
+
+    assert_eq!(failed, Vec::<String>::new());
+}
+
+/// A Run ID as the engine writes it, in lowercase (ADR 0059), redacts
+/// under insta's settings too.
+#[test]
+fn a_lowercase_run_id_redacts_under_the_shared_settings() {
+    let env = TestEnv::new();
+
+    snapshot_settings(&SnapshotValues::of(&env)).bind(|| {
+        insta::assert_snapshot!("run 01ke6p4ym0kwx1ravx9sfp18dj finished", @"run [ULID] finished");
+    });
+}
+
+/// The test's folder redacts as its path, its canonical path and both
+/// written inside a JSON string, the forms an output prints it in: here a
+/// folder reached through a link, whose name holds a quote and a
+/// backslash, which JSON escapes.
+#[test]
+#[cfg(unix)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test makes and canonicalizes its own folders outside any async worker"
+)]
+fn the_tests_folder_redacts_in_each_form_an_output_prints_it() {
+    let env = TestEnv::new();
+    let real = env.folder().join(r#"real "q" \b"#);
+    std::fs::create_dir(&real).unwrap();
+    let link = env.folder().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let folder = link.display().to_string();
+    let canonical = std::fs::canonicalize(&link).unwrap().display().to_string();
+    let escaped = |path: String| serde_json::to_string(&path).unwrap();
+    let output = format!(
+        "{folder}/a {canonical}/b {{\"path\":{}}} {{\"path\":{}}}",
+        escaped(format!("{folder}/c")),
+        escaped(format!("{canonical}/d")),
+    );
+    let values = SnapshotValues {
+        folder: Some(folder),
+        ..SnapshotValues::default()
+    };
+
+    let redacted = redact(&output, &values);
+
+    assert_eq!(
+        redacted,
+        r#"[FOLDER]/a [FOLDER]/b {"path":"[FOLDER]/c"} {"path":"[FOLDER]/d"}"#
+    );
 }

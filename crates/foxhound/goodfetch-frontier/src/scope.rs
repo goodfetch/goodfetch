@@ -317,16 +317,19 @@ impl Scope {
         let Some(measures) = Measures::of(seed) else {
             return Ok(());
         };
-        connection.execute(
-            "INSERT INTO scope_seeds (host, port, scheme, domain) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT DO NOTHING",
-            (
+        // Called for every seed: the connection keeps the statement
+        // prepared rather than compiling it again each time.
+        connection
+            .prepare_cached(
+                "INSERT INTO scope_seeds (host, port, scheme, domain) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT DO NOTHING",
+            )?
+            .execute((
                 &measures.host,
                 i64::from(measures.port),
                 measures.scheme,
                 &measures.domain,
-            ),
-        )?;
+            ))?;
         Ok(())
     }
 

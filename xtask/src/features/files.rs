@@ -165,6 +165,19 @@ pub(crate) struct Story {
     pub(crate) status: Status,
     /// Why it was retired; required exactly when it is.
     pub(crate) reason: Option<String>,
+    /// The one Product that carries it, for a story of Foxhound's part;
+    /// both Products, since Foxhound contains Collie, when absent (ADR
+    /// 0094).
+    #[serde(default)]
+    pub(crate) product: Option<OnlyProduct>,
+}
+
+/// The one Product that carries a story or a matrix row: only Foxhound can
+/// be, since Foxhound contains Collie (ADR 0084).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum OnlyProduct {
+    Foxhound,
 }
 
 /// ADR 0075's three tests, by the name of the one a story fails.
@@ -196,6 +209,10 @@ pub(crate) struct Row {
     pub(crate) id: String,
     /// The GitHub milestone of the ticket that finishes it.
     pub(crate) milestone: String,
+    /// The one Product that carries it, for a row of Foxhound's alone; both
+    /// Products when absent (ADR 0094).
+    #[serde(default)]
+    pub(crate) product: Option<OnlyProduct>,
 }
 
 /// `features/areas.toml`: the owning area of each generated Feature.

@@ -51,6 +51,7 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
+mod order_seed;
 mod os_services;
 mod output_scans;
 mod package_dependencies;

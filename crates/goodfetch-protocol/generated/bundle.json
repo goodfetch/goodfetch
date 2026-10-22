@@ -771,6 +771,13 @@
       "additionalProperties": false,
       "description": "One check of a Journey's outcome.",
       "properties": {
+        "surfaces": {
+          "description": "The surfaces of the variants the check belongs to, when it belongs\nto some only, such as an SDK package's install checks; every variant\nwhen empty. A `foxhound-cli` variant takes the `cli` variant's.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "task": {
           "anyOf": [
             {
@@ -3574,7 +3581,7 @@
           "description": "The surface's package, for a surface that has one (an SDK, the\nConsole's build, an adapter)."
         },
         "tasks": {
-          "description": "Each Proving ground task the Journey names.",
+          "description": "Each Proving ground task the Journey names, in its order: once per\ncheck naming it, each with the answer to that check's submission in\nthe checks' order, or once when no check names it.",
           "items": {
             "$ref": "#/$defs/TaskResult"
           },

@@ -53,7 +53,7 @@ libc.workspace = true
 # /usr/lib/llvm-*, C:\Program Files\LLVM) instead of linking it at a path the
 # script cannot then find when it runs.
 [build-dependencies]
-bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+bindgen.workspace = true
 
 # Its integration tests start the Proving ground and both Products'
 # executables through the test tool manifest, so a change to any runs them

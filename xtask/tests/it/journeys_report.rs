@@ -9,14 +9,14 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
-use crate::store::{Attempt, STORE, test_run, with, write_store};
+use crate::store::{Attempt, STORE, in_every_release_cell, test_run, with, write_store};
 use crate::workspace::{Outcome, Workspace};
 
 /// The folder the report is written to.
 const OUT: &str = "target/journeys-report";
 
 /// The Linux and macOS artifacts of a Release run's cells.
-const LINUX: &str = "junit-release-dispatch-linux-x64-1";
+const LINUX: &str = "junit-release-dispatch-linux-x64-gnu-1";
 const MACOS: &str = "junit-release-dispatch-macos-arm64-1";
 
 /// A `journey` result document of `variant`, `J-NNN@<surface>`, holding
@@ -88,7 +88,8 @@ fn release_attempt(run: u64, started_at: &'static str, commit: &'static str) -> 
         workflow: ".github/workflows/release-suite.yml",
         event: "workflow_dispatch",
         commit,
-        test_runs: vec![with(test_run, "tier", json!("dispatch"))],
+        // Every cell ran (ADR 0108's whole-cell rule).
+        test_runs: in_every_release_cell(&with(test_run, "tier", json!("dispatch"))),
         ..Attempt::new(run, started_at)
     }
 }
@@ -217,6 +218,99 @@ fn each_variant_gets_its_outcome_from_the_documents_of_mains_latest_release_run(
     .map(|(id, outcome)| (id.to_owned(), outcome.to_owned()))
     .collect();
     assert_eq!(outcomes(&report), expected);
+}
+
+/// The runners' listings, as `xtask journeys listings` writes them, in
+/// which `sample::it journeys::j001::cli` carries J-001@cli.
+fn write_listings(workspace: &Workspace) {
+    workspace.write(
+        "listings/nextest.json",
+        br#"{ "rust-suites": { "sample::it": { "testcases": { "journeys::j001::cli": {} } } } }"#,
+    );
+    workspace.write("listings/vitest.json", b"[]");
+    workspace.write("listings/pytest.json", br#"{ "tests": [] }"#);
+    workspace.write(
+        "listings/playwright.json",
+        br#"{ "config": { "rootDir": "." }, "suites": [] }"#,
+    );
+}
+
+/// A Release test run of `c1` of J-001@cli's test, in the cell of `os`,
+/// `arch` and `runtime`.
+fn j001_cli_run(os: &str, arch: &str, runtime: Option<&str>) -> Value {
+    let run = with(
+        test_run("sample::it journeys::j001::cli", "passed", "1"),
+        "suite",
+        json!("release"),
+    );
+    let run = with(run, "tier", json!("dispatch"));
+    let run = with(with(run, "os", json!(os)), "arch", json!(arch));
+    with(run, "runtime", json!(runtime))
+}
+
+/// A cell that ran a variant's test but kept no document, as when the test
+/// panics before `finish`, leaves the variant `failed`, even when another
+/// cell's document proves it (ADR 0063: every automated variant `proved`).
+#[test]
+fn a_variant_whose_test_ran_in_a_cell_that_kept_no_document_is_failed() {
+    let workspace = Workspace::from_fixture("journeys-report");
+    write_listings(&workspace);
+    let latest = Attempt {
+        test_runs: [
+            j001_cli_run("linux", "x64", Some("gnu")),
+            j001_cli_run("macos", "arm64", None),
+        ]
+        .into_iter()
+        .chain(release_attempt(10, "2026-10-18T03:00:00Z", "c1").test_runs)
+        .collect(),
+        kept: vec![kept(
+            LINUX,
+            "J-001@cli",
+            j001("J-001@cli", "passed", "passed", "proved"),
+        )],
+        ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
+    };
+    write_store(&workspace, &[latest]);
+
+    let (outcome, report) = report(&workspace, &["--store", STORE, "--listings", "listings"]);
+
+    assert_eq!(outcomes(&report)["J-001@cli"], "failed");
+    assert!(outcome.stdout.contains("macos arm64"), "{}", outcome.stdout);
+}
+
+/// With every cell that ran the variant's test keeping its document, the
+/// documents decide.
+#[test]
+fn a_variant_every_cell_that_ran_it_kept_a_proving_document_for_is_proved() {
+    let workspace = Workspace::from_fixture("journeys-report");
+    write_listings(&workspace);
+    let latest = Attempt {
+        test_runs: [
+            j001_cli_run("linux", "x64", Some("gnu")),
+            j001_cli_run("macos", "arm64", None),
+        ]
+        .into_iter()
+        .chain(release_attempt(10, "2026-10-18T03:00:00Z", "c1").test_runs)
+        .collect(),
+        kept: vec![
+            kept(
+                LINUX,
+                "J-001@cli",
+                j001("J-001@cli", "passed", "passed", "proved"),
+            ),
+            kept(
+                MACOS,
+                "J-001@cli",
+                j001("J-001@cli", "passed", "passed", "proved"),
+            ),
+        ],
+        ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
+    };
+    write_store(&workspace, &[latest]);
+
+    let (_, report) = report(&workspace, &["--store", STORE, "--listings", "listings"]);
+
+    assert_eq!(outcomes(&report)["J-001@cli"], "proved");
 }
 
 #[test]

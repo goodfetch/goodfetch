@@ -73,6 +73,13 @@ struct VectorDocument {
     checks: Vec<CheckResult>,
     tasks: Vec<VectorTask>,
     outcome: JourneyOutcome,
+    /// The Proving ground seed the document records; the Journey's own
+    /// when absent.
+    #[serde(default)]
+    seed: Option<u64>,
+    /// The variant's surface; `cli` when absent.
+    #[serde(default)]
+    surface: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -80,6 +87,9 @@ struct VectorDocument {
 struct VectorTask {
     id: TaskId,
     answer: Option<OracleOutcome>,
+    /// The task the answer names; the entry's own when absent.
+    #[serde(default)]
+    answered: Option<TaskId>,
 }
 
 #[derive(Deserialize)]
@@ -130,7 +140,12 @@ fn journey_facts(
         surface_package: None,
         platform: platform(),
         runtime: "rust".to_owned(),
-        proving_ground: Some(proving_ground()),
+        // J-002's own seed, with a Proving ground only when it names a task,
+        // as `journey` gives it.
+        proving_ground: (!tasks.is_empty()).then(|| ProvingGroundCopy {
+            seed: 2,
+            ..proving_ground()
+        }),
         steps: steps
             .iter()
             .enumerate()
@@ -175,6 +190,7 @@ fn check(text: &str, task_id: Option<&str>) -> Check {
     Check {
         text: text.to_owned(),
         task: task_id.map(task),
+        surfaces: Vec::new(),
     }
 }
 
@@ -232,6 +248,9 @@ fn reading(result: &Result<JourneyDocument, ReadError>) -> String {
         Ok(_) => "accepted".to_owned(),
         Err(ReadError::JourneyOutcome { .. }) => "journey_outcome".to_owned(),
         Err(ReadError::ManualStep { .. }) => "manual_step".to_owned(),
+        Err(ReadError::AnswerOfAnotherTask { .. }) => "answer_of_another_task".to_owned(),
+        Err(ReadError::OtherSeed { .. }) => "other_seed".to_owned(),
+        Err(ReadError::UnlistedSurface { .. }) => "unlisted_surface".to_owned(),
         Err(ReadError::NotTheJourneys {
             part, difference, ..
         }) => match difference {
@@ -371,6 +390,10 @@ fn the_reader_compares_each_vectors_document_with_its_journey(
         vector.journey.expect,
         vector.journey.tasks,
     );
+    let seed = vector
+        .document
+        .seed
+        .or_else(|| journey.proving_ground.as_ref().map(|table| table.seed));
     let facts = JourneyFacts {
         steps: vector.document.steps,
         checks: vector.document.checks,
@@ -379,13 +402,21 @@ fn the_reader_compares_each_vectors_document_with_its_journey(
             .tasks
             .into_iter()
             .map(|stored| TaskResult {
-                answer: stored
-                    .answer
-                    .map(|outcome| answer(stored.id.as_str(), outcome)),
+                answer: stored.answer.map(|outcome| {
+                    answer(
+                        stored.answered.as_ref().unwrap_or(&stored.id).as_str(),
+                        outcome,
+                    )
+                }),
                 id: stored.id,
                 observations: Vec::new(),
             })
             .collect(),
+        surface: vector.document.surface.unwrap_or_else(|| "cli".to_owned()),
+        proving_ground: seed.map(|seed| ProvingGroundCopy {
+            seed,
+            ..proving_ground()
+        }),
         ..journey_facts(&[], &[], &[])
     };
 

@@ -127,7 +127,7 @@ fn cli() {
         },
     );
     run.step("Run the Daemon in the foreground (`daemon run`)", |run| {
-        let mut daemon = Foreground::start(run.env(), COLLIE, &variables);
+        let mut daemon = Foreground::start(run.env(), run.engine().to_str().unwrap(), &variables);
         endpoint = Some(daemon.serving());
         first = Some(daemon);
     });
@@ -183,7 +183,8 @@ fn cli() {
         "Run the Daemon in the foreground again and let both runs finish",
         |run| {
             let proving_ground = run.proving_ground().expect("J-015 has a Proving ground");
-            let mut daemon = Foreground::start(run.env(), COLLIE, &variables);
+            let mut daemon =
+                Foreground::start(run.env(), run.engine().to_str().unwrap(), &variables);
             let endpoint = daemon.serving();
             let mut resuming = opened(run.env(), &endpoint);
             for (run_id, numbers) in SHARES {

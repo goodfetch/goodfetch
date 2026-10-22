@@ -895,6 +895,7 @@ title = "As a crawl developer, I want a `stealth` Session that cannot move to th
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 202
@@ -903,6 +904,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 203
@@ -910,6 +912,7 @@ title = "As a crawl developer, I want a `stealth` Session that may move to the b
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 204
@@ -918,6 +921,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 205
@@ -926,6 +930,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 206
@@ -934,6 +939,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 207
@@ -942,6 +948,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "actor"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 208
@@ -950,6 +957,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 209
@@ -957,6 +965,7 @@ title = "As a crawl developer, I want a challenge page met on an HTTP tier (`htt
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 210
@@ -965,6 +974,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 211
@@ -972,6 +982,7 @@ title = "As a crawl developer, I want the ladder's later steps (the timed wait, 
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 212
@@ -980,6 +991,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 213
@@ -988,6 +1000,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 214
@@ -996,6 +1009,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "reach"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 215
@@ -1004,6 +1018,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 216
@@ -1012,6 +1027,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 217
@@ -1020,6 +1036,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 218
@@ -1027,6 +1044,7 @@ title = "As a crawl developer, I want a 401, 403 or 429 without a challenge page
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 219
@@ -1034,6 +1052,7 @@ title = "As a crawl developer, I want the tier learned per domain, keyed as ADR 
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 220
@@ -1042,6 +1061,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 221
@@ -1050,6 +1070,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 222
@@ -1058,6 +1079,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 223
@@ -1066,6 +1088,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 224
@@ -1073,6 +1096,7 @@ title = "As a user, I want proxy bytes per kind and paid solves counted in Usage
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 225
@@ -1081,6 +1105,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 226
@@ -1088,6 +1113,7 @@ title = "As a crawl developer, I want the browser tier's link discovery to leave
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 227
@@ -1095,6 +1121,7 @@ title = "As a crawl developer, I want a page reached through such a link, or mar
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 228
@@ -1103,6 +1130,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 229
@@ -1111,6 +1139,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 230
@@ -1118,6 +1147,7 @@ title = "As a crawl developer, I want `crawl.trap_links.avoid`, on by default, s
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 231
@@ -1126,6 +1156,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 232
@@ -1134,6 +1165,7 @@ milestone = "M4 Everything else"
 journey = false
 not_journey = "reach"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 233
@@ -1142,6 +1174,7 @@ milestone = "M4 Everything else"
 journey = false
 not_journey = "reach"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 234
@@ -1150,6 +1183,7 @@ milestone = "M4 Everything else"
 journey = false
 not_journey = "reach"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 235
@@ -1158,6 +1192,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 236
@@ -1166,6 +1201,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 237
@@ -1174,6 +1210,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "actor"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 238
@@ -1182,6 +1219,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "actor"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 239
@@ -1190,6 +1228,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 240
@@ -1198,6 +1237,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "actor"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 241
@@ -1206,3 +1246,4 @@ milestone = "M1 Core"
 journey = false
 not_journey = "actor"
 status = "active"
+product = "foxhound"

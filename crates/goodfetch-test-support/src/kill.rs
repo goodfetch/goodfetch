@@ -9,11 +9,12 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use chacha20::ChaCha20Rng;
-use chacha20::rand_core::{Rng as _, SeedableRng as _};
+use chacha20::rand_core::Rng as _;
 use serde::Serialize;
 
 use crate::observation::{Fault, ObservationLog, Operation, Record};
 use crate::process::Process;
+use crate::seeded;
 
 /// How long [`kill_at`] waits for each protocol message.
 pub const KILL_DEADLINE: Duration = Duration::from_secs(10);
@@ -49,9 +50,7 @@ impl Moment {
             !events.is_empty() && occurrences > 0,
             "a moment is drawn from at least one event and one occurrence"
         );
-        let mut key = [0_u8; 32];
-        key[..8].copy_from_slice(&seed.to_le_bytes());
-        let mut stream = ChaCha20Rng::from_seed(key);
+        let mut stream = seeded::stream(seed, b"");
         let event = events[draw(&mut stream, events.len() as u64)];
         let occurrence = draw(&mut stream, u64::from(occurrences)) + 1;
         Self::new(
@@ -98,7 +97,9 @@ pub fn kill_at_within<R: Serialize>(
     deadline: Duration,
 ) -> Result<Killed, KillAtError> {
     let stdout = process.child().stdout.take().ok_or(KillAtError::NoStdout)?;
-    let (sender, receiver) = mpsc::channel();
+    // Bounded (STYLE.md): the reader waits while the test has not taken a
+    // line, and ends once the receiver is gone.
+    let (sender, receiver) = mpsc::sync_channel(16);
     #[expect(
         clippy::disallowed_methods,
         reason = "a test helper's reader thread, which ends when the child's output does (ADR 0062)"

@@ -3,8 +3,9 @@
 //! generated layer, and the lists only `xtask codegen` writes: the
 //! `wrappers` list and Collie's ban of Foxhound's crates (ADR 0087),
 //! cargo-deny's copy of ADR 0018's license allowlist, and the Journey files'
-//! schema on its own (ADR 0063).
-//! Covers: story:1-57
+//! schema on its own (ADR 0063). Each codegen test covers story 1-57; the
+//! Feature inventory's own tests (#338) declare no Feature, as this spec's
+//! stories stay outside the inventory (#325, Out of Scope).
 
 use std::fmt::Write as _;
 
@@ -94,6 +95,7 @@ const GENERATED_FOLDERS: [&str; 8] = [
     "sdks/python/foxhound/src/goodfetch_foxhound/generated",
 ];
 
+/// Covers: story:1-57
 #[test]
 fn regenerating_twice_gives_identical_output() {
     let workspace = Workspace::from_fixture("codegen");
@@ -105,6 +107,7 @@ fn regenerating_twice_gives_identical_output() {
     assert_eq!(generated_files(&workspace), first);
 }
 
+/// Covers: story:1-57
 #[test]
 fn check_passes_on_a_clean_tree() {
     let workspace = Workspace::from_fixture("codegen");
@@ -121,6 +124,7 @@ const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
 const RESULT_DOCUMENT: &str = "crates/goodfetch-protocol/src/result_document.rs";
 
+/// Covers: story:1-57
 #[rstest]
 #[case::field_added_to_a_collie_type(
     SAMPLE,
@@ -203,6 +207,7 @@ fn check_fails_after_a_type_change_that_was_not_regenerated(
 
 /// The Feature inventory follows the stories and rows files it reads, as it
 /// follows the types (ADR 0072).
+/// Covers: story:1-57
 #[rstest]
 #[case::story_added(
     "features/stories/1.toml",
@@ -231,6 +236,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
 
 /// An outside generator's output depends on its version, which the lockfile
 /// pins, so a bump that was not regenerated is stale, though no type changed.
+/// Covers: story:1-57
 #[rstest]
 #[case::json_schema_to_typescript(
     "pnpm-lock.yaml",
@@ -277,6 +283,7 @@ fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
     assert_eq!(outcome.code, 1);
 }
 
+/// Covers: story:1-57
 #[rstest]
 #[case::generator_output("sdks/typescript/collie-client/src/generated/types.ts", "edited")]
 #[case::method_layer(
@@ -309,6 +316,7 @@ fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &
 const DESCRIPTION: &str = "crates/goodfetch-test-support/src/lib.rs";
 const DESCRIPTION_SCHEMA: &str = "test-support/fixtures/schemas/test-env-description.schema.json";
 
+/// Covers: story:1-57
 #[test]
 fn check_fails_when_the_committed_description_schema_drifts_from_the_type() {
     let workspace = Workspace::from_fixture("codegen");
@@ -333,6 +341,7 @@ fn check_fails_when_the_committed_description_schema_drifts_from_the_type() {
 /// engine-script fixtures rather than in `schemas/` (ADR 0069).
 const SCRIPT_SCHEMA: &str = "test-support/fixtures/engine-scripts/script.schema.json";
 
+/// Covers: story:1-57
 #[test]
 fn check_fails_when_the_committed_script_schema_drifts_from_the_type() {
     let workspace = Workspace::from_fixture("codegen");
@@ -353,6 +362,7 @@ fn check_fails_when_the_committed_script_schema_drifts_from_the_type() {
     assert_eq!(outcome.code, 1);
 }
 
+/// Covers: story:1-57
 #[test]
 fn codegen_writes_the_script_schema_among_the_engine_scripts() {
     let workspace = Workspace::from_fixture("codegen");
@@ -368,6 +378,7 @@ fn codegen_writes_the_script_schema_among_the_engine_scripts() {
 /// test support generates from its kinds.
 const CANARY_RULE: &str = "test-support/fixtures/canaries/gitleaks.toml";
 
+/// Covers: story:1-57
 #[test]
 fn check_fails_when_the_committed_canary_rule_drifts_from_the_kinds() {
     let workspace = Workspace::from_fixture("codegen");
@@ -388,6 +399,7 @@ fn check_fails_when_the_committed_canary_rule_drifts_from_the_kinds() {
     assert_eq!(outcome.code, 1);
 }
 
+/// Covers: story:1-57
 #[test]
 fn codegen_writes_the_canary_rule_test_env_prints() {
     let workspace = Workspace::from_fixture("codegen");
@@ -401,6 +413,7 @@ fn codegen_writes_the_canary_rule_test_env_prints() {
     );
 }
 
+/// Covers: story:1-57
 #[test]
 fn codegen_writes_the_description_schema_test_env_prints() {
     let workspace = Workspace::from_fixture("codegen");
@@ -412,6 +425,7 @@ fn codegen_writes_the_description_schema_test_env_prints() {
     assert_eq!(schema["title"], "Description");
 }
 
+/// Covers: story:1-57
 #[test]
 fn check_detects_a_file_added_under_generated() {
     let workspace = Workspace::from_fixture("codegen");
@@ -429,6 +443,7 @@ fn check_detects_a_file_added_under_generated() {
     assert_eq!(outcome.code, 1);
 }
 
+/// Covers: story:1-57
 #[test]
 fn catalog_marks_each_entry_with_the_product_whose_module_defines_it() {
     let workspace = Workspace::from_fixture("codegen");
@@ -543,6 +558,7 @@ fn inventory_records_the_products_that_carry_each_feature() {
 /// The Connection's own messages (`hello`, `$/cancel`), which every engine
 /// speaks, are types of Collie's client package, whose hand-written runtime
 /// sends them, and never of Foxhound's layer.
+/// Covers: story:1-57
 #[rstest]
 #[case::typescript_collie_client("sdks/typescript/collie-client/src/generated/types.ts", true)]
 #[case::typescript_foxhound("sdks/typescript/foxhound/src/generated/types.ts", false)]
@@ -570,6 +586,7 @@ fn the_connections_messages_are_types_of_the_collie_client_package_only(
     );
 }
 
+/// Covers: story:1-57
 #[rstest]
 #[case::typescript_collie_client(
     "sdks/typescript/collie-client/src/generated/operations.ts",
@@ -608,6 +625,7 @@ fn each_sdk_package_generates_only_its_products_operations(
 /// Each package spells its own Product's values of a type both Products
 /// share (ADR 0095), Foxhound's on top of Collie's, and keeps a value it
 /// does not know as received (ADR 0079).
+/// Covers: story:1-57
 #[rstest]
 #[case::typescript_collie_client(
     "sdks/typescript/collie-client/src/generated/shared-types.ts",
@@ -664,6 +682,7 @@ fn each_sdk_layer_spells_its_products_values_of_a_shared_type_and_keeps_an_unkno
 /// The layer files `xtask codegen` writes itself, as a reviewer reads them
 /// (TESTING.md, Snapshots: generated surfaces); the outside generators'
 /// files are held to their recorded digests instead.
+/// Covers: story:1-57
 #[rstest]
 #[case::typescript_collie_client("sdks/typescript/collie-client/src/generated")]
 #[case::typescript_foxhound("sdks/typescript/foxhound/src/generated")]
@@ -702,6 +721,7 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
 
 /// An Experimental or deprecated entry's docstring adds paragraphs after
 /// its description, which keeps every line it has.
+/// Covers: story:1-57
 #[test]
 fn python_docstring_keeps_every_line_of_a_marked_entry_description() {
     let workspace = Workspace::from_fixture("codegen");
@@ -756,6 +776,7 @@ fn wrapped_crates(deny: &str) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+/// Covers: story:1-57
 #[test]
 fn wrappers_list_follows_the_folders_under_crates_foxhound() {
     let workspace = Workspace::from_fixture("codegen");
@@ -781,6 +802,7 @@ fn wrappers_list_follows_the_folders_under_crates_foxhound() {
     );
 }
 
+/// Covers: story:1-57
 #[test]
 fn check_fails_on_stale_lists_of_foxhounds_crates() {
     let workspace = Workspace::from_fixture("codegen");
@@ -811,6 +833,7 @@ fn banned_crates(deny: &str) -> Vec<String> {
         .collect()
 }
 
+/// Covers: story:1-57
 #[test]
 fn collies_bans_follow_the_folders_under_crates_foxhound() {
     let workspace = Workspace::from_fixture("codegen");
@@ -845,6 +868,7 @@ const ALLOWLIST: &str = "license-allowlist.toml";
 
 const ISC: &str = "[[license]]\nid = \"ISC\"\n";
 
+/// Covers: story:1-57
 #[test]
 fn cargo_deny_allows_the_allowlists_licenses_but_those_for_filter_lists_only() {
     let workspace = Workspace::from_fixture("codegen");
@@ -860,6 +884,7 @@ fn cargo_deny_allows_the_allowlists_licenses_but_those_for_filter_lists_only() {
 
 /// A license allowed for one npm or Python package alone, as PSF-2.0 is for
 /// typing-extensions, is no license cargo-deny may allow for every crate.
+/// Covers: story:1-57
 #[test]
 fn cargo_deny_never_allows_a_license_allowed_for_one_package() {
     let workspace = Workspace::from_fixture("codegen");
@@ -876,6 +901,7 @@ fn cargo_deny_never_allows_a_license_allowed_for_one_package() {
     );
 }
 
+/// Covers: story:1-57
 #[test]
 fn check_fails_on_a_stale_license_list() {
     let workspace = Workspace::from_fixture("codegen");

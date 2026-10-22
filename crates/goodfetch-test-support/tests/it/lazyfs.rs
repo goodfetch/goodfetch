@@ -6,6 +6,7 @@
 //! `GOODFETCH_LAZYFS`); nextest's profiles leave them out elsewhere.
 
 use std::io::Write as _;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 
 use goodfetch_test_support::{LazyFs, LazyFsError, TestEnv};
@@ -22,7 +23,7 @@ fn write(path: &Path, text: &str, synced: bool) {
 #[test]
 fn an_fsynced_write_survives_clear_cache() {
     let env = TestEnv::new();
-    let mounted = LazyFs::mount(env.home()).unwrap();
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("synced"), "kept", true);
 
     mounted.clear_cache().unwrap();
@@ -36,7 +37,7 @@ fn an_fsynced_write_survives_clear_cache() {
 #[test]
 fn an_unsynced_write_is_gone_after_clear_cache() {
     let env = TestEnv::new();
-    let mounted = LazyFs::mount(env.home()).unwrap();
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("unsynced"), "lost", false);
 
     mounted.clear_cache().unwrap();
@@ -51,7 +52,7 @@ fn an_unsynced_write_is_gone_after_clear_cache() {
 fn a_folder_keeps_its_files_through_a_mount_and_after_it_ends() {
     let env = TestEnv::new();
     write(&env.home().join("before"), "before the mount", false);
-    let mounted = LazyFs::mount(env.home()).unwrap();
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
     let seen = std::fs::read_to_string(env.home().join("before")).unwrap();
     write(&env.home().join("during"), "written, never synced", false);
 
@@ -71,13 +72,13 @@ fn a_folder_keeps_its_files_through_a_mount_and_after_it_ends() {
 #[test]
 fn a_remount_sees_what_was_synced_before_the_cache_was_cleared() {
     let env = TestEnv::new();
-    let mounted = LazyFs::mount(env.home()).unwrap();
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("synced"), "kept", true);
     write(&env.home().join("unsynced"), "lost", false);
     mounted.clear_cache().unwrap();
     drop(mounted);
 
-    let _remounted = LazyFs::mount(env.home()).unwrap();
+    let _remounted = LazyFs::mount(&env, env.home()).unwrap();
 
     assert_eq!(
         (
@@ -93,7 +94,7 @@ fn a_mount_that_cannot_be_made_fails_with_lazyfs_output_and_leaves_the_folder_as
     let env = TestEnv::new();
     write(&env.home().join("before"), "untouched", false);
 
-    let error = LazyFs::mount_program(Path::new("/bin/false"), env.home()).unwrap_err();
+    let error = LazyFs::mount_program(&env, Path::new("/bin/false"), env.home()).unwrap_err();
 
     assert_eq!(
         (
@@ -109,7 +110,37 @@ fn a_mount_that_cannot_be_made_fails_with_lazyfs_output_and_leaves_the_folder_as
 fn a_mount_of_a_folder_whose_parent_is_missing_fails() {
     let env = TestEnv::new();
 
-    let error = LazyFs::mount(env.folder().join("missing").join("folder")).unwrap_err();
+    let error = LazyFs::mount(&env, env.folder().join("missing").join("folder")).unwrap_err();
 
     assert!(matches!(error, LazyFsError::Folder { .. }), "{error}");
+}
+
+/// Whether `path` is a mount point: its device is not its parent's.
+fn is_mount_point(path: &Path) -> bool {
+    let device = |path: &Path| std::fs::metadata(path).unwrap().dev();
+    device(path) != device(path.parent().unwrap())
+}
+
+/// A mount whose end fails, here because a file stays open in it, still
+/// stops LazyFS and leaves the folder unmounted with its files back, so a
+/// failed end never leaves a mount or a process behind.
+#[test]
+fn a_mount_whose_end_fails_still_stops_lazyfs_and_unmounts() {
+    let env = TestEnv::new();
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
+    write(&env.home().join("open"), "kept open", true);
+    let busy = std::fs::File::open(env.home().join("open")).unwrap();
+
+    let ended = mounted.unmount();
+
+    drop(busy);
+    assert!(
+        matches!(&ended, Err(LazyFsError::NotUnmounted { .. })),
+        "{ended:?}"
+    );
+    assert!(!is_mount_point(env.home()));
+    assert_eq!(
+        std::fs::read_to_string(env.home().join("open")).unwrap(),
+        "kept open"
+    );
 }

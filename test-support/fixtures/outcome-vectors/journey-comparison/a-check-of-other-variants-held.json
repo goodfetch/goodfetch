@@ -1,0 +1,75 @@
+{
+  "description": "A `cli` document holding a check its Journey scopes to other variants' surfaces holds a check that is not its variant's",
+  "journey": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page"
+      },
+      {
+        "text": "Wait for the crawl to end"
+      },
+      {
+        "text": "Export the crawl's Records to a file"
+      }
+    ],
+    "expect": [
+      {
+        "text": "The crawl's Records are the first listing's products",
+        "task": "catalog/1"
+      },
+      {
+        "text": "The crawl's Records include the second listing's products",
+        "task": "catalog/2"
+      },
+      {
+        "text": "The installed package is the one platform package of its language",
+        "surfaces": ["sdk-python"]
+      }
+    ],
+    "tasks": ["catalog/1", "catalog/2"]
+  },
+  "document": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page",
+        "outcome": "passed"
+      },
+      {
+        "text": "Wait for the crawl to end",
+        "outcome": "passed"
+      },
+      {
+        "text": "Export the crawl's Records to a file",
+        "outcome": "passed"
+      }
+    ],
+    "checks": [
+      {
+        "text": "The crawl's Records are the first listing's products",
+        "task": "catalog/1",
+        "outcome": "passed"
+      },
+      {
+        "text": "The crawl's Records include the second listing's products",
+        "task": "catalog/2",
+        "outcome": "passed"
+      },
+      {
+        "text": "The installed package is the one platform package of its language",
+        "outcome": "passed"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "catalog/1",
+        "answer": "verified"
+      },
+      {
+        "id": "catalog/2",
+        "answer": "verified"
+      }
+    ],
+    "outcome": "proved"
+  },
+  "read": "extra_check"
+}

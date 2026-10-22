@@ -28,6 +28,44 @@ fn folder_name_holds_a_space_and_a_non_ascii_letter() {
     assert!(name.starts_with("env-tests-folder_name é "), "{name}");
 }
 
+/// The cleared map's variables, in order: those of every OS, and on Windows
+/// those a process needs to start.
+#[cfg(not(windows))]
+const CLEARED_MAP: [&str; 13] = [
+    "BREAKPAD_DUMP_LOCATION",
+    "GOODFETCH_HOME",
+    "GOODFETCH_LOG",
+    "GOODFETCH_LOG_OUTPUT",
+    "HOME",
+    "LANG",
+    "TZ",
+    "USERPROFILE",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_RUNTIME_DIR",
+    "XDG_STATE_HOME",
+];
+#[cfg(windows)]
+const CLEARED_MAP: [&str; 16] = [
+    "BREAKPAD_DUMP_LOCATION",
+    "ComSpec",
+    "GOODFETCH_HOME",
+    "GOODFETCH_LOG",
+    "GOODFETCH_LOG_OUTPUT",
+    "HOME",
+    "LANG",
+    "PATHEXT",
+    "SystemRoot",
+    "TZ",
+    "USERPROFILE",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_RUNTIME_DIR",
+    "XDG_STATE_HOME",
+];
+
 #[test]
 fn cleared_map_holds_only_the_listed_variables() {
     let variables = Variables::from_iter([
@@ -39,26 +77,10 @@ fn cleared_map_holds_only_the_listed_variables() {
 
     let env = TestEnv::create("env::tests::cleared_map", &variables).unwrap();
 
-    let mut expected = vec![
-        "BREAKPAD_DUMP_LOCATION",
-        "GOODFETCH_HOME",
-        "GOODFETCH_LOG",
-        "GOODFETCH_LOG_OUTPUT",
-        "HOME",
-        "LANG",
-        "TZ",
-        "USERPROFILE",
-        "XDG_CACHE_HOME",
-        "XDG_CONFIG_HOME",
-        "XDG_DATA_HOME",
-        "XDG_RUNTIME_DIR",
-        "XDG_STATE_HOME",
-    ];
-    if cfg!(windows) {
-        expected.extend(["ComSpec", "PATHEXT", "SystemRoot"]);
-        expected.sort_unstable();
-    }
-    assert_eq!(env.env().keys().collect::<Vec<_>>(), expected);
+    assert_eq!(
+        env.env().keys().map(String::as_str).collect::<Vec<_>>(),
+        CLEARED_MAP
+    );
 }
 
 #[test]

@@ -87,6 +87,8 @@ export type TestSupportErrorCode =
   | "axe_violations"
   /** A screen's keyboard walk reaches no stop (ADR 0073). */
   | "keyboard_walk_empty"
+  /** A stop's area changes while it stays unfocused, so `focusChecks` cannot tell a focus ring from it (ADR 0073). */
+  | "focus_not_visible_unstable"
   /** A screen's keyboard walk is not the one `console/screens.toml` records for it (ADR 0073). */
   | "keyboard_walk_changed"
   /** `console/screens.toml` sets up a screen the Feature inventory does not list (ADR 0073). */

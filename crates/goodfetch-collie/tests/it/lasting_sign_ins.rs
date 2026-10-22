@@ -211,7 +211,7 @@ fn a_sign_in_lasts_its_idle_expiry_and_outlives_a_daemon_restart() {
 
 /// Covers: story:12-5, setting:console.sign_in.idle_expiry
 #[test]
-fn a_sign_in_unused_past_the_operator_policys_idle_expiry_ends() {
+fn a_sign_in_unused_past_the_idle_expiry_an_operator_policy_sets_ends() {
     let env = env();
     let major = env.home().join("0.0");
     std::fs::create_dir_all(&major).unwrap();

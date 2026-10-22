@@ -38,7 +38,17 @@ const BUFFERED: usize = 1024;
 #[derive(Clone, Debug)]
 pub struct LogEvents {
     levels: Arc<watch::Sender<Levels>>,
-    events: broadcast::Sender<Arc<LogEvent>>,
+    events: broadcast::Sender<Item>,
+}
+
+/// What the Connections' stream carries: the log events, in the order the
+/// process emitted them, and each Connection's change of level among them,
+/// so a Connection judges each event by the level it had when it was
+/// emitted.
+#[derive(Clone, Debug)]
+enum Item {
+    Event(Arc<LogEvent>),
+    Level { connection: u64, level: LogLevel },
 }
 
 /// Each Connection's level, and the most verbose of them.
@@ -133,6 +143,10 @@ impl ConnectionLog {
     pub(crate) fn set(&self, level: LogLevel) {
         self.level.send_replace(level);
         self.events.set(self.id, Some(level));
+        let _ = self.events.events.send(Item::Level {
+            connection: self.id,
+            level,
+        });
     }
 
     /// Sends the Connection its log events as `$/log` lines on `outgoing`,
@@ -147,7 +161,7 @@ impl ConnectionLog {
     ) -> impl Future<Output = ()> + Send + 'static {
         let events = self.events.events.subscribe();
         let level = self.level.subscribe();
-        forward(events, level, outgoing)
+        forward(self.id, events, level, outgoing)
     }
 }
 
@@ -157,18 +171,27 @@ impl Drop for ConnectionLog {
     }
 }
 
+/// Sends Connection `connection` the log events of `events` at its level,
+/// which the stream's own changes of it set, and `level` once the stream
+/// lost them, until `level`'s sender is dropped.
 async fn forward(
-    mut events: broadcast::Receiver<Arc<LogEvent>>,
+    connection: u64,
+    mut events: broadcast::Receiver<Item>,
     mut level: watch::Receiver<LogLevel>,
     outgoing: mpsc::Sender<Vec<u8>>,
 ) {
     let mut dropped: u64 = 0;
+    let mut wanted = *level.borrow_and_update();
     loop {
         tokio::select! {
             biased;
             received = events.recv() => match received {
-                Ok(event) => {
-                    let wanted = *level.borrow();
+                Ok(Item::Level { connection: changed, level }) => {
+                    if changed == connection {
+                        wanted = level;
+                    }
+                }
+                Ok(Item::Event(event)) => {
                     if wanted == LogLevel::Off || event.level > wanted {
                         continue;
                     }
@@ -180,7 +203,10 @@ async fn forward(
                         return;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(lost)) => dropped += lost,
+                Err(broadcast::error::RecvError::Lagged(lost)) => {
+                    dropped += lost;
+                    wanted = *level.borrow();
+                }
                 Err(broadcast::error::RecvError::Closed) => return,
             },
             changed = level.changed() => {
@@ -206,7 +232,7 @@ fn line(event: &LogEvent) -> Vec<u8> {
 
 /// The layer that makes each event a [`LogEvent`] for the Connections.
 struct Forward {
-    events: broadcast::Sender<Arc<LogEvent>>,
+    events: broadcast::Sender<Item>,
 }
 
 impl<S: Subscriber> Layer<S> for Forward {
@@ -214,13 +240,13 @@ impl<S: Subscriber> Layer<S> for Forward {
         let metadata = event.metadata();
         let mut fields = Fields::default();
         event.record(&mut fields);
-        let _ = self.events.send(Arc::new(LogEvent {
+        let _ = self.events.send(Item::Event(Arc::new(LogEvent {
             level: level_of(*metadata.level()),
             target: metadata.target().to_owned(),
             message: fields.message.unwrap_or_default(),
             fields: fields.fields,
             dropped: 0,
-        }));
+        })));
     }
 }
 

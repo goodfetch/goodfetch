@@ -173,6 +173,20 @@ fn an_attached_engine_writes_its_logs_on_stderr_in_the_format_log_format_names(
     }
 }
 
+/// Every message `engine` sends until the reply to the request `id`, that
+/// reply included.
+fn until_reply(engine: &mut Attached<'_>, id: i64) -> Vec<Value> {
+    let mut read = Vec::new();
+    while let Some(message) = engine.next() {
+        let replied = message["id"] == json!(id);
+        read.push(message);
+        if replied {
+            break;
+        }
+    }
+    read
+}
+
 /// Covers: story:3-105, operation:connection.set_log_level
 #[test]
 fn a_client_whose_hello_names_a_log_level_receives_the_engines_log_events_as_log_notifications() {
@@ -180,17 +194,27 @@ fn a_client_whose_hello_names_a_log_level_receives_the_engines_log_events_as_log
     let mut engine = Attached::start(&env);
     let mut hello = hello("collie", "0.1");
     hello["params"]["log_level"] = json!("trace");
+    let mut sent = Vec::new();
     engine.send(&hello);
-    let _ = engine.next();
-    engine.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "engine.info", "params": {} }));
-    engine.send(&json!({
-        "jsonrpc": "2.0", "id": 2, "method": "connection.set_log_level",
-        "params": { "log_level": "off" },
-    }));
-    engine.send(&json!({ "jsonrpc": "2.0", "id": 3, "method": "engine.info", "params": {} }));
+    sent.extend(until_reply(&mut engine, 0));
+    for (id, request) in [
+        (1, json!({ "method": "engine.info", "params": {} })),
+        (
+            2,
+            json!({ "method": "connection.set_log_level", "params": { "log_level": "off" } }),
+        ),
+        (3, json!({ "method": "engine.info", "params": {} })),
+    ] {
+        let mut request = request;
+        request["jsonrpc"] = json!("2.0");
+        request["id"] = json!(id);
+        engine.send(&request);
+        sent.extend(until_reply(&mut engine, id));
+    }
 
-    let (sent, _) = engine.finish();
+    let (rest, _) = engine.finish();
 
+    sent.extend(rest);
     let logged: Vec<(Value, Value)> = sent
         .iter()
         .filter(|message| {

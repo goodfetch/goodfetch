@@ -37,6 +37,9 @@ toml.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "test-util"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }
+# The endpoint table's runner opens a WebSocket listener's handshakes, a
+# foreign `Host` or no `Origin` among them (ADR 0067).
+tungstenite.workspace = true
 # `JourneyRun` submits a tool's result to the Proving ground's oracle, and
 # `Canaries` plants and reads Secret canaries through it.
 ureq.workspace = true
